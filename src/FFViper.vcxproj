@@ -112,6 +112,7 @@
     <EnableManagedIncrementalBuild>true</EnableManagedIncrementalBuild>
     <CodeAnalysisRuleSet>NativeMinimumRules.ruleset</CodeAnalysisRuleSet>
     <EmbedManifest>false</EmbedManifest>
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(DX81_SDK)\include</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
