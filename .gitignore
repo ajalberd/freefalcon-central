@@ -15,3 +15,26 @@ obj/
 *.bak
 *.user
 *.tmp
+
+# MSVC assembly listing output (/FA) -- generated next to sources, never source
+*.asm
+
+# Per-configuration build output trees
+Falcon4___*/
+src/Falcon4___*/
+
+# Visual Studio / NuGet working state
+.vs/
+packages/
+
+# Build logs and intermediates
+*.tlog
+*.recipe
+*.log
+*.pdb
+*.map
+*.idb
+*.iobj
+*.ipdb
+*.exp
+*.ilk
