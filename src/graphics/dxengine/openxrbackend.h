@@ -163,6 +163,10 @@ public:
     // The fov the engine actually rendered with (symmetric). Submitted in the projection
     // layer so the compositor maps the image undistorted (must match what was rendered).
     void SetSubmitFov(float hFovRad, float vFovRad);
+    // Artscout - 2026 (stereo off-axis fix): drop any symmetric submit-fov so EndEye submits the runtime's
+    // TRUE per-view fov instead. Used by the plain-stereo path when it renders the real off-axis frustum
+    // (matching what the quad-views path has always done). haveSubmitFov is otherwise never reset.
+    void ClearSubmitFov();
 
     void SetClipPlanes(float nearZ, float farZ);
 

@@ -325,6 +325,27 @@ float g_fHudCanvasScale =
 // (view 0) -> left half, focus (view 2) -> right half. FFViper.cfg "set g_bXrMirror 0/1".
 bool g_bXrMirror = true;
 
+// Artscout - 2026 (stereo off-axis fix): render PLAIN STEREO eyes with the runtime's TRUE asymmetric
+// per-eye frustum (SetVRFrustum) and submit that raw per-view fov, exactly as the quad-views path has
+// always done -- instead of rendering a symmetric fov and asking the runtime to accept it. On HMDs whose
+// per-eye cones are canted outward (Quest 3: ~7 deg each way) the old symmetric path left the two eye
+// images diverging by ~14 deg at every depth -> everything doubles, near and far alike, and no IPD/eye-swap
+// tweak can fix it because the error is ANGULAR, not translational. Default ON; set 0 for the old behaviour.
+bool g_bVrTrueEyeFov = true;
+
+// Artscout - 2026 (gaze-dependent stereo fix): apply the per-eye IPD along the HEAD's right axis
+// (cameraRot = ownshipRot*headMatrix) instead of the airframe's body-right axis (ownshipRot). The eyes are
+// separated across the skull, so the separation rotates with the head -- the body-frame version is only
+// correct while the head is aligned with the jet, and drifts as you look away (converges forward, misaligns
+// looking down-left/down-right). Matches what RenderWorldViewInstanced already does. Default ON; 0 = legacy.
+bool g_bVrHeadRelIpd = true;
+
+// Artscout - 2026: apply the VR cursor's per-eye stereo offset along the HEAD's right axis rather than the
+// airframe's body-right. The anchor is in cockpit/body space, so the raw ipdY was offsetting along the jet's
+// right -- correct only while the head faces forward, and increasingly wrong as you look off-axis (the
+// lower-left/right switches). Same fix as VrHeadRelIpd, applied to the cursor. Default ON; 0 = legacy.
+bool g_bVrHeadRelCursorIpd = true;
+
 // Artscout - 2026 (VR quad-views): sign/scale for the off-axis (asymmetric) per-view frustum
 // (Render3D::SetVRFrustum). 1.0 = on, -1.0 = flip that axis, 0.0 = disable. Headset-confirmed:
 // X=+1 (periphery composites), Y=-1 (else the focus ground inverts vertically). Tunable via FFViper.cfg.
@@ -1754,6 +1775,12 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bVrVulkanMultiview}, // Artscout - 2026: #107 grouped Vulkan multiview VR (opt-in)
     {"VrD3D12ViCockpit",
      &g_bVrD3D12ViCockpit}, // Artscout - 2026: #107 D3D12 view-instanced 3D cockpit (opt-in)
+    {"VrTrueEyeFov",
+     &g_bVrTrueEyeFov}, // Artscout - 2026: plain stereo renders/submits the runtime's true off-axis per-eye fov
+    {"VrHeadRelIpd",
+     &g_bVrHeadRelIpd}, // Artscout - 2026: per-eye IPD along the head's right axis, not the airframe's
+    {"VrHeadRelCursorIpd",
+     &g_bVrHeadRelCursorIpd}, // Artscout - 2026: cursor stereo offset along the head's right axis, not the airframe's
     // Artscout - 2026: the Vulkan validation layers were only settable by
     // rebuilding; they are the tool for hangs, so expose them to the cfg.
     {"VulkanValidation",

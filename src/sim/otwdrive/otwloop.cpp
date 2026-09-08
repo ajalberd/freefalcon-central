@@ -3260,12 +3260,26 @@ void OTWDriverClass::RenderFrame()
                 // projected with a symmetric FOV and the cockpit garbles. IsQuadViews() = what the session really is.
                 const bool sessionQuad =
                     g_pOpenXRBackend && g_pOpenXRBackend->IsQuadViews();
-                if (sessionQuad and haveFov)
+                // Artscout - 2026 (stereo off-axis fix): use the TRUE off-axis frustum for PLAIN STEREO too,
+                // not just quad-views. A Quest 3 (and most HMDs) report strongly ASYMMETRIC per-eye fovs --
+                // e.g. left eye L=-54 R=+40, right eye L=-40 R=+54, i.e. each eye's cone canted ~7 deg
+                // OUTWARD. The old stereo branch rendered a SYMMETRIC hf=(fr-fl) frustum and submitted a
+                // matching symmetric fov. That is only self-consistent if the runtime honours an arbitrary
+                // app-chosen fov; where it instead maps the image onto the eye's real cone, each eye's image
+                // centre lands ~7 deg off-axis in OPPOSITE directions -> ~14 deg of divergence at EVERY depth
+                // (verified: distant clouds land on identical pixels in both eye renders, yet appear doubled
+                // in the headset). Rendering the real off-axis frustum + submitting the raw per-view fov is
+                // exactly what the quad path has always done -- which is why quad-views hardware never hit
+                // this. g_bVrTrueEyeFov (default ON) reverts to the old symmetric behaviour if 0.
+                extern bool g_bVrTrueEyeFov;
+                if (haveFov and (sessionQuad or g_bVrTrueEyeFov))
                 {
-                    // Quad-views: render each view with its TRUE off-axis (asymmetric) frustum matching
-                    // the runtime's per-view fov, and submit the RAW per-view fov (no SetSubmitFov ->
-                    // EndEye uses views[eye].fov) so the foveated compositor's blend regions line up.
+                    // Render this view with its TRUE off-axis (asymmetric) frustum matching the runtime's
+                    // per-view fov, and submit the RAW per-view fov (ClearSubmitFov -> EndEye uses
+                    // views[eye].fov) so the compositor maps the image exactly as it was rendered.
                     renderer->SetVRFrustum(fl, fr, fu, fd);
+                    if (not sessionQuad)
+                        g_pOpenXRBackend->ClearSubmitFov();
                 }
                 else
                 {

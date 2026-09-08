@@ -3223,6 +3223,13 @@ void OpenXRBackend::SetSubmitFov(float h, float v)
     m_impl->haveSubmitFov = true;
 }
 
+// Artscout - 2026 (stereo off-axis fix): see header. Clearing this makes EndEye fall back to
+// p->views[eye].fov -- the runtime's real, asymmetric per-eye frustum.
+void OpenXRBackend::ClearSubmitFov()
+{
+    m_impl->haveSubmitFov = false;
+}
+
 // Returns: -1 = session not running (don't drive XR; render mono);
 //           0 = frame begun but shouldRender false (render nothing; EndStereoFrame still required);
 //           n = render n eyes.
@@ -3365,13 +3372,51 @@ int OpenXRBackend::BeginStereoFrame()
     }
 
     // Per-eye lateral offset (IPD), meters -> feet, relative to the head centre.
-    float cx = 0.0f;
+    // Artscout - 2026 (eye-swap investigation -- ROOT FIX): this used to take the RAW appSpace X difference
+    // between the two eyes as "lateral". That is only actually lateral (left/right) when the head happens to
+    // be facing appSpace's own local forward. appSpace is a FIXED room reference -- its axes are only
+    // re-aligned to the current head yaw at Recenter() -- so any session that starts (or was last recentered)
+    // with the headset facing a different room direction has its X/Z axes rotated relative to the player's
+    // actual left/right. Past ~90 deg of yaw between "recentered facing" and "current facing", X can even
+    // change SIGN relative to the player's real right hand -- which silently reverses which eye reads as
+    // "more positive" and reproduces exactly as a left/right eye swap, consistently for that whole session,
+    // WITHOUT any bug in which swapchain/pose goes to which eye (matches every diagnostic taken so far: view
+    // index/pose/fov/submission order all confirmed correct; only this raw-X measurement was orientation-
+    // dependent). Fix: project the eye/eye delta onto the HEAD'S OWN local right axis (from its orientation
+    // quaternion -- same math family as GetHeadBasis's render-camera basis) instead of a fixed room axis, so
+    // it stays correct no matter which way the room thinks "forward" is.
+    XrVector3f centerPos = {0.0f, 0.0f, 0.0f};
     for (int e = 0; e < n; ++e)
-        cx += p->views[e].pose.position.x;
+    {
+        centerPos.x += p->views[e].pose.position.x;
+        centerPos.y += p->views[e].pose.position.y;
+        centerPos.z += p->views[e].pose.position.z;
+    }
     if (n)
-        cx /= (float)n;
+    {
+        centerPos.x /= (float)n;
+        centerPos.y /= (float)n;
+        centerPos.z /= (float)n;
+    }
+    // Head-local right axis (OpenXR RH frame: x=right,y=up,z=back), rotated (1,0,0) by the head orientation.
+    // Falls back to the raw room +X axis only if we somehow have no head pose yet (shouldn't happen -- it's
+    // located just above -- but keeps this from reading an uninitialized axis).
+    float rax = 1.0f, ray = 0.0f, raz = 0.0f;
+    if (p->haveHeadPose)
+    {
+        const XrQuaternionf& hq = p->lastHeadPose.orientation;
+        const float hx = hq.x, hy = hq.y, hz = hq.z, hw = hq.w;
+        rax = 1.0f - 2.0f * (hy * hy + hz * hz);
+        ray = 2.0f * (hx * hy + hw * hz);
+        raz = 2.0f * (hx * hz - hw * hy);
+    }
     for (int e = 0; e < n && e < 8; ++e)
-        p->eyeLatFeet[e] = (p->views[e].pose.position.x - cx) * 3.28084f;
+    {
+        const float dx = p->views[e].pose.position.x - centerPos.x;
+        const float dy = p->views[e].pose.position.y - centerPos.y;
+        const float dz = p->views[e].pose.position.z - centerPos.z;
+        p->eyeLatFeet[e] = (dx * rax + dy * ray + dz * raz) * 3.28084f;
+    }
 
     p->projViews.resize(n);
     p->eyeAcquired.assign(n,
