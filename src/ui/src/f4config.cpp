@@ -768,6 +768,8 @@ int g_nTileActivateMeshPerFrame =
     24; // Artscout - 2026: #78 -- tile activations per frame for the MESH terrain path. Its own budget because the mesh path costs one DispatchMesh no matter how many tiles are live, so the per-tile draw calls that forced the legacy budget (3) are gone; too low and posts keep the "no tile" answer for whole re-scan cycles (brown underlay).
 bool g_bTerrainMeshDebugTint =
     false; // Artscout - 2026: #78 -- flat per-LOD tint on the mesh terrain, bypassing tiles and lighting. Tells "no geometry" apart from "geometry drawn black": if the tint shows, the grid is there and the problem is the texture/light path.
+bool g_bAutoBuildVoiceBank =
+    true; // Artscout - 2026: on first run, if sounds/falcon_pcm.tlk is absent, generate it from falcon.tlk by running the 32-bit helper st80conv.exe beside the exe. ST80 has no 64-bit build, so without the PCM bank radio chatter is silent on x64 and only subtitles come through. One-off, ~8s, and every failure path falls back to the old ST80 behaviour. 0 = never spawn the helper.
 bool g_bVsyncVrMirror =
     false; // Artscout - 2026: vsync the DESKTOP MIRROR during a VR session. Off: the mirror presents untorn-be-damned and the headset compositor alone paces the frame (xrWaitFrame). On (the old behaviour) the mirror's vsync caps the entire loop at the DESKTOP's refresh -- a 60 Hz monitor holds the app to 60 fps no matter what the headset is running at, so the runtime reprojects every frame and world-locked geometry judders while the cockpit stays smooth. Only set this if the untorn mirror matters more than headset smoothness (e.g. recording the mirror window).
 // Artscout - 2026: radio subtitle placement (OTWDriverClass::DrawSubTitles). Viewport NDC: x -1 = left edge,
@@ -1487,6 +1489,8 @@ static ConfigOption<bool> BoolOpts[] = {
     {"SensorSceneVulkan", &g_bSensorSceneVulkan}, // TGP/MAV/FLIR video in the MFD under Vulkan
     {"VsyncVrMirror",
      &g_bVsyncVrMirror}, // Artscout - 2026: vsync the desktop mirror in VR (off = headset paces the loop)
+    {"AutoBuildVoiceBank",
+     &g_bAutoBuildVoiceBank}, // Artscout - 2026: generate sounds/falcon_pcm.tlk on first run (radio chatter on x64)
     {"VrHandTracking", &g_bVrHandTracking}, // skeletal gloves from XR hand tracking (fallback: controller morph)
     {"VrSkinSwapHands", &g_bVrSkinSwapHands}, // swap which mesh each tracked hand wears
     {"VrHandDump", &g_bVrHandDump}, // dump raw XR joint geometry (diag: inferred clench vs skinning bug)

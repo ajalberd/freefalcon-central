@@ -186,7 +186,7 @@
       <DataExecutionPrevention />
     </Link>
     <PostBuildEvent>
-      <Command>copy /Y "$(ProjectDir)src\extlibs\openal\bin\win64\soft_oal.dll" "$(OutDir)OpenAL32.dll"</Command>
+      <Command>copy /Y "$(ProjectDir)src\extlibs\openal\bin\win64\soft_oal.dll" "$(OutDir)OpenAL32.dll"&#xD;&#xA;if exist "$(ProjectDir)src\tools\st80conv\bin\Release\st80conv.exe" copy /Y "$(ProjectDir)src\tools\st80conv\bin\Release\st80conv.exe" "$(OutDir)" &gt;nul</Command>
       <Message>Deploy OpenAL Soft next to the exe (the System32 legacy Creative router caps sources at 256 and cannot reach the HMD)</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -236,7 +236,7 @@
       </DataExecutionPrevention>
     </Link>
     <PostBuildEvent>
-      <Command>copy /Y "$(ProjectDir)src\extlibs\openal\bin\win64\soft_oal.dll" "$(OutDir)OpenAL32.dll"</Command>
+      <Command>copy /Y "$(ProjectDir)src\extlibs\openal\bin\win64\soft_oal.dll" "$(OutDir)OpenAL32.dll"&#xD;&#xA;if exist "$(ProjectDir)src\tools\st80conv\bin\Release\st80conv.exe" copy /Y "$(ProjectDir)src\tools\st80conv\bin\Release\st80conv.exe" "$(OutDir)" &gt;nul</Command>
       <Message>Deploy OpenAL Soft next to the exe (the System32 legacy Creative router caps sources at 256 and cannot reach the HMD)</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -293,7 +293,7 @@
       <DataExecutionPrevention />
     </Link>
     <PostBuildEvent>
-      <Command>copy /Y "$(ProjectDir)src\extlibs\openal\bin\win64\soft_oal.dll" "$(OutDir)OpenAL32.dll"</Command>
+      <Command>copy /Y "$(ProjectDir)src\extlibs\openal\bin\win64\soft_oal.dll" "$(OutDir)OpenAL32.dll"&#xD;&#xA;if exist "$(ProjectDir)src\tools\st80conv\bin\Release\st80conv.exe" copy /Y "$(ProjectDir)src\tools\st80conv\bin\Release\st80conv.exe" "$(OutDir)" &gt;nul</Command>
       <Message>Deploy OpenAL Soft next to the exe (the System32 legacy Creative router caps sources at 256 and cannot reach the HMD)</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -349,7 +349,7 @@
       </DataExecutionPrevention>
     </Link>
     <PostBuildEvent>
-      <Command>copy /Y "$(ProjectDir)src\extlibs\openal\bin\win64\soft_oal.dll" "$(OutDir)OpenAL32.dll"</Command>
+      <Command>copy /Y "$(ProjectDir)src\extlibs\openal\bin\win64\soft_oal.dll" "$(OutDir)OpenAL32.dll"&#xD;&#xA;if exist "$(ProjectDir)src\tools\st80conv\bin\Release\st80conv.exe" copy /Y "$(ProjectDir)src\tools\st80conv\bin\Release\st80conv.exe" "$(OutDir)" &gt;nul</Command>
       <Message>Deploy OpenAL Soft next to the exe (the System32 legacy Creative router caps sources at 256 and cannot reach the HMD)</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -406,7 +406,7 @@
       <DataExecutionPrevention />
     </Link>
     <PostBuildEvent>
-      <Command>copy /Y "$(ProjectDir)src\extlibs\openal\bin\win64\soft_oal.dll" "$(OutDir)OpenAL32.dll"</Command>
+      <Command>copy /Y "$(ProjectDir)src\extlibs\openal\bin\win64\soft_oal.dll" "$(OutDir)OpenAL32.dll"&#xD;&#xA;if exist "$(ProjectDir)src\tools\st80conv\bin\Release\st80conv.exe" copy /Y "$(ProjectDir)src\tools\st80conv\bin\Release\st80conv.exe" "$(OutDir)" &gt;nul</Command>
       <Message>Deploy OpenAL Soft next to the exe (the System32 legacy Creative router caps sources at 256 and cannot reach the HMD)</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -462,7 +462,7 @@
       </DataExecutionPrevention>
     </Link>
     <PostBuildEvent>
-      <Command>copy /Y "$(ProjectDir)src\extlibs\openal\bin\win64\soft_oal.dll" "$(OutDir)OpenAL32.dll"</Command>
+      <Command>copy /Y "$(ProjectDir)src\extlibs\openal\bin\win64\soft_oal.dll" "$(OutDir)OpenAL32.dll"&#xD;&#xA;if exist "$(ProjectDir)src\tools\st80conv\bin\Release\st80conv.exe" copy /Y "$(ProjectDir)src\tools\st80conv\bin\Release\st80conv.exe" "$(OutDir)" &gt;nul</Command>
       <Message>Deploy OpenAL Soft next to the exe (the System32 legacy Creative router caps sources at 256 and cannot reach the HMD)</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
