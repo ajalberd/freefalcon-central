@@ -768,6 +768,10 @@ int g_nTileActivateMeshPerFrame =
     24; // Artscout - 2026: #78 -- tile activations per frame for the MESH terrain path. Its own budget because the mesh path costs one DispatchMesh no matter how many tiles are live, so the per-tile draw calls that forced the legacy budget (3) are gone; too low and posts keep the "no tile" answer for whole re-scan cycles (brown underlay).
 bool g_bTerrainMeshDebugTint =
     false; // Artscout - 2026: #78 -- flat per-LOD tint on the mesh terrain, bypassing tiles and lighting. Tells "no geometry" apart from "geometry drawn black": if the tint shows, the grid is there and the problem is the texture/light path.
+bool g_bObjZBiasEnable =
+    true; // Artscout - 2026: honour each BSP surface's own dwzBias in the object pass. The models use it to lift coplanar detail (decals, panel plates, thin fins) off the surface underneath; D3D7 pushed it through D3DRENDERSTATE_ZBIAS and the port dropped it, so those surfaces z-fight and flicker as the camera moves. 0 = the old pass-wide bias only.
+int g_nObjZBiasStep =
+    60; // Artscout - 2026: depth-bias units added per dwzBias bucket (reversed-Z, so this pulls toward the camera). Bigger = more separation but more risk of detail floating visibly off curved surfaces; the pass-wide object bias is 100 for scale.
 bool g_bAutoBuildVoiceBank =
     true; // Artscout - 2026: on first run, if sounds/falcon_pcm.tlk is absent, generate it from falcon.tlk by running the 32-bit helper st80conv.exe beside the exe. ST80 has no 64-bit build, so without the PCM bank radio chatter is silent on x64 and only subtitles come through. One-off, ~8s, and every failure path falls back to the old ST80 behaviour. 0 = never spawn the helper.
 bool g_bVsyncVrMirror =
@@ -1491,6 +1495,8 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bVsyncVrMirror}, // Artscout - 2026: vsync the desktop mirror in VR (off = headset paces the loop)
     {"AutoBuildVoiceBank",
      &g_bAutoBuildVoiceBank}, // Artscout - 2026: generate sounds/falcon_pcm.tlk on first run (radio chatter on x64)
+    {"ObjZBiasEnable",
+     &g_bObjZBiasEnable}, // Artscout - 2026: honour per-surface dwzBias in the object pass
     {"VrHandTracking", &g_bVrHandTracking}, // skeletal gloves from XR hand tracking (fallback: controller morph)
     {"VrSkinSwapHands", &g_bVrSkinSwapHands}, // swap which mesh each tracked hand wears
     {"VrHandDump", &g_bVrHandDump}, // dump raw XR joint geometry (diag: inferred clench vs skinning bug)
@@ -1860,6 +1866,8 @@ static ConfigOption<int> IntOpts[] = {
      &g_nTileActivateMeshPerFrame}, // Artscout - 2026: #78 -- same budget for the mesh-shader terrain (no per-tile draws there, so it can afford more).
     {"SubtitleFont",
      &g_nSubtitleFont}, // Artscout - 2026: radio subtitle font index (bigger = larger glyphs)
+    {"ObjZBiasStep",
+     &g_nObjZBiasStep}, // Artscout - 2026: depth-bias units per dwzBias bucket
     {"TerrainMorphPosts",
      &g_nTerrainMorphPosts}, // Artscout - 2026: #78 -- geomorph band width in posts (0/1 = off but watertight).
     {"TerrainRingRadius",

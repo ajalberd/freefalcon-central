@@ -723,7 +723,18 @@ void CDXEngine::DrawSurface()
     if (m_LastZBias not_eq m_NODE.SURFACE->dwzBias)
     {
         m_LastZBias = m_NODE.SURFACE->dwzBias;
-        // #34: dead D3D7 ZBIAS removed (no device under D3D11)
+        // Artscout - 2026: this used to end here -- the value was read, cached, and thrown away ("#34:
+        // dead D3D7 ZBIAS removed"), so every surface drew at the pass-wide bias. The models do use it:
+        // ~10% of the shipped surfaces carry a non-zero dwzBias, which is what keeps coplanar detail
+        // (decals, panel plates, thin fins) off the surface underneath. Without it they z-fight and
+        // flicker as the camera moves. Bucket it -- the data is overwhelmingly 0 or 1 with a short tail
+        // out to 16 -- and hand it to the backend, which folds it into its pipeline state.
+        if (g_pRenderer)
+        {
+            const DWORD zb = m_LastZBias;
+            const int level = (zb == 0) ? 0 : (zb <= 2) ? 1 : (zb <= 7) ? 2 : 3;
+            g_pRenderer->SetObjectDepthBias(level);
+        }
     }
 
 #endif

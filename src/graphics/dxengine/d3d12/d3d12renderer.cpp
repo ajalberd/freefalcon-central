@@ -219,7 +219,8 @@ D3D12Renderer::D3D12Renderer()
       m_curEpoch(0xFFFFFFFF), m_frameRebind(true), m_screenW(0), m_screenH(0),
       m_flags(0), m_curState(0), m_valid(false), m_pass(0),
       m_blend(BLEND_OPAQUE), m_depthWrite(false), m_depthTest(false),
-      m_depthTargetBound(true), m_hudStencil(0), m_cull(0), m_bias(0),
+      m_depthTargetBound(true), m_hudStencil(0), m_cull(0), m_objZBias(0),
+      m_bias(0),
       m_forcePerSample(false), m_alphaRef(0.5f), m_fogStart(0.0f),
       m_fogEnd(1.0e9f), m_fogColor(0xFF808080), m_chromaKey(0xFF000000),
       m_chromaTol(0.02f), m_texColorDiffuse(false), m_cockpitPass(false),
@@ -1998,7 +1999,9 @@ ID3D12PipelineState* D3D12Renderer::GetPSO(int pass, int blend, bool dWrite,
         | ((unsigned)(samples & 0xF) << 12) // MSAA sample-count variant
         | ((unsigned)(stereo ? 1 : 0) << 17) // #DX12 п.5 view-instanced variant
         | ((unsigned)((stereo && m_stereoViewCount == 4) ? 1 : 0)
-           << 18); // quad (4-view) VI variant
+           << 18) // quad (4-view) VI variant
+        | ((unsigned)(m_objZBias & 3)
+           << 19); // per-surface dwzBias bucket (object pass)
 
     PsoMap* cache = (PsoMap*)m_pPsoCache;
     PsoMap::iterator it = cache->find(key);
@@ -2213,9 +2216,16 @@ ID3D12PipelineState* D3D12Renderer::GetPSO(int pass, int blend, bool dWrite,
                         FALSE; // MSAA: edge AA on the multisample scene target
     if (bias == 1)
     {
-        pd.RasterizerState.DepthBias = 100;
+        // #16 pull objects toward camera (reversed-Z: +bias = toward camera).
+        // Artscout - 2026: plus the SURFACE's own dwzBias on top. The BSP models use it to separate
+        // coplanar detail -- decals, panel plates, thin fins -- from the surface underneath, and the port
+        // had been discarding it, so those surfaces z-fought and flickered as the camera moved. Bucketed
+        // to keep the PSO count sane: the shipped data is overwhelmingly 0 or 1, with a short tail.
+        extern int g_nObjZBiasStep;
+        pd.RasterizerState.DepthBias =
+            100 + m_objZBias * ((g_nObjZBiasStep > 0) ? g_nObjZBiasStep : 0);
         pd.RasterizerState.SlopeScaledDepthBias = 0.0f;
-    } // reversed-Z: +bias = toward camera   // #16 pull objects toward camera
+    }
     else if (
         bias ==
         2) // #78 terrain: reversed-Z NEGATIVE bias = AWAY from camera, so terrain sinks below coplanar
@@ -2673,6 +2683,20 @@ void D3D12Renderer::DrawTLIndexed(int primType, const ScreenVertex* verts,
                                    D3D_PRIMITIVE_TOPOLOGY_LINELIST :
                                    D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     cl->DrawIndexedInstanced(icount, 1, 0, 0, 0);
+}
+
+// Artscout - 2026: per-surface depth-bias bucket for the object pass. Folded into the PSO cache key, so
+// each bucket gets its own pipeline -- created lazily, and the shipped models only really use two of them.
+void D3D12Renderer::SetObjectDepthBias(int level)
+{
+    extern bool g_bObjZBiasEnable;
+    if (not g_bObjZBiasEnable)
+        level = 0;
+    if (level < 0)
+        level = 0;
+    if (level > 3)
+        level = 3;
+    m_objZBias = level;
 }
 
 void D3D12Renderer::DrawColorTrisScreen(const ScreenVertex* verts, int count,
