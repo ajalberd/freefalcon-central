@@ -764,8 +764,35 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
             s_cb.frustum[p][0] = s_cb.frustum[p][1] = s_cb.frustum[p][2] =
                 s_cb.frustum[p][3] = 0.0f;
 
+        // Artscout - 2026: cull against a WIDER frustum than the one drawn. The planes are built from the
+        // pose this update ran with, but the headset displays the frame at a LATER predicted time, and the
+        // runtime renders from a late-latched pose. A head turn between those two moments swings real
+        // geometry in from the side -- chunks culled here were never generated, so they arrive a frame or
+        // more late and read as terrain popping in at the edge of vision while looking around.
+        // Widening the PROJECTION before extracting the planes widens the side planes only: columns 0 and 1
+        // carry x and y, so scaling them down enlarges the horizontal and vertical field of view, while the
+        // z and w columns -- and therefore the near and far planes -- are untouched. Doing it here keeps the
+        // amplification shader byte-identical, so no shader rebuild is needed.
+        extern float g_fTerrainCullPad;
+        float padK = 1.0f + ((g_fTerrainCullPad > 0.0f) ? g_fTerrainCullPad : 0.0f);
+        if (padK < 1.0f)
+            padK = 1.0f;
+
         for (int v = 0; v < viewCount; ++v)
         {
+            // Widened copy of this view's projection -- the DRAWN projection is untouched.
+            float wproj[16];
+            memcpy(wproj, s_cb.proj[v], sizeof(wproj));
+            if (padK > 1.0f)
+            {
+                const float inv = 1.0f / padK;
+                for (int r = 0; r < 4; ++r)
+                {
+                    wproj[r * 4 + 0] *= inv; // x column -> wider horizontal FOV
+                    wproj[r * 4 + 1] *= inv; // y column -> wider vertical FOV
+                }
+            }
+
             float mvp[16];
             for (int r = 0; r < 4; ++r)
             {
@@ -773,7 +800,7 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
                 {
                     float sum = 0.0f;
                     for (int k = 0; k < 4; ++k)
-                        sum += s_cb.view[v][r * 4 + k] * s_cb.proj[v][k * 4 + c];
+                        sum += s_cb.view[v][r * 4 + k] * wproj[k * 4 + c];
                     mvp[r * 4 + c] = sum;
                 }
             }

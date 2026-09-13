@@ -785,6 +785,8 @@ int g_nSubtitleFont = 2;
 // Continuous size on top of the chosen font: scales the glyph quads and the advance together, so letter spacing
 // stays proportional. 1.0 = the font's native size.
 float g_fSubtitleScale = 1.35f;
+float g_fTerrainCullPad =
+    0.18f; // Artscout - 2026: #78 -- how much WIDER than the drawn view the terrain chunk cull is, as a fraction of the field of view (0.18 = 18% wider). The amplification shader culls against the pose this frame's update ran with, but the headset displays at a later predicted time from a late-latched pose, so a head turn swings geometry in from the side that was never generated -- terrain popping in at the edge of vision while looking around. Costs some extra chunks (a wider box means more survive the cull); 0 = cull exactly to the drawn frustum, the old behaviour.
 int g_nTerrainMorphPosts =
     10; // Artscout - 2026: #78 -- width, in posts, of the geomorph band at each LOD ring's outer edge. The ring box snaps to EVEN posts, so it jumps 2 posts at a time as the camera crosses a post; every post in this band then steps its blend weight by 2/width AT ONCE, which is a discrete height pop on a whole ring of ground. Wider = smaller step (gentler) but more of the fine ring dragged onto the coarse surface. 0 or 1 = morph off except the boundary row (still watertight) -- the bisect case for "is the stutter the morph?".
 int g_nTerrainRingRadius =
@@ -2000,6 +2002,8 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fSubtitleLineSpacing}, // Artscout - 2026: line pitch, multiples of the font height
     {"SubtitleScale",
      &g_fSubtitleScale}, // Artscout - 2026: subtitle glyph scale, 1.0 = the font's native size
+    {"TerrainCullPad",
+     &g_fTerrainCullPad}, // Artscout - 2026: #78 -- terrain cull frustum widened by this fraction of FOV (head-turn margin)
     {"VrSubQuadX",
      &g_fVrSubQuadX}, // #59: subtitle quad horizontal offset (m, + = right)
     {"VrSubQuadY",
