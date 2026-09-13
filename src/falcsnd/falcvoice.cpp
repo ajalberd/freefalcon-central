@@ -13,6 +13,7 @@
 
 #include <windows.h>
 #include <stdio.h>
+#include "../graphics/include/fflog.h" // radio-audio diagnostics -> FFDebug.log
 #include "f4thread.h"
 #include "fsound.h"
 #include "falcvoice.h"
@@ -293,6 +294,25 @@ DWORD fillVoiceBuffer(void *me, char *soundBuffer, DWORD length)
     FalcVoice *thisFV;
 
     thisFV = (FalcVoice *)me;
+
+    // Artscout - 2026 (radio-audio diag): is the stream service even asking us for data, and what do we hand
+    // back? Silence with working subtitles means the message reached the queue, so the break is at or after
+    // this callback. Capped so a live stream cannot flood the log.
+    {
+        static int s_fills = 0;
+        if (s_fills < 40)
+        {
+            ++s_fills;
+            char b[160];
+            _snprintf(b, sizeof(b) - 1,
+                      "[voice] fill #%d len=%lu fv=%p kill=%d exit=%d\n",
+                      s_fills, (unsigned long)length, (void *)thisFV,
+                      (int)killThread,
+                      (int)(thisFV ? thisFV->exitChannel : -1));
+            b[sizeof(b) - 1] = 0;
+            FFDebugLog(b);
+        }
+    }
 
     if (thisFV == NULL or killThread or thisFV->exitChannel)
     {
