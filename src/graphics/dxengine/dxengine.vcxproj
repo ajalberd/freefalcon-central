@@ -231,11 +231,11 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeader>
       </PrecompiledHeader>
-      <PrecompiledHeaderOutputFile>\..\..\Falcon4___Win32_Release\Graphics\DXEngine/DXEngine.pch</PrecompiledHeaderOutputFile>
+      <PrecompiledHeaderOutputFile>$(IntDir)DXEngine.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
       <AssemblerListingLocation>.\</AssemblerListingLocation>
-      <ObjectFileName>.\..\..\Falcon4___Win32_Release\Graphics\DXEngine/</ObjectFileName>
-      <ProgramDataBaseFileName>.\..\..\Falcon4___Win32_Release\Graphics\DXEngine/</ProgramDataBaseFileName>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <CompileAs>Default</CompileAs>
@@ -285,11 +285,11 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeader>
       </PrecompiledHeader>
-      <PrecompiledHeaderOutputFile>\..\..\Falcon4___Win32_Release\Graphics\DXEngine/DXEngine.pch</PrecompiledHeaderOutputFile>
+      <PrecompiledHeaderOutputFile>$(IntDir)DXEngine.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
       <AssemblerListingLocation>.\</AssemblerListingLocation>
-      <ObjectFileName>.\..\..\Falcon4___Win32_Release\Graphics\DXEngine/</ObjectFileName>
-      <ProgramDataBaseFileName>.\..\..\Falcon4___Win32_Release\Graphics\DXEngine/</ProgramDataBaseFileName>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <CompileAs>Default</CompileAs>
@@ -339,11 +339,11 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeader>
       </PrecompiledHeader>
-      <PrecompiledHeaderOutputFile>\..\..\Falcon4___Win32_Release\Graphics\DXEngine/DXEngine.pch</PrecompiledHeaderOutputFile>
+      <PrecompiledHeaderOutputFile>$(IntDir)DXEngine.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
       <AssemblerListingLocation>.\</AssemblerListingLocation>
-      <ObjectFileName>.\..\..\Falcon4___Win32_Release\Graphics\DXEngine/</ObjectFileName>
-      <ProgramDataBaseFileName>.\..\..\Falcon4___Win32_Release\Graphics\DXEngine/</ProgramDataBaseFileName>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <CompileAs>Default</CompileAs>
