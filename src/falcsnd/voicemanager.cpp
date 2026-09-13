@@ -13,7 +13,6 @@
 
 #include <windows.h>
 #include <process.h>
-#include "../graphics/include/fflog.h" // radio-audio diagnostics -> FFDebug.log
 #include "fsound.h"
 #include "f4thread.h"
 #include "debuggr.h"
@@ -121,15 +120,6 @@ BOOL VoiceManager::VMBegin(void)
         falconVoices[i].SetVoiceChannel(i);
         falconVoices[i].InitCompressionData();
         falconVoices[i].PlayVoices();
-        // Artscout - 2026 (radio-audio diag): a handle of -1 here means F4CreateStream failed and this
-        // channel can never make a sound, whatever the rest of the chain does.
-        {
-            char b[128];
-            _snprintf(b, sizeof(b) - 1, "[voice] ch%d stream handle=%ld\n", i,
-                      (long)falconVoices[i].FalcVoiceHandle);
-            b[sizeof(b) - 1] = 0;
-            FFDebugLog(b);
-        }
         PauseChannel(i);
         decompQueue[i].status = SLOT_IS_AVAILABLE;
         decompQueue[i].conversations = NULL;
@@ -693,30 +683,6 @@ DWORD WINAPI VoiceManagementThread(LPVOID lpvThreadParm)
                 //else mark buffer empty and if it was the last index in the
                 //conversation we need to delete the conversation and make the
                 //decompQueue for this channel available
-
-                // Artscout - 2026 (radio-audio diag): the stream is alive and asking for data at real-time
-                // rate, so the question is whether decompression is handing it anything. write=0 means the
-                // buffer is silence no matter what the rest of the chain does.
-                {
-                    static int s_dec = 0;
-                    if (s_dec < 30)
-                    {
-                        ++s_dec;
-                        char b[192];
-                        _snprintf(b, sizeof(b) - 1,
-                                  "[voice] decomp ch%d write=%lu read=%lu/%lu conv=%d/%d\n",
-                                  curChannel,
-                                  (unsigned long)outputBuf->waveBufferWrite,
-                                  (unsigned long)VM->falconVoices[curChannel]
-                                      .voiceCompInfo->bytesRead,
-                                  (unsigned long)VM->falconVoices[curChannel]
-                                      .voiceCompInfo->compFileLength,
-                                  VM->decompQueue[curChannel].convIndex,
-                                  VM->decompQueue[curChannel].sizeofConv);
-                        b[sizeof(b) - 1] = 0;
-                        FFDebugLog(b);
-                    }
-                }
 
                 outputBuf->dataInWaveBuffer = outputBuf->waveBufferWrite;
                 outputBuf->waveBufferLen = outputBuf->waveBufferWrite;
@@ -1734,27 +1700,8 @@ int VoiceManager::ResumeChannel(int channel)
 {
     if (gSoundDriver)
     {
-        const BOOL wasPlaying = gSoundDriver->IsStreamPlaying(
-            VM->falconVoices[channel].FalcVoiceHandle);
-
-        // Artscout - 2026 (radio-audio diag): StreamPause() both stops the buffer AND clears SND_USE_THREAD,
-        // so a channel that is never resumed here is also never serviced again -- it goes permanently silent.
-        // Log which way the test went; "wasPlaying=1" on a paused channel would mean the status is lying.
-        {
-            static int s_res = 0;
-            if (s_res < 20)
-            {
-                ++s_res;
-                char b[128];
-                _snprintf(b, sizeof(b) - 1,
-                          "[voice] resume ch%d wasPlaying=%d -> %s\n", channel,
-                          (int)wasPlaying, wasPlaying ? "SKIPPED" : "resumed");
-                b[sizeof(b) - 1] = 0;
-                FFDebugLog(b);
-            }
-        }
-
-        if (not wasPlaying)
+        if (not gSoundDriver->IsStreamPlaying(
+                VM->falconVoices[channel].FalcVoiceHandle))
         {
             gSoundDriver->ResumeStream(
                 VM->falconVoices[channel].FalcVoiceHandle);
@@ -1793,22 +1740,6 @@ void VoiceManager::SetChannelVolume(int channel, int volume)
     {
         F4SetStreamVolume(falconVoices[channel].FalcVoiceHandle, volume);
     }
-}
-
-// Artscout - 2026 (radio-audio diag): capped log of the per-message volume decision.
-static void FFDebugLogVoiceVol(int channel, int applied, int volume,
-                               int groupVol)
-{
-    static int s_vol = 0;
-    if (s_vol >= 30)
-        return;
-    ++s_vol;
-    char b[160];
-    _snprintf(b, sizeof(b) - 1,
-              "[voice] vol ch%d applied=%d volume=%d groupVol=%d\n",
-              channel, applied, volume, groupVol);
-    b[sizeof(b) - 1] = 0;
-    FFDebugLog(b);
 }
 
 void VoiceManager::AddNoise(VOICE_STREAM_BUFFER *streamBuffer, VU_ID from,
@@ -1860,16 +1791,6 @@ void VoiceManager::AddNoise(VOICE_STREAM_BUFFER *streamBuffer, VU_ID from,
             max(-10000, PlayerOptions.GroupVol[COM1_SOUND_GROUP + channel] -
                             dist / MAX_RADIO_RANGE * 2000));
         SetChannelVolume(channel, volume);
-        FFDebugLogVoiceVol(channel, 1, volume,
-                           PlayerOptions.GroupVol[COM1_SOUND_GROUP + channel]);
-    }
-    else
-    {
-        // Artscout - 2026 (radio-audio diag): this branch leaves the channel at whatever volume it last
-        // had. Worth knowing which way it went -- a message from an entity the database cannot find, or
-        // from the player themselves, never gets a volume set here at all.
-        FFDebugLogVoiceVol(channel, 0, 0,
-                           PlayerOptions.GroupVol[COM1_SOUND_GROUP + channel]);
     }
 
 
