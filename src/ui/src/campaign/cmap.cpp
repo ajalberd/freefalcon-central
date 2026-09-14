@@ -2542,49 +2542,81 @@ void C_Map::ShowCampaignOverlay(long which)
         // Sample on a coarse grid and fill the block: a tint does not need per-pixel Voronoi, and
         // this keeps a full-map rebuild at a few million operations instead of a few hundred.
         const long step = 4;
+        const long cols = (w + step - 1) / step;
 
-        for (long y = 0; y < h; y += step)
+        // Which plant owns each sample on the current and previous row. Kept so the cell EDGES can be
+        // drawn: fill alone shows nothing at all until something is damaged, which made the layer look
+        // broken on day one -- you could not see which plant fed where, the one thing it is for. The
+        // outline is always there; the fill is the damage on top of it.
+        short *ownNow = new short[cols];
+        short *ownPrev = new short[cols];
+
+        if (ownNow and ownPrev)
         {
-            for (long x = 0; x < w; x += step)
+            for (long c = 0; c < cols; c++)
+                ownPrev[c] = -1;
+
+            for (long y = 0; y < h; y += step)
             {
-                long best = -1, bd = 0;
-
-                for (int i = 0; i < n; i++)
+                for (long x = 0, c = 0; x < w; x += step, c++)
                 {
-                    const long dx = x - plants[i].x;
-                    const long dy = y - plants[i].y;
-                    const long d = dx * dx + dy * dy;
+                    long best = -1, bd = 0;
 
-                    if (best < 0 or d < bd)
+                    for (int i = 0; i < n; i++)
                     {
-                        bd = d;
-                        best = i;
+                        const long dx = x - plants[i].x;
+                        const long dy = y - plants[i].y;
+                        const long d = dx * dx + dy * dy;
+
+                        if (best < 0 or d < bd)
+                        {
+                            bd = d;
+                            best = i;
+                        }
+                    }
+
+                    ownNow[c] = (short)best;
+
+                    if (best < 0)
+                        continue;
+
+                    // A plant at full status leaves its ground clean; the fill is "production being
+                    // lost here", so what you see is the damage you have actually done.
+                    BYTE tint =
+                        static_cast<BYTE>(plants[best].lost * CAMP_TINT_MAX / 100);
+
+                    // Cell edge: a neighbouring sample answering to a different plant. Drawn at a
+                    // fixed low intensity so the boundary reads as structure, not as damage.
+                    const bool edge =
+                        (c > 0 and ownNow[c - 1] not_eq (short)best) or
+                        (ownPrev[c] >= 0 and ownPrev[c] not_eq (short)best);
+
+                    if (edge and tint < 3)
+                        tint = 3;
+
+                    if (not tint)
+                        continue;
+
+                    const long ymax = min(y + step, h);
+                    const long xmax = min(x + step, w);
+
+                    for (long by = y; by < ymax; by++)
+                    {
+                        BYTE *row = overlay + by * w;
+
+                        for (long bx = x; bx < xmax; bx++)
+                            row[bx] = tint;
                     }
                 }
 
-                if (best < 0)
-                    continue;
-
-                // A plant at full status leaves its ground untinted; the colour is "production
-                // being lost here", so what you see is the damage you have actually done.
-                const BYTE tint =
-                    static_cast<BYTE>(plants[best].lost * CAMP_TINT_MAX / 100);
-
-                if (not tint)
-                    continue;
-
-                const long ymax = min(y + step, h);
-                const long xmax = min(x + step, w);
-
-                for (long by = y; by < ymax; by++)
-                {
-                    BYTE *row = overlay + by * w;
-
-                    for (long bx = x; bx < xmax; bx++)
-                        row[bx] = tint;
-                }
+                short *swap = ownPrev;
+                ownPrev = ownNow;
+                ownNow = swap;
             }
         }
+
+        delete[] ownNow;
+        delete[] ownPrev;
     }
     else if (which == CAMP_OVERLAY_SUPPLY)
     {
@@ -2616,8 +2648,12 @@ void C_Map::ShowCampaignOverlay(long which)
             CampGridToOverlay(w, h, gx, gy, &px, &py);
             const BYTE tint =
                 static_cast<BYTE>(1 + traffic * (CAMP_TINT_MAX - 1) / 255);
+            // Road objectives sit close together along a route, so the marks are sized to
+            // MERGE into a continuous artery rather than read as a row of unrelated dots --
+            // the flow really is a chain (SendSupply walks the path node by node) and it
+            // should look like one. Bridges stay larger again: single points of failure.
             StampOverlayDisc(overlay, w, h, px, py,
-                             (t == TYPE_BRIDGE) ? 5 : 3, tint);
+                             (t == TYPE_BRIDGE) ? 9 : 6, tint);
         }
     }
     else if (which == CAMP_OVERLAY_DAMAGE)
@@ -2705,7 +2741,10 @@ void C_Map::ShowCampaignOverlay(long which)
                 long px, py;
                 CampGridToOverlay(w, h, gx, gy, &px, &py);
                 const long share = r * (CAMP_TINT_MAX - 1) / maxRate;
-                StampOverlayDisc(overlay, w, h, px, py, 4 + share,
+                // 8..24 px rather than the original 4..12: at theater zoom the small end of
+                // that range was a dot you had to hunt for, which defeats a layer whose whole
+                // job is showing relative weight at a glance.
+                StampOverlayDisc(overlay, w, h, px, py, 8 + share * 2,
                                  static_cast<BYTE>(1 + share));
             }
         }
