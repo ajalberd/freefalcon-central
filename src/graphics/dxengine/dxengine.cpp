@@ -212,7 +212,7 @@ VOID CDXEngine::SelectTexture(GLint texID)
         extern bool g_bMenuViewerDrawing;
         static int s_logged = 0;
 
-        if (g_bLogMenuTextures and g_bMenuViewerDrawing and s_logged < 64)
+        if (g_bLogMenuTextures and g_bMenuViewerDrawing and s_logged < 12)
         {
             s_logged++;
             char buf[192];

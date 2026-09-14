@@ -59,6 +59,7 @@
 #include "graphics/dxengine/embeddedshader.h" // Artscout - 2026: FFEmu.hlsl from external file or embedded RCDATA
 #include "graphics/shaders/ffshaderblobs.h" // #78: DXIL for the mesh-shader terrain
 #include "graphics/dxengine/d3d12/d3d12texturemanager.h" // D3D12Texture (srvCpuPtr) for the SRV ring
+#include "graphics/include/fflog.h" // Artscout - 2026: menu texture diagnostic
 #include "graphics/dxengine/common/irenderer.h" // full ScreenVertex POD (shared vertex) + FFStateMap
 #include "graphics/dxengine/common/ffstatemap.h" // FFMapState / FFStateDesc / FF_* / STATE_* (shared with D3D11)
 
@@ -3906,6 +3907,36 @@ void D3D12Renderer::DrawObjectIndexed(int primType, void* vbHandle, int stride,
     ID3D12GraphicsCommandList* cl = Cmd();
     if (!cl)
         return;
+
+    // Artscout - 2026: the decisive datum for untextured menu 3D models. SelectTexture proved
+    // the bank hands over a real texture; what this reports is whether that survives to the
+    // draw, and which of the three things that must be true is not:
+    //
+    //   tex0 null        SetTexture never reached the renderer for this surface
+    //   srv 0 or -1      FlushConstants substitutes the 1x1 WHITE default -- silently, by
+    //                    design, to avoid an AV on a recycled texture -- which would render
+    //                    exactly the flat vertex-coloured model we are looking at
+    //   ffTex0 0         the shader is told there is no texture regardless of what is bound
+    {
+        extern bool g_bLogMenuTextures;
+        extern bool g_bMenuViewerDrawing;
+        static int s_objLogged = 0;
+
+        if (g_bLogMenuTextures and g_bMenuViewerDrawing and s_objLogged < 24)
+        {
+            s_objLogged++;
+            unsigned __int64 srv0 =
+                m_pTex0 ? ((D3D12Texture*)m_pTex0)->srvCpuPtr : 0;
+            char b[224];
+            sprintf(b,
+                    "[MENUOBJ] tex0=%p srv=%llX ffTex0=%d hasTex0=%d "
+                    "tableDirty=%d blend=%d idx=%d\n",
+                    (void*)m_pTex0, (unsigned long long)srv0,
+                    (int)((m_flags & FF_TEXTURE0) ? 1 : 0), (int)m_hasTex0,
+                    (int)m_tableDirty, (int)m_blend, indexCount);
+            FFDebugLog(b);
+        }
+    }
 
     FlushConstants();
     ID3D12PipelineState* pso =
