@@ -22,6 +22,7 @@
 extern C_Handler *gMainHandler;
 
 #include "graphics/dxengine/dxvbmanager.h"
+#include "graphics/include/fflog.h" // Artscout - 2026: menu texture diagnostic
 extern bool g_bUse_DX_Engine;
 
 extern bool g_bReconLatLong; //Wombat778 11-3-2003
@@ -590,6 +591,26 @@ BOOL C_3dViewer::View3d(long ID)
                 g_bMenuViewerToBackBuffer = false; // RTT path: model ends up in the 2D surface
             }
             EnsureMenuGpuFrame();
+
+            // Artscout - 2026: mark the whole draw, not just the Draw() call. DrawableBSP::Draw
+            // BATCHES into the context poly list; the surfaces only reach
+            // CDXEngine::SelectTexture when that list is flushed, which is FlushPolyLists /
+            // EndDraw / FinishFrame below. Bracketing Draw() alone logged nothing, which was the
+            // first useful thing the diagnostic told us.
+            {
+                extern bool g_bMenuViewerDrawing;
+                extern bool g_bLogMenuTextures;
+                g_bMenuViewerDrawing = true;
+
+                if (g_bLogMenuTextures)
+                {
+                    char b[128];
+                    sprintf(b, "[MENUTEX] viewer draw begin, zbuf=%d\n",
+                            (int)DisplayOptions.bZBuffering);
+                    FFDebugLog(b);
+                }
+            }
+
             rend3d_->SetCamera(&currentPos_, &currentRot_);
             // rend3d_->SetTime(Time_+(GetCurrentTime() % 60000l));
 
@@ -602,14 +623,7 @@ BOOL C_3dViewer::View3d(long ID)
             // and the 3D display
             rend3d_->StartDraw();
 
-            {
-                // Artscout - 2026: bracket the model draw so the texture diagnostic in
-                // CDXEngine::SelectTexture knows these surfaces are a menu viewer's.
-                extern bool g_bMenuViewerDrawing;
-                g_bMenuViewerDrawing = true;
-                ((DrawableBSP *)obj->object)->Draw(rend3d_);
-                g_bMenuViewerDrawing = false;
-            }
+            ((DrawableBSP *)obj->object)->Draw(rend3d_);
 
             // ok, now fill object and texture banks
             ObjectLOD::WaitUpdates();
@@ -621,6 +635,16 @@ BOOL C_3dViewer::View3d(long ID)
             rend3d_->EndDraw();
             // CLose the Frame
             rend3d_->context.FinishFrame(NULL);
+
+            {
+                extern bool g_bMenuViewerDrawing;
+                extern bool g_bLogMenuTextures;
+
+                if (g_bLogMenuTextures)
+                    FFDebugLog("[MENUTEX] viewer draw end\n");
+
+                g_bMenuViewerDrawing = false;
+            }
 
             // Pull the model out of the RTT into the menu's 2D surface. g_bGpuDraw stays SET on
             // purpose: the viewer opened a real command frame holding the model draws and the
