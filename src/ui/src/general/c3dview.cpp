@@ -561,6 +561,20 @@ void C_3dViewer::StampRttIntoMenu()
                          viewport.right - viewport.left,
                          viewport.bottom - viewport.top);
     front->Unlock();
+
+    // Artscout - 2026: the stamp writes straight into the shared 2D surface, so it covers anything
+    // another window had already drawn in that rect. On the recon screen the target list is its own
+    // window (RECON_LIST_WIN) sitting over the viewer's client area, so it was being painted over
+    // every frame and only came back when UI95 happened to mark it dirty -- under the cursor.
+    //
+    // RefreshAll is UI95's own answer to this: mark the rect dirty on every visible window so each
+    // redraws its part of it. Windows later in the handler's list draw ON TOP (the same ordering
+    // ClearHiddenRects relies on), and the list window is later than the viewer's, so it lands back
+    // over the stamp in the same pass rather than a frame behind it.
+    //
+    // Cheap enough here: this is a menu, the rect is one viewer pane, and only windows that actually
+    // overlap it do any work.
+    gMainHandler->RefreshAll(&viewport);
 }
 
 BOOL C_3dViewer::View3d(long ID)
