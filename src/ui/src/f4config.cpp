@@ -797,6 +797,8 @@ int g_nTerrainMorphPosts =
     10; // Artscout - 2026: #78 -- width, in posts, of the geomorph band at each LOD ring's outer edge. The ring box snaps to EVEN posts, so it jumps 2 posts at a time as the camera crosses a post; every post in this band then steps its blend weight by 2/width AT ONCE, which is a discrete height pop on a whole ring of ground. Wider = smaller step (gentler) but more of the fine ring dragged onto the coarse surface. 0 or 1 = morph off except the boundary row (still watertight) -- the bisect case for "is the stutter the morph?".
 int g_nTerrainRingRadius =
     0; // Artscout - 2026: #78 -- force every LOD ring to this radius in posts instead of tracking GetAvailablePostRange(), which shrinks whenever a terrain block is still streaming and grows back when it lands, so the rings BREATHE frame to frame. 0 = auto (stock). The bisect case for "is the stutter the rings resizing?"; capped by the clipmap window either way.
+int g_nBillboardMode =
+    1; // Artscout - 2026: how the 2D engine orients billboard quads (clouds, smoke, particle sprites). The stock basis is ONE matrix per frame -- RotY(pitch) * RotZ(yaw) from Euler angles pulled back out of the camera matrix -- so every sprite in the scene is aimed at the middle of the view rather than at you, and the Euler pair is singular looking straight up, where the extracted yaw swings wildly and spins every sprite with it. Both errors scale with field of view, which is why they read as a 90s sprite wobble in a headset and as nothing much on a monitor. 1 = per-quad basis (aimed down the ray to each quad, so head rotation cannot enter it) for callers that ask -- today the cumulus clouds. 2 = per-quad for EVERY billboard, which also covers smoke trails and particle effects but can kink a smoke ribbon drawn close to the camera, since adjacent segments no longer share one basis. 0 = stock.
 bool g_bVrWindowsCursor =
     true; // Artscout - 2026: draw a copy of the LIVE Windows cursor (captured from the OS shape) instead of the theater's cursor bitmap. The OS never composites its cursor into the headset, so VR showed the crosshair; 0 = keep the old bitmap.
 bool g_bTerrainMeshCull =
@@ -1870,6 +1872,8 @@ static ConfigOption<int> IntOpts[] = {
      &g_nObjZBiasStep}, // Artscout - 2026: depth-bias units per dwzBias bucket
     {"TerrainMorphPosts",
      &g_nTerrainMorphPosts}, // Artscout - 2026: #78 -- geomorph band width in posts (0/1 = off but watertight).
+    {"BillboardMode",
+     &g_nBillboardMode}, // Artscout - 2026: 0 = one camera-facing matrix for all sprites (stock), 1 = per-quad basis for clouds, 2 = per-quad for every billboard
     {"TerrainRingRadius",
      &g_nTerrainRingRadius}, // Artscout - 2026: #78 -- fixed LOD ring radius in posts; 0 = track the streamed range.
     {"VrRayToggle",
