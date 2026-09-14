@@ -2417,6 +2417,59 @@ static void StampOverlayDisc(BYTE *overlay, long w, long h, long cx, long cy,
     }
 }
 
+// Stamp a line into the overlay, thickness in pixels. Plain DDA -- the longer axis is stepped one
+// pixel at a time and the other interpolated -- which is all a tint needs, and it avoids pulling in
+// a clipper: every write goes through the bounds check.
+static void StampOverlayLine(BYTE *overlay, long w, long h, long x0, long y0,
+                             long x1, long y1, long thick, BYTE tint)
+{
+    if (not overlay or tint < 1)
+        return;
+
+    const long dx = x1 - x0, dy = y1 - y0;
+    long steps = (labs(dx) > labs(dy)) ? labs(dx) : labs(dy);
+
+    if (steps < 1)
+        steps = 1;
+
+    if (thick < 1)
+        thick = 1;
+
+    const float sx = (float)dx / (float)steps;
+    const float sy = (float)dy / (float)steps;
+    float fx = (float)x0, fy = (float)y0;
+    const long r = thick / 2;
+
+    for (long i = 0; i <= steps; i++)
+    {
+        const long px = (long)fx, py = (long)fy;
+
+        for (long oy = -r; oy <= r; oy++)
+        {
+            const long yy = py + oy;
+
+            if (yy < 0 or yy >= h)
+                continue;
+
+            BYTE *row = overlay + yy * w;
+
+            for (long ox = -r; ox <= r; ox++)
+            {
+                const long xx = px + ox;
+
+                if (xx < 0 or xx >= w)
+                    continue;
+
+                if (row[xx] < tint)
+                    row[xx] = tint;
+            }
+        }
+
+        fx += sx;
+        fy += sy;
+    }
+}
+
 // Campaign grid -> overlay pixel. AddThreat flips y against Map_Max_Y and BuildOverlay then scales
 // by a hardcoded 2 px per grid unit; derive the scale from the actual bitmap instead so a theater
 // whose map is not exactly twice its grid still lands correctly, and fall back to the 2 the threat
@@ -2432,21 +2485,6 @@ static void CampGridToOverlay(long w, long h, GridIndex gx, GridIndex gy,
 
     *px = static_cast<long>(gx * sx);
     *py = static_cast<long>((Map_Max_Y - gy) * sy);
-}
-
-// Overlay pixel -> campaign grid: the inverse of CampGridToOverlay, so a sample can ask the
-// campaign what kind of ground it is standing on.
-static void CampOverlayToGrid(long w, long h, long px, long py,
-                              GridIndex *gx, GridIndex *gy)
-{
-    extern short Map_Max_X;
-    extern short Map_Max_Y;
-
-    const float sx = (Map_Max_X > 0) ? (float)w / (float)Map_Max_X : 2.0f;
-    const float sy = (Map_Max_Y > 0) ? (float)h / (float)Map_Max_Y : 2.0f;
-
-    *gx = (GridIndex)(px / sx);
-    *gy = (GridIndex)(Map_Max_Y - (py / sy));
 }
 
 // How many power plants we will consider for the coverage map. A theater has a few dozen; the cap
@@ -2486,10 +2524,9 @@ void C_Map::ShowCampaignOverlay(long which)
     switch (which)
     {
     case CAMP_OVERLAY_POWER:
-        // Red, per request, and therefore red for BOTH things this layer draws: there is one blended
-        // palette, so the cell outlines and the damage fill share a hue and differ only in strength.
-        // Reads consistently enough -- faint red is where the grid divides, strong red is where it
-        // has stopped delivering. (The blackout version this replaces could not have red outlines.)
+        // One blended palette per overlay, so the links, the hubs and the damage all share a hue and
+        // differ only in strength: quiet red is a working feed, bright red is a plant that has
+        // stopped delivering and every consumer still tied to it.
         Map_->PreparePalette(RGB(255, 40, 40));
         break;
 
@@ -2517,18 +2554,24 @@ void C_Map::ShowCampaignOverlay(long which)
 
     if (which == CAMP_OVERLAY_POWER)
     {
-        // Which plant feeds a given spot is not a question we have to guess at: the sim decides it
-        // with FindNearestFriendlyPowerStation, which is plain nearest-neighbour over every
-        // non-hostile plant with no transmission network and no real range limit. The set of ground
-        // a plant supplies is therefore exactly its Voronoi cell, and we can reproduce it here.
+        // Draw the dependency itself -- a line from each thing that needs power to the plant that
+        // supplies it -- rather than the Voronoi cells this used to shade.
         //
-        // One honest approximation: the sim tests each producer's own relations, so a cell is really
-        // per-team, while this fills from all plants at once. Plants sit on their owner's side of
-        // the line, so the two agree nearly everywhere -- but near the FLOT, where friendly and
-        // hostile plants are comparably close, expect the boundary drawn here to be a little off.
+        // The cells were correct and unreadable. A Voronoi BOUNDARY lies midway between two plants,
+        // so the marks always appeared where there was no plant at all, which is the opposite of the
+        // question being asked. A link tells you the thing directly: every line leaving a plant is a
+        // factory, refinery, depot, port or army base whose output is scaled by that plant's status
+        // in ProduceSupplies, and the fan of lines IS the answer to "what does knocking this out
+        // cost me".
+        //
+        // And it is exact now, not an approximation. Iterating producers rather than pixels means
+        // each one can be matched using its OWN team relations -- the same GetTTRelations test
+        // FindNearestFriendlyPowerStation applies -- instead of the all-plants-at-once nearest
+        // neighbour the cell fill had to use. No more hand-waving near the FLOT.
         struct
         {
             long x, y, lost;
+            Team team;
         } plants[CAMP_MAX_PLANTS];
         int n = 0;
 
@@ -2554,103 +2597,69 @@ void C_Map::ShowCampaignOverlay(long which)
                     status = 100;
 
                 plants[n].lost = 100 - status;
+                plants[n].team = o->GetTeam();
                 n++;
             }
         }
 
-        // Sample on a coarse grid and fill the block: a tint does not need per-pixel Voronoi, and
-        // this keeps a full-map rebuild at a few million operations instead of a few hundred.
-        const long step = 4;
-        const long cols = (w + step - 1) / step;
-
-        // Which plant owns each sample on the current and previous row. Kept so the cell EDGES can be
-        // drawn: fill alone shows nothing at all until something is damaged, which made the layer look
-        // broken on day one -- you could not see which plant fed where, the one thing it is for. The
-        // outline is always there; the fill is the damage on top of it.
-        short *ownNow = new short[cols];
-        short *ownPrev = new short[cols];
-
-        if (ownNow and ownPrev)
+        if (n > 0)
         {
-            for (long c = 0; c < cols; c++)
-                ownPrev[c] = -1;
+            VuListIterator it(AllObjList);
 
-            for (long y = 0; y < h; y += step)
+            for (Objective o = GetFirstObjective(&it); o; o = GetNextObjective(&it))
             {
-                for (long x = 0, c = 0; x < w; x += step, c++)
+                const int t = o->GetType();
+
+                if (t not_eq TYPE_FACTORY and t not_eq TYPE_REFINERY and
+                    t not_eq TYPE_DEPOT and t not_eq TYPE_PORT and
+                    t not_eq TYPE_ARMYBASE)
+                    continue;
+
+                GridIndex gx, gy;
+                o->GetLocation(&gx, &gy);
+                long px, py;
+                CampGridToOverlay(w, h, gx, gy, &px, &py);
+
+                // Same choice the sim makes: nearest plant this objective's team is not hostile to.
+                const Team mine = o->GetTeam();
+                int best = -1;
+                long bd = 0;
+
+                for (int i = 0; i < n; i++)
                 {
-                    long best = -1, bd = 0;
-
-                    for (int i = 0; i < n; i++)
-                    {
-                        const long dx = x - plants[i].x;
-                        const long dy = y - plants[i].y;
-                        const long d = dx * dx + dy * dy;
-
-                        if (best < 0 or d < bd)
-                        {
-                            bd = d;
-                            best = i;
-                        }
-                    }
-
-                    ownNow[c] = (short)best;
-
-                    if (best < 0)
+                    if (GetTTRelations(plants[i].team, mine) > Neutral)
                         continue;
 
-                    // Nearest-neighbour tiles the whole plane, so without this the cells -- and the
-                    // boundaries between them -- run straight out over the sea, which is exactly where
-                    // a power grid does not go. Ask the campaign what the ground is and skip water.
-                    // Note this is why an INTACT plant appears to do nothing: it is supplying power
-                    // perfectly well, the fill is just damage, and undamaged is drawn as nothing.
+                    const long ddx = px - plants[i].x;
+                    const long ddy = py - plants[i].y;
+                    const long d = ddx * ddx + ddy * ddy;
+
+                    if (best < 0 or d < bd)
                     {
-                        GridIndex tx, ty;
-                        CampOverlayToGrid(w, h, x, y, &tx, &ty);
-
-                        if (GetCover(tx, ty) == Water)
-                            continue;
-                    }
-
-                    // A plant at full status leaves its ground clean; the fill is "production being
-                    // lost here", so what you see is the damage you have actually done.
-                    BYTE tint =
-                        static_cast<BYTE>(plants[best].lost * CAMP_TINT_MAX / 100);
-
-                    // Cell edge: a neighbouring sample answering to a different plant.
-                    const bool edge =
-                        (c > 0 and ownNow[c - 1] not_eq (short)best) or
-                        (ownPrev[c] >= 0 and ownPrev[c] not_eq (short)best);
-
-                    if (not tint and not edge)
-                        continue;
-
-                    // An edge with no damage behind it draws as a THIN line -- one pixel of the sample
-                    // block rather than the whole 4x4 -- so the grid divisions read as fine lines over
-                    // the terrain instead of a blocky stripe. A damaged cell fills its block normally.
-                    const long ymax = tint ? min(y + step, h) : min(y + 1, h);
-                    const long xmax = tint ? min(x + step, w) : min(x + 1, w);
-
-                    if (not tint)
-                        tint = 3;
-
-                    for (long by = y; by < ymax; by++)
-                    {
-                        BYTE *row = overlay + by * w;
-
-                        for (long bx = x; bx < xmax; bx++)
-                            row[bx] = tint;
+                        bd = d;
+                        best = i;
                     }
                 }
 
-                short *swap = ownPrev;
-                ownPrev = ownNow;
-                ownNow = swap;
-            }
-        }
+                if (best < 0)
+                    continue;
 
-        delete[] ownNow;
-        delete[] ownPrev;
+                // A healthy link is drawn, but quietly; a link whose plant is down is drawn loudly.
+                // The point is to read "this one has stopped feeding these" at a glance without the
+                // intact grid shouting at you on day one.
+                const BYTE tint =
+                    static_cast<BYTE>(4 + plants[best].lost * 5 / 100);
+                StampOverlayLine(overlay, w, h, px, py, plants[best].x,
+                                 plants[best].y, 2, tint);
+                StampOverlayDisc(overlay, w, h, px, py, 3, tint);
+            }
+
+            // The plants themselves, always at full strength so the hubs are findable even when
+            // every link into them is healthy and faint.
+            for (int i = 0; i < n; i++)
+                StampOverlayDisc(overlay, w, h, plants[i].x, plants[i].y, 7,
+                                 CAMP_TINT_MAX);
+        }
     }
     else if (which == CAMP_OVERLAY_SUPPLY)
     {
