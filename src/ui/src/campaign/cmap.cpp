@@ -2471,7 +2471,13 @@ void C_Map::ShowCampaignOverlay(long which)
     switch (which)
     {
     case CAMP_OVERLAY_POWER:
-        Map_->PreparePalette(RGB(255, 32, 32));
+        // Blend toward BLACK, so a cell whose plant is down goes dark and everything still supplied
+        // keeps the map's own brightness. That is the blackout reading -- lowlight the dead rather
+        // than highlight the living -- and it is the only way round that works here: the overlay can
+        // only tint TOWARD a colour, and FindNearestFriendlyPowerStation has no real range limit, so
+        // every point in the theater has a nearest plant. Tinting "everywhere that has power" would
+        // colour the entire map, permanently, and say nothing.
+        Map_->PreparePalette(RGB(0, 0, 0));
         break;
 
     case CAMP_OVERLAY_SUPPLY:
@@ -2591,8 +2597,10 @@ void C_Map::ShowCampaignOverlay(long which)
                         (c > 0 and ownNow[c - 1] not_eq (short)best) or
                         (ownPrev[c] >= 0 and ownPrev[c] not_eq (short)best);
 
-                    if (edge and tint < 3)
-                        tint = 3;
+                    // The cell outline, as a soft darkening rather than a hard line -- enough to
+                    // see which plant owns which ground while the theater is still intact.
+                    if (edge and tint < 2)
+                        tint = 2;
 
                     if (not tint)
                         continue;
