@@ -602,7 +602,14 @@ BOOL C_3dViewer::View3d(long ID)
             // and the 3D display
             rend3d_->StartDraw();
 
-            ((DrawableBSP *)obj->object)->Draw(rend3d_);
+            {
+                // Artscout - 2026: bracket the model draw so the texture diagnostic in
+                // CDXEngine::SelectTexture knows these surfaces are a menu viewer's.
+                extern bool g_bMenuViewerDrawing;
+                g_bMenuViewerDrawing = true;
+                ((DrawableBSP *)obj->object)->Draw(rend3d_);
+                g_bMenuViewerDrawing = false;
+            }
 
             // ok, now fill object and texture banks
             ObjectLOD::WaitUpdates();

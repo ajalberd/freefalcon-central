@@ -821,6 +821,8 @@ bool g_bCampMapFlipNS =
     true; // Artscout - 2026: flip the generated map north-south. Which way the terrain post grid runs against the map's north-up convention is the one thing that could not be settled by reading the code, so it is switchable -- if the generated map comes out mirrored, this is the line to change rather than a rebuild.
 bool g_bCampMapFlipEW =
     false; // Artscout - 2026: the same, east-west.
+bool g_bLogMenuTextures =
+    false; // Artscout - 2026: log what the texture lookup returns while a MENU 3D viewer is drawing (tactical reference, loadout, recon), to FFDebug.log. The models in those screens have never been textured under D3D12 and three rounds of reading the code did not settle why, so this asks the running game instead. Each line is one surface: the bank index the BSP asked for, the handle the bank returned, and the GPU texture behind it -- which of those three is zero says whether the geometry is not requesting a texture, the bank has not loaded it, or it was loaded but never uploaded. Capped per viewer open, and off by default because it sits in the per-surface path. "LogMenuTextures".
 bool g_bVrWindowsCursor =
     true; // Artscout - 2026: draw a copy of the LIVE Windows cursor (captured from the OS shape) instead of the theater's cursor bitmap. The OS never composites its cursor into the headset, so VR showed the crosshair; 0 = keep the old bitmap.
 bool g_bTerrainMeshCull =
@@ -1563,6 +1565,8 @@ static ConfigOption<bool> BoolOpts[] = {
     {"MFDHighContrast", &g_bMFDHighContrast},
     {"IFlyMirage", &g_bIFlyMirage},
     {"PowerGrid", &g_bPowerGrid},
+    {"LogMenuTextures",
+     &g_bLogMenuTextures}, // Artscout - 2026: diagnose untextured menu 3D models
     {"CampMapFromTerrain",
      &g_bCampMapFromTerrain}, // Artscout - 2026: build the campaign map from terrain posts
     {"CampMapFlipNS", &g_bCampMapFlipNS}, // Artscout - 2026: mirror it north-south

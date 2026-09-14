@@ -10,6 +10,7 @@
 #include "../include/realweather.h"
 #endif
 #include "dxengine.h"
+#include "../include/fflog.h" // Artscout - 2026: menu texture diagnostic
 #include "../include/objectlod.h"
 #include "dxtools.h"
 #include "../include/tod.h"
@@ -184,17 +185,45 @@ void CDXEngine::SetCamera(D3DXMATRIX *Settings, D3DVECTOR Pos, D3DXMATRIX *BB)
 }
 
 
+// Artscout - 2026: set by C_3dViewer while a menu 3D viewer is mid-draw, so the diagnostic below
+// can report on those surfaces without drowning in the sim's.
+bool g_bMenuViewerDrawing = false;
+
 VOID CDXEngine::SelectTexture(GLint texID)
 {
     // eventually select other textures for NVG/TV
 
     // Artscout - 2026 (x64): texID is a small bank index, but the handle/SRV it resolves to are
     // pointer-sized. Use a DWORD_PTR local so the pointer isn't truncated (GLint dropped the high 32 bits).
-    DWORD_PTR h = (texID not_eq -1) ? TheTextureBank.GetHandle(texID) :
-                                      (DWORD_PTR)ZeroTex;
+    const DWORD_PTR bankHandle = (texID not_eq -1) ?
+                                     TheTextureBank.GetHandle(texID) :
+                                     (DWORD_PTR)ZeroTex;
+    DWORD_PTR h = bankHandle;
 
     if (h)
         h = (DWORD_PTR)((TextureHandle *)h)->m_pDDS;
+
+    // Artscout - 2026: why menu 3D models render untextured. Three values, and whichever is zero
+    // names the stage that failed: texID -1 means the geometry never asked for a texture at all,
+    // a null bank handle means the bank has no entry loaded for it, and a null gpu means it was
+    // loaded but never made resident. Capped so a long look at one screen cannot fill the log.
+    {
+        extern bool g_bLogMenuTextures;
+        extern bool g_bMenuViewerDrawing;
+        static int s_logged = 0;
+
+        if (g_bLogMenuTextures and g_bMenuViewerDrawing and s_logged < 64)
+        {
+            s_logged++;
+            char buf[192];
+            sprintf(buf,
+                    "[MENUTEX] texID=%d bankHandle=%p gpu=%p useGpu=%d "
+                    "renderer=%p\n",
+                    (int)texID, (void *)bankHandle, (void *)h, (int)g_bUseGpu,
+                    (void *)g_pRenderer);
+            FFDebugLog(buf);
+        }
+    }
 
     if (g_bUseGpu) // PHASE 4/#DX12: m_pDDS holds the GPU texture handle (D3D11 SRV or D3D12Texture*)
     {
