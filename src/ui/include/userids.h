@@ -2041,6 +2041,11 @@ enum
     SETUP_ADVANCED_BRAKE_RIGHT = 70268,
     SETUP_ADVANCED_REVERSE_BRAKE_LEFT = 70269,
     SETUP_ADVANCED_REVERSE_BRAKE_RIGHT = 70270,
+    // Artscout - 2026: invert buttons for the two throttles. Unlike the ones above
+    // these have no control in the window resource, so AdvancedControlCB clones them
+    // at runtime from the left-brake invert button -- see CloneAxisReverseButton.
+    SETUP_ADVANCED_REVERSE_THROTTLE = 70421,
+    SETUP_ADVANCED_REVERSE_THROTTLE2 = 70422,
     SETUP_ADVANCED_BRAKE_RIGHT_VAL =
         500009, // #57 right toe brake value bar (differential braking)
     SETUP_ADVANCED_SAT_BRAKERIGHT =
