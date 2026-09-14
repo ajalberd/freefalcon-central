@@ -1924,6 +1924,40 @@ void SetMapSettings()
     }
 }
 
+// Artscout - 2026: show or hide the "Add Flight" / "Add Package" items on a campaign popup.
+//
+// Both are fully wired already -- HookupCampaignMenus points them at MenuAddUnitCB on every one of
+// these menus, and that hands the right-clicked object's VU_ID to tactical_add_flight /
+// tactical_add_package, which set it as new_package_target and ask GetMissionFromTarget for the
+// mission type that suits it. The dialog, the aircraft-type list, the TOT, tactical_make_package
+// filing the MissionRequest: all present, all used by the Tactical Engagement editor. The only
+// thing standing between campaign and the BMS-style "right-click a target, build a strike on it"
+// was SetupCampaignMenus hiding the items.
+//
+// Failure mode if the TE windows are not loaded in a campaign session is a no-op, not a crash:
+// tactical_add_flight and tactical_add_package both guard every use of their window on FindWindow
+// returning non-NULL, so at worst the item does nothing.
+static void CampaignMissionItems(C_PopupList *menu)
+{
+    extern bool g_bCampaignAddMission;
+
+    if (not menu)
+        return;
+
+    if (g_bCampaignAddMission)
+    {
+        menu->SetItemFlagBitOff(MID_ADD_FLIGHT, C_BIT_INVISIBLE);
+        menu->SetItemFlagBitOn(MID_ADD_FLIGHT, C_BIT_ENABLED);
+        menu->SetItemFlagBitOff(MID_ADD_PACKAGE, C_BIT_INVISIBLE);
+        menu->SetItemFlagBitOn(MID_ADD_PACKAGE, C_BIT_ENABLED);
+    }
+    else
+    {
+        menu->SetItemFlagBitOn(MID_ADD_FLIGHT, C_BIT_INVISIBLE);
+        menu->SetItemFlagBitOn(MID_ADD_PACKAGE, C_BIT_INVISIBLE);
+    }
+}
+
 void SetupCampaignMenus()
 {
     C_PopupList *menu;
@@ -1935,9 +1969,10 @@ void SetupCampaignMenus()
 
     if (menu)
     {
-        menu->SetItemFlagBitOn(MID_ADD_FLIGHT, C_BIT_INVISIBLE);
-        // sfr: add package
-        //menu->SetItemFlagBitOn(MID_ADD_PACKAGE,C_BIT_INVISIBLE);
+        // Add Package was already left visible here by a previous author ("sfr: add
+        // package"), so right-clicking empty map in campaign has offered it for some time.
+        // Add Flight was still hidden; put both on the same switch.
+        CampaignMissionItems(menu);
         menu->SetItemFlagBitOn(MID_ADD_BATTALION, C_BIT_INVISIBLE);
         menu->SetItemFlagBitOn(MID_SHOW_VC, C_BIT_INVISIBLE);
     }
@@ -1947,8 +1982,7 @@ void SetupCampaignMenus()
 
     if (menu)
     {
-        menu->SetItemFlagBitOn(MID_ADD_FLIGHT, C_BIT_INVISIBLE);
-        menu->SetItemFlagBitOn(MID_ADD_PACKAGE, C_BIT_INVISIBLE);
+        CampaignMissionItems(menu);
         menu->SetItemFlagBitOn(MID_ADD_BATTALION, C_BIT_INVISIBLE);
         menu->SetItemFlagBitOn(MID_ADD_VC, C_BIT_INVISIBLE);
         menu->SetItemFlagBitOn(MID_SET_OWNER, C_BIT_INVISIBLE);
@@ -1961,8 +1995,7 @@ void SetupCampaignMenus()
     if (menu)
     {
         menu->SetItemFlagBitOn(MID_DELETE_UNIT, C_BIT_INVISIBLE);
-        menu->SetItemFlagBitOn(MID_ADD_FLIGHT, C_BIT_INVISIBLE);
-        menu->SetItemFlagBitOn(MID_ADD_PACKAGE, C_BIT_INVISIBLE);
+        CampaignMissionItems(menu);
         menu->SetItemFlagBitOn(MID_ADD_BATTALION, C_BIT_INVISIBLE);
         menu->SetItemFlagBitOn(MID_ADD_VC, C_BIT_INVISIBLE);
         menu->SetItemFlagBitOn(MID_SET_OWNER, C_BIT_INVISIBLE);
@@ -1974,8 +2007,7 @@ void SetupCampaignMenus()
     if (menu)
     {
         menu->SetItemFlagBitOn(MID_DELETE_UNIT, C_BIT_INVISIBLE);
-        menu->SetItemFlagBitOn(MID_ADD_FLIGHT, C_BIT_INVISIBLE);
-        menu->SetItemFlagBitOn(MID_ADD_PACKAGE, C_BIT_INVISIBLE);
+        CampaignMissionItems(menu);
         menu->SetItemFlagBitOn(MID_ADD_BATTALION, C_BIT_INVISIBLE);
         menu->SetItemFlagBitOn(MID_ADD_VC, C_BIT_INVISIBLE);
         menu->SetItemFlagBitOn(MID_SET_OWNER, C_BIT_INVISIBLE);
@@ -1987,8 +2019,7 @@ void SetupCampaignMenus()
     if (menu)
     {
         menu->SetItemFlagBitOn(MID_DELETE_UNIT, C_BIT_INVISIBLE);
-        menu->SetItemFlagBitOn(MID_ADD_FLIGHT, C_BIT_INVISIBLE);
-        menu->SetItemFlagBitOn(MID_ADD_PACKAGE, C_BIT_INVISIBLE);
+        CampaignMissionItems(menu);
         menu->SetItemFlagBitOn(MID_ADD_VC, C_BIT_INVISIBLE);
         menu->SetItemFlagBitOn(MID_SET_OWNER, C_BIT_INVISIBLE);
     }

@@ -809,6 +809,8 @@ float g_fVrFpsQuadDist =
     1.4f; // Artscout - 2026: VR frame-rate quad, metres in front of the head. The quad is head-locked, so moving it nearer or further ALSO changes how big it looks and how much your eyes have to converge on it -- change the size knob instead unless you mean to move it in depth.
 float g_fVrFpsQuadSize =
     0.33f; // Artscout - 2026: VR frame-rate quad height in metres at the distance above, so really an angular size (0.33 m at 1.4 m subtends ~13 deg). Width follows from the texture aspect. Smaller reads as less intrusive in the headset but turns to mush in a downscaled capture, which is the one job the counter has.
+bool g_bCampaignAddMission =
+    true; // Artscout - 2026: offer "Add Flight" and "Add Package" when right-clicking a target in the CAMPAIGN, the way BMS does. None of the machinery is new -- tactical_add_flight / tactical_add_package take the right-clicked object's VU_ID, GetMissionFromTarget picks the mission type that suits that target, and tactical_make_package files the MissionRequest. SetupCampaignMenus simply hid the items outside the Tactical Engagement editor, and this un-hides them. The request is tagged REQF_TE_MISSION, so how well a hand-built package plays with a running ATO is the part that is NOT settled -- set 0 to put the items back in hiding if it misbehaves. "CampaignAddMission".
 bool g_bVrWindowsCursor =
     true; // Artscout - 2026: draw a copy of the LIVE Windows cursor (captured from the OS shape) instead of the theater's cursor bitmap. The OS never composites its cursor into the headset, so VR showed the crosshair; 0 = keep the old bitmap.
 bool g_bTerrainMeshCull =
@@ -1551,6 +1553,8 @@ static ConfigOption<bool> BoolOpts[] = {
     {"MFDHighContrast", &g_bMFDHighContrast},
     {"IFlyMirage", &g_bIFlyMirage},
     {"PowerGrid", &g_bPowerGrid},
+    {"CampaignAddMission",
+     &g_bCampaignAddMission}, // Artscout - 2026: right-click a target in campaign to build a flight/package
     {"ShowFpsOnStart",
      &g_bShowFpsOnStart}, // Artscout - 2026: frame-rate counter on from mission start
     {"UseMappedFiles", &g_bUseMappedFiles},
