@@ -823,6 +823,8 @@ bool g_bCampMapFlipEW =
     false; // Artscout - 2026: the same, east-west.
 bool g_bLogMenuTextures =
     false; // Artscout - 2026: log what the texture lookup returns while a MENU 3D viewer is drawing (tactical reference, loadout, recon), to FFDebug.log. The models in those screens have never been textured under D3D12 and three rounds of reading the code did not settle why, so this asks the running game instead. Each line is one surface: the bank index the BSP asked for, the handle the bank returned, and the GPU texture behind it -- which of those three is zero says whether the geometry is not requesting a texture, the bank has not loaded it, or it was loaded but never uploaded. Capped per viewer open, and off by default because it sits in the per-surface path. "LogMenuTextures".
+float g_fMenuModelDetail =
+    4.0f; // Artscout - 2026: object detail for the MENU 3D model viewer -- tactical reference and the loadout aircraft. It used to inherit PlayerOptions.ObjectDetailLevel(), which is a performance compromise for a sky full of aircraft and makes no sense for one static model on a menu. Higher is finer: Render3D::SetObjectDetail scales the LOD bias, StateStackClass halves it into LODBiasInv, and LODRange = range * LODBiasInv -- so a bigger number makes the model read as CLOSER and the BSP picks a finer LOD. 1.0 restores the old behaviour of following the sim setting; below 1 will make it coarser. Recon is untouched -- that is a whole streamed scene, not one model. "MenuModelDetail".
 bool g_bVrWindowsCursor =
     true; // Artscout - 2026: draw a copy of the LIVE Windows cursor (captured from the OS shape) instead of the theater's cursor bitmap. The OS never composites its cursor into the headset, so VR showed the crosshair; 0 = keep the old bitmap.
 bool g_bTerrainMeshCull =
@@ -2062,6 +2064,8 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fVrFpsQuadDist}, // Artscout - 2026: VR fps quad, m in front of the head
     {"VrFpsQuadSize",
      &g_fVrFpsQuadSize}, // Artscout - 2026: VR fps quad height in m at that distance
+    {"MenuModelDetail",
+     &g_fMenuModelDetail}, // Artscout - 2026: LOD detail for the tacref/loadout model viewer
     {"TerrainCullPad",
      &g_fTerrainCullPad}, // Artscout - 2026: #78 -- terrain cull frustum widened by this fraction of FOV (head-turn margin)
     {"VrSubQuadX",

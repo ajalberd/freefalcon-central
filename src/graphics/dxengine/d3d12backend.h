@@ -137,7 +137,11 @@ public:
     // #DX12 п.3 RTT: bind an external render-target texture (D3D12Texture*, from the texture manager) as the
     // current target -- displays draw their symbology into it. Transitions it to RENDER_TARGET. UnbindSceneRtt
     // transitions it back to PIXEL_SHADER_RESOURCE (sampled by DrawRttQuad) and rebinds the back buffer.
-    void BindSceneRtt(void* d3d12TexHandle, int w, int h, bool clear);
+    // Artscout - 2026: wantDepth gives the RTT a depth-stencil of its own, for callers that
+    // draw a 3D SCENE into it rather than 2D symbology. Default false keeps every existing
+    // caller -- the MFD/HUD/RWR panels -- on the depth-less path they were written for.
+    void BindSceneRtt(void* d3d12TexHandle, int w, int h, bool clear,
+                      bool wantDepth = false);
     void UnbindSceneRtt(void* d3d12TexHandle);
     void
     BindBackBufferRTV(); // rebind the swap-chain back buffer RTV + depth + full viewport (no clear)
@@ -265,6 +269,9 @@ private:
     bool
     CreateDepthBuffer(); // Artscout - 2026: #DX12 Phase 3 -- D32 depth-stencil for the scene
     void ReleaseDepthBuffer();
+    // Artscout - 2026: a separate depth-stencil for off-screen RTTs. The scene one is sized
+    // to the back buffer and an RTT is not, and D3D12 wants the bound targets to agree.
+    bool EnsureRttDepth(int w, int h);
     void WaitForGpu(); // block until the GPU has finished ALL submitted work
     // Artscout - 2026: if a screenshot was requested (D3D12_RequestScreenCapture), copy the
     // finished back buffer out and write it. Called from Present, the only point where the
@@ -317,6 +324,10 @@ private:
     ID3D12DescriptorHeap* m_pDsvHeap; // Artscout - 2026: #DX12 Phase 3 -- 1 DSV
     ID3D12Resource*
         m_pDepthTex; // Artscout - 2026: #DX12 Phase 3 -- D32 depth-stencil
+    struct ID3D12Resource*
+        m_pRttDepthTex; // Artscout - 2026: depth-stencil for off-screen RTT scenes
+    struct ID3D12DescriptorHeap* m_pRttDsvHeap;
+    int m_rttDepthW, m_rttDepthH;
     unsigned
         m_renderEpoch; // #DX12 п.5 -- bumped per BeginFrame / BeginEyeFrame (ring reset key)
     ID3D12Resource*

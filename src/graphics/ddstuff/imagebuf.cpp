@@ -701,7 +701,8 @@ void ImageBuffer::BindD3D12RenderTarget(bool clear)
     // mismatch + VR xrEndFrame failure (black headset). Off-frame RTT binds are simply skipped.
     if (!g_pD3D12Backend->IsRecording())
         return;
-    g_pD3D12Backend->BindSceneRtt(m_pD3D12RTT, width, height, clear);
+    g_pD3D12Backend->BindSceneRtt(m_pD3D12RTT, width, height, clear,
+                                  m_bRttWantsDepth);
     extern IRenderer *g_pRenderer;
     if (g_pRenderer)
         g_pRenderer->SetViewportSize(width, height);

@@ -81,6 +81,7 @@ D3D12Backend::D3D12Backend()
     : m_hWnd(0), m_nWidth(0), m_nHeight(0), m_bFullscreen(false),
       m_bRecording(false), m_pDevice(0), m_pQueue(0), m_pSwapChain(0),
       m_pRtvHeap(0), m_rtvDescSize(0), m_pDsvHeap(0), m_pDepthTex(0),
+      m_pRttDepthTex(0), m_pRttDsvHeap(0), m_rttDepthW(0), m_rttDepthH(0),
       m_renderEpoch(0), m_pEyeDepthTex(0), m_pEyeDsvHeap(0), m_eyeDepthW(0),
       m_eyeDepthH(0), m_eyeDepthCur(0), m_viColorCur(0), m_viTier(-1),
       m_pList1(0), m_pMenuRtt(0), m_pMenuDepthTex(0), m_pMenuDsvHeap(0),
@@ -2773,7 +2774,89 @@ void D3D12Backend::EndEyeFrame(void* eyeImg)
 }
 
 // #DX12 п.3 RTT: bind an external render-target texture as the current target (displays draw into it).
-void D3D12Backend::BindSceneRtt(void* handle, int w, int h, bool clear)
+// Artscout - 2026: depth-stencil for an off-screen RTT that holds a 3D SCENE.
+//
+// The scene depth (CreateDepthBuffer above) is sized to the back buffer, and an RTT is not -- the
+// menu model viewer's is the UI surface size. D3D12 expects the bound render target and
+// depth-stencil to agree, so the RTT gets its own, resized on demand. One buffer serves whichever
+// RTT is current, because only one is ever bound at a time.
+//
+// D32_FLOAT_S8X24 and a 0.0 clear to match the scene buffer: this is a reversed-Z pipeline, so 0 is
+// the FAR plane and the comparison is GREATER_EQUAL.
+bool D3D12Backend::EnsureRttDepth(int w, int h)
+{
+    if (!m_pDevice || w < 1 || h < 1)
+        return false;
+
+    if (m_pRttDepthTex && m_rttDepthW == w && m_rttDepthH == h)
+        return true;
+
+    if (m_pRttDepthTex)
+    {
+        WaitForGpu(); // it may still be referenced by frames in flight
+        D12_RELEASE(m_pRttDepthTex);
+    }
+
+    if (!m_pRttDsvHeap)
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC hd;
+        ZeroMemory(&hd, sizeof(hd));
+        hd.NumDescriptors = 1;
+        hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+        hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+
+        if (FAILED(m_pDevice->CreateDescriptorHeap(
+                &hd, IID_PPV_ARGS(&m_pRttDsvHeap))))
+        {
+            D12Log("[D3D12] RTT DSV heap failed\n");
+            return false;
+        }
+    }
+
+    D3D12_HEAP_PROPERTIES hp;
+    ZeroMemory(&hp, sizeof(hp));
+    hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC rd;
+    ZeroMemory(&rd, sizeof(rd));
+    rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    rd.Width = (UINT64)w;
+    rd.Height = (UINT)h;
+    rd.DepthOrArraySize = 1;
+    rd.MipLevels = 1;
+    rd.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    rd.SampleDesc.Count = 1;
+    rd.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+    D3D12_CLEAR_VALUE cv;
+    ZeroMemory(&cv, sizeof(cv));
+    cv.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    cv.DepthStencil.Depth = 0.0f;
+    cv.DepthStencil.Stencil = 0;
+
+    if (FAILED(m_pDevice->CreateCommittedResource(
+            &hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            &cv, IID_PPV_ARGS(&m_pRttDepthTex))))
+    {
+        D12Log("[D3D12] RTT depth create failed\n");
+        m_pRttDepthTex = 0;
+        return false;
+    }
+
+    D3D12_DEPTH_STENCIL_VIEW_DESC dv;
+    ZeroMemory(&dv, sizeof(dv));
+    dv.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    dv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    m_pDevice->CreateDepthStencilView(
+        m_pRttDepthTex, &dv,
+        m_pRttDsvHeap->GetCPUDescriptorHandleForHeapStart());
+    m_rttDepthW = w;
+    m_rttDepthH = h;
+    return true;
+}
+
+void D3D12Backend::BindSceneRtt(void* handle, int w, int h, bool clear,
+                                bool wantDepth)
 {
     EnsureFrameStarted();
     if (!m_pList || !m_bRecording || !handle)
@@ -2801,10 +2884,36 @@ void D3D12Backend::BindSceneRtt(void* handle, int w, int h, bool clear)
             .ptr; // #DX12: the RTT atlas is now the current RTV (ClearCurrentRTV clears IT)
     m_curSampleCount =
         1; // the RTT atlas is single-sample -> single-sample PSOs
-    m_pList->OMSetRenderTargets(1, &rtv, FALSE, NULL); // 2D displays: no depth
-    if (g_pD3D12Renderer)
-        g_pD3D12Renderer->SetDepthTargetBound(
-            false); // no DSV -> force depth-off PSOs (#615)
+    // Artscout - 2026: a 3D scene in an RTT needs depth, and this path had none -- it was written
+    // for the 2D display panels, which do not. Without a DSV the renderer is forced onto depth-off
+    // PSOs, so every triangle lands in submission order and far surfaces paint over near ones. That
+    // is why the menu model viewer's aircraft looked see-through: the engines and the far side of
+    // the fuselage drawing straight through the near skin, which reads as a wireframe.
+    const bool rttDepth =
+        wantDepth &&
+        EnsureRttDepth(w > 0 ? w : t->width, h > 0 ? h : t->height);
+
+    if (rttDepth)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv =
+            m_pRttDsvHeap->GetCPUDescriptorHandleForHeapStart();
+        m_pList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+        // Reversed-Z: 0 is the far plane, so that is what a cleared buffer holds.
+        m_pList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0,
+                                       NULL);
+
+        if (g_pD3D12Renderer)
+            g_pD3D12Renderer->SetDepthTargetBound(true);
+    }
+    else
+    {
+        m_pList->OMSetRenderTargets(1, &rtv, FALSE,
+                                    NULL); // 2D displays: no depth
+
+        if (g_pD3D12Renderer)
+            g_pD3D12Renderer->SetDepthTargetBound(
+                false); // no DSV -> force depth-off PSOs (#615)
+    }
     if (w < 1)
         w = t->width;
     if (h < 1)
@@ -3221,6 +3330,8 @@ void D3D12Backend::Release()
     m_pSceneDepthRes = 0;
     m_sceneDepthReadable = false;
     D12_RELEASE(m_pDsvHeap);
+    D12_RELEASE(m_pRttDepthTex); // Artscout - 2026: off-screen RTT depth
+    D12_RELEASE(m_pRttDsvHeap);
     D12_RELEASE(m_pRtvHeap);
     D12_RELEASE(m_pFence);
     D12_RELEASE(m_pSwapChain);

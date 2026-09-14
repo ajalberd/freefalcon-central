@@ -98,6 +98,11 @@ BOOL C_3dViewer::Init3d(float ViewAngle)
             m_pRTT = new ImageBuffer;
             m_pRTT->Setup(gMainHandler->GetFront()->GetDisplayDevice(), rw, rh,
                           SystemMem, None);
+            // Artscout - 2026: this RTT holds a 3D MODEL, so it needs depth. The RTT bind
+            // path was written for the 2D display panels and binds no DSV, which forces
+            // depth-off PSOs -- every triangle in submission order, far surfaces over near
+            // ones. That is what made the aircraft look see-through.
+            m_pRTT->SetRttWantsDepth(true);
             target = m_pRTT;
         }
 
@@ -114,7 +119,19 @@ BOOL C_3dViewer::Init3d(float ViewAngle)
 
     // rend3d_->SetHazeMode(PlayerOptions.HazingOn());
     // rend3d_->SetFilteringMode( PlayerOptions.FilteringOn() );
-    rend3d_->SetObjectDetail(PlayerOptions.ObjectDetailLevel());
+    // Artscout - 2026: this is one static model on a menu, not a sky full of them, so it has
+    // no reason to inherit the sim's object-detail compromise. Higher = finer (the scaler
+    // becomes a LOD bias, and LODRange = range * 1/bias, so raising it makes the model read
+    // as nearer and the BSP picks a finer LOD). MenuModelDetail 1.0 restores the old
+    // behaviour of following PlayerOptions.ObjectDetailLevel().
+    {
+        extern float g_fMenuModelDetail;
+        const float d = (g_fMenuModelDetail > 0.0f) ?
+                            g_fMenuModelDetail *
+                                PlayerOptions.ObjectDetailLevel() :
+                            PlayerOptions.ObjectDetailLevel();
+        rend3d_->SetObjectDetail(d);
+    }
     // rend3d_->SetAlphaMode(PlayerOptions.AlphaOn());
     rend3d_->SetObjectTextureState(TRUE); //PlayerOptions.ObjectTexturesOn());
 
