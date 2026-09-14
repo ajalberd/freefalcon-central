@@ -2890,9 +2890,49 @@ void C_Map::ShowCampaignOverlay(long which)
     }
     else if (which == CAMP_OVERLAY_SUPPLY)
     {
-        // What SendSupply left behind on its way through. Bridges get a bigger mark than road
-        // segments on purpose: a bridge carrying heavy traffic with no parallel route is the
-        // interdiction target the campaign has been quietly nominating all along.
+        // What SendSupply left behind on its way through -- drawn as the NETWORK it is, not as a
+        // scatter of points.
+        //
+        // Two things were making it read as unconnected circles. Objectives sit kilometres apart,
+        // so discs were never going to merge into a route however large; and the tint was scaled
+        // against the uchar's 255 ceiling while real road traffic is single digits, so every
+        // conduit came out at the faintest step and only the sources looked like anything.
+        //
+        // Both fixed here. Objectives carry their own links -- GetNeighbor is the same graph
+        // SendSupply walks when it pathfinds -- so an edge between two nodes that both carry
+        // traffic IS a stretch of supply route, and drawing it gives the arteries. And the tint
+        // scales against the busiest thing actually on the map, conduits and sources ranked
+        // separately so the roads are not crushed flat by a depot two orders of magnitude busier.
+        struct
+        {
+            long maxNode, maxSrc;
+        } peak = {1, 1};
+
+        {
+            VuListIterator it(AllObjList);
+
+            for (Objective o = GetFirstObjective(&it); o; o = GetNextObjective(&it))
+            {
+                const int t = o->GetType();
+                const bool node = (t == TYPE_ROAD or t == TYPE_INTERSECT or
+                                   t == TYPE_RAILROAD or t == TYPE_BRIDGE);
+                const bool src = (t == TYPE_CITY or t == TYPE_PORT or
+                                  t == TYPE_DEPOT or t == TYPE_ARMYBASE);
+
+                if (not node and not src)
+                    continue;
+
+                const long traffic =
+                    o->GetObjectiveSupply() + o->GetObjectiveFuel();
+
+                if (node and traffic > peak.maxNode)
+                    peak.maxNode = traffic;
+
+                if (src and traffic > peak.maxSrc)
+                    peak.maxSrc = traffic;
+            }
+        }
+
         VuListIterator it(AllObjList);
 
         for (Objective o = GetFirstObjective(&it); o; o = GetNextObjective(&it))
@@ -2901,9 +2941,8 @@ void C_Map::ShowCampaignOverlay(long which)
 
             // The road network carries the flow, but it does not originate it. SendSupply calls
             // AddSupply on the SOURCE before it walks the path, so the depots, ports, army bases
-            // and cities that IsSupplySource names accumulate traffic too -- and leaving them out
-            // is why a depot sat next to a marked bridge with nothing on it, looking broken when it
-            // was simply not being asked. They are where the chain STARTS.
+            // and cities that IsSupplySource names accumulate traffic too. They are where the
+            // chain starts.
             const bool isNode = (t == TYPE_ROAD or t == TYPE_INTERSECT or
                                  t == TYPE_RAILROAD or t == TYPE_BRIDGE);
             const bool isSource = (t == TYPE_CITY or t == TYPE_PORT or
@@ -2912,26 +2951,62 @@ void C_Map::ShowCampaignOverlay(long which)
             if (not isNode and not isSource)
                 continue;
 
-            long traffic = o->GetObjectiveSupply() + o->GetObjectiveFuel();
+            const long traffic = o->GetObjectiveSupply() + o->GetObjectiveFuel();
 
             if (traffic < 1)
                 continue;
-
-            // Both fields are uchar and saturate at 255, so this is a heat scale, not a tonnage.
-            if (traffic > 255)
-                traffic = 255;
 
             GridIndex gx, gy;
             o->GetLocation(&gx, &gy);
             long px, py;
             CampGridToOverlay(w, h, gx, gy, &px, &py);
-            const BYTE tint =
-                static_cast<BYTE>(1 + traffic * (CAMP_TINT_MAX - 1) / 255);
-            // Road objectives sit close together along a route, so the marks are sized to
-            // MERGE into a continuous artery rather than read as a row of unrelated dots --
-            // the flow really is a chain (SendSupply walks the path node by node) and it
-            // should look like one. Bridges stay larger again: single points of failure. And
-            // sources larger still, being the head of everything downstream of them.
+
+            const long peakFor = isSource ? peak.maxSrc : peak.maxNode;
+            long step = traffic * (CAMP_TINT_MAX - 1) / (peakFor ? peakFor : 1);
+
+            if (step > CAMP_TINT_MAX - 1)
+                step = CAMP_TINT_MAX - 1;
+
+            const BYTE tint = static_cast<BYTE>(1 + step);
+
+            // The edges. A link between two objectives that BOTH carry traffic is a stretch of
+            // supply route, so draw it -- that is what turns a scatter of marks into arteries.
+            // Tinted by the weaker end, because a route is only carrying what its thinnest
+            // stretch carries. Each edge gets drawn from both ends; the disc stamper keeps the
+            // brightest value, so doing it twice costs a little time and changes nothing.
+            const int nLinks = o->NumLinks();
+
+            for (int li = 0; li < nLinks; li++)
+            {
+                Objective nb = o->GetNeighbor(li);
+
+                if (not nb)
+                    continue;
+
+                const long ntraffic =
+                    nb->GetObjectiveSupply() + nb->GetObjectiveFuel();
+
+                if (ntraffic < 1)
+                    continue;
+
+                GridIndex nx, ny;
+                nb->GetLocation(&nx, &ny);
+                long npx, npy;
+                CampGridToOverlay(w, h, nx, ny, &npx, &npy);
+
+                const long weaker = (ntraffic < traffic) ? ntraffic : traffic;
+                long estep =
+                    weaker * (CAMP_TINT_MAX - 1) / (peak.maxNode ? peak.maxNode : 1);
+
+                if (estep > CAMP_TINT_MAX - 1)
+                    estep = CAMP_TINT_MAX - 1;
+
+                StampOverlayLine(overlay, w, h, px, py, npx, npy, 3,
+                                 static_cast<BYTE>(1 + estep));
+            }
+
+            // Bridges larger than plain road, being single points of failure; sources larger
+            // still, since everything downstream of one depends on it.
             const long radius = isSource ? 12 : ((t == TYPE_BRIDGE) ? 9 : 6);
             StampOverlayDisc(overlay, w, h, px, py, radius, tint);
         }
