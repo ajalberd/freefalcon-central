@@ -799,6 +799,16 @@ int g_nTerrainRingRadius =
     0; // Artscout - 2026: #78 -- force every LOD ring to this radius in posts instead of tracking GetAvailablePostRange(), which shrinks whenever a terrain block is still streaming and grows back when it lands, so the rings BREATHE frame to frame. 0 = auto (stock). The bisect case for "is the stutter the rings resizing?"; capped by the clipmap window either way.
 int g_nBillboardMode =
     1; // Artscout - 2026: how the 2D engine orients billboard quads (clouds, smoke, particle sprites). The stock basis is ONE matrix per frame -- RotY(pitch) * RotZ(yaw) from Euler angles pulled back out of the camera matrix -- so every sprite in the scene is aimed at the middle of the view rather than at you, and the Euler pair is singular looking straight up, where the extracted yaw swings wildly and spins every sprite with it. Both errors scale with field of view, which is why they read as a 90s sprite wobble in a headset and as nothing much on a monitor. 1 = per-quad basis (aimed down the ray to each quad, so head rotation cannot enter it) for callers that ask -- today the cumulus clouds. 2 = per-quad for EVERY billboard, which also covers smoke trails and particle effects but can kink a smoke ribbon drawn close to the camera, since adjacent segments no longer share one basis. 0 = stock.
+bool g_bShowFpsOnStart =
+    false; // Artscout - 2026: start every mission with the frame-rate counter already up, instead of reaching for the toggle key each time. It is the same counter that key drives (ShowFrameRate), so the key still turns it off again mid-flight; this only sets where it starts. In VR it draws as its own head-locked composition layer, placed by the four knobs below. "ShowFpsOnStart".
+float g_fVrFpsQuadX =
+    0.0f; // Artscout - 2026: VR frame-rate quad, metres right of straight ahead.
+float g_fVrFpsQuadY =
+    0.30f; // Artscout - 2026: VR frame-rate quad, metres above straight ahead.
+float g_fVrFpsQuadDist =
+    1.4f; // Artscout - 2026: VR frame-rate quad, metres in front of the head. The quad is head-locked, so moving it nearer or further ALSO changes how big it looks and how much your eyes have to converge on it -- change the size knob instead unless you mean to move it in depth.
+float g_fVrFpsQuadSize =
+    0.33f; // Artscout - 2026: VR frame-rate quad height in metres at the distance above, so really an angular size (0.33 m at 1.4 m subtends ~13 deg). Width follows from the texture aspect. Smaller reads as less intrusive in the headset but turns to mush in a downscaled capture, which is the one job the counter has.
 bool g_bVrWindowsCursor =
     true; // Artscout - 2026: draw a copy of the LIVE Windows cursor (captured from the OS shape) instead of the theater's cursor bitmap. The OS never composites its cursor into the headset, so VR showed the crosshair; 0 = keep the old bitmap.
 bool g_bTerrainMeshCull =
@@ -1541,6 +1551,8 @@ static ConfigOption<bool> BoolOpts[] = {
     {"MFDHighContrast", &g_bMFDHighContrast},
     {"IFlyMirage", &g_bIFlyMirage},
     {"PowerGrid", &g_bPowerGrid},
+    {"ShowFpsOnStart",
+     &g_bShowFpsOnStart}, // Artscout - 2026: frame-rate counter on from mission start
     {"UseMappedFiles", &g_bUseMappedFiles},
     // { "UserRadioVoice", &g_bUserRadioVoice },
     {"NewFm", &g_bNewFm},
@@ -2018,6 +2030,12 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fSubtitleLineSpacing}, // Artscout - 2026: line pitch, multiples of the font height
     {"SubtitleScale",
      &g_fSubtitleScale}, // Artscout - 2026: subtitle glyph scale, 1.0 = the font's native size
+    {"VrFpsQuadX", &g_fVrFpsQuadX}, // Artscout - 2026: VR fps quad, m right
+    {"VrFpsQuadY", &g_fVrFpsQuadY}, // Artscout - 2026: VR fps quad, m up
+    {"VrFpsQuadDist",
+     &g_fVrFpsQuadDist}, // Artscout - 2026: VR fps quad, m in front of the head
+    {"VrFpsQuadSize",
+     &g_fVrFpsQuadSize}, // Artscout - 2026: VR fps quad height in m at that distance
     {"TerrainCullPad",
      &g_fTerrainCullPad}, // Artscout - 2026: #78 -- terrain cull frustum widened by this fraction of FOV (head-turn margin)
     {"VrSubQuadX",

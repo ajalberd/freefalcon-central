@@ -4551,8 +4551,16 @@ bool OpenXRBackend::SubmitFpsQuad(void* tex, int w, int h)
     // capture is downscaled -- and a counter you cannot read off the recording cannot answer "what did that cost",
     // which is the only reason it exists. Distance stays put deliberately: pulling the quad closer would resize it
     // too, but it would also change the eyes' convergence on a panel you look at while flying.
-    const float heightM = 0.33f;
-    const float distM = 1.4f; // close, head-locked
+    // Artscout - 2026: placement from config now. Defaults are the values that were hardcoded here,
+    // so an untouched FFViper.cfg puts the quad exactly where it has always been; the knobs exist
+    // because where a counter belongs depends on the headset's usable FOV and on what you are trying
+    // to read at the same time. Guard the size and distance -- a zero or negative quad is invalid to
+    // submit, and a runtime is within its rights to fail the whole frame over it.
+    extern float g_fVrFpsQuadX, g_fVrFpsQuadY, g_fVrFpsQuadDist,
+        g_fVrFpsQuadSize;
+    const float heightM = (g_fVrFpsQuadSize > 0.01f) ? g_fVrFpsQuadSize : 0.33f;
+    const float distM =
+        (g_fVrFpsQuadDist > 0.10f) ? g_fVrFpsQuadDist : 1.4f; // head-locked
     XrCompositionLayerQuad& q = p->fpsQuad;
     memset(&q, 0, sizeof(q));
     q.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
@@ -4565,7 +4573,8 @@ bool OpenXRBackend::SubmitFpsQuad(void* tex, int w, int h)
     q.subImage.imageRect.extent.height = h;
     q.subImage.imageArrayIndex = 0;
     q.pose.orientation.w = 1.0f;
-    q.pose.position.y = 0.30f; // upper area of the view
+    q.pose.position.x = g_fVrFpsQuadX;
+    q.pose.position.y = g_fVrFpsQuadY; // upper area of the view by default
     q.pose.position.z = -distM;
     q.size.width = heightM * aspect;
     q.size.height = heightM;
