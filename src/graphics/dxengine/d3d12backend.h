@@ -266,6 +266,10 @@ private:
     CreateDepthBuffer(); // Artscout - 2026: #DX12 Phase 3 -- D32 depth-stencil for the scene
     void ReleaseDepthBuffer();
     void WaitForGpu(); // block until the GPU has finished ALL submitted work
+    // Artscout - 2026: if a screenshot was requested (D3D12_RequestScreenCapture), copy the
+    // finished back buffer out and write it. Called from Present, the only point where the
+    // frame is complete and the buffer's state is known. See d3d12backend.cpp.
+    void ServiceScreenCapture();
     void
     MoveToNextFrame(); // signal this frame's allocator fence, then advance to the next back buffer
 

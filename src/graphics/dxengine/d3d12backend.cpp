@@ -614,6 +614,235 @@ static void PumpD3D12Messages(ID3D12Device* dev)
     iq->Release();
 }
 
+// Artscout - 2026: a screenshot that actually contains the rendered frame.
+//
+// OTWDriverClass::TakeScreenShot goes to ImageBuffer::BackBufferToRAW, which Lock()s the image
+// buffer and walks it -- and under the GPU backends Lock() returns m_pSysMem, the CPU-side RGB565
+// surface. The 3D scene is rendered on the GPU and never lands there, so what that path writes is
+// whatever 2D happens to be in system memory, not the picture on screen. In a VR session it is
+// worse than useless: the eye images never touch that buffer at all.
+//
+// Read the swap-chain back buffer instead, which is also the VR mirror -- with XrMirror on it holds
+// the eye the compositor was handed, so this is a VR screenshot without a separate capture path.
+//
+// Deliberately deferred to Present rather than run where the key is pressed: only here is the frame
+// finished, the command list submitted, and the back buffer's identity and state known (PRESENT,
+// from the barrier above). Capturing from the key handler would race whatever the frame was doing.
+//
+// One-shot allocator and list, then a full WaitForGpu. That is a hard stall of a few milliseconds
+// and completely wrong for anything per-frame -- fine for a keypress, and it keeps the capture from
+// touching the frame ring or the backend's own fence bookkeeping.
+static char s_capturePath[MAX_PATH] = {0};
+
+bool D3D12_RequestScreenCapture(const char* path)
+{
+    if (!path || !*path)
+        return false;
+
+    if (s_capturePath[0])
+        return false; // one already queued for the next Present
+
+    strncpy(s_capturePath, path, MAX_PATH - 1);
+    s_capturePath[MAX_PATH - 1] = 0;
+    return true;
+}
+
+static void WriteBmp24(const char* path, const BYTE* src, unsigned rowPitch,
+                       int w, int h, bool bgra)
+{
+    HANDLE f = CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL, NULL);
+
+    if (f == INVALID_HANDLE_VALUE)
+        return;
+
+    // BMP scanlines are 4-byte aligned and stored bottom-up.
+    const unsigned stride = (unsigned)((w * 3 + 3) & ~3);
+    BITMAPFILEHEADER bfh;
+    BITMAPINFOHEADER bih;
+    ZeroMemory(&bfh, sizeof(bfh));
+    ZeroMemory(&bih, sizeof(bih));
+    bih.biSize = sizeof(bih);
+    bih.biWidth = w;
+    bih.biHeight = h;
+    bih.biPlanes = 1;
+    bih.biBitCount = 24;
+    bih.biCompression = BI_RGB;
+    bih.biSizeImage = stride * h;
+    bfh.bfType = 0x4d42;
+    bfh.bfOffBits = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
+    bfh.bfSize = bfh.bfOffBits + bih.biSizeImage;
+
+    DWORD wrote = 0;
+    WriteFile(f, &bfh, sizeof(bfh), &wrote, NULL);
+    WriteFile(f, &bih, sizeof(bih), &wrote, NULL);
+
+    BYTE* row = new BYTE[stride];
+
+    if (row)
+    {
+        ZeroMemory(row, stride);
+
+        for (int y = h - 1; y >= 0; --y)
+        {
+            const BYTE* s = src + (size_t)y * rowPitch;
+            BYTE* d = row;
+
+            for (int x = 0; x < w; ++x)
+            {
+                // BMP wants BGR. A BGRA source is already in that order; an RGBA one is reversed.
+                if (bgra)
+                {
+                    d[0] = s[0];
+                    d[1] = s[1];
+                    d[2] = s[2];
+                }
+                else
+                {
+                    d[0] = s[2];
+                    d[1] = s[1];
+                    d[2] = s[0];
+                }
+
+                d += 3;
+                s += 4;
+            }
+
+            WriteFile(f, row, stride, &wrote, NULL);
+        }
+
+        delete[] row;
+    }
+
+    CloseHandle(f);
+}
+
+void D3D12Backend::ServiceScreenCapture()
+{
+    if (!s_capturePath[0] || !m_pDevice || !m_pQueue)
+        return;
+
+    char path[MAX_PATH];
+    strncpy(path, s_capturePath, MAX_PATH - 1);
+    path[MAX_PATH - 1] = 0;
+    s_capturePath[0] = 0; // consume it whatever happens below, so a failure cannot wedge the key
+
+    ID3D12Resource* bb = m_pBackBuffer[m_frameIndex];
+
+    if (!bb)
+        return;
+
+    D3D12_RESOURCE_DESC bd = bb->GetDesc();
+    const int w = (int)bd.Width;
+    const int h = (int)bd.Height;
+
+    if (w < 1 || h < 1)
+        return;
+
+    // The two formats a swap chain is realistically created with here. Anything else (HDR10, a
+    // 16-bit float chain) would need its own conversion, so decline rather than write garbage.
+    bool bgra = false;
+
+    if (bd.Format == DXGI_FORMAT_B8G8R8A8_UNORM ||
+        bd.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
+        bgra = true;
+    else if (bd.Format != DXGI_FORMAT_R8G8B8A8_UNORM &&
+             bd.Format != DXGI_FORMAT_R8G8B8A8_UNORM_SRGB)
+        return;
+
+    const unsigned rowPitch = (unsigned)(((unsigned)w * 4u + 255u) & ~255u);
+
+    ID3D12Resource* rb = 0;
+    D3D12_HEAP_PROPERTIES hp;
+    ZeroMemory(&hp, sizeof(hp));
+    hp.Type = D3D12_HEAP_TYPE_READBACK;
+    D3D12_RESOURCE_DESC rd;
+    ZeroMemory(&rd, sizeof(rd));
+    rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    rd.Width = (UINT64)rowPitch * (UINT64)h;
+    rd.Height = 1;
+    rd.DepthOrArraySize = 1;
+    rd.MipLevels = 1;
+    rd.Format = DXGI_FORMAT_UNKNOWN;
+    rd.SampleDesc.Count = 1;
+    rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    if (FAILED(m_pDevice->CreateCommittedResource(
+            &hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COMMON, NULL,
+            __uuidof(ID3D12Resource), (void**)&rb)) ||
+        !rb)
+        return;
+
+    ID3D12CommandAllocator* alloc = 0;
+    ID3D12GraphicsCommandList* list = 0;
+
+    if (SUCCEEDED(m_pDevice->CreateCommandAllocator(
+            D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator),
+            (void**)&alloc)) &&
+        alloc &&
+        SUCCEEDED(m_pDevice->CreateCommandList(
+            0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, NULL,
+            __uuidof(ID3D12GraphicsCommandList), (void**)&list)) &&
+        list)
+    {
+        D3D12_RESOURCE_BARRIER b;
+        ZeroMemory(&b, sizeof(b));
+        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b.Transition.pResource = bb;
+        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        b.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+        b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        list->ResourceBarrier(1, &b);
+
+        D3D12_TEXTURE_COPY_LOCATION dstL, srcL;
+        ZeroMemory(&dstL, sizeof(dstL));
+        dstL.pResource = rb;
+        dstL.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        dstL.PlacedFootprint.Offset = 0;
+        dstL.PlacedFootprint.Footprint.Format = bd.Format;
+        dstL.PlacedFootprint.Footprint.Width = (UINT)w;
+        dstL.PlacedFootprint.Footprint.Height = (UINT)h;
+        dstL.PlacedFootprint.Footprint.Depth = 1;
+        dstL.PlacedFootprint.Footprint.RowPitch = rowPitch;
+        ZeroMemory(&srcL, sizeof(srcL));
+        srcL.pResource = bb;
+        srcL.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        srcL.SubresourceIndex = 0;
+        list->CopyTextureRegion(&dstL, 0, 0, 0, &srcL, NULL);
+
+        // Hand it back in the state Present expects to find it, or the next frame's barrier is a lie.
+        b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        b.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+        list->ResourceBarrier(1, &b);
+
+        if (SUCCEEDED(list->Close()))
+        {
+            ID3D12CommandList* lists[] = {(ID3D12CommandList*)list};
+            m_pQueue->ExecuteCommandLists(1, lists);
+            WaitForGpu();
+
+            void* mapped = 0;
+
+            if (SUCCEEDED(rb->Map(0, NULL, &mapped)) && mapped)
+            {
+                WriteBmp24(path, (const BYTE*)mapped, rowPitch, w, h, bgra);
+                D3D12_RANGE wr;
+                wr.Begin = 0;
+                wr.End = 0;
+                rb->Unmap(0, &wr);
+            }
+        }
+    }
+
+    if (list)
+        list->Release();
+
+    if (alloc)
+        alloc->Release();
+
+    rb->Release();
+}
+
 void D3D12Backend::Present(bool bVSync)
 {
     if (!m_pDevice || !m_pList || !m_pSwapChain)
@@ -655,6 +884,9 @@ void D3D12Backend::Present(bool bVSync)
         if (g_bVrFrameActive && !g_bVsyncVrMirror)
             vsync = false;
     }
+
+    // Artscout - 2026: the back buffer is finished and still ours until Present hands it over.
+    ServiceScreenCapture();
 
     m_pSwapChain->Present(vsync ? 1 : 0, 0);
     MoveToNextFrame();
