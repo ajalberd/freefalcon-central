@@ -34,6 +34,7 @@
 #include "urefresh.h"
 #include "battalion.h"
 #include "tmap.h" // Artscout - 2026: terrain-derived campaign map
+#include "fflog.h" // Artscout - 2026: producer census diagnostic
 #include "tlevel.h"
 #include "tdskpost.h"
 #include "ttypes.h"
@@ -2966,6 +2967,48 @@ void C_Map::ShowCampaignOverlay(long which)
         // Who actually makes the stuff, sized against the biggest producer in the theater, so one
         // refinery carrying a third of the fuel stands out from a dozen small ones. GetObjectiveDataRate
         // already folds in battle damage, so a half-wrecked factory draws half as bright.
+        // Artscout - 2026: one-off census of what the campaign actually treats as a producer.
+        // ProduceSupplies names TYPE_FACTORY, TYPE_ARMYBASE, TYPE_DEPOT and TYPE_PORT together,
+        // but each one's output is class_data->DataRate from the theater's class table -- so a type
+        // the loop mentions still contributes nothing if its data says zero. This reports what the
+        // data says rather than what the code implies.
+        {
+            extern bool g_bLogCampProducers;
+
+            if (g_bLogCampProducers)
+            {
+                const int types[5] = {TYPE_FACTORY, TYPE_REFINERY, TYPE_DEPOT,
+                                      TYPE_PORT, TYPE_ARMYBASE};
+                const char *names[5] = {"FACTORY", "REFINERY", "DEPOT", "PORT",
+                                        "ARMYBASE"};
+
+                for (int ti = 0; ti < 5; ti++)
+                {
+                    long count = 0, rate = 0, status = 0;
+                    VuListIterator cit(AllObjList);
+
+                    for (Objective co = GetFirstObjective(&cit); co;
+                         co = GetNextObjective(&cit))
+                    {
+                        if (co->GetType() not_eq types[ti])
+                            continue;
+
+                        count++;
+                        rate += co->GetObjectiveDataRate();
+                        status += co->GetObjectiveStatus();
+                    }
+
+                    char lb[160];
+                    sprintf(lb,
+                            "[PRODUCERS] %-8s count=%ld totalDataRate=%ld "
+                            "avgStatus=%ld\n",
+                            names[ti], count, rate,
+                            count ? (status / count) : 0);
+                    FFDebugLog(lb);
+                }
+            }
+        }
+
         long maxRate = 0;
 
         {

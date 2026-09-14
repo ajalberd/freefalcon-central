@@ -704,11 +704,28 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                 supply = LOBYTE(o->static_data.local_data);
                 fuel = HIBYTE(o->static_data.local_data);
 
-                if (supply > 5 or fuel > 5)
-                {
+                // Artscout - 2026: split what gets RECORDED from what the AI acts on.
+                //
+                // The single threshold below used to gate both, and at 5 it hides most of the
+                // network: SendSupply deposits a TENTH of what passes at each node, so a segment
+                // needs ~50 units of supply crossing it in one tick to clear it. Only the heaviest
+                // junctions do, which is why a map of this data reads as a few isolated points
+                // rather than the chain it actually is.
+                //
+                // obj_data.supply is display-only -- nothing in the sim reads it back -- so
+                // recording more of it changes nothing but the dirty-data traffic. The interdiction
+                // requests further down are gameplay and keep the original 5 regardless.
+                extern int g_nSupplyMapThreshold;
+                const int recordAt =
+                    (g_nSupplyMapThreshold < 0) ? 5 : g_nSupplyMapThreshold;
+
+                if (supply > recordAt or fuel > recordAt)
                     o->SendObjMessage(o->Id(),
                                       FalconObjectiveMessage::objSetSupply,
                                       (short)(supply), (short)(fuel), 0);
+
+                if (supply > 5 or fuel > 5)
+                {
                     type = o->GetType();
 
                     if (type == TYPE_ROAD or type == TYPE_INTERSECT)

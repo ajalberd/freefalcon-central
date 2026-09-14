@@ -827,6 +827,10 @@ float g_fMenuModelDetail =
     4.0f; // Artscout - 2026: object detail for the MENU 3D model viewer -- tactical reference and the loadout aircraft. It used to inherit PlayerOptions.ObjectDetailLevel(), which is a performance compromise for a sky full of aircraft and makes no sense for one static model on a menu. Higher is finer: Render3D::SetObjectDetail scales the LOD bias, StateStackClass halves it into LODBiasInv, and LODRange = range * LODBiasInv -- so a bigger number makes the model read as CLOSER and the BSP picks a finer LOD. 1.0 restores the old behaviour of following the sim setting; below 1 will make it coarser. Recon is untouched -- that is a whole streamed scene, not one model. "MenuModelDetail".
 bool g_bReconRtt =
     true; // Artscout - 2026: render the RECON terrain into an off-screen RTT and read it back into the menu 2D surface, the same route the tactical-reference and loadout models take. The alternative -- drawing to the back buffer and compositing the 2D over it with black keyed out -- leaves the recon pane showing whatever the 2D surface already had there, because UI95 only repaints what changed. An earlier attempt at this crashed; the RTT had no depth buffer then, which for a full terrain scene is a far bigger problem than for one aircraft, and that has since been fixed. Set 0 to go back to the back-buffer path if it crashes again -- FFCrash.log will name the frame. "ReconRtt".
+int g_nSupplyMapThreshold =
+    0; // Artscout - 2026: how much traffic a road node must carry before the campaign RECORDS it (SupplyUnits, supply.cpp). Stock is 5, and that is why the supply overlay shows a couple of isolated rings instead of a route: SendSupply deposits only a TENTH of what passes at each node, so a segment needs roughly fifty units of supply crossing it in one tick to clear 5, which only the heaviest junctions ever do. The value is display-only -- nothing in the sim reads obj_data.supply back -- so lowering it costs some dirty-data messages and shows the whole chain. The AI's interdiction requests keep the original 5 regardless; that gate is gameplay and is not touched. 5 restores stock exactly. "SupplyMapThreshold".
+bool g_bLogCampProducers =
+    false; // Artscout - 2026: log a one-off census of everything ProduceSupplies treats as a producer -- count, total DataRate and total status per objective type -- to FFDebug.log when the Production overlay is built. Answers "do storage depots actually contribute supply?" from the theater's own class table rather than by reading the loop that mentions them. "LogCampProducers".
 bool g_bVrWindowsCursor =
     true; // Artscout - 2026: draw a copy of the LIVE Windows cursor (captured from the OS shape) instead of the theater's cursor bitmap. The OS never composites its cursor into the headset, so VR showed the crosshair; 0 = keep the old bitmap.
 bool g_bTerrainMeshCull =
@@ -1569,6 +1573,8 @@ static ConfigOption<bool> BoolOpts[] = {
     {"MFDHighContrast", &g_bMFDHighContrast},
     {"IFlyMirage", &g_bIFlyMirage},
     {"PowerGrid", &g_bPowerGrid},
+    {"LogCampProducers",
+     &g_bLogCampProducers}, // Artscout - 2026: census the campaign's supply producers
     {"ReconRtt", &g_bReconRtt}, // Artscout - 2026: recon terrain via off-screen RTT
     {"LogMenuTextures",
      &g_bLogMenuTextures}, // Artscout - 2026: diagnose untextured menu 3D models
@@ -1913,6 +1919,8 @@ static ConfigOption<int> IntOpts[] = {
      &g_nObjZBiasStep}, // Artscout - 2026: depth-bias units per dwzBias bucket
     {"CampMapTerrainLod",
      &g_nCampMapTerrainLod}, // Artscout - 2026: terrain LOD the campaign map is built from (0 = finest)
+    {"SupplyMapThreshold",
+     &g_nSupplyMapThreshold}, // Artscout - 2026: traffic needed before a road node is recorded (stock 5)
     {"TerrainMorphPosts",
      &g_nTerrainMorphPosts}, // Artscout - 2026: #78 -- geomorph band width in posts (0/1 = off but watertight).
     {"BillboardMode",
