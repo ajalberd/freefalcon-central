@@ -33,6 +33,10 @@
 #include "gps.h"
 #include "urefresh.h"
 #include "battalion.h"
+#include "tmap.h" // Artscout - 2026: terrain-derived campaign map
+#include "tlevel.h"
+#include "tdskpost.h"
+#include "ttypes.h"
 #include "camplist.h" // Artscout - 2026: AllObjList, for the campaign overlays
 #include "find.h"
 
@@ -53,7 +57,23 @@ void UnitCB(long ID, short hittype, C_Base *ctrl);
 int IsValidWP(WayPointClass *wp, Flight flt);
 void Uni_Float(_TCHAR *buffer);
 
-#define FEET_PER_PIXEL (FEET_PER_KM / 2.0f)
+// Artscout - 2026: see s_mapFeetPerPixel below -- this was a fixed FEET_PER_KM / 2.0f,
+// baking the shipped bitmap's 2-px-per-km scale into every icon coordinate.
+#define FEET_PER_PIXEL (s_mapFeetPerPixel)
+
+// Artscout - 2026: feet of theater per map-image pixel. Was a fixed
+// FEET_PER_KM / 2.0f, which silently assumed the shipped 2-px-per-km bitmap --
+// generating a finer map means the whole icon coordinate system has to follow it or
+// every unit lands at a fraction of its correct position. Set once when the image is
+// built; the stock value is the old constant, so nothing moves if the build is off.
+static float s_mapFeetPerPixel = FEET_PER_KM / 2.0f;
+
+// Pixels per km, for the few places that need the ratio the other way up (the threat
+// rings scale their radii by it).
+static float MapPixelsPerKm()
+{
+    return (s_mapFeetPerPixel > 0.0f) ? (FEET_PER_KM / s_mapFeetPerPixel) : 2.0f;
+}
 
 #define ICON_UKN 10126 // 2002-02-21 S.G.
 extern int gShowUnknown; // 2002-02-21 S.G.
@@ -395,6 +415,212 @@ void C_Map::CalculateDrawingParams()
                     (TheCampaign.TheaterSizeY - y) * FEET_PER_KM);
         DrawMap();
     }
+}
+
+/***************************************************************************\
+    Artscout - 2026: build the campaign map image out of the theater's OWN terrain.
+
+    The shipped map is a painted bitmap at 2 pixels per km, and zooming in only
+    magnifies those pixels. But the terrain database already holds a colour for every
+    post -- TdiskPost::color, an index into TMap::ColorTable, the same pair otw.cpp
+    uses to shade untextured ground -- so the map you fly over can be drawn from the
+    ground you actually fly over, at whatever post spacing the theater ships.
+
+    Three things make this fit unusually cleanly:
+
+      * The palette is an exact match. This builds an 8-bit paletted IMAGE_RSC, and
+        ColorTable is exactly 256 entries, so post colour indices become pixels
+        verbatim and the table becomes the palette. No conversion, no quantisation.
+      * Paletted is also what the overlay system needs: C_ScaleBitmap::PreparePalette
+        derives its 16 blended palettes from the base image's palette, so the
+        Logistics layers keep working. A truecolour map would break them.
+      * The terrain is already open. TheMap.Setup runs from
+        DeviceIndependentGraphicsSetup at startup, long before the campaign UI.
+
+    Read straight from the files rather than through TLevel's streaming loader: this
+    wants every block exactly once, not an async working set, and the format is
+    simple. Theater.o<lod> is one 32-bit byte-offset per block, row-major over
+    BlocksWide x BlocksHigh; at each offset in Theater.l<lod> sit POSTS_PER_BLOCK
+    posts, row-major 16x16 (TBlock::Post), sized by g_LargeTerrainFormat.
+\***************************************************************************/
+extern char FalconTerrainDataDir[];
+// Builds an empty 8-bit paletted IMAGE_RSC of any size (cpselect.cpp) -- the same helper
+// the occupation map uses, reused here for the terrain image.
+extern IMAGE_RSC *CreateOccupationMap(long ID, long w, long h, long palsize);
+
+IMAGE_RSC *BuildTerrainMapImage(long ID, int lod)
+{
+    extern bool g_bCampMapFlipNS, g_bCampMapFlipEW;
+
+    if (not TheMap.IsReady())
+        return NULL;
+
+    if (lod < 0)
+        lod = 0;
+
+    if (lod >= TheMap.NumLevels())
+        lod = TheMap.NumLevels() - 1;
+
+    TLevel *lv = TheMap.Level(lod);
+
+    if (not lv)
+        return NULL;
+
+    const long bw = (long)lv->BlocksWide();
+    const long bh = (long)lv->BlocksHigh();
+
+    if (bw < 1 or bh < 1)
+        return NULL;
+
+    const long w = bw * POSTS_ACROSS_BLOCK;
+    const long h = bh * POSTS_ACROSS_BLOCK;
+
+    // Sanity bound. A theater this size would be ~256 MB of 8-bit image and something
+    // has gone wrong with the header rather than us genuinely having that much ground.
+    if (w < 16 or h < 16 or (double)w * (double)h > 2.5e8)
+        return NULL;
+
+    char base[MAX_PATH], fn[MAX_PATH];
+    sprintf(base, "%s/terrain", FalconTerrainDataDir);
+
+    // Block offsets.
+    sprintf(fn, "%s/Theater.o%0d", base, lod);
+    FILE *fo = fopen(fn, "rb");
+
+    if (not fo)
+        return NULL;
+
+    const long nBlocks = bw * bh;
+    DWORD *offs = new DWORD[nBlocks];
+
+    if (not offs)
+    {
+        fclose(fo);
+        return NULL;
+    }
+
+    const size_t gotOffs = fread(offs, sizeof(DWORD), (size_t)nBlocks, fo);
+    fclose(fo);
+
+    if (gotOffs not_eq (size_t)nBlocks)
+    {
+        delete[] offs;
+        return NULL;
+    }
+
+    sprintf(fn, "%s/Theater.l%0d", base, lod);
+    FILE *fl = fopen(fn, "rb");
+
+    if (not fl)
+    {
+        delete[] offs;
+        return NULL;
+    }
+
+    IMAGE_RSC *rsc = CreateOccupationMap(ID, w, h, 256);
+
+    if (not rsc)
+    {
+        delete[] offs;
+        fclose(fl);
+        return NULL;
+    }
+
+    // Palette straight off the terrain's own table. Entry 0 stays black -- it is what
+    // an unread block leaves behind, and black reads as "no data" rather than as some
+    // arbitrary terrain colour smeared across a gap.
+    WORD *pal = rsc->GetPalette();
+
+    if (pal)
+    {
+        for (int i = 0; i < 256; i++)
+        {
+            const Tcolor &c = TheMap.ColorTable[i];
+            long r = (long)(c.r * 255.0f), g = (long)(c.g * 255.0f),
+                 b = (long)(c.b * 255.0f);
+            r = (r < 0) ? 0 : (r > 255) ? 255 : r;
+            g = (g < 0) ? 0 : (g > 255) ? 255 : g;
+            b = (b < 0) ? 0 : (b > 255) ? 255 : b;
+            pal[i] = UI95_RGB24Bit((r << 16) bitor (g << 8) bitor b);
+        }
+    }
+
+    uchar *img = (uchar *)rsc->GetImage();
+
+    if (not img)
+    {
+        delete[] offs;
+        fclose(fl);
+        return NULL;
+    }
+
+    const size_t postSize =
+        g_LargeTerrainFormat ? sizeof(TNewdiskPost) : sizeof(TdiskPost);
+    uchar *blockBuf = new uchar[postSize * POSTS_PER_BLOCK];
+
+    if (not blockBuf)
+    {
+        delete[] offs;
+        fclose(fl);
+        return NULL;
+    }
+
+    for (long br = 0; br < bh; br++)
+    {
+        for (long bc = 0; bc < bw; bc++)
+        {
+            const DWORD off = offs[br * bw + bc];
+
+            if (fseek(fl, (long)off, SEEK_SET) not_eq 0)
+                continue;
+
+            if (fread(blockBuf, postSize, POSTS_PER_BLOCK, fl) not_eq
+                POSTS_PER_BLOCK)
+                continue; // short read: leave the block black rather than guess
+
+            for (int r = 0; r < POSTS_ACROSS_BLOCK; r++)
+            {
+                for (int c = 0; c < POSTS_ACROSS_BLOCK; c++)
+                {
+                    const uchar *p =
+                        blockBuf + (size_t)(r * POSTS_ACROSS_BLOCK + c) * postSize;
+                    // color sits after texID and z in both layouts; the only difference
+                    // is texID's width (UInt16 vs UInt32).
+                    const uchar col = g_LargeTerrainFormat ?
+                                          ((const TNewdiskPost *)p)->color :
+                                          ((const TdiskPost *)p)->color;
+
+                    long px = bc * POSTS_ACROSS_BLOCK + c;
+                    long py = br * POSTS_ACROSS_BLOCK + r;
+
+                    // Orientation is the one thing here that cannot be settled by
+                    // reading: which way the post grid runs against the map's
+                    // north-up, east-right convention. Both axes are switchable so a
+                    // mirrored theater is a config line, not a rebuild.
+                    if (g_bCampMapFlipEW)
+                        px = w - 1 - px;
+
+                    if (g_bCampMapFlipNS)
+                        py = h - 1 - py;
+
+                    if (px >= 0 and px < w and py >= 0 and py < h)
+                        img[py * w + px] = col;
+                }
+            }
+        }
+    }
+
+    delete[] blockBuf;
+    delete[] offs;
+    fclose(fl);
+
+    // The whole coordinate system keys off this. LEVEL_POST_TO_WORLD gives the feet
+    // between posts at this LOD, and one post is now one pixel, so that IS the new
+    // feet-per-pixel -- derived, never assumed, so a different LOD or a theater with
+    // different post spacing stays correctly registered against the icons.
+    s_mapFeetPerPixel = LEVEL_POST_TO_WORLD(1, lod);
+
+    return rsc;
 }
 
 THREAT_LIST *C_Map::AddThreat(CampEntity ent)
@@ -2838,7 +3064,8 @@ void C_Map::ShowThreatType(long mask)
                 if (Team_[i].Threats->Flags[_THREAT_SAM_LOW_])
                 {
                     Team_[i].Threats->Type[_THREAT_SAM_LOW_]->BuildOverlay(
-                        Map_->GetOverlay(), Map_->GetW(), Map_->GetH(), 2);
+                        Map_->GetOverlay(), Map_->GetW(), Map_->GetH(),
+                        MapPixelsPerKm());
                 }
             }
 
@@ -2855,7 +3082,8 @@ void C_Map::ShowThreatType(long mask)
                 if (Team_[i].Threats->Flags[_THREAT_SAM_HIGH_])
                 {
                     Team_[i].Threats->Type[_THREAT_SAM_HIGH_]->BuildOverlay(
-                        Map_->GetOverlay(), Map_->GetW(), Map_->GetH(), 2);
+                        Map_->GetOverlay(), Map_->GetW(), Map_->GetH(),
+                        MapPixelsPerKm());
                 }
             }
 
@@ -2872,7 +3100,8 @@ void C_Map::ShowThreatType(long mask)
                 if (Team_[i].Threats->Flags[_THREAT_RADAR_LOW_])
                 {
                     Team_[i].Threats->Type[_THREAT_RADAR_LOW_]->BuildOverlay(
-                        Map_->GetOverlay(), Map_->GetW(), Map_->GetH(), 2);
+                        Map_->GetOverlay(), Map_->GetW(), Map_->GetH(),
+                        MapPixelsPerKm());
                 }
             }
 
@@ -2889,7 +3118,8 @@ void C_Map::ShowThreatType(long mask)
                 if (Team_[i].Threats->Flags[_THREAT_RADAR_HIGH_])
                 {
                     Team_[i].Threats->Type[_THREAT_RADAR_HIGH_]->BuildOverlay(
-                        Map_->GetOverlay(), Map_->GetW(), Map_->GetH(), 2);
+                        Map_->GetOverlay(), Map_->GetW(), Map_->GetH(),
+                        MapPixelsPerKm());
                 }
             }
 
@@ -2957,7 +3187,29 @@ void C_Map::SetMapImage(long ID)
         Map_->Setup(5551200, 0, MapID);
     }
 
-    Map_->SetImage(MapID);
+    // Artscout - 2026: prefer a map built from the theater's terrain. Built once and kept
+    // -- it is the same picture for every map view -- and the painted resource is used
+    // unchanged if the terrain files cannot be read, so a missing or odd theater degrades
+    // to exactly the old behaviour rather than to a blank map.
+    {
+        extern bool g_bCampMapFromTerrain;
+        extern int g_nCampMapTerrainLod;
+        static IMAGE_RSC *s_terrainMap = NULL;
+        static bool s_terrainMapTried = false;
+
+        if (g_bCampMapFromTerrain and not s_terrainMapTried)
+        {
+            s_terrainMapTried = true;
+            s_terrainMap =
+                BuildTerrainMapImage(5551300, g_nCampMapTerrainLod);
+        }
+
+        if (g_bCampMapFromTerrain and s_terrainMap)
+            Map_->SetImage(s_terrainMap);
+        else
+            Map_->SetImage(MapID);
+    }
+
     maxy = (float)(Map_->GetH()) * FEET_PER_PIXEL;
     MinZoomLevel_ = Map_->GetW() / _MIN_ZOOM_LEVEL_;
     MaxZoomLevel_ = Map_->GetW() / _MAX_ZOOM_LEVEL_;

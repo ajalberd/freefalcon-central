@@ -813,6 +813,14 @@ bool g_bCampaignAddMission =
     true; // Artscout - 2026: offer "Add Flight" and "Add Package" when right-clicking a target in the CAMPAIGN, the way BMS does. None of the machinery is new -- tactical_add_flight / tactical_add_package take the right-clicked object's VU_ID, GetMissionFromTarget picks the mission type that suits that target, and tactical_make_package files the MissionRequest. SetupCampaignMenus simply hid the items outside the Tactical Engagement editor, and this un-hides them. The request is tagged REQF_TE_MISSION, so how well a hand-built package plays with a running ATO is the part that is NOT settled -- set 0 to put the items back in hiding if it misbehaves. "CampaignAddMission".
 bool g_bHudCanopyOcclude =
     true; // Artscout - 2026: let cockpit structure in front of the combiner -- the canopy bow, the rail -- occlude the HUD symbology, instead of the symbology drawing straight over it. The aperture stencil already clips the HUD to the combiner SHAPE, but a stencil cannot know what is standing between your eye and the glass, which is why sliding right in the seat used to paint the HUD over the frame. Needs the symbology depth-tested at the GLASS depth rather than the infinity its collimated projection implies -- see VirtualDisplay::DrawRttQuad. 0 = the old draw-over-everything behaviour. "HudCanopyOcclude".
+bool g_bCampMapFromTerrain =
+    true; // Artscout - 2026: draw the campaign map from the theater's OWN terrain instead of the painted bitmap. Every terrain post carries a colour index and TMap::ColorTable resolves it, so the map can be built at the theater's real post spacing -- finer than the shipped 2 px/km art, so zooming in reveals actual ground rather than magnified pixels. Falls back to the painted map if the terrain files cannot be read. "CampMapFromTerrain".
+int g_nCampMapTerrainLod =
+    0; // Artscout - 2026: which terrain LOD builds that map. 0 = finest (Korea: ~820 ft/post, roughly 4x the shipped map's linear resolution, ~17 MB of image plus the same again for the overlay buffer). 1 halves each axis and quarters the memory, 2 again, and so on. Raise this if the map screen feels heavy or the build at first open takes too long.
+bool g_bCampMapFlipNS =
+    true; // Artscout - 2026: flip the generated map north-south. Which way the terrain post grid runs against the map's north-up convention is the one thing that could not be settled by reading the code, so it is switchable -- if the generated map comes out mirrored, this is the line to change rather than a rebuild.
+bool g_bCampMapFlipEW =
+    false; // Artscout - 2026: the same, east-west.
 bool g_bVrWindowsCursor =
     true; // Artscout - 2026: draw a copy of the LIVE Windows cursor (captured from the OS shape) instead of the theater's cursor bitmap. The OS never composites its cursor into the headset, so VR showed the crosshair; 0 = keep the old bitmap.
 bool g_bTerrainMeshCull =
@@ -1555,6 +1563,10 @@ static ConfigOption<bool> BoolOpts[] = {
     {"MFDHighContrast", &g_bMFDHighContrast},
     {"IFlyMirage", &g_bIFlyMirage},
     {"PowerGrid", &g_bPowerGrid},
+    {"CampMapFromTerrain",
+     &g_bCampMapFromTerrain}, // Artscout - 2026: build the campaign map from terrain posts
+    {"CampMapFlipNS", &g_bCampMapFlipNS}, // Artscout - 2026: mirror it north-south
+    {"CampMapFlipEW", &g_bCampMapFlipEW}, // Artscout - 2026: mirror it east-west
     {"HudCanopyOcclude",
      &g_bHudCanopyOcclude}, // Artscout - 2026: cockpit structure occludes the collimated HUD
     {"CampaignAddMission",
@@ -1890,6 +1902,8 @@ static ConfigOption<int> IntOpts[] = {
      &g_nSubtitleFont}, // Artscout - 2026: radio subtitle font index (bigger = larger glyphs)
     {"ObjZBiasStep",
      &g_nObjZBiasStep}, // Artscout - 2026: depth-bias units per dwzBias bucket
+    {"CampMapTerrainLod",
+     &g_nCampMapTerrainLod}, // Artscout - 2026: terrain LOD the campaign map is built from (0 = finest)
     {"TerrainMorphPosts",
      &g_nTerrainMorphPosts}, // Artscout - 2026: #78 -- geomorph band width in posts (0/1 = off but watertight).
     {"BillboardMode",
