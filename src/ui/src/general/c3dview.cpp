@@ -452,6 +452,33 @@ BOOL C_3dViewer::AddAllToView()
     return (TRUE);
 }
 
+// Artscout - 2026: the two menu 3D viewers do NOT render the same way, and ImageBuffer::PresentGpu
+// has to composite differently for each.
+//
+//   Init3d  (loadout aircraft, tactical reference) renders into an OFF-SCREEN RTT, and View3d reads
+//           it back into the menu's 2D surface -- so by present time the model is part of the 565
+//           image and the right thing to do is blit that opaquely.
+//   InitOTW (recon) hands rendOTW_ the FRONT buffer, so its terrain goes to the back buffer directly
+//           and is not in the 565 at all -- an opaque blit would paint straight over it. That one
+//           needs the 2D composited on top, black keyed out.
+//
+// This says which happened, for the frame about to be presented. PresentGpu clears it.
+bool g_bMenuViewerToBackBuffer = false;
+
+// Open a GPU frame before a viewer renders, or the off-screen RTT bind is silently skipped and the
+// model never reaches the texture that gets read back. See D3D12_EnsureMenuFrame.
+static void EnsureMenuGpuFrame()
+{
+#ifdef _WIN32
+    extern bool g_bUseD3D12;
+    extern bool D3D12_EnsureMenuFrame();
+
+    if (g_bUseD3D12)
+        D3D12_EnsureMenuFrame();
+
+#endif // _WIN32
+}
+
 BOOL C_3dViewer::View3d(long ID)
 {
     BSPLIST *obj;
@@ -463,6 +490,10 @@ BOOL C_3dViewer::View3d(long ID)
         if (obj)
         {
             gMainHandler->Unlock();
+            // RTT path: the model ends up in the 2D surface, so tell PresentGpu to blit.
+            extern bool g_bMenuViewerToBackBuffer;
+            g_bMenuViewerToBackBuffer = false;
+            EnsureMenuGpuFrame();
             rend3d_->SetCamera(&currentPos_, &currentRot_);
             // rend3d_->SetTime(Time_+(GetCurrentTime() % 60000l));
 
@@ -536,6 +567,13 @@ BOOL C_3dViewer::ViewOTW()
     {
         viewPoint_->Update(&currentPos_);
         gMainHandler->Unlock();
+        // Back-buffer path (recon): the terrain is NOT in the 2D surface, so PresentGpu must
+        // composite the menu over it rather than blit over the top of it.
+        {
+            extern bool g_bMenuViewerToBackBuffer;
+            g_bMenuViewerToBackBuffer = true;
+        }
+        EnsureMenuGpuFrame();
 
         //JAM 16Dec03
         if (DisplayOptions.bZBuffering)
@@ -568,6 +606,11 @@ BOOL C_3dViewer::ViewGreyOTW()
     {
         viewPoint_->Update(&currentPos_);
         gMainHandler->Unlock();
+        {
+            extern bool g_bMenuViewerToBackBuffer;
+            g_bMenuViewerToBackBuffer = true;
+        }
+        EnsureMenuGpuFrame();
 
         rendOTW_->context.SetZBuffering(TRUE);
 

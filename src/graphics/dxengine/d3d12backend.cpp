@@ -632,6 +632,28 @@ static void PumpD3D12Messages(ID3D12Device* dev)
 // One-shot allocator and list, then a full WaitForGpu. That is a hard stall of a few milliseconds
 // and completely wrong for anything per-frame -- fine for a keypress, and it keeps the capture from
 // touching the frame ring or the backend's own fence bookkeeping.
+// Artscout - 2026: open a swap-chain frame for a MENU that is about to render 3D, if one is not
+// already open. Needed because ImageBuffer::BindD3D12RenderTarget refuses to bind an off-screen RTT
+// off-frame -- deliberately, since forcing a BeginFrame from the sim update or between VR eye frames
+// injected an orphan frame and broke xrEndFrame. A menu has the opposite problem: UI95 draws into a
+// CPU surface and only opens a GPU frame inside PresentGpu, at the very end, so when a 3D viewer
+// runs during the UI's draw pass there is no list open, the RTT bind is skipped, and the model is
+// drawn somewhere other than the texture that is about to be read back.
+//
+// Safe here precisely because it is the menu loop: PresentGpu closes and presents whatever is open a
+// moment later. Guarded on IsRecording so it can never reset a list that already holds work.
+bool D3D12_EnsureMenuFrame()
+{
+    if (!g_pD3D12Backend)
+        return false;
+
+    if (g_pD3D12Backend->IsRecording())
+        return true;
+
+    g_pD3D12Backend->BeginFrame(0xFF000000);
+    return g_pD3D12Backend->IsRecording();
+}
+
 static char s_capturePath[MAX_PATH] = {0};
 
 bool D3D12_RequestScreenCapture(const char* path)

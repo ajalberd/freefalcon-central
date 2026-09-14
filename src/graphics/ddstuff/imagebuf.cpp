@@ -814,14 +814,35 @@ void ImageBuffer::PresentGpu()
                     g_pD3D12Backend
                         ->ResolveMsaaToBackBuffer(); // MSAA: resolve 3D into backbuffer first
 
-                // BlitBitmap565 only needs an open command list -- it does NOT call BeginFrame -- so it
-                // records onto the frame C_3dViewer opened and the readback copy in it survives. The
-                // back buffer is already bound as the RTV (UnbindSceneRtt does that when the viewer's
-                // RTT is released). Opaque, so no dependence on what the back buffer happened to hold.
-                // And no wipe of m_pSysMem: that surface belongs to UI95, which repaints only dirty
-                // rectangles. SwapBuffers below keeps the wipe, and is right to -- that is the sim.
+                // Which way round depends on where the 3D went -- see the note in c3dview.cpp. The
+                // loadout and tactical-reference viewers render to an off-screen RTT and read it back
+                // into m_pSysMem, so the model is part of the 565 image and an OPAQUE blit is right.
+                // Recon renders its terrain straight to the back buffer, so the 2D has to be
+                // COMPOSITED over it instead, or the blit would paint over the scene.
+                //
+                // Either way, no wipe of m_pSysMem afterwards: that surface belongs to UI95, which
+                // repaints only dirty rectangles, and clearing it erases the menu. SwapBuffers below
+                // keeps its wipe, and is right to -- that is the sim, where the 2D is per-frame.
+                //
+                // BlitBitmap565 needs an open command list but does NOT call BeginFrame, so it records
+                // onto the frame the viewer opened and the readback copy in it survives. The back
+                // buffer is already the bound RTV (UnbindSceneRtt rebinds it on RTT release).
+                extern bool g_bMenuViewerToBackBuffer;
+
                 if (m_pSysMem)
-                    g_pD3D12Backend->BlitBitmap565(m_pSysMem, width, height);
+                {
+                    if (g_bMenuViewerToBackBuffer)
+                    {
+                        if (g_pRenderer)
+                            g_pRenderer->CompositeUISurface(m_pSysMem, width,
+                                                            height);
+                    }
+                    else
+                        g_pD3D12Backend->BlitBitmap565(m_pSysMem, width,
+                                                       height);
+                }
+
+                g_bMenuViewerToBackBuffer = false;
 
                 g_pD3D12Backend->Present(
                     true); // close/execute/present the viewer's frame
