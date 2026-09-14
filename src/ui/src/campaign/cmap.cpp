@@ -2434,6 +2434,21 @@ static void CampGridToOverlay(long w, long h, GridIndex gx, GridIndex gy,
     *py = static_cast<long>((Map_Max_Y - gy) * sy);
 }
 
+// Overlay pixel -> campaign grid: the inverse of CampGridToOverlay, so a sample can ask the
+// campaign what kind of ground it is standing on.
+static void CampOverlayToGrid(long w, long h, long px, long py,
+                              GridIndex *gx, GridIndex *gy)
+{
+    extern short Map_Max_X;
+    extern short Map_Max_Y;
+
+    const float sx = (Map_Max_X > 0) ? (float)w / (float)Map_Max_X : 2.0f;
+    const float sy = (Map_Max_Y > 0) ? (float)h / (float)Map_Max_Y : 2.0f;
+
+    *gx = (GridIndex)(px / sx);
+    *gy = (GridIndex)(Map_Max_Y - (py / sy));
+}
+
 // How many power plants we will consider for the coverage map. A theater has a few dozen; the cap
 // only exists so the per-pixel nearest search below stays bounded no matter what gets loaded.
 #define CAMP_MAX_PLANTS 128
@@ -2471,13 +2486,11 @@ void C_Map::ShowCampaignOverlay(long which)
     switch (which)
     {
     case CAMP_OVERLAY_POWER:
-        // Blend toward BLACK, so a cell whose plant is down goes dark and everything still supplied
-        // keeps the map's own brightness. That is the blackout reading -- lowlight the dead rather
-        // than highlight the living -- and it is the only way round that works here: the overlay can
-        // only tint TOWARD a colour, and FindNearestFriendlyPowerStation has no real range limit, so
-        // every point in the theater has a nearest plant. Tinting "everywhere that has power" would
-        // colour the entire map, permanently, and say nothing.
-        Map_->PreparePalette(RGB(0, 0, 0));
+        // Red, per request, and therefore red for BOTH things this layer draws: there is one blended
+        // palette, so the cell outlines and the damage fill share a hue and differ only in strength.
+        // Reads consistently enough -- faint red is where the grid divides, strong red is where it
+        // has stopped delivering. (The blackout version this replaces could not have red outlines.)
+        Map_->PreparePalette(RGB(255, 40, 40));
         break;
 
     case CAMP_OVERLAY_SUPPLY:
@@ -2586,27 +2599,40 @@ void C_Map::ShowCampaignOverlay(long which)
                     if (best < 0)
                         continue;
 
+                    // Nearest-neighbour tiles the whole plane, so without this the cells -- and the
+                    // boundaries between them -- run straight out over the sea, which is exactly where
+                    // a power grid does not go. Ask the campaign what the ground is and skip water.
+                    // Note this is why an INTACT plant appears to do nothing: it is supplying power
+                    // perfectly well, the fill is just damage, and undamaged is drawn as nothing.
+                    {
+                        GridIndex tx, ty;
+                        CampOverlayToGrid(w, h, x, y, &tx, &ty);
+
+                        if (GetCover(tx, ty) == Water)
+                            continue;
+                    }
+
                     // A plant at full status leaves its ground clean; the fill is "production being
                     // lost here", so what you see is the damage you have actually done.
                     BYTE tint =
                         static_cast<BYTE>(plants[best].lost * CAMP_TINT_MAX / 100);
 
-                    // Cell edge: a neighbouring sample answering to a different plant. Drawn at a
-                    // fixed low intensity so the boundary reads as structure, not as damage.
+                    // Cell edge: a neighbouring sample answering to a different plant.
                     const bool edge =
                         (c > 0 and ownNow[c - 1] not_eq (short)best) or
                         (ownPrev[c] >= 0 and ownPrev[c] not_eq (short)best);
 
-                    // The cell outline, as a soft darkening rather than a hard line -- enough to
-                    // see which plant owns which ground while the theater is still intact.
-                    if (edge and tint < 2)
-                        tint = 2;
-
-                    if (not tint)
+                    if (not tint and not edge)
                         continue;
 
-                    const long ymax = min(y + step, h);
-                    const long xmax = min(x + step, w);
+                    // An edge with no damage behind it draws as a THIN line -- one pixel of the sample
+                    // block rather than the whole 4x4 -- so the grid divisions read as fine lines over
+                    // the terrain instead of a blocky stripe. A damaged cell fills its block normally.
+                    const long ymax = tint ? min(y + step, h) : min(y + 1, h);
+                    const long xmax = tint ? min(x + step, w) : min(x + 1, w);
+
+                    if (not tint)
+                        tint = 3;
 
                     for (long by = y; by < ymax; by++)
                     {
