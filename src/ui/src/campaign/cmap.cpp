@@ -2899,8 +2899,17 @@ void C_Map::ShowCampaignOverlay(long which)
         {
             const int t = o->GetType();
 
-            if (t not_eq TYPE_ROAD and t not_eq TYPE_INTERSECT and
-                t not_eq TYPE_RAILROAD and t not_eq TYPE_BRIDGE)
+            // The road network carries the flow, but it does not originate it. SendSupply calls
+            // AddSupply on the SOURCE before it walks the path, so the depots, ports, army bases
+            // and cities that IsSupplySource names accumulate traffic too -- and leaving them out
+            // is why a depot sat next to a marked bridge with nothing on it, looking broken when it
+            // was simply not being asked. They are where the chain STARTS.
+            const bool isNode = (t == TYPE_ROAD or t == TYPE_INTERSECT or
+                                 t == TYPE_RAILROAD or t == TYPE_BRIDGE);
+            const bool isSource = (t == TYPE_CITY or t == TYPE_PORT or
+                                   t == TYPE_DEPOT or t == TYPE_ARMYBASE);
+
+            if (not isNode and not isSource)
                 continue;
 
             long traffic = o->GetObjectiveSupply() + o->GetObjectiveFuel();
@@ -2921,9 +2930,10 @@ void C_Map::ShowCampaignOverlay(long which)
             // Road objectives sit close together along a route, so the marks are sized to
             // MERGE into a continuous artery rather than read as a row of unrelated dots --
             // the flow really is a chain (SendSupply walks the path node by node) and it
-            // should look like one. Bridges stay larger again: single points of failure.
-            StampOverlayDisc(overlay, w, h, px, py,
-                             (t == TYPE_BRIDGE) ? 9 : 6, tint);
+            // should look like one. Bridges stay larger again: single points of failure. And
+            // sources larger still, being the head of everything downstream of them.
+            const long radius = isSource ? 12 : ((t == TYPE_BRIDGE) ? 9 : 6);
+            StampOverlayDisc(overlay, w, h, px, py, radius, tint);
         }
     }
     else if (which == CAMP_OVERLAY_DAMAGE)
