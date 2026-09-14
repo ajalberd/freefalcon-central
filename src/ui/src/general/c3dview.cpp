@@ -162,18 +162,39 @@ BOOL C_3dViewer::InitOTW(float, BOOL Preload)
     viewPoint_->Setup(ViewDistance_, MinTexture_, MaxTexture_,
                       DisplayOptions.bZBuffering);
 
-    // Artscout - 2026: recon renders to the FRONT buffer, as it always has.
+    // Artscout - 2026: recon into an off-screen RTT, the route the model viewer takes.
     //
-    // It was moved onto an off-screen RTT to match the model viewer, and that crashed. The
-    // Cleanup ordering it exposed was real and is fixed, but the crash outlived that fix, so
-    // the cause is something else about driving RenderOTW -- terrain streaming, a full scene
-    // with its own LOD buffers -- into an off-screen target. Put it back rather than keep
-    // guessing at it: recon then renders through the back buffer and is composited, which
-    // looked wrong but ran. PresentGpu picks that path when g_bMenuViewerToBackBuffer is set.
+    // Second attempt. The first crashed, and two things have changed since. The Cleanup ordering
+    // it exposed is fixed -- m_pRTT now outlives BOTH renderers, where it used to be freed between
+    // them and left rendOTW_->Cleanup() running against a deleted ImageBuffer. And the RTT bind
+    // path now attaches a DEPTH buffer on request, which it never did: it was written for the 2D
+    // display panels and bound no DSV, forcing depth-off pipeline states. For one aircraft that was
+    // a see-through model; for a full terrain scene with streamed LOD blocks it is a far bigger
+    // problem, and a plausible second cause of the crash.
     //
-    // FFCrash.log (see winmain.cpp) will name the faulting frame next time, which is the point
-    // to revisit this from.
-    rendOTW_->Setup(gMainHandler->GetFront(), viewPoint_);
+    // Worth the retry because the back-buffer alternative cannot really be made right: the 2D is
+    // composited OVER the terrain with black keyed out, so the pane shows whatever UI95 last left
+    // in that rect, and clearing the rect ourselves wipes the target list with it (74575126).
+    //
+    // Knob-gated: ReconRtt 0 returns to the back-buffer path without a rebuild.
+    {
+        extern bool g_bUseGpu;
+        extern bool g_bReconRtt;
+        ImageBuffer *target = gMainHandler->GetFront();
+
+        if (g_bUseGpu and g_bReconRtt)
+        {
+            const int rw = gMainHandler->GetFront()->targetXres();
+            const int rh = gMainHandler->GetFront()->targetYres();
+            m_pRTT = new ImageBuffer;
+            m_pRTT->Setup(gMainHandler->GetFront()->GetDisplayDevice(), rw, rh,
+                          SystemMem, None);
+            m_pRTT->SetRttWantsDepth(true); // a terrain scene, not 2D symbology
+            target = m_pRTT;
+        }
+
+        rendOTW_->Setup(target, viewPoint_);
+    }
 
     rendOTW_->SetViewport(l, t, r, b);
 
@@ -635,7 +656,10 @@ BOOL C_3dViewer::ViewOTW()
         gMainHandler->Unlock();
         {
             extern bool g_bMenuViewerToBackBuffer;
-            g_bMenuViewerToBackBuffer = true; // terrain goes to the back buffer
+            // With the RTT the terrain ends up in the 2D surface (StampRttIntoMenu
+            // below) and PresentGpu blits that opaquely; without it the terrain is on
+            // the back buffer and the 2D has to be composited over it instead.
+            g_bMenuViewerToBackBuffer = (m_pRTT == NULL);
         }
         EnsureMenuGpuFrame();
 
@@ -673,7 +697,10 @@ BOOL C_3dViewer::ViewGreyOTW()
         gMainHandler->Unlock();
         {
             extern bool g_bMenuViewerToBackBuffer;
-            g_bMenuViewerToBackBuffer = true; // terrain goes to the back buffer
+            // With the RTT the terrain ends up in the 2D surface (StampRttIntoMenu
+            // below) and PresentGpu blits that opaquely; without it the terrain is on
+            // the back buffer and the 2D has to be composited over it instead.
+            g_bMenuViewerToBackBuffer = (m_pRTT == NULL);
         }
         EnsureMenuGpuFrame();
 
