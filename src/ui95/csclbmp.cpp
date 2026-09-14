@@ -203,7 +203,11 @@ void C_ScaleBitmap::PreparePalette(COLORREF color)
                       UIColorTable[bperc]
                                   [(Palette_[0][j] >> b_shift_) bitand 0x1f]]];
 
-            Palette_[i][j] = static_cast<short>(r bitor b bitor b);
+            // Artscout - 2026: was `r bitor b bitor b` -- g computed and thrown away,
+            // b folded in twice. Every blended palette therefore lost its green channel,
+            // which is why the threat rings tint toward magenta whatever colour they ask
+            // for. The overlay colours are chosen by the caller; honour all three.
+            Palette_[i][j] = static_cast<short>(r bitor g bitor b);
         }
     }
 }

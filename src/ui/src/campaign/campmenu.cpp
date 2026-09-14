@@ -134,6 +134,11 @@ bool filterState[END_OF_ENUM__USED_FOR_SIZE] = // Legend stuff
         false, false, false,
         false // this is a radiobutton, only 1 of them may be TRUE (all ot FALSE is ok)
 }; // ..ugly, but whatever..
+
+// Artscout - 2026: which campaign overlay was up, as a C_Map::CAMP_OVERLAY_* value. Not a
+// flag in the array above because these four are one radio group, not four checkboxes --
+// see ShowCampaignOverlay for why only one of them can hold the map's palette.
+long campLayer = 0;
 } // namespace FilterSaveStuff, end Retro 26/10/03
 
 void MenuToggleObjectiveCB(long ID, short, C_Base *control)
@@ -564,6 +569,58 @@ void MenuToggleBullseyeCB(long ID, short, C_Base *control)
 
     gMapMgr->DrawMap();
 }
+/************************************************************************/
+// Artscout - 2026: the Logistics submenu -- the campaign's supply model on the map.
+//
+// Same shape as MenuSetCirclesCB below it, and for the same reason: these four are a radio group
+// because C_ScaleBitmap keeps ONE blended palette, so only one raster overlay can be live. Picking
+// a layer here therefore also has to drop the threat rings, which is why this clears their four
+// check marks -- otherwise the menu would claim a ring was still drawn when the map had taken the
+// overlay away from it.
+/************************************************************************/
+void MenuSetCampLayerCB(long ID, short, C_Base *)
+{
+    using namespace FilterSaveStuff;
+
+    C_PopupList *menu = gPopupMgr->GetMenu(MAP_POP);
+
+    if (not menu or not gMapMgr)
+        return;
+
+    switch (ID)
+    {
+    case MID_CAMP_LAYER_POWER:
+        campLayer = C_Map::CAMP_OVERLAY_POWER;
+        break;
+
+    case MID_CAMP_LAYER_SUPPLY:
+        campLayer = C_Map::CAMP_OVERLAY_SUPPLY;
+        break;
+
+    case MID_CAMP_LAYER_PROD:
+        campLayer = C_Map::CAMP_OVERLAY_PRODUCTION;
+        break;
+
+    default:
+        campLayer = C_Map::CAMP_OVERLAY_OFF;
+        break;
+    }
+
+    if (campLayer not_eq C_Map::CAMP_OVERLAY_OFF)
+    {
+        menu->SetItemState(MID_CIRCLE_SAM_LOW, 0);
+        menu->SetItemState(MID_CIRCLE_SAM_HIGH, 0);
+        menu->SetItemState(MID_CIRCLE_RADAR_LOW, 0);
+        menu->SetItemState(MID_CIRCLE_RADAR_HIGH, 0);
+        filterState[CIRCLE_SAM_LOW] = filterState[CIRCLE_SAM_HIGH] =
+            filterState[CIRCLE_RADAR_LOW] = filterState[CIRCLE_RADAR_HIGH] =
+                false;
+    }
+
+    gMapMgr->ShowCampaignOverlay(campLayer);
+    gMapMgr->DrawMap();
+}
+
 void MenuSetCirclesCB(long, short, C_Base *)
 {
     using namespace FilterSaveStuff; // Retro 26/10/03. Here I take note if a threat filter is enabled or disabled.
@@ -575,6 +632,18 @@ void MenuSetCirclesCB(long, short, C_Base *)
 
     if (menu)
     {
+        // Artscout - 2026: the rings and the Logistics layers share one palette, so
+        // switching a ring on takes the overlay from whichever layer had it. Move that
+        // group's check mark back to None so the menu still says what the map is showing.
+        if (menu->GetItemState(MID_CIRCLE_SAM_LOW) or
+            menu->GetItemState(MID_CIRCLE_SAM_HIGH) or
+            menu->GetItemState(MID_CIRCLE_RADAR_LOW) or
+            menu->GetItemState(MID_CIRCLE_RADAR_HIGH))
+        {
+            FilterSaveStuff::campLayer = C_Map::CAMP_OVERLAY_OFF;
+            menu->SetItemState(MID_CAMP_LAYER_OFF, 1);
+        }
+
         if (menu->GetItemState(MID_CIRCLE_SAM_LOW))
         {
             filterState[CIRCLE_SAM_LOW] = true;
@@ -1680,6 +1749,20 @@ void SetMapSettings()
         if (filterState[LE_LABELS])
             menu->SetItemState(MID_LEG_NAMES, 1);
 
+        // Artscout - 2026: put the Logistics layer back the way it was left. The overlay
+        // itself is rebuilt from live objective data, not restored, so what comes back is
+        // the campaign as it stands now rather than a stale picture from last visit.
+        if (campLayer not_eq C_Map::CAMP_OVERLAY_OFF and gMapMgr)
+        {
+            long want = campLayer;
+            menu->SetItemState(
+                (want == C_Map::CAMP_OVERLAY_POWER) ? MID_CAMP_LAYER_POWER :
+                (want == C_Map::CAMP_OVERLAY_SUPPLY) ? MID_CAMP_LAYER_SUPPLY :
+                                                       MID_CAMP_LAYER_PROD,
+                1);
+            gMapMgr->ShowCampaignOverlay(want);
+        }
+
         // Objectives
         if (filterState[OBJ_AIRFIELDS])
             menu->SetItemState(MID_INST_AF, 1);
@@ -2425,6 +2508,41 @@ void HookupCampaignMenus()
         menu->SetCallback(MID_CIRCLE_SAM_HIGH, MenuSetCirclesCB);
         menu->SetCallback(MID_CIRCLE_RADAR_LOW, MenuSetCirclesCB);
         menu->SetCallback(MID_CIRCLE_RADAR_HIGH, MenuSetCirclesCB);
+
+        // Artscout - 2026: the Logistics submenu. These items have no entry in the menu resource --
+        // that is game data we do not ship -- so build them here. C_PopupList::AddItem takes a plain
+        // label and the submenu it creates inherits this menu's font, colours and check icon, so an
+        // item added in code is indistinguishable from one the resource loaded. Each needs its own
+        // radio group, or Process would clear the threat rings' marks along with its own.
+        static _TCHAR lblLayers[] = "Logistics";
+        static _TCHAR lblOff[] = "None";
+        static _TCHAR lblPower[] = "Power coverage";
+        static _TCHAR lblSupply[] = "Supply flow";
+        static _TCHAR lblProd[] = "Production";
+
+        if (menu->AddItem(MID_CAMP_LAYERS, C_TYPE_MENU, lblLayers, 0))
+        {
+            menu->AddItem(MID_CAMP_LAYER_OFF, C_TYPE_RADIO, lblOff,
+                          MID_CAMP_LAYERS);
+            menu->AddItem(MID_CAMP_LAYER_POWER, C_TYPE_RADIO, lblPower,
+                          MID_CAMP_LAYERS);
+            menu->AddItem(MID_CAMP_LAYER_SUPPLY, C_TYPE_RADIO, lblSupply,
+                          MID_CAMP_LAYERS);
+            menu->AddItem(MID_CAMP_LAYER_PROD, C_TYPE_RADIO, lblProd,
+                          MID_CAMP_LAYERS);
+
+            menu->SetItemGroup(MID_CAMP_LAYER_OFF, MID_CAMP_LAYER_GROUP);
+            menu->SetItemGroup(MID_CAMP_LAYER_POWER, MID_CAMP_LAYER_GROUP);
+            menu->SetItemGroup(MID_CAMP_LAYER_SUPPLY, MID_CAMP_LAYER_GROUP);
+            menu->SetItemGroup(MID_CAMP_LAYER_PROD, MID_CAMP_LAYER_GROUP);
+
+            menu->SetCallback(MID_CAMP_LAYER_OFF, MenuSetCampLayerCB);
+            menu->SetCallback(MID_CAMP_LAYER_POWER, MenuSetCampLayerCB);
+            menu->SetCallback(MID_CAMP_LAYER_SUPPLY, MenuSetCampLayerCB);
+            menu->SetCallback(MID_CAMP_LAYER_PROD, MenuSetCampLayerCB);
+
+            menu->SetItemState(MID_CAMP_LAYER_OFF, 1);
+        }
     }
 
     menu = gPopupMgr->GetMenu(OBJECTIVE_POP);

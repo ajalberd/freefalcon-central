@@ -2280,6 +2280,16 @@ enum
     MID_CIRCLE_SAM_HIGH = 86046,
     MID_CIRCLE_RADAR_LOW = 86047,
     MID_CIRCLE_RADAR_HIGH = 86048,
+    // Artscout - 2026: campaign overlays. These items are not in the menu resource --
+    // HookupCampaignMenus adds them to MAP_POP at runtime. One radio group of their own
+    // (MID_CAMP_LAYER_GROUP) because, like the threat rings, only one can hold the map's
+    // blended palette at a time.
+    MID_CAMP_LAYERS = 86146,
+    MID_CAMP_LAYER_OFF = 86147,
+    MID_CAMP_LAYER_POWER = 86148,
+    MID_CAMP_LAYER_SUPPLY = 86149,
+    MID_CAMP_LAYER_PROD = 86150,
+    MID_CAMP_LAYER_GROUP = 86151,
     MID_UNITS_SQUAD_SQUADRON = 86049,
     MID_UNITS_SQUAD_PACKAGE = 86050,
     MID_OFF = 86100,
