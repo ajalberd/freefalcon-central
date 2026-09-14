@@ -601,6 +601,10 @@ void MenuSetCampLayerCB(long ID, short, C_Base *)
         campLayer = C_Map::CAMP_OVERLAY_PRODUCTION;
         break;
 
+    case MID_CAMP_LAYER_DAMAGE:
+        campLayer = C_Map::CAMP_OVERLAY_DAMAGE;
+        break;
+
     default:
         campLayer = C_Map::CAMP_OVERLAY_OFF;
         break;
@@ -1758,6 +1762,7 @@ void SetMapSettings()
             menu->SetItemState(
                 (want == C_Map::CAMP_OVERLAY_POWER) ? MID_CAMP_LAYER_POWER :
                 (want == C_Map::CAMP_OVERLAY_SUPPLY) ? MID_CAMP_LAYER_SUPPLY :
+                (want == C_Map::CAMP_OVERLAY_DAMAGE) ? MID_CAMP_LAYER_DAMAGE :
                                                        MID_CAMP_LAYER_PROD,
                 1);
             gMapMgr->ShowCampaignOverlay(want);
@@ -2519,6 +2524,7 @@ void HookupCampaignMenus()
         static _TCHAR lblPower[] = "Power coverage";
         static _TCHAR lblSupply[] = "Supply flow";
         static _TCHAR lblProd[] = "Production";
+        static _TCHAR lblDmg[] = "Target damage";
 
         if (menu->AddItem(MID_CAMP_LAYERS, C_TYPE_MENU, lblLayers, 0))
         {
@@ -2530,16 +2536,20 @@ void HookupCampaignMenus()
                           MID_CAMP_LAYERS);
             menu->AddItem(MID_CAMP_LAYER_PROD, C_TYPE_RADIO, lblProd,
                           MID_CAMP_LAYERS);
+            menu->AddItem(MID_CAMP_LAYER_DAMAGE, C_TYPE_RADIO, lblDmg,
+                          MID_CAMP_LAYERS);
 
             menu->SetItemGroup(MID_CAMP_LAYER_OFF, MID_CAMP_LAYER_GROUP);
             menu->SetItemGroup(MID_CAMP_LAYER_POWER, MID_CAMP_LAYER_GROUP);
             menu->SetItemGroup(MID_CAMP_LAYER_SUPPLY, MID_CAMP_LAYER_GROUP);
             menu->SetItemGroup(MID_CAMP_LAYER_PROD, MID_CAMP_LAYER_GROUP);
+            menu->SetItemGroup(MID_CAMP_LAYER_DAMAGE, MID_CAMP_LAYER_GROUP);
 
             menu->SetCallback(MID_CAMP_LAYER_OFF, MenuSetCampLayerCB);
             menu->SetCallback(MID_CAMP_LAYER_POWER, MenuSetCampLayerCB);
             menu->SetCallback(MID_CAMP_LAYER_SUPPLY, MenuSetCampLayerCB);
             menu->SetCallback(MID_CAMP_LAYER_PROD, MenuSetCampLayerCB);
+            menu->SetCallback(MID_CAMP_LAYER_DAMAGE, MenuSetCampLayerCB);
 
             menu->SetItemState(MID_CAMP_LAYER_OFF, 1);
         }

@@ -291,7 +291,8 @@ public:
         CAMP_OVERLAY_OFF = 0,
         CAMP_OVERLAY_POWER, // production lost to the nearest power plant being down
         CAMP_OVERLAY_SUPPLY, // supply and fuel actually moving through each road node
-        CAMP_OVERLAY_PRODUCTION // who makes the supply, sized against the biggest
+        CAMP_OVERLAY_PRODUCTION, // who makes the supply, sized against the biggest
+        CAMP_OVERLAY_DAMAGE // how beaten up each objective is, without flying a recon
     };
     void ShowCampaignOverlay(long which);
     long GetCampaignOverlay()

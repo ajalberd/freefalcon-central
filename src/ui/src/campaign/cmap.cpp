@@ -2478,6 +2478,10 @@ void C_Map::ShowCampaignOverlay(long which)
         Map_->PreparePalette(RGB(255, 176, 0));
         break;
 
+    case CAMP_OVERLAY_DAMAGE:
+        Map_->PreparePalette(RGB(255, 80, 220));
+        break;
+
     default:
         Map_->PreparePalette(RGB(48, 255, 48));
         break;
@@ -2614,6 +2618,42 @@ void C_Map::ShowCampaignOverlay(long which)
                 static_cast<BYTE>(1 + traffic * (CAMP_TINT_MAX - 1) / 255);
             StampOverlayDisc(overlay, w, h, px, py,
                              (t == TYPE_BRIDGE) ? 5 : 3, tint);
+        }
+    }
+    else if (which == CAMP_OVERLAY_DAMAGE)
+    {
+        // What is left of everything, so you can tell a target still worth the sortie from one you
+        // already flattened -- without flying a recon over each to find out.
+        //
+        // The polarity is deliberate: tint is damage TAKEN, so an untouched theater starts clean and
+        // fills in as the campaign goes. Bright means wrecked, i.e. do not bother; anything still dark
+        // is still standing. Showing remaining health instead would light the whole map on day one and
+        // tell you nothing.
+        //
+        // GetObjectiveStatus is the same percentage the production maths uses -- rolled up from the
+        // per-feature damage states -- so what you see here is exactly what the campaign is scoring,
+        // not a separate guess at it.
+        VuListIterator it(AllObjList);
+
+        for (Objective o = GetFirstObjective(&it); o; o = GetNextObjective(&it))
+        {
+            long status = o->GetObjectiveStatus();
+
+            if (status < 0)
+                status = 0;
+            else if (status >= 100)
+                continue; // untouched: leave the map alone
+
+            const long lost = 100 - status;
+            GridIndex gx, gy;
+            o->GetLocation(&gx, &gy);
+            long px, py;
+            CampGridToOverlay(w, h, gx, gy, &px, &py);
+
+            // Radius carries the same signal as the tint so a flattened objective reads at a glance
+            // from a zoomed-out map, where a 3-pixel dot of any colour does not.
+            StampOverlayDisc(overlay, w, h, px, py, 3 + lost * 5 / 100,
+                             static_cast<BYTE>(1 + lost * (CAMP_TINT_MAX - 1) / 100));
         }
     }
     else
