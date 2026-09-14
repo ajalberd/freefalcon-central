@@ -78,22 +78,30 @@ void C_ScaleBitmap::Cleanup()
         Image_ = NULL;
     }
 
+    // Artscout - 2026: was a scalar `delete` on a `new BYTE[]`, and the pointer was left dangling
+    // afterwards -- a second Cleanup would free it again. Both were survivable while this buffer was
+    // a few MB; a terrain-derived campaign map makes it several times larger and the heap much less
+    // forgiving. Same for the blended palettes just below.
     if (Overlay_)
+    {
 #ifdef USE_SH_POOLS
         MemFreePtr(Overlay_);
-
 #else
-        delete Overlay_;
+        delete[] Overlay_;
 #endif
+        Overlay_ = NULL;
+    }
 
     for (i = 1; i < 16; i++)
         if (Palette_[i])
+        {
 #ifdef USE_SH_POOLS
             MemFreePtr(Palette_[i]);
-
 #else
-            delete Palette_[i];
+            delete[] Palette_[i];
 #endif
+            Palette_[i] = NULL;
+        }
 }
 
 void C_ScaleBitmap::InitOverlay()
@@ -110,12 +118,14 @@ void C_ScaleBitmap::InitOverlay()
         return;
 
     if (Overlay_)
+    {
 #ifdef USE_SH_POOLS
         MemFreePtr(Overlay_);
-
 #else
-        delete Overlay_;
+        delete[] Overlay_; // Artscout - 2026: matches the new BYTE[] below
 #endif
+        Overlay_ = NULL;
+    }
 
 #ifdef USE_SH_POOLS
     Overlay_ = (BYTE *)MemAllocPtr(
@@ -157,12 +167,15 @@ void C_ScaleBitmap::PreparePalette(COLORREF color)
 
     for (i = 1; i < 16; i++)
         if (Palette_[i])
+        {
 #ifdef USE_SH_POOLS
             MemFreePtr(Palette_[i]);
-
 #else
-            delete Palette_[i];
+            delete[] Palette_[i]; // Artscout - 2026: matches the new WORD[] below
 #endif
+            Palette_[i] = NULL;
+        }
+
     Palette_[0] = img->GetPalette();
 
     for (i = 1; i < 16; i++)

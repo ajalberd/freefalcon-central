@@ -3213,6 +3213,25 @@ void C_Map::SetMapImage(long ID)
     maxy = (float)(Map_->GetH()) * FEET_PER_PIXEL;
     MinZoomLevel_ = Map_->GetW() / _MIN_ZOOM_LEVEL_;
     MaxZoomLevel_ = Map_->GetW() / _MAX_ZOOM_LEVEL_;
+
+    // Artscout - 2026: let a finer map actually be zoomed into. ZoomLevel_ counts SOURCE pixels
+    // across the view, and the closest zoom was Map width / 32 -- which scales with the map, so a
+    // map with twice the pixels per km still stopped at the same patch of ground and simply
+    // downsampled its extra detail back out. The whole point of building it from terrain was to see
+    // that detail, so allow zooming proportionally closer: at 4 posts/km against the painted map's
+    // 2 px/km, twice as close. Floored so a very fine future map cannot zoom into a handful of
+    // pixels, and left exactly as it was when the painted map is in use (ratio 1).
+    {
+        const float detail = MapPixelsPerKm() / 2.0f;
+
+        if (detail > 1.0f)
+        {
+            MaxZoomLevel_ = (long)((float)MaxZoomLevel_ / detail);
+
+            if (MaxZoomLevel_ < 32)
+                MaxZoomLevel_ = 32;
+        }
+    }
     ZoomStep_ = (MinZoomLevel_ - MaxZoomLevel_) / 64;
 
     if (Map_ and DrawWindow_)
@@ -3238,6 +3257,16 @@ void C_Map::SetWindow(C_Window *win)
             CalculateDrawingParams();
         }
     }
+}
+
+long C_Map::GetMapWidth()
+{
+    return Map_ ? Map_->GetW() : 1536;
+}
+
+long C_Map::GetMapHeight()
+{
+    return Map_ ? Map_->GetH() : 2048;
 }
 
 void C_Map::SetupOverlay()

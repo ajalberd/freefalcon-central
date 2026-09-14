@@ -837,7 +837,11 @@ void SetupMapMgr(bool noawacsmap)
     if (not gMapMgr)
     {
         gMapMgr = new C_Map;
-        gMapMgr->SetMapCenter(1536 / 2, 2048 / 2);
+        // Artscout - 2026: centre on the middle of whatever map is loaded rather than the
+        // painted bitmap's hardcoded 1536x2048 -- a terrain-derived map is a different size,
+        // and these numbers put the initial view in a corner of it.
+        gMapMgr->SetMapCenter(gMapMgr->GetMapWidth() / 2,
+                              gMapMgr->GetMapHeight() / 2);
 
         // 2002-01-30 MN special AWACS map background, e.g. black with country outlines
         // 2002-03-06 MN don't display Awacsmap in TE edit mode

@@ -230,19 +230,23 @@ BOOL C_3dViewer::Cleanup()
         rend3d_ = NULL;
     }
 
-    // Artscout - 2026 (#34): off-screen RTT (rend3d_ above held it via context.m_pIB; free after it).
-    if (m_pRTT)
-    {
-        m_pRTT->Cleanup();
-        delete m_pRTT;
-        m_pRTT = NULL;
-    }
-
     if (rendOTW_)
     {
         rendOTW_->Cleanup();
         delete rendOTW_;
         rendOTW_ = NULL;
+    }
+
+    // Artscout - 2026 (#34): off-screen RTT. BOTH renderers hold it as their target via
+    // context.m_pIB, so it has to outlive BOTH -- this used to sit between them, which was fine
+    // while only rend3d_ used the RTT and rendOTW_ drew to the front buffer. Once recon moved onto
+    // the RTT as well, freeing here meant rendOTW_->Cleanup() ran against a deleted ImageBuffer.
+    // That was the recon crash.
+    if (m_pRTT)
+    {
+        m_pRTT->Cleanup();
+        delete m_pRTT;
+        m_pRTT = NULL;
     }
 
     //JAM 19Nov03
@@ -632,6 +636,9 @@ BOOL C_3dViewer::ViewGreyOTW()
         rendOTW_->context.FlushPolyLists();
         rendOTW_->EndDraw();
         rendOTW_->context.FinishFrame(NULL);
+        // Artscout - 2026: recon's view goes through here, not ViewOTW -- it needs the same
+        // read-back into the menu surface or the RTT is rendered and then thrown away.
+        StampRttIntoMenu();
 
         /* // now wait for Loader to end it's work
          TheLoader.WaitForLoader();

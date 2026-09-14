@@ -295,6 +295,10 @@ public:
         CAMP_OVERLAY_DAMAGE // how beaten up each objective is, without flying a recon
     };
     void ShowCampaignOverlay(long which);
+    // Artscout - 2026: the loaded map's pixel size, so callers stop hardcoding the painted
+    // bitmap's dimensions.
+    long GetMapWidth();
+    long GetMapHeight();
     long GetCampaignOverlay()
     {
         return (CampOverlay_);
