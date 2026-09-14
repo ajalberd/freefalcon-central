@@ -193,9 +193,6 @@ public:
     BOOL View3d(long ID);
     // Artscout - 2026: read this viewer's off-screen RTT back into the menu's 2D surface.
     void StampRttIntoMenu();
-    // Artscout - 2026: zero this viewer's rect in the menu 2D surface, so a back-buffer
-    // scene shows through PresentGpu's black-keyed composite.
-    void ClearViewportInMenu();
     BOOL ViewOTW();
     BOOL ViewGreyOTW();
     BSPLIST *Find(long ID);

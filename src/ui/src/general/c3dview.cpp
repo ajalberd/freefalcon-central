@@ -518,56 +518,6 @@ static void EnsureMenuGpuFrame()
 // its own. 1-frame latent by design (ReadbackRttTo565 converts the PREVIOUS frame's copy and records
 // this one), so a still image settles immediately and a rotating one trails by a frame, which is not
 // noticeable and costs no GPU stall.
-// Artscout - 2026: punch the viewer's rectangle out of the menu's 2D surface.
-//
-// The back-buffer viewers (recon) rely on PresentGpu compositing the 2D layer over their scene with
-// BLACK keyed out -- so the 3D only shows where the 2D surface is black there. UI95 paints a menu
-// once and repaints only what changes, so the campaign map's pixels were still sitting in the
-// viewport rect from the screen before: opaque, non-black, and therefore winning the composite. The
-// terrain was rendering correctly the whole time and being covered by a stale picture of the map.
-//
-// Zeroing the rect each frame is what makes it transparent to the composite. Costs one memset-shaped
-// pass over the viewport, on a menu.
-void C_3dViewer::ClearViewportInMenu()
-{
-    ImageBuffer *front = gMainHandler->GetFront();
-
-    if (not front)
-        return;
-
-    unsigned short *dst = (unsigned short *)front->Lock();
-
-    if (not dst)
-        return;
-
-    const long stride = front->targetXres();
-    const long hgt = front->targetYres();
-    long y0 = viewport.top, y1 = viewport.bottom;
-    long x0 = viewport.left, x1 = viewport.right;
-
-    if (y0 < 0)
-        y0 = 0;
-
-    if (y1 > hgt)
-        y1 = hgt;
-
-    if (x0 < 0)
-        x0 = 0;
-
-    if (x1 > stride)
-        x1 = stride;
-
-    for (long y = y0; y < y1; y++)
-    {
-        unsigned short *row = dst + (size_t)y * stride;
-
-        for (long x = x0; x < x1; x++)
-            row[x] = 0;
-    }
-
-    front->Unlock();
-}
-
 void C_3dViewer::StampRttIntoMenu()
 {
     extern bool g_bUseGpu;
@@ -702,7 +652,7 @@ BOOL C_3dViewer::ViewOTW()
 
         rendOTW_->EndDraw();
         rendOTW_->context.FinishFrame(NULL);
-        ClearViewportInMenu();
+        StampRttIntoMenu();
         //JAM
 
         gMainHandler->Lock();
@@ -739,9 +689,9 @@ BOOL C_3dViewer::ViewGreyOTW()
         rendOTW_->context.FlushPolyLists();
         rendOTW_->EndDraw();
         rendOTW_->context.FinishFrame(NULL);
-        // Recon draws to the back buffer, so what it needs is the opposite of a read-back: a hole in
-        // the 2D surface for the composite to show it through.
-        ClearViewportInMenu();
+        // Artscout - 2026: recon's view goes through here, not ViewOTW -- it needs the same
+        // read-back into the menu surface or the RTT is rendered and then thrown away.
+        StampRttIntoMenu();
 
         /* // now wait for Loader to end it's work
          TheLoader.WaitForLoader();
