@@ -2738,6 +2738,20 @@ void tactical_make_flight(long ID, short hittype, C_Base *control)
                 }
                 else
                     new_package->SetLocation(MapX, MapY);
+
+                // Artscout - 2026: re-derive the header now that the package has a flight in it.
+                //
+                // Package Type is not a choice -- package.scf leaves that list box disabled -- it
+                // is read back from the first flight, MissionToATOMiss(element->GetUnitMission())
+                // in tactical_update_package. The only call before this point runs at the top of
+                // this function, while the flight being added does not exist yet, so for the first
+                // flight GetFirstUnitElement() is still NULL and the type falls to "Other" and
+                // stays there. It corrected itself on the second flight, which is what made this
+                // look like the feature had been removed rather than merely never refreshed.
+                //
+                // The same call brings the target line and the package clocks back in step, which
+                // is wanted here for the same reason.
+                tactical_update_package();
             }
         }
         else
