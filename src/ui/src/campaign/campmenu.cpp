@@ -83,7 +83,7 @@ static long EditMode;
 // I save the state of every filter in this array and preinitialize the filters when entering the map screen again
 // the state is saved in the 'toggle' routine for objectives, units, labels, bullseye and threats
 // everything here is initialized to 'OFF' so that on first entering nothing appears
-// this stuff has to be outside the campaign-map-screen scope so that it isn´t destroyed on entering the 3d.. so I made it global..
+// this stuff has to be outside the campaign-map-screen scope so that it isnï¿½t destroyed on entering the 3d.. so I made it global..
 namespace FilterSaveStuff
 {
 
@@ -115,7 +115,7 @@ enum
     UNITS_SQUAD_SQUADRON,
     UNITS_SQUAD_PACKAGE,
     UNITS_SQUAD_FIGHTER,
-    // UNITS_SQUAD_FIGHTBOMB, // no idea what that is, isn´t used either..
+    // UNITS_SQUAD_FIGHTBOMB, // no idea what that is, isnï¿½t used either..
     UNITS_SQUAD_ATTACK,
     UNITS_SQUAD_BOMBER,
     UNITS_SQUAD_SUPPORT,
@@ -1820,7 +1820,7 @@ void SetMapSettings()
 
         // Units
 
-#if 0 // screwy, doesn´t work yet
+#if 0 // screwy, doesnï¿½t work yet
 
         /* this is a radio box so only 1 of the 3 may be active */
         if (filterState[UNITS_DIV])
@@ -2996,14 +2996,6 @@ void HookupCampaignMenus()
         menu->SetCallback(MID_RECON, MenuReconCB);
         menu->SetCallback(MID_ADD_FLIGHT, MenuAddUnitCB);
         menu->SetCallback(MID_ADD_PACKAGE, MenuAddUnitCB);
-        CampaignPackageMenuAttach(
-            menu); // Artscout - 2026: the campaign's own package builder
-        CampaignPackageMenuAttach(
-            menu); // Artscout - 2026: the campaign's own package builder
-        CampaignPackageMenuAttach(
-            menu); // Artscout - 2026: the campaign's own package builder
-        CampaignPackageMenuAttach(
-            menu); // Artscout - 2026: the campaign's own package builder
         menu->SetCallback(MID_ADD_BATTALION, MenuAddUnitCB);
         menu->SetCallback(MID_ADD_SQUADRON, MenuAddUnitCB);
         // Legend stuff
@@ -3111,6 +3103,8 @@ void HookupCampaignMenus()
         menu->SetCallback(MID_ADD_BATTALION, MenuAddUnitCB);
         menu->SetCallback(MID_ADD_SQUADRON, MenuAddUnitCB);
         menu->SetCallback(MID_ADD_VC, MenuAddVCCB);
+        CampaignPackageMenuAttach(
+            menu); // Artscout - 2026: the campaign's own package builder
         menu->SetCallback(MID_TEAM_0, MenuSetOwnerCB);
         menu->SetCallback(MID_TEAM_1, MenuSetOwnerCB);
         menu->SetCallback(MID_TEAM_2, MenuSetOwnerCB);
@@ -3146,6 +3140,8 @@ void HookupCampaignMenus()
         menu->SetCallback(MID_STATUS, MenuUnitStatusCB);
         menu->SetCallback(MID_DELETE_UNIT, MenuUnitDeleteCB);
         menu->SetCallback(MID_ADD_VC, MenuAddVCCB);
+        CampaignPackageMenuAttach(
+            menu); // Artscout - 2026: the campaign's own package builder
         menu->SetCallback(MID_TEAM_0, MenuSetOwnerCB);
         menu->SetCallback(MID_TEAM_1, MenuSetOwnerCB);
         menu->SetCallback(MID_TEAM_2, MenuSetOwnerCB);
@@ -3168,6 +3164,8 @@ void HookupCampaignMenus()
         menu->SetCallback(MID_STATUS, MenuUnitStatusCB);
         menu->SetCallback(MID_DELETE_UNIT, MenuUnitDeleteCB);
         menu->SetCallback(MID_ADD_VC, MenuAddVCCB);
+        CampaignPackageMenuAttach(
+            menu); // Artscout - 2026: the campaign's own package builder
         menu->SetCallback(MID_TEAM_0, MenuSetOwnerCB);
         menu->SetCallback(MID_TEAM_1, MenuSetOwnerCB);
         menu->SetCallback(MID_TEAM_2, MenuSetOwnerCB);
@@ -3190,6 +3188,8 @@ void HookupCampaignMenus()
         menu->SetCallback(MID_STATUS, MenuUnitStatusCB);
         menu->SetCallback(MID_DELETE_UNIT, MenuUnitDeleteCB);
         menu->SetCallback(MID_ADD_VC, MenuAddVCCB);
+        CampaignPackageMenuAttach(
+            menu); // Artscout - 2026: the campaign's own package builder
         menu->SetCallback(MID_TEAM_0, MenuSetOwnerCB);
         menu->SetCallback(MID_TEAM_1, MenuSetOwnerCB);
         menu->SetCallback(MID_TEAM_2, MenuSetOwnerCB);

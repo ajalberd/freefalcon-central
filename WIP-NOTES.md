@@ -26,6 +26,18 @@ bridges".
 
 ### 2. Build package — right-click a target
 
+**First run found it missing from every popup but the map.** `HookupCampaignMenus`
+called `CampaignPackageMenuAttach` five times on `MAP_POP` and never on the other
+four; the rebuild side was wired to all of them correctly, but it opens with
+`GetSubMenu(MID_CAMP_PACKAGE)` and returns when there is no submenu, so an
+objective popup came up as stock Recon / Status / Add Squadron. Fixed — one attach
+per menu. The map popup was never wrong (`AddItem` refuses a duplicate ID, so
+calls 2-5 returned at the first line), which is why the mistake was invisible
+anywhere it could have been noticed.
+
+Still unrun: the submenu itself, on any popup.
+
+
 Replaces the stock Add Flight / Add Package items, which were hidden again because
 they never worked in the campaign (they look up `PACKAGE_WIN` / `TAC_FLIGHT_WIN`
 from `te_scf.lst`; the campaign screen loads `cp_scf.lst`, so the items came up and
@@ -83,6 +95,7 @@ but that is a display filter, not an answer.
 | Damage does not feed **link cost** | A dropped bridge is expensive to cross but pathfinding still routes over it. Touches everything walking the objective graph, not just supply. |
 | Missile fin flicker | Long-standing. Per-surface `dwzBias` was restored and did **not** fix it — do not re-chase that. |
 | Objective icons shaded by health | Asked for, not built. What exists is the *Damage overlay layer*, which you have to switch on. The narrower request was to darken the red icons themselves. |
+| **Add Squadron** is dead in the campaign | Stock, not new. `ObjMenuOpenCB` (campmenu.cpp) clears `C_BIT_ENABLED` on `MID_ADD_SQUADRON` whenever `GameType == 1`, so on an airbase it greys out and everywhere else it is off — basing a squadron is a TE-editor operation. `SetupCampaignMenus` hides `MID_SQUADRONS` on the objective popup but leaves this one visible. Hiding it too is a one-liner if the dead row is worth removing. |
 
 ---
 
