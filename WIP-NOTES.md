@@ -174,3 +174,119 @@ Grep the output for `LNK2001` / `LNK2019` / `unresolved` after any change that
 adds or moves a symbol.
 
 Rebuild All whenever a header gains a member.
+
+---
+
+## Next up: campaign map detail on zoom
+
+**The question.** Zooming into the campaign map stops getting sharper past a point
+and starts magnifying pixels. Where does the ceiling actually sit, and what would
+it take to have the map keep resolving into real ground the way the 3D world does?
+
+### Where the ceiling is now
+
+Three separate limits, and it matters which one you are hitting:
+
+| Limit | Value (Korea) | Status |
+|---|---|---|
+| Source image resolution | LOD 0, ~820 ft/post → **1 map pixel per post** | **This is the wall.** |
+| Zoom floor | `MaxZoomLevel_` floored at **32 source pixels across the view** (`cmap.cpp`, in `SetupMap`) | Reachable, deliberate |
+| Map window size | client rect of the map window | Not the constraint — see below |
+
+`BuildTerrainMapImage` (`cmap.cpp:452`) reads `Theater.o<lod>` + `Theater.l<lod>`
+once at first open and turns the **whole theater** into one 8-bit `IMAGE_RSC`,
+`BlocksWide × 16` by `BlocksHigh × 16` pixels. One post → one pixel, coloured by
+`post.color` through `TMap::ColorTable`. Zooming does not re-read anything; it
+changes how many of those source pixels are stretched across the window.
+
+So at full zoom you are looking at 32 posts across the window — about 4.3 nm of
+ground at ~820 ft/post, magnified ~25× on an 800 px window. The blockiness is real
+pixels being enlarged. **At LOD 0 there is no finer post data to go and fetch.**
+
+### What would actually give more detail
+
+Each terrain post carries more than a colour byte:
+
+```c
+typedef struct TNewdiskPost {
+    UInt32 texID;   // <-- the texture tile the 3D engine draws on this post
+    Int16  z;
+    UInt8  color;   // <-- all the map currently uses
+    UInt8  theta, phi;
+}
+```
+`src/graphics/include/tdskpost.h`
+
+`texID` is the tile the sim renders on that post — a DDS loaded through
+`TextureBankClass` (`src/graphics/bsplib/texbank.cpp`). That is the same ground
+imagery you fly over. A 64×64 tile per post is **64× the linear resolution** of the
+one colour byte; at ~820 ft/post that is ~13 ft/pixel.
+
+**It cannot be one bitmap.** 64× linear is 4096× the pixels — Korea would be tens
+of gigabytes. The current build-it-all-once design is exactly what has to change.
+
+### The work, in the order it should be done
+
+1. **Establish what the tiles actually are.** Read the DDS header for a handful of
+   `texID`s: dimensions, format, whether they are DXT-compressed (needs decoding to
+   get CPU pixels — the texture bank hands out GPU handles, which the 2D map cannot
+   blit). Instrument rather than assume; the tile size is in the header, not in the
+   code. This step alone decides whether the rest is cheap or expensive.
+
+2. **Decide the cheap win first.** Before any of the below, check whether raising
+   the `MaxZoomLevel_ < 32` floor is what you actually want. If the complaint is
+   "it stops zooming" rather than "it goes blurry", that is a one-line change.
+
+3. **Replace the single image with a view-window renderer.** Instead of
+   `BuildTerrainMapImage` producing the theater, have it produce **only the posts
+   currently visible, at a resolution chosen from the zoom level**. Zoomed out:
+   today's one-pixel-per-post path, unchanged. Zoomed past some threshold: sample
+   the tile referenced by each visible post.
+
+4. **Cache by (block, zoom tier).** Rebuilding on every pan would be unusable.
+   Tier the zoom into a few steps so the cache key is coarse, and evict on distance
+   from the view.
+
+5. **Keep the overlay coordinate system honest.** `s_mapFeetPerPixel` /
+   `CampGridToOverlay` / `StampOverlayDisc` all assume the overlay buffer matches
+   the map image 1:1. A view-window renderer changes what "map pixel" means per
+   frame, so the overlays (Logistics layers, FLOT) have to be re-projected rather
+   than stamped once. **This is the part most likely to be underestimated.**
+
+6. **Fall back cleanly.** Any theater whose tiles cannot be read must drop to the
+   current post-colour map, the way the post map already falls back to the painted
+   one.
+
+### Is the fixed-resolution menu a prerequisite? No.
+
+Worth separating two things that sound related and are not:
+
+- **Menu resolution** caps how many screen pixels the map window occupies — i.e.
+  how much ground you see at once, and how crisp it is at 1:1.
+- **Source detail** caps how far you can zoom before magnifying.
+
+Zooming in shows *less* ground in the *same* window, so a bigger window does
+nothing for the zoom ceiling. Fixing the menu first would not move this problem
+one inch, and the map work does not depend on it.
+
+It is also the harder of the two jobs, for a reason worth knowing before starting
+it: UI95 is not a layout engine. Windows are lists of **absolute pixel rectangles**
+loaded from `.scf` resources, with bitmap art authored to match. There is no
+relative sizing to turn on. The two routes are (a) render the menu at its native
+size and scale the composited surface to the desktop — cheap, uniformly soft, and
+the 3D viewers already go through an RTT so they could be done at native res; or
+(b) re-author every resource, which is a data project, not a code one.
+
+Both are real options, but neither is on the critical path for map detail. If the
+motivation for the menu rework is *"the map is too small to be useful"*, that is a
+genuine and separate complaint — just do not expect it to sharpen a zoomed-in map.
+
+### Read before starting
+
+- `BuildTerrainMapImage`, `s_mapFeetPerPixel`, `MapPixelsPerKm`, `SetupMap` —
+  `src/ui/src/campaign/cmap.cpp`
+- `TNewdiskPost` — `src/graphics/include/tdskpost.h`
+- `TextureBankClass` — `src/graphics/include/texbank.h`,
+  `src/graphics/bsplib/texbank.cpp`
+- Knobs: `CampMapFromTerrain`, `CampMapTerrainLod` (0 = finest, already the
+  default), `CampMapFlipNS` / `CampMapFlipEW` — `src/ui/src/f4config.cpp`
