@@ -831,6 +831,8 @@ int g_nSupplyMapThreshold =
     0; // Artscout - 2026: how much traffic a road node must carry before the campaign RECORDS it (SupplyUnits, supply.cpp). Stock is 5, and that is why the supply overlay shows a couple of isolated rings instead of a route: SendSupply deposits only a TENTH of what passes at each node, so a segment needs roughly fifty units of supply crossing it in one tick to clear 5, which only the heaviest junctions ever do. The value is display-only -- nothing in the sim reads obj_data.supply back -- so lowering it costs some dirty-data messages and shows the whole chain. The AI's interdiction requests keep the original 5 regardless; that gate is gameplay and is not touched. 5 restores stock exactly. "SupplyMapThreshold".
 bool g_bLogCampProducers =
     false; // Artscout - 2026: log a one-off census of everything ProduceSupplies treats as a producer -- count, total DataRate and total status per objective type -- to FFDebug.log when the Production overlay is built. Answers "do storage depots actually contribute supply?" from the theater's own class table rather than by reading the loop that mentions them. "LogCampProducers".
+int g_nSupplyInterdiction =
+    100; // Artscout - 2026: how much a DAMAGED road or bridge costs the supply run crossing it, as a percentage of the built-in curve (SendSupply, supply.cpp). Stock is a flat 2% per hop whether the bridge is standing or in the river, which leaves the campaign generating AMIS_INT and AMIS_INTSTRIKE sorties against a mechanism that was never wired up. At 100 a wrecked bridge costs the convoy half of what is crossing it and a cratered road about a sixth; both scale linearly with the objective status, so repair re-opens the route on its own. Above 100 for harsher interdiction -- the per-node loss is clamped at 95% so a closed route starves a front rather than erasing a convoy outright. 0 restores stock exactly. "SupplyInterdiction".
 bool g_bVrWindowsCursor =
     true; // Artscout - 2026: draw a copy of the LIVE Windows cursor (captured from the OS shape) instead of the theater's cursor bitmap. The OS never composites its cursor into the headset, so VR showed the crosshair; 0 = keep the old bitmap.
 bool g_bTerrainMeshCull =
@@ -1919,6 +1921,8 @@ static ConfigOption<int> IntOpts[] = {
      &g_nObjZBiasStep}, // Artscout - 2026: depth-bias units per dwzBias bucket
     {"CampMapTerrainLod",
      &g_nCampMapTerrainLod}, // Artscout - 2026: terrain LOD the campaign map is built from (0 = finest)
+    {"SupplyInterdiction",
+     &g_nSupplyInterdiction}, // Artscout - 2026: damage-scaled supply loss per node (0 = stock flat 2%)
     {"SupplyMapThreshold",
      &g_nSupplyMapThreshold}, // Artscout - 2026: traffic needed before a road node is recorded (stock 5)
     {"TerrainMorphPosts",

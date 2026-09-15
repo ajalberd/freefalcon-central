@@ -3062,14 +3062,24 @@ void C_Map::ShowCampaignOverlay(long which)
 
             if (g_bLogCampProducers)
             {
-                const int types[5] = {TYPE_FACTORY, TYPE_REFINERY, TYPE_DEPOT,
-                                      TYPE_PORT, TYPE_ARMYBASE};
-                const char *names[5] = {"FACTORY", "REFINERY", "DEPOT", "PORT",
-                                        "ARMYBASE"};
+                // The network types are here as well as the producers because of a second
+                // question the code cannot answer on its own: whether a ROAD objective has any
+                // bombable features. Damage only registers through CalcStatus, which walks
+                // class_data->Features -- a type with none can never drop below 100 however much
+                // ordnance lands on it, and the supply loss now derived from status (NodeSupplyLoss,
+                // supply.cpp) would then be a bridges-only mechanic no matter what the knob says.
+                // The campaign asks for AMIS_INT against roads with no targetID, which hints that
+                // way, but the class table is data and this reports what it actually holds.
+                const int types[9] = {TYPE_FACTORY,  TYPE_REFINERY, TYPE_DEPOT,
+                                      TYPE_PORT,     TYPE_ARMYBASE, TYPE_ROAD,
+                                      TYPE_INTERSECT, TYPE_RAILROAD, TYPE_BRIDGE};
+                const char *names[9] = {"FACTORY",  "REFINERY", "DEPOT",
+                                        "PORT",     "ARMYBASE", "ROAD",
+                                        "INTERSECT", "RAILROAD", "BRIDGE"};
 
-                for (int ti = 0; ti < 5; ti++)
+                for (int ti = 0; ti < 9; ti++)
                 {
-                    long count = 0, rate = 0, status = 0;
+                    long count = 0, rate = 0, status = 0, feats = 0, hurt = 0;
                     VuListIterator cit(AllObjList);
 
                     for (Objective co = GetFirstObjective(&cit); co;
@@ -3080,15 +3090,22 @@ void C_Map::ShowCampaignOverlay(long which)
 
                         count++;
                         rate += co->GetObjectiveDataRate();
-                        status += co->GetObjectiveStatus();
+                        feats += co->GetTotalFeatures();
+
+                        const long st = co->GetObjectiveStatus();
+                        status += st;
+
+                        if (st < 100)
+                            hurt++;
                     }
 
-                    char lb[160];
+                    char lb[200];
                     sprintf(lb,
-                            "[PRODUCERS] %-8s count=%ld totalDataRate=%ld "
-                            "avgStatus=%ld\n",
+                            "[CENSUS] %-9s count=%ld dataRate=%ld "
+                            "avgFeatures=%ld avgStatus=%ld damaged=%ld\n",
                             names[ti], count, rate,
-                            count ? (status / count) : 0);
+                            count ? (feats / count) : 0,
+                            count ? (status / count) : 0, hurt);
                     FFDebugLog(lb);
                 }
             }
