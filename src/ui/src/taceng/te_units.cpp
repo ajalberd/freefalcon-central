@@ -25,6 +25,8 @@
 #include "update.h"
 #include "camplist.h"
 #include "squadron.h"
+#include "atm.h" // Artscout - 2026: ATM scheduling blocks, for the next free slot
+#include "aiinput.h" // Artscout - 2026: MIN_PLAN_AIR, the block width
 #include "classtbl.h"
 #include "vu2.h"
 #include "campstr.h"
@@ -100,6 +102,88 @@ void RefreshMapOnChange(void)
 {
     gGps->Update();
     gMapMgr->DrawMap();
+}
+
+// Artscout - 2026: which of the ATM's 32 scheduling blocks a campaign time falls in.
+//
+// SquadronClass::FindAvailableAircraft does not ask "is this squadron busy at 09:47". It walks
+// mis->start_block .. mis->final_block and tests GetSchedule(i) -- a bitmask over the team's
+// current 32-block planning window, block 0 starting at TeamInfo[who]->atm->scheduleTime and each
+// block MIN_PLAN_AIR minutes wide (atm.cpp).
+//
+// Nothing on the hand-built path ever set those two fields. MissionRequestClass zeroes them, so
+// every flight raised from the Add Package window asked about block 0 and only block 0 -- the head
+// of the planning window, which has nothing to do with the takeoff time on the dialog. A squadron
+// busy in block 0 reported "no aircraft free" however far ahead you scheduled, and one idle in
+// block 0 reported plenty even when it was not. That is the difference between the flight that
+// worked and the flight that did not.
+//
+// Returns -1 when the time is past the end of the window, which is the honest answer: the ATM
+// cannot see that far and neither can we.
+static int AtmBlockForTime(int who, CampaignTime t)
+{
+    if (who < 0 or who >= NUM_TEAMS or not TeamInfo[who] or
+        not TeamInfo[who]->atm)
+        return -1;
+
+    const CampaignTime width = CampaignMinutes * MIN_PLAN_AIR;
+
+    if (width <= 0)
+        return -1;
+
+    const CampaignTime base = TeamInfo[who]->atm->scheduleTime;
+
+    if (t <= base)
+        return 0;
+
+    const int b = (int)((t - base) / width);
+    return (b >= ATM_MAX_CYCLES) ? -1 : b;
+}
+
+static CampaignTime AtmTimeForBlock(int who, int block)
+{
+    if (who < 0 or who >= NUM_TEAMS or not TeamInfo[who] or
+        not TeamInfo[who]->atm)
+        return 0;
+
+    return TeamInfo[who]->atm->scheduleTime +
+           block * CampaignMinutes * MIN_PLAN_AIR;
+}
+
+// Fill mis->slots for the block the request actually wants, and if that block cannot supply the
+// flight, walk forward to the first one that can.
+//
+// Returns the block used, or -1 if no block in the window can field it. mis->tot is left alone --
+// the caller decides whether to accept a later slot and is the one that has to tell the user.
+static int FindAircraftFromBlock(Squadron squadron, MissionRequest mis,
+                                 int firstBlock, int *slotFound)
+{
+    if (not squadron or not mis)
+        return -1;
+
+    for (int b = (firstBlock < 0 ? 0 : firstBlock); b < ATM_MAX_CYCLES; b++)
+    {
+        mis->start_block = b;
+        mis->final_block = b;
+        memset(mis->slots, 255, 4);
+
+        const int got = squadron->FindAvailableAircraft(mis);
+
+        if (got >= mis->aircraft)
+        {
+            if (slotFound)
+                *slotFound = got;
+
+            return b;
+        }
+    }
+
+    // Nothing anywhere in the window. Put the request back where it asked to be so the failure
+    // that follows describes what was wanted, not the last thing tried.
+    mis->start_block = mis->final_block = (firstBlock < 0 ? 0 : firstBlock);
+    memset(mis->slots, 255, 4);
+    squadron->FindAvailableAircraft(mis);
+    return -1;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2470,7 +2554,32 @@ void tactical_make_flight(long ID, short hittype, C_Base *control)
         squadron->GetLocation(&x, &y);
         new_flight->SetLocation(x, y);
         new_flight->SetOwner(squadron->GetOwner());
-        squadron->FindAvailableAircraft(&mis);
+
+        // Artscout - 2026: ask about the block the flight is actually for, and slide forward to
+        // the first one that can crew it rather than refusing outright. See AtmBlockForTime.
+        //
+        // mis.tot is the reference: with takeoff locked it IS the takeoff time, and with a locked
+        // time on target it is a little later than takeoff, so the block can be one late. Both are
+        // enormously closer than block 0, which is what this asked about before.
+        CampaignTime slipTo = 0;
+        {
+            const int want = AtmBlockForTime(mis.who, mis.tot);
+            const int used = FindAircraftFromBlock(squadron, &mis, want, NULL);
+
+            if (used >= 0 and want >= 0 and used > want)
+                slipTo = AtmTimeForBlock(mis.who, used);
+        }
+
+        if (slipTo and slipTo > mis.tot)
+        {
+            // The squadron is free later, so take the later slot instead of reporting a failure
+            // the user can do nothing with. Moving tot is enough: BuildMission replans around it,
+            // and the times shown on the package window are refreshed from the flight afterwards.
+            mis.tot = slipTo;
+
+            if (gTakeoffTime)
+                gTakeoffTime = slipTo;
+        }
 
         if (mis.mission == AMIS_AIRCAV)
         {
@@ -2511,8 +2620,8 @@ void tactical_make_flight(long ID, short hittype, C_Base *control)
                     sprintf(fl,
                             "[PKGFLT] BuildMission failed err=%d (%s) | who=%d "
                             "mission=%d size=%d start_at=%d | tot=%d totType=%d "
-                            "now=%d takeoffLock=%d totLock=%d | targetID=%d "
-                            "sqn=%d\n",
+                            "now=%d takeoffLock=%d totLock=%d | block=%d of %d "
+                            "| targetID=%d sqn=%d\n",
                             error,
                             (error == PRET_NO_ASSETS)  ? "NO_ASSETS"
                             : (error == PRET_ABORTED)  ? "ABORTED"
@@ -2520,8 +2629,8 @@ void tactical_make_flight(long ID, short hittype, C_Base *control)
                             (int)mis.who, (int)mis.mission, num_vehicles,
                             start_at, (int)mis.tot, (int)mis.tot_type,
                             (int)TheCampaign.CurrentTime, (int)gTakeoffTime,
-                            (int)gPackageTOT, (int)mis.targetID.num_,
-                            (int)squadron->Id().num_);
+                            (int)gPackageTOT, (int)mis.start_block, ATM_MAX_CYCLES,
+                            (int)mis.targetID.num_, (int)squadron->Id().num_);
                     FFDebugLog(fl);
                 }
             }
