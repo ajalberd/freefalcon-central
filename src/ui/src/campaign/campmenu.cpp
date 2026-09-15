@@ -640,6 +640,26 @@ void MenuSetCampLayerCB(long ID, short, C_Base *)
     gMapMgr->DrawMap();
 }
 
+// Artscout - 2026: the FLOT toggle. Outside the layer radio group on purpose -- the front is a
+// bearing you keep while reading another layer, so it composites over whichever one is live and
+// survives all of them being off.
+void MenuToggleFlotCB(long, short, C_Base *)
+{
+    using namespace FilterSaveStuff; // campLayer: which radio layer is live underneath
+
+    extern bool g_bCampFlotLine;
+
+    C_PopupList *menu = gPopupMgr->GetMenu(MAP_POP);
+
+    if (not menu or not gMapMgr)
+        return;
+
+    g_bCampFlotLine = menu->GetItemState(MID_CAMP_FLOT) ? true : false;
+
+    gMapMgr->ShowCampaignOverlay(campLayer);
+    gMapMgr->DrawMap();
+}
+
 void MenuSetCirclesCB(long, short, C_Base *)
 {
     using namespace FilterSaveStuff; // Retro 26/10/03. Here I take note if a threat filter is enabled or disabled.
@@ -3259,6 +3279,20 @@ void HookupCampaignMenus()
             menu->SetCallback(MID_CAMP_LAYER_DAMAGE, MenuSetCampLayerCB);
 
             menu->SetItemState(MID_CAMP_LAYER_OFF, 1);
+        }
+
+        // Artscout - 2026: the FLOT toggle, a sibling of Names and Bullseye rather than a layer.
+        // Hidden entirely when the master switch is off, so the menu never offers a dead row.
+        {
+            extern bool g_bCampFlotLine;
+            static _TCHAR lblFlot[] = "FLOT line";
+
+            if (g_bCampFlotLine and
+                menu->AddItem(MID_CAMP_FLOT, C_TYPE_TOGGLE, lblFlot, 0))
+            {
+                menu->SetCallback(MID_CAMP_FLOT, MenuToggleFlotCB);
+                menu->SetItemState(MID_CAMP_FLOT, 1);
+            }
         }
 
         CampaignPackageMenuAttach(menu);

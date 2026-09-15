@@ -2291,6 +2291,10 @@ enum
     MID_CAMP_LAYER_PROD = 86150,
     MID_CAMP_LAYER_DAMAGE = 86152,
     MID_CAMP_LAYER_GROUP = 86151,
+    // Artscout - 2026: the FLOT is a TOGGLE, deliberately outside the layer radio group --
+    // the front line is a bearing you want kept while you look at something else, not an
+    // alternative to looking at something else.
+    MID_CAMP_FLOT = 86153,
     // Artscout - 2026: "Build package" -- the squadron picker hung off the campaign
     // right-click menus. Like the overlay items above, none of these are in the menu
     // resource; the squadron entries in particular cannot be, because which squadrons

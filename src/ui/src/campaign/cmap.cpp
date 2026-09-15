@@ -2718,9 +2718,51 @@ static void CampGridToOverlay(long w, long h, GridIndex gx, GridIndex gy,
 // only exists so the per-pixel nearest search below stays bounded no matter what gets loaded.
 #define CAMP_MAX_PLANTS 128
 
+// Artscout - 2026: the forward line of own troops, as a polyline.
+//
+// FLOTList is built and kept current by the campaign already -- RebuildFLOTList (camplist.cpp)
+// takes the midpoint of every link between two frontline objectives on opposing teams, drops any
+// point within 30 km of one it already has, and gamemgr.cpp rebuilds it as the war moves. It has
+// only ever been read for distance-to-front arithmetic; nothing has ever drawn it.
+//
+// The list is sorted along one axis -- FLOTSortDirection picks x or y -- and RebuildFLOTList's own
+// comment warns that this "will look very bad in some situations", which is honest: a front that
+// doubles back on itself cannot be traced correctly by sorting on a single coordinate, and will
+// show a zigzag where the line crosses itself. In Korea the front runs broadly east-west, so
+// sorting west-to-east follows it. Nothing here can improve on that without replacing the sort,
+// which is campaign code that other things depend on.
+static void StampFlotLine(BYTE *overlay, long w, long h)
+{
+    if (not overlay or not FLOTList)
+        return;
+
+    ListElementClass *lp = FLOTList->GetFirstElement();
+    long lastx = 0, lasty = 0;
+    bool have = false;
+
+    while (lp)
+    {
+        GridIndex gx = 0, gy = 0;
+        UnpackXY(lp->GetUserData(), &gx, &gy);
+
+        long px, py;
+        CampGridToOverlay(w, h, gx, gy, &px, &py);
+
+        if (have)
+            StampOverlayLine(overlay, w, h, lastx, lasty, px, py, 3,
+                             CAMP_TINT_MAX);
+
+        lastx = px;
+        lasty = py;
+        have = true;
+        lp = lp->GetNext();
+    }
+}
+
 void C_Map::ShowCampaignOverlay(long which)
 {
     F4CSECTIONHANDLE *Leave;
+    extern bool g_bCampFlotLine;
 
     if (not Map_)
         return;
@@ -2732,7 +2774,12 @@ void C_Map::ShowCampaignOverlay(long which)
     if (not AllObjList)
         which = CampOverlay_ = CAMP_OVERLAY_OFF;
 
-    if (which == CAMP_OVERLAY_OFF)
+    // The FLOT is a toggle, not one of the radio layers, so it has to survive "no layer selected".
+    // With every layer off and the FLOT on there is still an overlay to build -- just this one
+    // thing in it.
+    const bool flot = g_bCampFlotLine and FLOTList and AllObjList;
+
+    if (which == CAMP_OVERLAY_OFF and not flot)
     {
         Map_->NoOverlay();
         flags_ or_eq I_NEED_TO_DRAW_MAP;
@@ -2750,6 +2797,11 @@ void C_Map::ShowCampaignOverlay(long which)
 
     switch (which)
     {
+    case CAMP_OVERLAY_OFF:
+        // FLOT only. Its own hue, since no layer is claiming one.
+        Map_->PreparePalette(RGB(245, 245, 245));
+        break;
+
     case CAMP_OVERLAY_POWER:
         // One blended palette per overlay, so the links, the hubs and the damage all share a hue and
         // differ only in strength: quiet red is a working feed, bright red is a plant that has
@@ -3163,6 +3215,11 @@ void C_Map::ShowCampaignOverlay(long which)
             }
         }
     }
+
+    // Last, so it reads over whatever layer is underneath rather than being buried by it. The
+    // front is the one line you want to keep your bearings by while looking at something else.
+    if (flot)
+        StampFlotLine(overlay, w, h);
 
     Map_->UseOverlay();
     flags_ or_eq I_NEED_TO_DRAW_MAP;
