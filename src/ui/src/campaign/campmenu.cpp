@@ -2466,9 +2466,10 @@ void CampaignPackageMenuRebuild(C_PopupList *menu, C_Base *caller)
     if (g_bLogCampMenu)
     {
         // The per-team tally is here because the team test is the one filter that can reject the
-        // whole theater on a value that looks perfectly reasonable on its own. Seeing team=1
-        // against a roster that lives on teams 2 and 6 is what named the bug; printing the roster
-        // means a wrong team never has to be inferred from a count again.
+        // whole theater on a value that looks perfectly reasonable on its own. The trace that
+        // named this bug could only say that all 112 squadrons failed the test -- which team they
+        // were actually on had to be reasoned out from the code. Printing the roster means the
+        // next wrong team is read rather than deduced.
         _TCHAR hist[96];
         int at = 0;
 
