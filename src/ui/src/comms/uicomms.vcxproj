@@ -141,7 +141,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>.\..\..\..\Falcon4___Win32_Release\UI\Comms/UIComms.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>.\..\..\..\Falcon4___Win32_Release\UI\Comms/</ObjectFileName>
       <ProgramDataBaseFileName>.\..\..\..\Falcon4___Win32_Release\UI\Comms/</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>
@@ -174,7 +174,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>$(IntDir)UIComms.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>
@@ -199,7 +199,7 @@
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <PrecompiledHeaderOutputFile>.\..\..\..\Falcon4___Win32_Debug\UI\Comms/UIComms.pch</PrecompiledHeaderOutputFile>
-      <AssemblerListingLocation>.\..\..\..\Falcon4___Win32_Debug\UI\Comms/</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>.\..\..\..\Falcon4___Win32_Debug\UI\Comms/</ObjectFileName>
       <ProgramDataBaseFileName>.\..\..\..\Falcon4___Win32_Debug\UI\Comms/</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>
@@ -224,7 +224,7 @@
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <PrecompiledHeaderOutputFile>$(IntDir)UIComms.pch</PrecompiledHeaderOutputFile>
-      <AssemblerListingLocation>.\..\..\..\Falcon4___Win32_Debug\UI\Comms/</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>
@@ -258,7 +258,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>.\..\..\..\Falcon4___Win32_Release\UI\Comms/UIComms.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>.\..\..\..\Falcon4___Win32_Release\UI\Comms/</ObjectFileName>
       <ProgramDataBaseFileName>.\..\..\..\Falcon4___Win32_Release\UI\Comms/</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>
@@ -291,7 +291,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>$(IntDir)UIComms.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>

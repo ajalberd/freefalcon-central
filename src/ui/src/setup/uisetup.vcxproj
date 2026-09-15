@@ -132,7 +132,7 @@
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <PrecompiledHeaderOutputFile>.\..\..\..\Falcon4___Win32_Debug\UI\Setup/UISetup.pch</PrecompiledHeaderOutputFile>
-      <AssemblerListingLocation>.\..\..\..\Falcon4___Win32_Debug\UI\Setup/</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>.\..\..\..\Falcon4___Win32_Debug\UI\Setup/</ObjectFileName>
       <ProgramDataBaseFileName>.\..\..\..\Falcon4___Win32_Debug\UI\Setup/</ProgramDataBaseFileName>
       <BrowseInformation>true</BrowseInformation>
@@ -158,7 +158,7 @@
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <PrecompiledHeaderOutputFile>$(IntDir)UISetup.pch</PrecompiledHeaderOutputFile>
-      <AssemblerListingLocation>.\..\..\..\Falcon4___Win32_Debug\UI\Setup/</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
       <BrowseInformation>true</BrowseInformation>
@@ -193,7 +193,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>.\..\..\..\Falcon4___Win32_Release\UI\Setup/UISetup.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>.\..\..\..\Falcon4___Win32_Release\UI\Setup/</ObjectFileName>
       <ProgramDataBaseFileName>.\..\..\..\Falcon4___Win32_Release\UI\Setup/</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>
@@ -226,7 +226,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>$(IntDir)UISetup.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>
@@ -260,7 +260,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>.\..\..\..\Falcon4___Win32_Release\UI\Setup/UISetup.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>.\..\..\..\Falcon4___Win32_Release\UI\Setup/</ObjectFileName>
       <ProgramDataBaseFileName>.\..\..\..\Falcon4___Win32_Release\UI\Setup/</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>
@@ -293,7 +293,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>$(IntDir)UISetup.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>

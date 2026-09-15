@@ -156,7 +156,7 @@
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <StructMemberAlignment>4Bytes</StructMemberAlignment>
       <PrecompiledHeaderOutputFile>.\Falcon4___Win32_Debug/Falcon4.pch</PrecompiledHeaderOutputFile>
-      <AssemblerListingLocation>.\Falcon4___Win32_Debug/</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>.\Falcon4___Win32_Debug/</ObjectFileName>
       <ProgramDataBaseFileName>.\Falcon4___Win32_Debug/</ProgramDataBaseFileName>
       <BrowseInformation>false</BrowseInformation>
@@ -205,7 +205,7 @@
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <StructMemberAlignment>Default</StructMemberAlignment>
       <PrecompiledHeaderOutputFile>$(IntDir)Falcon4.pch</PrecompiledHeaderOutputFile>
-      <AssemblerListingLocation>.\Falcon4___Win32_Debug/</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
       <BrowseInformation>false</BrowseInformation>
@@ -264,7 +264,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>.\Falcon4___Win32_Release/Falcon4.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>.\Falcon4___Win32_Release/</ObjectFileName>
       <ProgramDataBaseFileName>.\Falcon4___Win32_Release/</ProgramDataBaseFileName>
       <BrowseInformation>false</BrowseInformation>
@@ -319,7 +319,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>$(IntDir)Falcon4.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
       <BrowseInformation>false</BrowseInformation>
@@ -377,7 +377,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>.\Falcon4___Win32_Release/Falcon4.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>.\Falcon4___Win32_Release/</ObjectFileName>
       <ProgramDataBaseFileName>.\Falcon4___Win32_Release/</ProgramDataBaseFileName>
       <BrowseInformation>false</BrowseInformation>
@@ -432,7 +432,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>$(IntDir)Falcon4.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
       <BrowseInformation>false</BrowseInformation>

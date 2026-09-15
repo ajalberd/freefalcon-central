@@ -141,7 +141,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>.\..\..\Falcon4___Win32_Release\Sim\Ground/Ground.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>.\..\..\Falcon4___Win32_Release\Sim\Ground/</ObjectFileName>
       <ProgramDataBaseFileName>.\..\..\Falcon4___Win32_Release\Sim\Ground/</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>
@@ -174,7 +174,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>$(IntDir)Ground.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>
@@ -199,7 +199,7 @@
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <PrecompiledHeaderOutputFile>.\..\..\Falcon4___Win32_Debug\Sim\Ground/Ground.pch</PrecompiledHeaderOutputFile>
-      <AssemblerListingLocation>.\..\..\Falcon4___Win32_Debug\Sim\Ground/</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>.\..\..\Falcon4___Win32_Debug\Sim\Ground/</ObjectFileName>
       <ProgramDataBaseFileName>.\..\..\Falcon4___Win32_Debug\Sim\Ground/</ProgramDataBaseFileName>
       <BrowseInformation>true</BrowseInformation>
@@ -225,7 +225,7 @@
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <PrecompiledHeaderOutputFile>$(IntDir)Ground.pch</PrecompiledHeaderOutputFile>
-      <AssemblerListingLocation>.\..\..\Falcon4___Win32_Debug\Sim\Ground/</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
       <BrowseInformation>true</BrowseInformation>
@@ -260,7 +260,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>.\..\..\Falcon4___Win32_Release\Sim\Ground/Ground.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>.\..\..\Falcon4___Win32_Release\Sim\Ground/</ObjectFileName>
       <ProgramDataBaseFileName>.\..\..\Falcon4___Win32_Release\Sim\Ground/</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>
@@ -293,7 +293,7 @@
       <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
       <PrecompiledHeaderOutputFile>$(IntDir)Ground.pch</PrecompiledHeaderOutputFile>
       <AssemblerOutput>AssemblyAndSourceCode</AssemblerOutput>
-      <AssemblerListingLocation>.\</AssemblerListingLocation>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
       <WarningLevel>Level3</WarningLevel>
