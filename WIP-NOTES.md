@@ -35,7 +35,22 @@ per menu. The map popup was never wrong (`AddItem` refuses a duplicate ID, so
 calls 2-5 returned at the first line), which is why the mistake was invisible
 anywhere it could have been noticed.
 
-Still unrun: the submenu itself, on any popup.
+**Second run found the submenu greyed on every target.** `LogCampMenu 1` said why:
+
+```
+[PKGMENU] team=1 ... | squadrons=112 otherTeam=112 noVehicles=0 noRole=0 | offered=0
+```
+
+The candidate filter compared against `gSelectedTeam`, which is the *Tactical
+Engagement* editor's variable — TE drives it from its team list box and hardcodes
+it to 1 for training, the campaign assigns it once on entry and nothing keeps it in
+step. Same shape of mistake as reaching for `te_scf.lst`'s windows, one layer in.
+Now `FalconLocalSession->GetTeam()`, which is what every other campaign screen and
+`ato.cpp` use. `SetOwner` takes a *country* and now gets one.
+
+Still unrun: the submenu actually opening, and anything past it. Leave
+`LogCampMenu 1` on — the trace now prints the squadron roster by team, so a wrong
+team can't hide behind a count again.
 
 
 Replaces the stock Add Flight / Add Package items, which were hidden again because
