@@ -91,3 +91,6 @@ src/extlibs/openal/libs/Win32/
 # Artscout - 2026: st80conv build output. It builds from src\tools\st80conv\st80conv.vcxproj, and
 # Falcon4.vcxproj's copy of it is `if exist` guarded, so an absent exe degrades quietly.
 src/tools/st80conv/bin/
+
+# Artscout - 2026: release artifacts from tools\patchuild_patch_zip.ps1
+dist/
