@@ -48,9 +48,12 @@ step. Same shape of mistake as reaching for `te_scf.lst`'s windows, one layer in
 Now `FalconLocalSession->GetTeam()`, which is what every other campaign screen and
 `ato.cpp` use. `SetOwner` takes a *country* and now gets one.
 
-Still unrun: anything past filing a package from the submenu. Leave `LogCampMenu 1`
-on — the trace prints the squadron roster by team, so a wrong team can't hide
-behind a count again.
+Team fix confirmed in the field: `myTeam=2 (session country=1, gSelectedTeam=1)`,
+roster `[2:49 4:4 5:13 6:46]` — country 1 maps to team 2, and `gSelectedTeam` was
+holding the *country*.
+
+**The submenu is a real wall**: `candidates=49 ... shown=12 of 12 slots`. Twelve
+rows cannot show the roster, which is what the Add Package dialog is for.
 
 ### 2b. Add Package — the real dialog
 
@@ -72,11 +75,24 @@ of campaign, common, campmap, mission, intel, records, tactical, tacengbg — on
 which is the likeliest reason an earlier session decided Add Package "did nothing".
 That is what `art\cp_uiskin.lst` + `art\resource\uiskin_ff4.irc` fix.
 
-**Open: a flight can never be created.** OK on Add Flight raises "Unable to do
-this" — `BuildMission` returning non-`PRET_SUCCESS`
-(`tactical_make_flight`, te_units.cpp). `LogCampMenu 1` now prints `[PKGFLT]` with
-the error split into `NO_ASSETS` vs `ABORTED` and the whole request. **Pending a
-log.**
+**Resolved: flights were being pinned to an exact time on target.** The trace:
+
+```
+[PKGFLT] BuildMission failed err=1 (NO_ASSETS) | start_at=1 |
+         tot=34209000 totType=3 now=32438610 takeoffLock=0 totLock=34209000
+```
+
+`totLock` non-zero = the TOT padlock is closed, and `tactical_make_flight` checks
+`gPackageTOT` **before** `start_at`, pinning `tot_type` to `TYPE_EQ` — be over the
+target at exactly that second. The planner declining that is the planner working.
+Same fact explains why the Status dropdown seemed inert: `start_at` is only read
+once `gPackageTOT` is zero, so it was never reached.
+
+The window always opened that way — both locks start at 0 in `package.scf` and
+`SetupPackageControls` calls `LockTakeoffTimeCB`, whose else branch closes the TOT
+lock. Right for the TE editor, wrong for a campaign, so the campaign now opens with
+**takeoff** locked instead (`CampaignPackageTakeoffLock`, default on; TE untouched).
+The refusal message now names which case it was.
 
 Allied Force was checked as a reference (`D:\Program Files (x86)\Lead
 Pursuit\Battlefield Operations`): same control IDs, same `CMN_SCF.LST` placement,
