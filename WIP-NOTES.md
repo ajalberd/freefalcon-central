@@ -132,12 +132,25 @@ alongside a running ATO.
 
 ## Housekeeping
 
-`main` is **72 commits ahead of `origin/develop`** and **53 ahead of `origin/main`**
-— nothing pushed. Three stale PRs, of which #50 and #52 are almost certainly
-subsumed by what is on `main`:
+`main` is pushed. **PR #53** (`ajalberd:main` -> `FreeFalcon:develop`) carries the
+campaign planning and map work.
 
-| PR | Branch |
-|---|---|
+PRs #49, #50 and #52 were all fully subsumed by `main` and #50/#52 are now closed;
+#49 has zero commits `main` does not already contain.
+
+**Check subsumption with `git cherry`, not a diff.** `git cherry -v main origin/<branch>`
+marks a commit `-` when an equivalent patch is already on `main`, which is exactly the
+question. `git diff main...origin/<branch>` answers a different one: these branches were
+cut from `develop`, so the three-dot base is `develop` and the diff shows what the branch
+changed relative to *that*, not what it would add to `main`. It looked like 746
+uncommitted insertions when the real answer was zero.
+
+`gh` resolves this checkout to the upstream **`FreeFalcon/freefalcon-central`** while the
+branches live in **`ajalberd/freefalcon-central`**, so a PR needs
+`--head ajalberd:<branch>`; a plain `--head main` fails with "No commits between
+develop and main".
+
+---|---|
 | #52 | `vr-frame-pacing` |
 | #50 | `build-x64-objdir` |
 | #49 | `vr-stereo-convergence-fixes` |
