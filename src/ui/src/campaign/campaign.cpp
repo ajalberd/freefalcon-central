@@ -44,6 +44,7 @@
 #include "graphics/include/loader.h"
 #include "gps.h"
 #include "userids.h"
+#include "fflog.h" // Artscout - 2026: report whether PACKAGE_WIN resolved
 #include "textids.h"
 #include "falcsess.h"
 #include "campaign.h"
@@ -78,6 +79,7 @@ extern IMAGE_RSC *gOccupationMap;
 extern long StopLookingforMission;
 extern C_Base *CurMapTool;
 extern int gTimeModeServer;
+extern bool g_bCampaignPackageWindow; // Artscout - 2026: load the unwired Add Package window
 extern bool g_bServer;
 extern OBJECTINFO Recon;
 extern long gRefreshScoresList;
@@ -1638,6 +1640,40 @@ void LoadCampaignWindows()
     }
 
     gMainParser->LoadSoundList("cp_snd.lst");
+
+    // Artscout - 2026: bring in the Add Package window, which nothing has ever loaded.
+    //
+    // art\taceng\package.scf defines PACKAGE_WIN in full -- titlebar, flight list, package type
+    // and priority -- and is named by exactly one list, art\tenew_scf.lst, which appears nowhere
+    // in this source tree. te_scf.lst does not include it. So FindWindow(PACKAGE_WIN) has been
+    // returning NULL on every screen, the Tactical Engagement one included, and every guarded use
+    // of it has been quietly doing nothing since the window was drawn. tenew_scf.lst looks like a
+    // newer TE window set (tac_load\, TAC_TOOL.scf, new_squad.scf, package.scf) that FF6 shipped
+    // and never switched on.
+    //
+    // Its art is stranded the same way: WIN_PACKAGE and the rest of the "FF4 UI version 0.3" skin
+    // live only in art\uiskin\ff4\win_all.idx/.rsc, which no *_art.lst or *_res.lst names. That is
+    // what cp_uiskin.lst is for. Order matters -- the image list has to be loaded before the
+    // window list that references it, because C_Resmgr::LoadIndex is what registers the names
+    // (AddNewID for anything not already in the ID table), and the .scf parse resolves them.
+    //
+    // Both lists are additive: nothing already loaded is replaced, and a missing file is a no-op
+    // in the parser rather than a failure, so an install without the skin behaves exactly as
+    // before and the window simply stays absent.
+    if (g_bCampaignPackageWindow)
+    {
+        gMainParser->LoadImageList("cp_uiskin.lst");
+        gMainParser->LoadWindowList("cp_pkg_scf.lst");
+
+        ID = gMainParser->GetFirstWindowLoaded();
+
+        while (ID)
+        {
+            HookupCampaignControls(ID);
+            ID = gMainParser->GetNextWindowLoaded();
+        }
+    }
+
     gMainParser->LoadWindowList(
         "cp_scf.lst"); // Modified by M.N. - add art/art1024 by LoadWindowList
 
@@ -1647,6 +1683,16 @@ void LoadCampaignWindows()
     {
         HookupCampaignControls(ID);
         ID = gMainParser->GetNextWindowLoaded();
+    }
+
+    if (g_bCampaignPackageWindow)
+    {
+        // The whole point of this load is whether the window now exists, and that is one lookup.
+        C_Window *pw = gMainHandler->FindWindow(PACKAGE_WIN);
+        _TCHAR pl[160];
+        sprintf(pl, "[PKGWIN] PACKAGE_WIN %s after loading cp_pkg_scf.lst\n",
+                pw ? "RESOLVED" : "still NOT FOUND");
+        FFDebugLog(pl);
     }
 
     LoadCommonWindows();

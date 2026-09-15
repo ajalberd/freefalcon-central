@@ -831,6 +831,8 @@ int g_nSupplyMapThreshold =
     0; // Artscout - 2026: how much traffic a road node must carry before the campaign RECORDS it (SupplyUnits, supply.cpp). Stock is 5, and that is why the supply overlay shows a couple of isolated rings instead of a route: SendSupply deposits only a TENTH of what passes at each node, so a segment needs roughly fifty units of supply crossing it in one tick to clear 5, which only the heaviest junctions ever do. The value is display-only -- nothing in the sim reads obj_data.supply back -- so lowering it costs some dirty-data messages and shows the whole chain. The AI's interdiction requests keep the original 5 regardless; that gate is gameplay and is not touched. 5 restores stock exactly. "SupplyMapThreshold".
 bool g_bLogCampProducers =
     false; // Artscout - 2026: log a one-off census of everything ProduceSupplies treats as a producer -- count, total DataRate and total status per objective type -- to FFDebug.log when the Production overlay is built. Answers "do storage depots actually contribute supply?" from the theater's own class table rather than by reading the loop that mentions them. "LogCampProducers".
+bool g_bCampaignPackageWindow =
+    true; // Artscout - 2026: load art\taceng\package.scf (PACKAGE_WIN) and the FF4 window skin it needs into the CAMPAIGN screen. Neither has ever been loaded by anything: package.scf is named only by art\tenew_scf.lst, which appears nowhere in this source tree, and the skin it draws with (WIN_PACKAGE and the rest of "FF4 UI version 0.3") lives only in art\uiskin\ff4\win_all.idx/.rsc, which no image list names. So FindWindow(PACKAGE_WIN) returned NULL on every screen including Tactical Engagement, which is the real reason the stock Add Package item never did anything anywhere. Needs cp_uiskin.lst and cp_pkg_scf.lst in art\; without them the parser skips the load and the window stays absent, exactly as before. 0 to skip the load. "CampaignPackageWindow".
 bool g_bLogCampMenu =
     false; // Artscout - 2026: log what the "Build package" submenu decided, every time a campaign popup opens -- which menu, what was right-clicked, how many squadrons the theater offered and why the rest were dropped, and whether the parent item ended up enabled. The item is a submenu, so a disabled parent and a parent nobody thought to hover over look identical from the outside, and the candidate filter is three separate rejections (wrong team, no airframes, no role against this target) that all end in the same silence. "LogCampMenu".
 int g_nSupplyInterdiction =
@@ -1581,6 +1583,8 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bLogCampProducers}, // Artscout - 2026: census the campaign's supply producers
     {"LogCampMenu",
      &g_bLogCampMenu}, // Artscout - 2026: trace the "Build package" submenu rebuild
+    {"CampaignPackageWindow",
+     &g_bCampaignPackageWindow}, // Artscout - 2026: load the never-wired Add Package window
     {"ReconRtt", &g_bReconRtt}, // Artscout - 2026: recon terrain via off-screen RTT
     {"LogMenuTextures",
      &g_bLogMenuTextures}, // Artscout - 2026: diagnose untextured menu 3D models
