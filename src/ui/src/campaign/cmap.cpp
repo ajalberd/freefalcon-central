@@ -2796,6 +2796,7 @@ void C_Map::ShowCampaignOverlay(long which)
 {
     F4CSECTIONHANDLE *Leave;
     extern bool g_bCampFlotLine;
+    extern bool g_bLogCampMenu;
 
     if (not Map_)
         return;
@@ -3252,7 +3253,19 @@ void C_Map::ShowCampaignOverlay(long which)
     // Last, so it reads over whatever layer is underneath rather than being buried by it. The
     // front is the one line you want to keep your bearings by while looking at something else.
     if (flot)
+    {
+        // Which layer is underneath matters to reading the result: Production draws large discs
+        // sized by output, and those look nothing like a front line but everything like the
+        // "circles instead of a line" this is being blamed for.
+        if (g_bLogCampMenu)
+        {
+            _TCHAR wl[96];
+            sprintf(wl, "[FLOT] drawn over layer %ld (0=off)\n", which);
+            FFDebugLog(wl);
+        }
+
         StampFlotLine(overlay, w, h);
+    }
 
     Map_->UseOverlay();
     flags_ or_eq I_NEED_TO_DRAW_MAP;
