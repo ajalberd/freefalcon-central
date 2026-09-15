@@ -124,14 +124,14 @@ alongside a running ATO.
 | Damage does not feed **link cost** | A dropped bridge is expensive to cross but pathfinding still routes over it. Touches everything walking the objective graph, not just supply. |
 | Missile fin flicker | Long-standing. Per-surface `dwzBias` was restored and did **not** fix it — do not re-chase that. |
 | Objective icons shaded by health | Asked for, not built. What exists is the *Damage overlay layer*, which you have to switch on. The narrower request was to darken the red icons themselves. |
-| **FLOT line** not drawn | Asked for (Allied Force has one). The data already exists and is live: `RebuildFLOTList()` (camplib/camplist.cpp:1019) fills `FLOTList` with midpoints between adjacent frontline objectives of opposing teams, deduped to 30 km, sorted west-east (`FLOTSortDirection` switches to north-south), and `gamemgr.cpp:358` rebuilds it during a campaign. **Nothing in `src/ui` references FLOT at all.** Drawing it is a walk of that list stamping segments with `StampOverlayLine` (cmap.cpp:2650), the same helper the Power and Supply overlays use, plus a menu item alongside the Logistics layers. Note the west-east sort is acknowledged in its own comment as wrong for some fronts. |
+| ~~FLOT line~~ **done, untested** | Drawn from the campaign's own `FLOTList`, which was always live and never drawn. Map right-click -> **FLOT line**; knob `CampFlotLine`. It is a toggle, not a layer, so it composites over whichever Logistics layer is live and survives all of them being off. Inherited limitation: `RebuildFLOTList` sorts on a single axis and warns in its own comment that this "will look very bad in some situations" -- a front that doubles back will cross itself. Korea runs east-west and should trace correctly. |
 | **Add Squadron** is dead in the campaign | Stock, not new. `ObjMenuOpenCB` (campmenu.cpp) clears `C_BIT_ENABLED` on `MID_ADD_SQUADRON` whenever `GameType == 1`, so on an airbase it greys out and everywhere else it is off — basing a squadron is a TE-editor operation. `SetupCampaignMenus` hides `MID_SQUADRONS` on the objective popup but leaves this one visible. Hiding it too is a one-liner if the dead row is worth removing. |
 
 ---
 
 ## Housekeeping
 
-`main` is **50 commits ahead of `origin/develop`** and **31 ahead of `origin/main`**
+`main` is **72 commits ahead of `origin/develop`** and **53 ahead of `origin/main`**
 — nothing pushed. Three stale PRs, of which #50 and #52 are almost certainly
 subsumed by what is on `main`:
 
