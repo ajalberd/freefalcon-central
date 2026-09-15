@@ -1582,6 +1582,51 @@ void tactical_add_package(VU_ID id, C_Base *caller)
     gLastRole = GetMissionFromTarget(
         gSelectedTeam, gLastAircraftType - VU_LAST_ENTITY_TYPE, ent);
 
+    // Artscout - 2026: do not open on a role that ignores what was clicked.
+    //
+    // GetMissionFromTarget does not report failure. When the airframe it is handed cannot engage
+    // the target it sets target = NULL internally and returns from a list that depends only on the
+    // airframe -- BARCAP first, which the role box shows as DCA. The airframe it is handed here is
+    // whatever gLastAircraftType happens to hold, defaulting to an F-16C squadron, so right-
+    // clicking an armoured battalion opened the package as DCA. The flight window then did its job
+    // correctly and offered the only thing a CAP can be aimed at: a location. Hence a package
+    // titled "1st Armored Battalion" whose flight was pointed "over Sangyong-ni" -- and, because
+    // the first flight assigns new_package_target from its own selection, the package would have
+    // lost the battalion entirely.
+    //
+    // Asking the same function what it would answer with no target separates a real role from the
+    // fallback without inventing a rule about roles. If the default airframe only has a fallback
+    // to offer, look for one in the theater that has something better, and open on that instead.
+    // Nothing here overrides a choice -- both boxes stay editable.
+    if (ent and gLastRole and
+        gLastRole == GetMissionFromTarget(
+                         gSelectedTeam,
+                         gLastAircraftType - VU_LAST_ENTITY_TYPE, NULL))
+    {
+        VuListIterator sqit(AllAirList);
+
+        for (CampEntity e = (CampEntity)sqit.GetFirst(); e;
+             e = (CampEntity)sqit.GetNext())
+        {
+            if (not e->IsSquadron() or e->GetTeam() not_eq gSelectedTeam)
+                continue;
+
+            if (((Squadron)e)->GetTotalVehicles() < 1)
+                continue;
+
+            const int dindex = e->Type() - VU_LAST_ENTITY_TYPE;
+            const int role = GetMissionFromTarget(gSelectedTeam, dindex, ent);
+
+            if (not role or
+                role == GetMissionFromTarget(gSelectedTeam, dindex, NULL))
+                continue; // this one only has a fallback too
+
+            gLastAircraftType = e->Type();
+            gLastRole = role;
+            break;
+        }
+    }
+
     win = gMainHandler->FindWindow(PACKAGE_WIN);
 
     if (win)
