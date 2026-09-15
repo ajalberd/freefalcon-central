@@ -2734,9 +2734,21 @@ static void CampGridToOverlay(long w, long h, GridIndex gx, GridIndex gy,
 static void StampFlotLine(BYTE *overlay, long w, long h)
 {
     extern bool g_bLogCampMenu;
+    extern void RebuildFLOTList(void);
 
     if (not overlay or not FLOTList)
         return;
+
+    // Build the list before reading it. RebuildFLOTList has exactly one live caller
+    // (gamemgr.cpp, as the player is put into a vehicle), so in the campaign UI the list is empty
+    // until you have actually flown -- which is why this drew nothing at all on the first attempt
+    // and the blobs being blamed on it were steerpoint markers.
+    //
+    // Cheap enough to do here: ShowCampaignOverlay is reached only from menu actions, never per
+    // frame, and the walk is over FrontList, which StandardRebuild keeps current. Doing it on
+    // every overlay build also means the line follows the front as the war moves rather than
+    // freezing at whatever it was when it was first drawn.
+    RebuildFLOTList();
 
     ListElementClass *lp = FLOTList->GetFirstElement();
     long lastx = 0, lasty = 0;
