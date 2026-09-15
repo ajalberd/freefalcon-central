@@ -48,9 +48,43 @@ step. Same shape of mistake as reaching for `te_scf.lst`'s windows, one layer in
 Now `FalconLocalSession->GetTeam()`, which is what every other campaign screen and
 `ato.cpp` use. `SetOwner` takes a *country* and now gets one.
 
-Still unrun: the submenu actually opening, and anything past it. Leave
-`LogCampMenu 1` on — the trace now prints the squadron roster by team, so a wrong
-team can't hide behind a count again.
+Still unrun: anything past filing a package from the submenu. Leave `LogCampMenu 1`
+on — the trace prints the squadron roster by team, so a wrong team can't hide
+behind a count again.
+
+### 2b. Add Package — the real dialog
+
+**`PACKAGE_WIN` had never been loaded by any screen.** `art\taceng\package.scf`
+defines it in full and is named by `art\tenew_scf.lst` alone, which appears nowhere
+in the source. So `FindWindow(PACKAGE_WIN)` returned NULL in Tactical Engagement
+too — the earlier note here that the stock items "work on the TE screen" was wrong.
+`tenew_scf.lst` reads as a newer TE window set FF6 shipped and never switched on.
+
+Its art is stranded the same way: `WIN_PACKAGE` and the rest of "FF4 UI version
+0.3" live only in `art\uiskin\ff4\win_all.idx/.rsc`, which no image list names.
+
+Three new files in the install carry it in — `art\resource\uiskin_ff4.irc`,
+`art\cp_uiskin.lst`, `art\cp_pkg_scf.lst` — and `campaign.cpp` loads them before
+`cp_scf.lst`, because `C_Resmgr::LoadIndex` is what registers the image names
+(`AddNewID` for anything not in the ID table) and the `.scf` parse resolves them.
+Knob: `CampaignPackageWindow`, default on. Confirmed: `[PKGWIN] PACKAGE_WIN
+RESOLVED` appears in `FFDebug.log`.
+
+**Untested: everything after the window resolving.** Right-click a target → **Add
+Package**. What to watch:
+
+- Whether it *draws*. The FF4 skin is grey/white and the campaign screen is blue;
+  they have never been composited.
+- Window groups. The package window is group 3274, Add Flight 3275, and the
+  campaign screen has its own. `tactical_add_flight` calls
+  `EnableWindowGroup(win->GetGroup())` — whether that disturbs the map underneath
+  is unknown.
+- The flight tree (`ATO_PACKAGE_TREE`) and Add Flight → several flights in one
+  package, each with its own target. That is the thing the submenu cannot do.
+- The Takeoff / Time on Target spinners and their locks — the other thing the
+  submenu cannot do, and the answer to "no aircraft free in this time block".
+- `REQF_TE_MISSION` alongside a running ATO, which matters more once a package has
+  an escort keyed to a strike.
 
 
 Replaces the stock Add Flight / Add Package items, which were hidden again because
