@@ -1693,16 +1693,6 @@ void LoadCampaignWindows()
         ID = gMainParser->GetNextWindowLoaded();
     }
 
-    if (g_bCampaignPackageWindow)
-    {
-        // The whole point of this load is whether the window now exists, and that is one lookup.
-        C_Window *pw = gMainHandler->FindWindow(PACKAGE_WIN);
-        _TCHAR pl[160];
-        sprintf(pl, "[PKGWIN] PACKAGE_WIN %s after loading cp_pkg_scf.lst\n",
-                pw ? "RESOLVED" : "still NOT FOUND");
-        FFDebugLog(pl);
-    }
-
     LoadCommonWindows();
 
     CPLoaded++;

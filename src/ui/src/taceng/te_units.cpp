@@ -42,6 +42,7 @@
 #include "brief.h"
 #include "shi/float.h"
 #include "msginc/campdatamsg.h"
+#include "fflog.h" // Artscout - 2026: report why BuildMission refused
 
 enum
 {
@@ -2466,6 +2467,35 @@ void tactical_make_flight(long ID, short hittype, C_Base *control)
             // Show an error message box notifying user this action was not able to be performed
             // Errors are: PRET_NO_ASSETS - The aircraft wern't available
             // PRET_ABORTED - Timing was impossible (takeoff before current time, for example)
+            // Artscout - 2026: "Unable to do this" is the whole of what the user is told, and
+            // PRET_NO_ASSETS ("that squadron has nothing free") and PRET_ABORTED ("that timing is
+            // impossible") want completely different responses -- a different squadron versus a
+            // different clock. Everything BuildMission weighed is in scope right here, so say
+            // which one it was and what it was given.
+            {
+                extern bool g_bLogCampMenu;
+
+                if (g_bLogCampMenu)
+                {
+                    _TCHAR fl[320];
+                    sprintf(fl,
+                            "[PKGFLT] BuildMission failed err=%d (%s) | who=%d "
+                            "mission=%d size=%d start_at=%d | tot=%d totType=%d "
+                            "now=%d takeoffLock=%d totLock=%d | targetID=%d "
+                            "sqn=%d\n",
+                            error,
+                            (error == PRET_NO_ASSETS)  ? "NO_ASSETS"
+                            : (error == PRET_ABORTED)  ? "ABORTED"
+                                                       : "other",
+                            (int)mis.who, (int)mis.mission, num_vehicles,
+                            start_at, (int)mis.tot, (int)mis.tot_type,
+                            (int)TheCampaign.CurrentTime, (int)gTakeoffTime,
+                            (int)gPackageTOT, (int)mis.targetID.num_,
+                            (int)squadron->Id().num_);
+                    FFDebugLog(fl);
+                }
+            }
+
             MonoPrint("Error planning flight. Aborting\n");
             AreYouSure(TXT_FLIGHT_CANCELED, TXT_ERROR, CloseWindowCB,
                        CloseWindowCB);
