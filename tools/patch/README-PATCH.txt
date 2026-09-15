@@ -1,5 +1,5 @@
-FreeFalcon / FFViper -- VR stereo convergence + clickable-cockpit aim patch
-===========================================================================
+FreeFalcon / FFViper -- campaign mission planning + front line patch
+====================================================================
 
 WHAT THIS IS
 ------------
@@ -8,40 +8,73 @@ download -- no Falcon 4.0 data is included, and none can be legally
 redistributed. If you do not already have FreeFalcon installed and running,
 this will not do anything for you.
 
-Fixes a set of VR bugs that affect PLAIN-STEREO headsets (2-view
-PRIMARY_STEREO) -- e.g. Meta Quest, most PC HMDs. Quad-views hardware
-(Varjo-class) was already correct and is unaffected.
+Adds mission planning to the campaign map: right-click a target and build a
+package against it, the way BMS and Allied Force let you. Also draws the FLOT
+-- the forward line of own troops.
 
 
-WHAT IT FIXES
--------------
-1. Nothing converges in the 3D pit. Both the cockpit and the distant terrain
-   appeared doubled at every depth, and no IPD tweak helped. Plain stereo was
-   rendering a symmetric frustum while the runtime reports strongly asymmetric
-   per-eye FOV (each eye canted ~7 deg outward), leaving the two eye images
-   diverging by ~14 deg. Now renders and submits the runtime's true off-axis
-   per-eye frustum, as the quad-views path always did.
+WHAT IT ADDS
+------------
+1. Build package (right-click any target -> "Build package")
+   A submenu of the squadrons that could actually fly a mission against what
+   you clicked, nearest first, with a two- or four-ship choice. Clicking one
+   files the package there and then. Squadrons that can engage the target are
+   listed above ones that can only bring a generic sortie, so an airbase does
+   not come up offering you airlift helicopters.
 
-2. Stereo drifted when looking off-centre. The per-eye IPD was applied along
-   the AIRFRAME's right axis instead of the HEAD's, so it was only correct
-   while looking straight ahead -- worst looking down-left/down-right at the
-   aux panels.
+2. Add Package (right-click any target -> "Add Package")
+   The full planning dialog -- a flight list, per-flight aircraft, role,
+   squadron, airbase, size and target, and takeoff / time-on-target with
+   locks. This is the window to use when one package needs several flights
+   with different jobs: a SEAD flight on the target, an escort keyed to the
+   strike.
 
-3. Clickable cockpit was unusable with a mouse: two cursors that would not
-   fuse, and clicks landing on the wrong switch (worse toward the lower
-   corners). Three causes -- the hit-test projected with a different frustum
-   than the render, the cursor was drawn through yet another projection, and
-   the cursor's stereo offset used the airframe axis rather than the head's.
+   The window itself is stock FreeFalcon and always has been. It had never
+   worked on ANY screen, the Tactical Engagement editor included, because the
+   artwork it draws with is named by no image list -- it was opening with no
+   background at all. That is what art\cp_uiskin.lst and the two files beside
+   it are for. See INSTALL: without them the menu item does nothing.
+
+3. FLOT line (right-click the map -> "FLOT line")
+   The front, drawn as a line rather than inferred from where the unit icons
+   stop. Off by default. The campaign has always tracked this; nothing drew
+   it.
+
+Four things behind the planner were also wrong, each of which made it look
+like the feature was missing rather than broken:
+
+ - The player's team was read from the Tactical Engagement editor's variable,
+   which a campaign sets once on entry and never updates. Every squadron in
+   the theater failed the team test, so the squadron list came up empty.
+ - Flights were scheduled against the wrong hour. The availability check
+   walks the campaign's 32-block schedule, and nothing ever told it which
+   block to look at -- every flight asked about block 0 no matter when you
+   scheduled it. A squadron busy in block 0 reported "no aircraft free" for
+   any takeoff time you picked. A request that cannot be crewed now moves to
+   the next block that can.
+ - New packages demanded the flight be over the target at exactly the
+   displayed second. Right when authoring a scenario, wrong in a running war,
+   and it is why hand-built packages were refused so often. The campaign now
+   pins takeoff instead.
+ - The default role ignored what you clicked, so right-clicking an armoured
+   battalion opened a CAP and offered you a map location instead of the unit.
 
 
 INSTALL
 -------
 1. Back up your existing FFViper.exe.
 2. Copy FFViper.exe into your FreeFalcon folder, overwriting.
-3. Copy the DLLs alongside it ONLY IF you do not already have them:
+3. Copy the art\ folder in as well, keeping its structure:
+      art\cp_uiskin.lst
+      art\cp_pkg_scf.lst
+      art\resource\uiskin_ff4.irc
+   These are additive -- they add files, they do not replace any. Without
+   them "Add Package" comes up and does nothing, which is exactly the bug
+   this release fixes. "Build package" works without them.
+4. Copy the DLLs alongside the exe ONLY IF you do not already have them:
       OpenAL32.dll, openxr_loader.dll, dxcompiler.dll, dxil.dll, nvtt30205.dll
    If your install already runs the current dev build, you already have these
-   and only need the exe.
+   and only need the exe and the art\ files.
 
 Do NOT delete ST48W.dll, ST80W.dll or dbghelp.dll from your install -- they
 are stock FreeFalcon files, deliberately not included here.
@@ -49,34 +82,50 @@ are stock FreeFalcon files, deliberately not included here.
 
 CONFIGURATION
 -------------
-All three fixes are ON by default. Each can be reverted individually in
-FFViper.cfg if it misbehaves on your hardware:
+Everything here is on by default except the FLOT line. Set these in
+FFViper.cfg; the "set g_b" prefix is required and a bare name is ignored.
 
-    set g_bVrTrueEyeFov 0         # revert fix 1
-    set g_bVrHeadRelIpd 0         # revert fix 2
-    set g_bVrHeadRelCursorIpd 0   # revert fix 3
+    set g_bCampaignAddMission 0        # hide the "Build package" submenu
+    set g_bCampaignPackageWindow 0     # do not load the Add Package window
+    set g_bCampFlotLine 1              # draw the FLOT from startup
+    set g_bCampaignPackageTakeoffLock 0
+                                       # revert to pinning time-on-target
+                                       # rather than takeoff
 
-Recommended for the clickable cockpit -- set this to your cockpit panel depth
-in button units (~814 on an F-16 pit at default seat position). The free-aim
-cursor sits at this depth, so a wrong value makes it split in two:
+If a flight is refused, the message now says which of the two reasons it was:
+no aircraft free in that time block (try another squadron) or the timing
+could not be planned (move the clock). With time-on-target locked -- the
+padlock beside it on the Add Package window -- you are asking to be over the
+target at exactly that second, which is the tightest request the planner
+takes; unlock it and it plans from takeoff instead.
 
-    set g_fVrRayReach 814
+Also included, from earlier work on the campaign economy:
 
-IMPORTANT -- view instancing must stay OFF on plain-stereo hardware:
+    set g_nSupplyInterdiction 100      # how much a damaged bridge or road
+                                       # costs the supply run crossing it.
+                                       # 0 restores stock behaviour.
 
-    set g_bVrViewInstancing 0
-    set g_bVrD3D12ViCockpit 0
+For diagnosing a problem with any of the above:
 
-The view-instanced world pass still uses the old symmetric FOV, so enabling it
-reintroduces bug 1. Porting the fix there is listed as known remaining work.
+    set g_bLogCampMenu 1               # writes what the squadron picker and
+                                       # the flight planner decided to
+                                       # FFDebug.log, next to the exe
 
 
 KNOWN REMAINING ISSUES
 ----------------------
-- View instancing needs the same off-axis FOV fix (see above).
-- External views (9/0) have no head tracking at all -- every HMD consumer is
-  gated to cockpit modes, so head movement there only produces compositor
-  reprojection of a head-unaware camera.
+- The FLOT is drawn from a list the campaign sorts along a single axis, so a
+  front that doubles back on itself will show the line crossing itself. Korea
+  runs broadly east-west and traces correctly. The line is also coarse -- the
+  campaign thins its own points to 30 km apart -- so it cuts corners.
+- On the Add Package window, setting Status to "Target" discards both clocks
+  on that window and plans for one minute from now. Leave it on "Takeoff",
+  which is the default, unless you know you want that.
+- A hand-built package is flagged as a Tactical Engagement mission. How that
+  sits alongside a running ATO over a long campaign has not been tested.
+- Packages with several flights, and per-flight targets such as an escort
+  keyed to a strike, are built and accepted but have not been flown through
+  to completion.
 
 
 NO AUDIO? (not caused by this patch, but commonly hit)
