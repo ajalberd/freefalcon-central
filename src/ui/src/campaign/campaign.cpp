@@ -148,6 +148,7 @@ void PositionSlider(C_Slider *slider, long value, long minv, long maxv);
 void ClearMapToolStates(long ID);
 void CheckCampaignFlyButton();
 void DisplayView(long ID, short hittype, C_Base *control);
+extern void HookupCommonControls(long ID); // Artscout - 2026: wires the Add Package buttons
 static void HookupCampaignControls(long ID);
 void RemoveMissionCB(TREELIST *item);
 static void MapMgrDrawCB(long ID, short hittype, C_Base *control);
@@ -1669,6 +1670,13 @@ void LoadCampaignWindows()
 
         while (ID)
         {
+            // HookupCommonControls, not HookupCampaignControls: the package window's buttons are
+            // already wired there -- Open_Flight_WindowCB, EditFlightInPackage,
+            // DeleteFlightFromPackage, tactical_cancel_package, KeepPackage (common.cpp) -- and
+            // that function takes any window ID and attaches whatever controls it finds. The Add
+            // Flight window wires its own OK and Cancel when it opens (tactical_add_flight), so
+            // it needs nothing here beyond existing.
+            HookupCommonControls(ID);
             HookupCampaignControls(ID);
             ID = gMainParser->GetNextWindowLoaded();
         }

@@ -1625,6 +1625,7 @@ void MenuSetOwnerCB(long ID, short, C_Base *)
 
 void MenuAddUnitCB(long ID, short, C_Base *control)
 {
+    extern uchar gSelectedTeam;
     C_Base *caller;
     C_MapIcon *icon;
     C_DrawList *piggy;
@@ -1671,6 +1672,16 @@ void MenuAddUnitCB(long ID, short, C_Base *control)
                 vid = urec->GetID();
         }
     }
+
+    // Artscout - 2026: the Tactical Engagement builders read gSelectedTeam -- for the default
+    // role here, and for mis.who and SetOwner once a flight is made. In a campaign that variable
+    // is stale: TE drives it from its own team list box, the campaign assigns it once on entry,
+    // and nothing keeps it in step. The "Build package" submenu hit this first -- a trace showed
+    // every squadron in the theater failing the team test -- and these two entry points reach the
+    // same code, so correct it on the way in rather than in each place it is read. GameType 1 is
+    // the campaign; the TE screen keeps whatever its list box chose.
+    if (GameType == 1 and FalconLocalSession)
+        gSelectedTeam = FalconLocalSession->GetTeam();
 
     switch (ID)
     {
@@ -2594,11 +2605,25 @@ void CampaignPackageMenuAttach(C_PopupList *menu)
 // at least does load.
 static void CampaignMissionItems(C_PopupList *menu)
 {
+    extern bool g_bCampaignPackageWindow;
+
     if (not menu)
         return;
 
+    // Add Package comes back when campaign.cpp has loaded PACKAGE_WIN, and only then. Everything
+    // behind it was always there -- MenuAddUnitCB resolves the clicked entity and hands it to
+    // tactical_add_package, which handles a _CNTL_POPUPLIST_ caller by design. The item was dead
+    // for one reason: the window did not exist to be found.
+    if (g_bCampaignPackageWindow)
+        menu->SetItemFlagBitOff(MID_ADD_PACKAGE, C_BIT_INVISIBLE);
+    else
+        menu->SetItemFlagBitOn(MID_ADD_PACKAGE, C_BIT_INVISIBLE);
+
+    // Add Flight stays hidden. Its standalone path builds a package implicitly and defaults the
+    // flight to "start at target", which is a different flow from the one asked for here; reaching
+    // a flight through Add Package's own Add Flight button is the path that gives a package
+    // several flights with their own targets.
     menu->SetItemFlagBitOn(MID_ADD_FLIGHT, C_BIT_INVISIBLE);
-    menu->SetItemFlagBitOn(MID_ADD_PACKAGE, C_BIT_INVISIBLE);
 }
 
 void SetupCampaignMenus()
