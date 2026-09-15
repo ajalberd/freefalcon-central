@@ -2733,12 +2733,25 @@ static void CampGridToOverlay(long w, long h, GridIndex gx, GridIndex gy,
 // which is campaign code that other things depend on.
 static void StampFlotLine(BYTE *overlay, long w, long h)
 {
+    extern bool g_bLogCampMenu;
+
     if (not overlay or not FLOTList)
         return;
 
     ListElementClass *lp = FLOTList->GetFirstElement();
     long lastx = 0, lasty = 0;
     bool have = false;
+    long n = 0;
+
+    if (g_bLogCampMenu)
+    {
+        extern short Map_Max_X;
+        extern short Map_Max_Y;
+        _TCHAR hd[160];
+        sprintf(hd, "[FLOT] overlay %ldx%ld  gridMax %dx%d\n", w, h,
+                (int)Map_Max_X, (int)Map_Max_Y);
+        FFDebugLog(hd);
+    }
 
     while (lp)
     {
@@ -2748,6 +2761,18 @@ static void StampFlotLine(BYTE *overlay, long w, long h)
         long px, py;
         CampGridToOverlay(w, h, gx, gy, &px, &py);
 
+        // The whole question is whether consecutive points are far apart. A polyline that comes
+        // out as isolated blobs means each segment is a pixel or two long, which would say the
+        // list is not what this assumes -- so print the step, not just the point.
+        if (g_bLogCampMenu and n < 16)
+        {
+            _TCHAR ln[160];
+            sprintf(ln, "[FLOT] %2ld grid=(%d,%d) px=(%ld,%ld) step=%ld\n", n,
+                    (int)gx, (int)gy, px, py,
+                    have ? (labs(px - lastx) + labs(py - lasty)) : -1);
+            FFDebugLog(ln);
+        }
+
         if (have)
             StampOverlayLine(overlay, w, h, lastx, lasty, px, py, 3,
                              CAMP_TINT_MAX);
@@ -2755,7 +2780,15 @@ static void StampFlotLine(BYTE *overlay, long w, long h)
         lastx = px;
         lasty = py;
         have = true;
+        n++;
         lp = lp->GetNext();
+    }
+
+    if (g_bLogCampMenu)
+    {
+        _TCHAR tl[80];
+        sprintf(tl, "[FLOT] %ld points total\n", n);
+        FFDebugLog(tl);
     }
 }
 
