@@ -2576,14 +2576,22 @@ void CampaignPackageMenuAttach(C_PopupList *menu)
 // Artscout - 2026: the stock "Add Flight" / "Add Package" items stay hidden in the campaign.
 //
 // They were un-hidden here first, on the reasoning that the machinery behind them is complete --
-// and it is, but it is reached through te_scf.lst's PACKAGE_WIN and TAC_FLIGHT_WIN, which only the
-// Tactical Engagement screen loads. In a campaign session tactical_add_package finds no window,
-// and because every use of it is guarded on FindWindow being non-NULL, the item came up and did
-// nothing at all. A menu entry that silently does nothing is worse than no entry.
+// and it is, but it is reached through PACKAGE_WIN and TAC_FLIGHT_WIN, and tactical_add_package
+// finds no window. Every use of it is guarded on FindWindow being non-NULL, so the item came up
+// and did nothing at all. A menu entry that silently does nothing is worse than no entry.
 //
-// "Build package" (CampaignPackageMenuAttach, above) replaces them with something that does not
-// need those windows. These two stay hidden; MenuAddUnitCB is still wired to them for the
-// Tactical Engagement screen, which is where they work.
+// This comment used to say that was a campaign problem -- that te_scf.lst carries those windows
+// and only the Tactical Engagement screen loads it -- and that the items therefore still work on
+// the TE screen. That was wrong about PACKAGE_WIN, and it is worth saying so here rather than
+// leaving the correction in a commit message. te_scf.lst does NOT carry it: art\taceng\package.scf
+// is named by art\tenew_scf.lst alone, and nothing in this source tree loads tenew_scf.lst. The
+// window was unreachable everywhere, TE included. campaign.cpp now loads it (CampaignPackageWindow)
+// along with the FF4 skin its art lives in; until that is wired through to these items, they stay
+// hidden here.
+//
+// "Build package" (CampaignPackageMenuAttach, above) needs neither window. These two stay hidden;
+// MenuAddUnitCB is still wired to them for the Tactical Engagement screen, where TAC_FLIGHT_WIN
+// at least does load.
 static void CampaignMissionItems(C_PopupList *menu)
 {
     if (not menu)
