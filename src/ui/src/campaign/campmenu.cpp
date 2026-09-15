@@ -3282,16 +3282,18 @@ void HookupCampaignMenus()
         }
 
         // Artscout - 2026: the FLOT toggle, a sibling of Names and Bullseye rather than a layer.
-        // Hidden entirely when the master switch is off, so the menu never offers a dead row.
+        //
+        // The row is always here; CampFlotLine is the state it starts in, not whether it exists.
+        // Hiding the row when the knob was off made "default off" and "not available" the same
+        // thing, which would have left no way to switch it on.
         {
             extern bool g_bCampFlotLine;
             static _TCHAR lblFlot[] = "FLOT line";
 
-            if (g_bCampFlotLine and
-                menu->AddItem(MID_CAMP_FLOT, C_TYPE_TOGGLE, lblFlot, 0))
+            if (menu->AddItem(MID_CAMP_FLOT, C_TYPE_TOGGLE, lblFlot, 0))
             {
                 menu->SetCallback(MID_CAMP_FLOT, MenuToggleFlotCB);
-                menu->SetItemState(MID_CAMP_FLOT, 1);
+                menu->SetItemState(MID_CAMP_FLOT, g_bCampFlotLine ? 1 : 0);
             }
         }
 
