@@ -54,75 +54,39 @@ behind a count again.
 
 ### 2b. Add Package — the real dialog
 
-**`PACKAGE_WIN` had never been loaded by any screen.** `art\taceng\package.scf`
-defines it in full and is named by `art\tenew_scf.lst` alone, which appears nowhere
-in the source. So `FindWindow(PACKAGE_WIN)` returned NULL in Tactical Engagement
-too — the earlier note here that the stock items "work on the TE screen" was wrong.
-`tenew_scf.lst` reads as a newer TE window set FF6 shipped and never switched on.
+Right-click a target → **Add Package** opens it. Confirmed opening, and Add Flight
+opens from its New button.
 
-Its art is stranded the same way: `WIN_PACKAGE` and the rest of "FF4 UI version
-0.3" live only in `art\uiskin\ff4\win_all.idx/.rsc`, which no image list names.
+**Correction to what this section first said.** It claimed `PACKAGE_WIN` was loaded
+by nothing. Wrong — `CMN_SCF.LST` names `art\taceng\package.scf`, and
+`LoadCommonWindows()` runs on every screen including the campaign, so it was always
+there. The search that produced the claim globbed `art/*.lst`, which does not match
+an uppercase `.LST`; `CMN_SCF.LST` was never read. Loading it a second time gave
+two windows, the second inert. Fixed — `cp_pkg_scf.lst` now carries only
+`Te_flght.scf`, which *is* genuinely absent (only `TE_SCF.LST` names it).
 
-Three new files in the install carry it in — `art\resource\uiskin_ff4.irc`,
-`art\cp_uiskin.lst`, `art\cp_pkg_scf.lst` — and `campaign.cpp` loads them before
-`cp_scf.lst`, because `C_Resmgr::LoadIndex` is what registers the image names
-(`AddNewID` for anything not in the ID table) and the `.scf` parse resolves them.
-Knob: `CampaignPackageWindow`, default on. Confirmed: `[PKGWIN] PACKAGE_WIN
-RESOLVED` appears in `FFDebug.log`.
+**The missing art holds up**, re-checked against the `.idx` resources rather than
+the `.irc` files that point at them: `WIN_PACKAGE` / `WIN_ADD_FLIGHT` are in none
+of campaign, common, campmap, mission, intel, records, tactical, tacengbg — only
+`art\uiskin\ff4\win_all`. So the package window was opening with **no background**,
+which is the likeliest reason an earlier session decided Add Package "did nothing".
+That is what `art\cp_uiskin.lst` + `art\resource\uiskin_ff4.irc` fix.
 
-**Untested: everything after the window resolving.** Right-click a target → **Add
-Package**. What to watch:
+**Open: a flight can never be created.** OK on Add Flight raises "Unable to do
+this" — `BuildMission` returning non-`PRET_SUCCESS`
+(`tactical_make_flight`, te_units.cpp). `LogCampMenu 1` now prints `[PKGFLT]` with
+the error split into `NO_ASSETS` vs `ABORTED` and the whole request. **Pending a
+log.**
 
-- Whether it *draws*. The FF4 skin is grey/white and the campaign screen is blue;
-  they have never been composited.
-- Window groups. The package window is group 3274, Add Flight 3275, and the
-  campaign screen has its own. `tactical_add_flight` calls
-  `EnableWindowGroup(win->GetGroup())` — whether that disturbs the map underneath
-  is unknown.
-- The flight tree (`ATO_PACKAGE_TREE`) and Add Flight → several flights in one
-  package, each with its own target. That is the thing the submenu cannot do.
-- The Takeoff / Time on Target spinners and their locks — the other thing the
-  submenu cannot do, and the answer to "no aircraft free in this time block".
-- `REQF_TE_MISSION` alongside a running ATO, which matters more once a package has
-  an escort keyed to a strike.
+Allied Force was checked as a reference (`D:\Program Files (x86)\Lead
+Pursuit\Battlefield Operations`): same control IDs, same `CMN_SCF.LST` placement,
+just re-laid-out (426x430 vs 450x768). It **keeps** `PILOT_SKILL` and
+`START_AT_LIST` at y=132 and y=154 of a 223-tall window, so the screenshot without
+those rows is BMS, not AF — dropping Status would not be "what AF does".
 
-
-Replaces the stock Add Flight / Add Package items, which were hidden again because
-they never worked in the campaign (they look up `PACKAGE_WIN` / `TAC_FLIGHT_WIN`
-from `te_scf.lst`; the campaign screen loads `cp_scf.lst`, so the items came up and
-silently did nothing).
-
-Right-click a target → **Build package ▸** → two/four ship, then the squadrons that
-can fly this mission against this target, nearest first:
-
-```
-336 TFS  F-16C x18  84nm  OCA Strike
-```
-
-Available on the map, objective, unit, air-unit and naval popups. Knob:
-`CampaignAddMission`, now defaulting **on**.
-
-Watch for:
-
-- **A hand-built package carries `REQF_TE_MISSION`.** How that sits alongside a
-  running ATO is genuinely unsettled — this is the most likely source of trouble.
-- Whether the submenu lays out correctly with twelve rows. The row labels are
-  rewritten on every open and unused rows hidden; `OpenWindow` re-measures each
-  time, so it should, but it has not been seen.
-- The refusal dialog. "No aircraft free in this time block" and "could not be
-  planned" are reported separately, so the message should match the situation.
-
-### 3. Producer / network census — `LogCampProducers 1`
-
-Open the Production overlay once, then read `FFDebug.log`. Now covers the supply
-network types as well as the producers, and reports `avgFeatures`.
-
-**This answers an open question:** whether `TYPE_ROAD` objectives can be damaged at
-all. Damage only registers through `CalcStatus` walking `class_data->Features`, so
-a type with none can never drop below status 100 and the interdiction work above is
-bridges-only. Roads are never *drawn* on the map (`filters.cpp:50` files them under
-`_OBTV_OTHER`, off by default), which is why only the bridge icon is ever visible —
-but that is a display filter, not an answer.
+Still untested: the flight tree with several flights, per-flight targets, the
+Takeoff/TOT locks, window-group interaction with the map, and `REQF_TE_MISSION`
+alongside a running ATO.
 
 ---
 
