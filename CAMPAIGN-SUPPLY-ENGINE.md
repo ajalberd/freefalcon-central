@@ -264,6 +264,13 @@ rather than going round. Making damage feed link cost would be the complete
 version, and is a bigger change: it touches pathfinding for everything that walks
 the objective graph, not just supply.
 
+#### Why you never see a road on the map
+
+They are not drawn. `filters.cpp:50` files `TYPE_ROAD` under `_OBTV_OTHER`, a
+category the campaign map leaves off by default, so the only supply-network icon
+that shows is the bridge. That is a display filter, not evidence the objectives are
+absent — see below.
+
 #### Unverified: can a ROAD be damaged at all?
 
 Damage only registers through `CalcStatus`, which walks
@@ -274,6 +281,19 @@ with `targetID = FalconNullId` (an area mission, no specific target), which hint
 that way. The class table is theater data, not code, so `LogCampProducers` now
 reports `avgFeatures` for the network types as well — one run of the Production
 overlay answers it. **Pending a log.**
+
+Two things argue the objectives themselves do exist even though nothing draws
+them: the live supply loop deposits traffic at `TYPE_ROAD` nodes
+(`supply.cpp:352`), and the campaign requests `AMIS_INT` against them
+(`supply.cpp:777`). If the theater held none, both branches would be dead code.
+
+Read the census like this:
+
+| `avgFeatures` | `count` | Meaning |
+|---|---|---|
+| 0 | > 0 | Roads exist but cannot be damaged — interdiction is bridges-only |
+| > 0 | > 0 | Roads are bombable; the damage curve applies to them too |
+| — | 0 | No road objectives in this theater; only bridges carry the network |
 
 ### What does cut supply
 

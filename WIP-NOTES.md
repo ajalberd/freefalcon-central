@@ -1,0 +1,119 @@
+# Work in progress
+
+Rolling handoff note. What is in flight, what is waiting on a test, what is known
+broken. Start a new session by reading this file.
+
+Companion docs:
+
+- `CAMPAIGN-SUPPLY-ENGINE.md` — how supply, production and power actually work, and
+  what has been changed about them.
+
+---
+
+## Test these first
+
+Everything below is committed on `main` and the full solution builds
+(`FFViper.exe` links clean, no unresolved externals), but none of it has been run.
+
+### 1. Supply interdiction — `SupplyInterdiction`
+
+A damaged bridge or road now costs the supply run crossing it. Default 100, `0`
+restores stock exactly.
+
+Test: bomb a bridge on a supply route, watch the Logistics → Supply flow overlay
+downstream of it thin out. Full detail in `CAMPAIGN-SUPPLY-ENGINE.md`, "Roads and
+bridges".
+
+### 2. Build package — right-click a target
+
+Replaces the stock Add Flight / Add Package items, which were hidden again because
+they never worked in the campaign (they look up `PACKAGE_WIN` / `TAC_FLIGHT_WIN`
+from `te_scf.lst`; the campaign screen loads `cp_scf.lst`, so the items came up and
+silently did nothing).
+
+Right-click a target → **Build package ▸** → two/four ship, then the squadrons that
+can fly this mission against this target, nearest first:
+
+```
+336 TFS  F-16C x18  84nm  OCA Strike
+```
+
+Available on the map, objective, unit, air-unit and naval popups. Knob:
+`CampaignAddMission`, now defaulting **on**.
+
+Watch for:
+
+- **A hand-built package carries `REQF_TE_MISSION`.** How that sits alongside a
+  running ATO is genuinely unsettled — this is the most likely source of trouble.
+- Whether the submenu lays out correctly with twelve rows. The row labels are
+  rewritten on every open and unused rows hidden; `OpenWindow` re-measures each
+  time, so it should, but it has not been seen.
+- The refusal dialog. "No aircraft free in this time block" and "could not be
+  planned" are reported separately, so the message should match the situation.
+
+### 3. Producer / network census — `LogCampProducers 1`
+
+Open the Production overlay once, then read `FFDebug.log`. Now covers the supply
+network types as well as the producers, and reports `avgFeatures`.
+
+**This answers an open question:** whether `TYPE_ROAD` objectives can be damaged at
+all. Damage only registers through `CalcStatus` walking `class_data->Features`, so
+a type with none can never drop below status 100 and the interdiction work above is
+bridges-only. Roads are never *drawn* on the map (`filters.cpp:50` files them under
+`_OBTV_OTHER`, off by default), which is why only the bridge icon is ever visible —
+but that is a display filter, not an answer.
+
+---
+
+## Confirmed working
+
+- Supply overlay draws the network as routes, not a scatter of discs.
+- Menu 3D viewers (recon, loadout, tactical reference) — the RTT had no depth
+  buffer, which is why models rendered see-through.
+- HUD no longer draws over the canopy bars.
+- Terrain-derived campaign map with zoom detail.
+- Throttle invert.
+
+---
+
+## Known open
+
+| Item | State |
+|---|---|
+| Damage does not feed **link cost** | A dropped bridge is expensive to cross but pathfinding still routes over it. Touches everything walking the objective graph, not just supply. |
+| Missile fin flicker | Long-standing. Per-surface `dwzBias` was restored and did **not** fix it — do not re-chase that. |
+| Objective icons shaded by health | Asked for, not built. What exists is the *Damage overlay layer*, which you have to switch on. The narrower request was to darken the red icons themselves. |
+
+---
+
+## Housekeeping
+
+`main` is **50 commits ahead of `origin/develop`** and **31 ahead of `origin/main`**
+— nothing pushed. Three stale PRs, of which #50 and #52 are almost certainly
+subsumed by what is on `main`:
+
+| PR | Branch |
+|---|---|
+| #52 | `vr-frame-pacing` |
+| #50 | `build-x64-objdir` |
+| #49 | `vr-stereo-convergence-fixes` |
+
+Suggested: close #50 and #52, open one PR from `main`.
+
+---
+
+## Build
+
+x64 only. MSBuild lives at
+`C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe`
+— VS 2022's will fail with "v145 toolset not found".
+
+```
+MSBuild.exe FreeFalcon.sln /p:Configuration=Release /p:Platform=x64 /m
+```
+
+`Falcon4.vcxproj` links with `/FORCE`, so **a link error will not fail the build**.
+Grep the output for `LNK2001` / `LNK2019` / `unresolved` after any change that
+adds or moves a symbol.
+
+Rebuild All whenever a header gains a member.
