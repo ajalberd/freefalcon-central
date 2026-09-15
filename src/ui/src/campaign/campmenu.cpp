@@ -32,6 +32,7 @@
 #include "campwp.h"
 #include "classtbl.h"
 #include "textids.h"
+#include "fflog.h" // Artscout - 2026: "Build package" submenu trace
 
 void DeleteGroupList(long ID);
 void AddObjectiveToTargetTree(Objective obj);
@@ -2253,6 +2254,7 @@ static void MenuCampPackageCB(long ID, short hittype, C_Base *)
 void CampaignPackageMenuRebuild(C_PopupList *menu, C_Base *caller)
 {
     extern bool g_bCampaignAddMission;
+    extern bool g_bLogCampMenu;
 
     if (not menu)
         return;
@@ -2260,7 +2262,14 @@ void CampaignPackageMenuRebuild(C_PopupList *menu, C_Base *caller)
     C_PopupList *sub = menu->GetSubMenu(MID_CAMP_PACKAGE);
 
     if (not sub)
+    {
+        // Worth a line: this is also what an accidentally un-attached menu looks like, and it
+        // is indistinguishable from a menu that deliberately does not carry the item.
+        if (g_bLogCampMenu)
+            FFDebugLog("[PKGMENU] no submenu on this popup -- not attached\n");
+
         return; // this menu does not carry the item
+    }
 
     if (not g_bCampaignAddMission)
     {
@@ -2307,23 +2316,41 @@ void CampaignPackageMenuRebuild(C_PopupList *menu, C_Base *caller)
     float bestDist[CAMP_PKG_SLOTS];
     int found = 0;
 
+    // Counted only so the trace can say which of the three filters emptied the list. All three
+    // end in the same silence otherwise -- a greyed-out parent item.
+    long nSquadrons = 0, nOtherTeam = 0, nNoVehicles = 0, nNoRole = 0;
+
     VuListIterator iter(AllAirList);
 
     for (CampEntity e = GetFirstEntity(&iter); e; e = GetNextEntity(&iter))
     {
-        if (not e->IsSquadron() or e->GetTeam() not_eq gSelectedTeam)
+        if (not e->IsSquadron())
             continue;
+
+        nSquadrons++;
+
+        if (e->GetTeam() not_eq gSelectedTeam)
+        {
+            nOtherTeam++;
+            continue;
+        }
 
         Squadron sq = (Squadron)e;
 
         if (sq->GetTotalVehicles() < 1)
+        {
+            nNoVehicles++;
             continue;
+        }
 
         const int role = GetMissionFromTarget(
             gSelectedTeam, sq->Type() - VU_LAST_ENTITY_TYPE, target);
 
         if (not role)
+        {
+            nNoRole++;
             continue; // this airframe brings nothing to this target
+        }
 
         GridIndex sx, sy;
         sq->GetLocation(&sx, &sy);
@@ -2391,6 +2418,24 @@ void CampaignPackageMenuRebuild(C_PopupList *menu, C_Base *caller)
         menu->SetItemFlagBitOff(MID_CAMP_PACKAGE, C_BIT_ENABLED);
 
     menu->SetItemFlagBitOff(MID_CAMP_PACKAGE, C_BIT_INVISIBLE);
+
+    if (g_bLogCampMenu)
+    {
+        _TCHAR line[320];
+        sprintf(line,
+                "[PKGMENU] team=%d target=%s type=%d tgtTeam=%d | squadrons=%ld "
+                "otherTeam=%ld noVehicles=%ld noRole=%ld | offered=%d -> %s\n",
+                (int)gSelectedTeam,
+                target ? (target->IsObjective()
+                              ? "objective"
+                              : (target->IsUnit() ? "unit" : "other"))
+                       : "none(bare map)",
+                target ? (int)target->GetType() : -1,
+                target ? (int)target->GetTeam() : -1, nSquadrons, nOtherTeam,
+                nNoVehicles, nNoRole, found,
+                found ? "ENABLED" : "greyed out");
+        FFDebugLog(line);
+    }
 }
 
 // Attach the item and its fixed slots to one menu. Called once per campaign popup at hookup.

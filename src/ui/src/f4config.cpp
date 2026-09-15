@@ -831,6 +831,8 @@ int g_nSupplyMapThreshold =
     0; // Artscout - 2026: how much traffic a road node must carry before the campaign RECORDS it (SupplyUnits, supply.cpp). Stock is 5, and that is why the supply overlay shows a couple of isolated rings instead of a route: SendSupply deposits only a TENTH of what passes at each node, so a segment needs roughly fifty units of supply crossing it in one tick to clear 5, which only the heaviest junctions ever do. The value is display-only -- nothing in the sim reads obj_data.supply back -- so lowering it costs some dirty-data messages and shows the whole chain. The AI's interdiction requests keep the original 5 regardless; that gate is gameplay and is not touched. 5 restores stock exactly. "SupplyMapThreshold".
 bool g_bLogCampProducers =
     false; // Artscout - 2026: log a one-off census of everything ProduceSupplies treats as a producer -- count, total DataRate and total status per objective type -- to FFDebug.log when the Production overlay is built. Answers "do storage depots actually contribute supply?" from the theater's own class table rather than by reading the loop that mentions them. "LogCampProducers".
+bool g_bLogCampMenu =
+    false; // Artscout - 2026: log what the "Build package" submenu decided, every time a campaign popup opens -- which menu, what was right-clicked, how many squadrons the theater offered and why the rest were dropped, and whether the parent item ended up enabled. The item is a submenu, so a disabled parent and a parent nobody thought to hover over look identical from the outside, and the candidate filter is three separate rejections (wrong team, no airframes, no role against this target) that all end in the same silence. "LogCampMenu".
 int g_nSupplyInterdiction =
     100; // Artscout - 2026: how much a DAMAGED road or bridge costs the supply run crossing it, as a percentage of the built-in curve (SendSupply, supply.cpp). Stock is a flat 2% per hop whether the bridge is standing or in the river, which leaves the campaign generating AMIS_INT and AMIS_INTSTRIKE sorties against a mechanism that was never wired up. At 100 a wrecked bridge costs the convoy half of what is crossing it and a cratered road about a sixth; both scale linearly with the objective status, so repair re-opens the route on its own. Above 100 for harsher interdiction -- the per-node loss is clamped at 95% so a closed route starves a front rather than erasing a convoy outright. 0 restores stock exactly. "SupplyInterdiction".
 bool g_bVrWindowsCursor =
@@ -1577,6 +1579,8 @@ static ConfigOption<bool> BoolOpts[] = {
     {"PowerGrid", &g_bPowerGrid},
     {"LogCampProducers",
      &g_bLogCampProducers}, // Artscout - 2026: census the campaign's supply producers
+    {"LogCampMenu",
+     &g_bLogCampMenu}, // Artscout - 2026: trace the "Build package" submenu rebuild
     {"ReconRtt", &g_bReconRtt}, // Artscout - 2026: recon terrain via off-screen RTT
     {"LogMenuTextures",
      &g_bLogMenuTextures}, // Artscout - 2026: diagnose untextured menu 3D models
