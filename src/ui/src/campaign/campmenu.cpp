@@ -2350,11 +2350,13 @@ void CampaignPackageMenuRebuild(C_PopupList *menu, C_Base *caller)
     VU_ID bestID[CAMP_PKG_SLOTS];
     uchar bestRole[CAMP_PKG_SLOTS];
     float bestDist[CAMP_PKG_SLOTS];
+    uchar bestGeneric[CAMP_PKG_SLOTS]; // 1 = the role ignores the target; sorts last
     int found = 0;
 
     // Counted only so the trace can say which of the three filters emptied the list. All three
     // end in the same silence otherwise -- a greyed-out parent item.
-    long nSquadrons = 0, nOtherTeam = 0, nNoVehicles = 0, nNoRole = 0;
+    long nSquadrons = 0, nOtherTeam = 0, nNoVehicles = 0, nNoRole = 0,
+         nCandidates = 0, nGeneric = 0;
     long byTeam[NUM_TEAMS] = {0};
 
     const uchar myTeam = CampPkgPlayerTeam();
@@ -2396,13 +2398,39 @@ void CampaignPackageMenuRebuild(C_PopupList *menu, C_Base *caller)
             continue; // this airframe brings nothing to this target
         }
 
+        nCandidates++; // uncapped, unlike found -- this is what a list without twelve slots holds
+
+        // Does this role actually engage what was clicked, or did the engine give up on the
+        // target and hand back a generic sortie?
+        //
+        // GetMissionFromTarget does not report failure by returning 0. When the airframe cannot
+        // strike the target it sets target = NULL and falls through to a list that depends only
+        // on the airframe -- BARCAP, FAC, on-call CAS, AWACS, tanker, ECM, airlift. So a
+        // right-click on an airbase came back offering UH-60 Airlift and MD-500 FAC, which are
+        // not attacks on that airbase and are not what the twelve nearest slots are for.
+        //
+        // Asking the same function what it would say with no target at all separates the two
+        // without inventing a rule about roles: an identical answer means the target contributed
+        // nothing. Those stay on the list -- a CAP over the field you just clicked is a real
+        // thing to want -- but they sort below everything that does engage it.
+        const bool generic =
+            target and role == GetMissionFromTarget(
+                                   myTeam, sq->Type() - VU_LAST_ENTITY_TYPE,
+                                   NULL);
+
+        if (generic)
+            nGeneric++;
+
         GridIndex sx, sy;
         sq->GetLocation(&sx, &sy);
         const float d = Distance(sx, sy, gCampPkgX, gCampPkgY);
 
         int at = found;
 
-        while (at > 0 and bestDist[at - 1] > d)
+        while (at > 0 and
+               (bestGeneric[at - 1] > (generic ? 1 : 0) or
+                (bestGeneric[at - 1] == (generic ? 1 : 0) and
+                 bestDist[at - 1] > d)))
             at--;
 
         if (at >= CAMP_PKG_SLOTS)
@@ -2414,11 +2442,13 @@ void CampaignPackageMenuRebuild(C_PopupList *menu, C_Base *caller)
             bestID[i] = bestID[i - 1];
             bestRole[i] = bestRole[i - 1];
             bestDist[i] = bestDist[i - 1];
+            bestGeneric[i] = bestGeneric[i - 1];
         }
 
         bestID[at] = sq->Id();
         bestRole[at] = static_cast<uchar>(role);
         bestDist[at] = d;
+        bestGeneric[at] = static_cast<uchar>(generic ? 1 : 0);
 
         if (found < CAMP_PKG_SLOTS)
             found++;
@@ -2485,7 +2515,9 @@ void CampaignPackageMenuRebuild(C_PopupList *menu, C_Base *caller)
         sprintf(line,
                 "[PKGMENU] myTeam=%d (session country=%d, gSelectedTeam=%d) "
                 "target=%s type=%d tgtTeam=%d | squadrons=%ld by team [%s] | "
-                "otherTeam=%ld noVehicles=%ld noRole=%ld | offered=%d -> %s\n",
+                "otherTeam=%ld noVehicles=%ld noRole=%ld | candidates=%ld "
+                "(engage target=%ld, generic=%ld) | shown=%d of %d slots -> "
+                "%s\n",
                 (int)myTeam,
                 FalconLocalSession ? (int)FalconLocalSession->GetCountry() : -1,
                 (int)gSelectedTeam,
@@ -2495,7 +2527,8 @@ void CampaignPackageMenuRebuild(C_PopupList *menu, C_Base *caller)
                        : "none(bare map)",
                 target ? (int)target->GetType() : -1,
                 target ? (int)target->GetTeam() : -1, nSquadrons, hist,
-                nOtherTeam, nNoVehicles, nNoRole, found,
+                nOtherTeam, nNoVehicles, nNoRole, nCandidates,
+                nCandidates - nGeneric, nGeneric, found, CAMP_PKG_SLOTS,
                 found ? "ENABLED" : "greyed out");
         FFDebugLog(line);
     }
