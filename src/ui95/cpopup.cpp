@@ -294,6 +294,16 @@ void C_PopupList::RemoveAllItems()
     }
 }
 
+C_PopupList *C_PopupList::GetSubMenu(long ID)
+{
+    POPUPLIST *cur = FindID(ID);
+
+    if (cur and cur->Type_ == C_TYPE_MENU)
+        return (cur->SubMenu_);
+
+    return (NULL);
+}
+
 POPUPLIST *C_PopupList::FindID(long pID)
 {
     POPUPLIST *Pop, *ret;

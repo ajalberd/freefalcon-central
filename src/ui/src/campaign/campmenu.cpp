@@ -20,6 +20,18 @@
 #include "gps.h"
 #include "urefresh.h"
 #include "campstr.h"
+// Artscout - 2026: for the campaign package builder below -- squadrons, flights, packages
+// and the mission request they are filed with.
+#include "squadron.h"
+#include "flight.h"
+#include "package.h"
+#include "mission.h"
+#include "unit.h"
+#include "campaign.h"
+#include "camplist.h"
+#include "campwp.h"
+#include "classtbl.h"
+#include "textids.h"
 
 void DeleteGroupList(long ID);
 void AddObjectiveToTargetTree(Objective obj);
@@ -44,6 +56,7 @@ void tactical_add_battalion(VU_ID ID, C_Base *control);
 void recalculate_waypoints(WayPointClass *wp);
 void tactical_edit_package(VU_ID id, C_Base *caller);
 void fixup_unit(Unit unit);
+void RefreshMapOnChange(void); // Artscout - 2026: campaign package builder
 void SetupSquadronInfoWindow(VU_ID TheID);
 void CloseAllRenderers(long openID);
 
@@ -1924,38 +1937,519 @@ void SetMapSettings()
     }
 }
 
-// Artscout - 2026: show or hide the "Add Flight" / "Add Package" items on a campaign popup.
+///////////////////////////////////////////////////////////////////////////////
+// Artscout - 2026: build a package against a right-clicked target, from inside the campaign.
 //
-// Both are fully wired already -- HookupCampaignMenus points them at MenuAddUnitCB on every one of
-// these menus, and that hands the right-clicked object's VU_ID to tactical_add_flight /
-// tactical_add_package, which set it as new_package_target and ask GetMissionFromTarget for the
-// mission type that suits it. The dialog, the aircraft-type list, the TOT, tactical_make_package
-// filing the MissionRequest: all present, all used by the Tactical Engagement editor. The only
-// thing standing between campaign and the BMS-style "right-click a target, build a strike on it"
-// was SetupCampaignMenus hiding the items.
+// BMS lets you right-click something on the campaign map and build a strike on it. FreeFalcon has
+// had every piece needed for that from the start -- it is what the Tactical Engagement editor does
+// -- but those pieces are driven through te_scf.lst's windows (PACKAGE_WIN, TAC_FLIGHT_WIN), and
+// the campaign screen loads cp_scf.lst. So un-hiding MID_ADD_PACKAGE in the campaign produced a
+// menu item that did nothing at all: tactical_add_package guards every use of its window on
+// FindWindow returning non-NULL, and quietly no-opped when it did not.
 //
-// Failure mode if the TE windows are not loaded in a campaign session is a no-op, not a crash:
-// tactical_add_flight and tactical_add_package both guard every use of their window on FindWindow
-// returning non-NULL, so at worst the item does nothing.
-static void CampaignMissionItems(C_PopupList *menu)
+// The obvious repair -- load the TE window set alongside the campaign one -- means owning the
+// interaction between two screens' window groups, and the dialog it would raise asks for things
+// the campaign already knows: which team you are, which target you clicked, what role suits it. So
+// this does not use those windows. The picker IS the popup menu: a "Build package" submenu whose
+// contents are rebuilt from the theater each time the menu is raised, listing the squadrons that
+// could actually fly this mission against this target, nearest first. Clicking one files it.
+//
+// Nothing here invents a rule about who can fly what. The filter is the engine's own:
+// GetMissionFromTarget picks the role a given airframe can usefully bring against a given target
+// and returns 0 when the answer is "nothing", which is exactly the "should this squadron be on the
+// list" question. Whether the sortie is actually flyable is left to BuildMission -- the same call
+// the TE editor makes, which can still refuse for no free aircraft or impossible timing. That
+// refusal is reported rather than pre-guessed, because the reasons it refuses (slot scheduling
+// across ATO time blocks) are not cheap to evaluate once per squadron per right-click.
+///////////////////////////////////////////////////////////////////////////////
+
+#define CAMP_PKG_SLOTS (MID_CAMP_PKG_SQ_LAST - MID_CAMP_PKG_SQ_FIRST + 1)
+
+// What the last rebuild put in the menu. The menu can only hand a callback an item ID, so the
+// squadron behind each slot has to be remembered here; the target has to be as well, because by
+// the time the item is clicked the popup has moved on and GetCallingControl no longer points at
+// what was right-clicked.
+static VU_ID gCampPkgSquadron[CAMP_PKG_SLOTS];
+static uchar gCampPkgRole[CAMP_PKG_SLOTS];
+static VU_ID gCampPkgTargetID = FalconNullId;
+static GridIndex gCampPkgX = 0, gCampPkgY = 0;
+static int gCampPkgSize = 2; // sticky across right-clicks, like the other menu preferences
+
+extern uchar gSelectedTeam;
+extern void AreYouSure(long TitleID, _TCHAR *text,
+                       void (*OkCB)(long, short, C_Base *),
+                       void (*CancelCB)(long, short, C_Base *));
+extern void CloseWindowCB(long ID, short hittype, C_Base *control);
+int GetMissionFromTarget(Team team, int dindex, CampEntity target);
+
+// Short names for the roles GetMissionFromTarget can return. The ATO draws mission types as icons
+// rather than text (C_Flight::SetCurrentTask feeds an image list), so there is no string table to
+// borrow -- and a menu line has to say what it is going to build.
+static const _TCHAR *CampPkgRoleName(int role)
+{
+    switch (role)
+    {
+    case AMIS_OCASTRIKE:
+        return "OCA Strike";
+
+    case AMIS_INTSTRIKE:
+        return "Interdiction";
+
+    case AMIS_STRIKE:
+        return "Strike";
+
+    case AMIS_SEADSTRIKE:
+        return "SEAD Strike";
+
+    case AMIS_PRPLANCAS:
+        return "CAS";
+
+    case AMIS_ONCALLCAS:
+        return "On-call CAS";
+
+    case AMIS_ASHIP:
+        return "Anti-ship";
+
+    case AMIS_INTERCEPT:
+        return "Intercept";
+
+    case AMIS_HAVCAP:
+        return "HAVCAP";
+
+    case AMIS_BARCAP:
+        return "BARCAP";
+
+    case AMIS_FAC:
+        return "FAC";
+
+    case AMIS_AWACS:
+        return "AWACS";
+
+    case AMIS_JSTAR:
+        return "JSTAR";
+
+    case AMIS_TANKER:
+        return "Tanker";
+
+    case AMIS_ECM:
+        return "ECM";
+
+    case AMIS_AIRLIFT:
+        return "Airlift";
+
+    case AMIS_RECONPATROL:
+        return "Recon";
+
+    default:
+        return "Mission";
+    }
+}
+
+// The right-clicked object, however the popup was raised. MenuAddUnitCB works this out inline for
+// its own use; the submenu needs the same answer one step earlier, when the menu opens rather than
+// when an item is picked.
+static VU_ID CampaignPopupEntityID(C_Base *caller)
+{
+    UI_Refresher *urec = NULL;
+
+    if (not caller)
+        return FalconNullId;
+
+    if (caller->_GetCType_() == _CNTL_MAPICON_)
+        urec = (UI_Refresher *)gGps->Find(((C_MapIcon *)caller)->GetIconID());
+    else if (caller->_GetCType_() == _CNTL_DRAWLIST_)
+        urec = (UI_Refresher *)gGps->Find(((C_DrawList *)caller)->GetIconID());
+    else if (caller->_GetCType_() == _CNTL_TREELIST_)
+    {
+        TREELIST *item = ((C_TreeList *)caller)->GetLastItem();
+
+        if (item)
+            urec = (UI_Refresher *)gGps->Find(item->ID_);
+    }
+
+    return urec ? urec->GetID() : FalconNullId;
+}
+
+// An empty package must not be left behind. The TE editor can get away with dropping the pointer
+// (tactical_cancel_package does exactly that) because its dialog stays up holding the package for
+// the next attempt, and the whole editor session is torn down afterwards. Here the failure is a
+// right-click that came to nothing, and a childless package left in the database is one the ATO
+// and the map both still see. Disposed the way CancelFlight disposes a flight.
+static void CampaignDropPackage(Package pkg)
+{
+    if (not pkg)
+        return;
+
+    pkg->SetDead(1);
+    pkg->Remove();
+}
+
+// A package holding one flight of `size` aircraft from `squadronID`, tasked `role` against
+// whatever the last rebuild recorded as the target.
+//
+// This is tactical_make_package and tactical_make_flight with the list-box lookups replaced by
+// arguments -- deliberately the same sequence in the same order, because the order matters:
+// NewUnit before NewFlight (the flight needs its parent), FindAvailableAircraft before
+// BuildMission (which reads the slots it fills in), and RecordFlightAddition after BuildMission
+// succeeds. The parts of those two functions that only exist to drive TE widgets -- pilot skill
+// overrides, the ATO tree, the map's current waypoint list -- are left out.
+static int CampaignFilePackage(VU_ID squadronID, int role, int size)
+{
+    Squadron squadron = (Squadron)vuDatabase->Find(squadronID);
+
+    if (not squadron)
+        return PRET_NO_ASSETS;
+
+    CampEntity target = (CampEntity)vuDatabase->Find(gCampPkgTargetID);
+
+    Package pkg = (Package)NewUnit(DOMAIN_AIR, TYPE_PACKAGE, 0, 0, NULL);
+
+    if (not pkg)
+        return PRET_NO_ASSETS;
+
+    MissionRequestClass mis;
+
+    mis.who = gSelectedTeam;
+    mis.tx = gCampPkgX;
+    mis.ty = gCampPkgY;
+
+    if (target)
+    {
+        mis.targetID = mis.requesterID = target->Id();
+        mis.vs = target->GetTeam();
+
+        if (target->IsObjective())
+            mis.target_num = ((Objective)target)->GetBestTarget();
+    }
+
+    mis.mission = static_cast<uchar>(role);
+    mis.aircraft = static_cast<uchar>(size);
+    mis.tot_type = TYPE_NE;
+    mis.tot = TheCampaign.CurrentTime + CampaignMinutes;
+
+    pkg->SetUnitDestination(gCampPkgX, gCampPkgY);
+    pkg->SetLocation(gCampPkgX, gCampPkgY);
+    *(pkg->GetMissionRequest()) = mis;
+    pkg->SetPackageFlags(MissionData[mis.mission].flags);
+    pkg->SetFinal(0);
+    pkg->SetOwner(gSelectedTeam);
+
+    int tid = GetClassID(DOMAIN_AIR, CLASS_UNIT, TYPE_FLIGHT,
+                         squadron->GetSType(), squadron->GetSPType(), 0, 0, 0);
+
+    if (not tid)
+    {
+        CampaignDropPackage(pkg);
+        return PRET_NO_ASSETS;
+    }
+
+    tid += VU_LAST_ENTITY_TYPE;
+
+    Flight flight = NewFlight(tid, pkg, squadron);
+
+    if (not flight)
+    {
+        CampaignDropPackage(pkg);
+        return PRET_NO_ASSETS;
+    }
+
+    // Take off from now rather than hold a time on target: a package built by hand is wanted as
+    // soon as it can fly, and the campaign clock is running while the menu is open.
+    mis.tot_type = TOT_TAKEOFF;
+    mis.tot = TheCampaign.CurrentTime + CampaignMinutes;
+    mis.flags or_eq REQF_ALLOW_ERRORS bitor REQF_TE_MISSION;
+
+    GridIndex hx, hy;
+    squadron->GetLocation(&hx, &hy);
+    flight->SetLocation(hx, hy);
+    flight->SetOwner(squadron->GetOwner());
+    squadron->FindAvailableAircraft(&mis);
+
+    const int error = flight->BuildMission(&mis);
+
+    if (error not_eq PRET_SUCCESS)
+    {
+        pkg->CancelFlight(flight);
+        CampaignDropPackage(pkg);
+        return error;
+    }
+
+    flight->SetUnitMissionTarget(mis.targetID);
+
+    // Lock the target waypoint's time and nothing else, so the planner is free to move the rest of
+    // the route around it. Same rule tactical_make_flight applies when no takeoff time was pinned.
+    WayPoint w = flight->GetFirstUnitWP();
+    int done = 0;
+
+    while (w)
+    {
+        if ((w->GetWPFlags() bitand WPF_TARGET) and not done)
+        {
+            w->SetWPFlag(WPF_TIME_LOCKED);
+            done = 1;
+        }
+        else
+            w->UnSetWPFlag(WPF_TIME_LOCKED);
+
+        w = w->GetNextWP();
+    }
+
+    pkg->RecordFlightAddition(flight, &mis, 0);
+    flight->SetFinal(1);
+    pkg->SetFinal(1);
+    fixup_unit(flight);
+    gGps->Update();
+
+    return PRET_SUCCESS;
+}
+
+// Clicking one of the squadron slots, or one of the two flight-size radios.
+static void MenuCampPackageCB(long ID, short hittype, C_Base *)
+{
+    if (hittype not_eq C_TYPE_LMOUSEUP)
+        return;
+
+    if (ID == MID_CAMP_PKG_SIZE2 or ID == MID_CAMP_PKG_SIZE4)
+    {
+        gCampPkgSize = (ID == MID_CAMP_PKG_SIZE4) ? 4 : 2;
+        return; // a preference, not an order: leave the menu open
+    }
+
+    const int slot = ID - MID_CAMP_PKG_SQ_FIRST;
+
+    if (slot < 0 or slot >= CAMP_PKG_SLOTS or
+        gCampPkgSquadron[slot] == FalconNullId)
+        return;
+
+    // Down before anything else happens. C_PopupList::Process does not close the menu itself --
+    // every other item callback here ends with this -- and the failure path below raises a dialog
+    // that would otherwise come up behind a popup still holding the mouse.
+    gPopupMgr->CloseMenu();
+
+    const int error = CampaignFilePackage(gCampPkgSquadron[slot],
+                                          gCampPkgRole[slot], gCampPkgSize);
+
+    if (error not_eq PRET_SUCCESS)
+    {
+        // Worth naming the two cases apart: one is "ask a different squadron", the other is "ask
+        // for a later time", and a single "failed" would send you round the list for nothing.
+        static _TCHAR noAssets[] =
+            "That squadron has no aircraft free in this time block.";
+        static _TCHAR noTiming[] =
+            "The mission could not be planned for this target.";
+        AreYouSure(TXT_ERROR,
+                   (error == PRET_NO_ASSETS) ? noAssets : noTiming, NULL,
+                   CloseWindowCB);
+        return;
+    }
+
+    gMapMgr->DrawMap();
+    RefreshMapOnChange();
+}
+
+// Rebuild the submenu for whatever was just right-clicked. Called from each campaign popup's open
+// callback, which is the only moment both facts are known: which menu is about to be shown, and
+// what it was raised over.
+void CampaignPackageMenuRebuild(C_PopupList *menu, C_Base *caller)
 {
     extern bool g_bCampaignAddMission;
 
     if (not menu)
         return;
 
-    if (g_bCampaignAddMission)
+    C_PopupList *sub = menu->GetSubMenu(MID_CAMP_PACKAGE);
+
+    if (not sub)
+        return; // this menu does not carry the item
+
+    if (not g_bCampaignAddMission)
     {
-        menu->SetItemFlagBitOff(MID_ADD_FLIGHT, C_BIT_INVISIBLE);
-        menu->SetItemFlagBitOn(MID_ADD_FLIGHT, C_BIT_ENABLED);
-        menu->SetItemFlagBitOff(MID_ADD_PACKAGE, C_BIT_INVISIBLE);
-        menu->SetItemFlagBitOn(MID_ADD_PACKAGE, C_BIT_ENABLED);
+        menu->SetItemFlagBitOn(MID_CAMP_PACKAGE, C_BIT_INVISIBLE);
+        return;
     }
+
+    int i;
+
+    for (i = 0; i < CAMP_PKG_SLOTS; i++)
+    {
+        gCampPkgSquadron[i] = FalconNullId;
+        gCampPkgRole[i] = 0;
+        menu->SetItemFlagBitOn(MID_CAMP_PKG_SQ_FIRST + i, C_BIT_INVISIBLE);
+    }
+
+    menu->SetItemState(MID_CAMP_PKG_SIZE2, (gCampPkgSize == 2) ? 1 : 0);
+    menu->SetItemState(MID_CAMP_PKG_SIZE4, (gCampPkgSize == 4) ? 1 : 0);
+
+    gCampPkgTargetID = CampaignPopupEntityID(caller);
+    CampEntity target = (CampEntity)vuDatabase->Find(gCampPkgTargetID);
+
+    if (target)
+        target->GetLocation(&gCampPkgX, &gCampPkgY);
     else
     {
-        menu->SetItemFlagBitOn(MID_ADD_FLIGHT, C_BIT_INVISIBLE);
-        menu->SetItemFlagBitOn(MID_ADD_PACKAGE, C_BIT_INVISIBLE);
+        // Right-clicked bare map. Still useful -- a CAP or a recon over a point -- so take the
+        // location the popup manager recorded and let GetMissionFromTarget pick a targetless role.
+        short px = 0, py = 0;
+        gPopupMgr->GetCurrentXY(&px, &py);
+        gMapMgr->GetMapRelativeXY(&px, &py);
+        const float scale = gMapMgr->GetMapScale();
+        const float maxy = gMapMgr->GetMaxY();
+        gCampPkgX = SimToGrid(px / scale);
+        gCampPkgY = SimToGrid(maxy - py / scale);
+        gCampPkgTargetID = FalconNullId;
     }
+
+    // Collect the candidates, nearest first. Insertion into a fixed array rather than a sort of
+    // the whole air list: the theater has hundreds of squadrons and only the nearest dozen will
+    // fit in a menu, so there is no reason to order the rest of them.
+    VU_ID bestID[CAMP_PKG_SLOTS];
+    uchar bestRole[CAMP_PKG_SLOTS];
+    float bestDist[CAMP_PKG_SLOTS];
+    int found = 0;
+
+    VuListIterator iter(AllAirList);
+
+    for (CampEntity e = GetFirstEntity(&iter); e; e = GetNextEntity(&iter))
+    {
+        if (not e->IsSquadron() or e->GetTeam() not_eq gSelectedTeam)
+            continue;
+
+        Squadron sq = (Squadron)e;
+
+        if (sq->GetTotalVehicles() < 1)
+            continue;
+
+        const int role = GetMissionFromTarget(
+            gSelectedTeam, sq->Type() - VU_LAST_ENTITY_TYPE, target);
+
+        if (not role)
+            continue; // this airframe brings nothing to this target
+
+        GridIndex sx, sy;
+        sq->GetLocation(&sx, &sy);
+        const float d = Distance(sx, sy, gCampPkgX, gCampPkgY);
+
+        int at = found;
+
+        while (at > 0 and bestDist[at - 1] > d)
+            at--;
+
+        if (at >= CAMP_PKG_SLOTS)
+            continue;
+
+        for (i = (found < CAMP_PKG_SLOTS ? found : CAMP_PKG_SLOTS - 1); i > at;
+             i--)
+        {
+            bestID[i] = bestID[i - 1];
+            bestRole[i] = bestRole[i - 1];
+            bestDist[i] = bestDist[i - 1];
+        }
+
+        bestID[at] = sq->Id();
+        bestRole[at] = static_cast<uchar>(role);
+        bestDist[at] = d;
+
+        if (found < CAMP_PKG_SLOTS)
+            found++;
+    }
+
+    for (i = 0; i < found; i++)
+    {
+        Squadron sq = (Squadron)vuDatabase->Find(bestID[i]);
+
+        if (not sq)
+            continue;
+
+        _TCHAR name[48] = {0};
+        sq->GetName(name, 40, FALSE);
+
+        const _TCHAR *ac = "";
+        VehicleClassDataType *vc = GetVehicleClassData(sq->GetVehicleID(0));
+
+        if (vc)
+            ac = vc->Name;
+
+        _TCHAR label[128];
+        sprintf(label, "%s  %s x%d  %.0fnm  %s", name, ac,
+                (int)sq->GetTotalVehicles(), bestDist[i] * 0.5399568f,
+                CampPkgRoleName(bestRole[i]));
+
+        // The slots exist from hookup; only their text and visibility change here. SetItemLabel
+        // rather than AddItem, so the callbacks attached once at hookup stay attached.
+        menu->SetItemLabel(MID_CAMP_PKG_SQ_FIRST + i, label);
+        menu->SetItemFlagBitOff(MID_CAMP_PKG_SQ_FIRST + i, C_BIT_INVISIBLE);
+        menu->SetItemFlagBitOn(MID_CAMP_PKG_SQ_FIRST + i, C_BIT_ENABLED);
+
+        gCampPkgSquadron[i] = bestID[i];
+        gCampPkgRole[i] = bestRole[i];
+    }
+
+    // Nothing can fly this: say so on the parent rather than opening an empty submenu.
+    if (found)
+        menu->SetItemFlagBitOn(MID_CAMP_PACKAGE, C_BIT_ENABLED);
+    else
+        menu->SetItemFlagBitOff(MID_CAMP_PACKAGE, C_BIT_ENABLED);
+
+    menu->SetItemFlagBitOff(MID_CAMP_PACKAGE, C_BIT_INVISIBLE);
+}
+
+// Attach the item and its fixed slots to one menu. Called once per campaign popup at hookup.
+void CampaignPackageMenuAttach(C_PopupList *menu)
+{
+    if (not menu)
+        return;
+
+    static _TCHAR lblPkg[] = "Build package";
+    static _TCHAR lbl2[] = "Two ship";
+    static _TCHAR lbl4[] = "Four ship";
+    static _TCHAR lblEmpty[] = " ";
+
+    if (not menu->AddItem(MID_CAMP_PACKAGE, C_TYPE_MENU, lblPkg, 0))
+        return;
+
+    menu->AddItem(MID_CAMP_PKG_SIZE2, C_TYPE_RADIO, lbl2, MID_CAMP_PACKAGE);
+    menu->AddItem(MID_CAMP_PKG_SIZE4, C_TYPE_RADIO, lbl4, MID_CAMP_PACKAGE);
+    menu->SetItemGroup(MID_CAMP_PKG_SIZE2, MID_CAMP_PKG_SIZE_GROUP);
+    menu->SetItemGroup(MID_CAMP_PKG_SIZE4, MID_CAMP_PKG_SIZE_GROUP);
+    menu->SetCallback(MID_CAMP_PKG_SIZE2, MenuCampPackageCB);
+    menu->SetCallback(MID_CAMP_PKG_SIZE4, MenuCampPackageCB);
+    menu->SetItemState(MID_CAMP_PKG_SIZE2, 1);
+
+    // A popup separator is an item of no type carrying no label -- that is what the menu
+    // resource's own MID_SEP_* entries are, and AddItem has an explicit exemption for it.
+    menu->AddItem(MID_CAMP_PKG_SEP, C_TYPE_NOTHING, (_TCHAR *)NULL,
+                  MID_CAMP_PACKAGE);
+
+    // The squadron rows are created empty and hidden. Their labels are rewritten on every open,
+    // but a callback can only be attached to an item that exists, and attaching twelve of them per
+    // right-click would be twelve list walks for no gain.
+    for (int i = 0; i < CAMP_PKG_SLOTS; i++)
+    {
+        menu->AddItem(MID_CAMP_PKG_SQ_FIRST + i, C_TYPE_ITEM, lblEmpty,
+                      MID_CAMP_PACKAGE);
+        menu->SetCallback(MID_CAMP_PKG_SQ_FIRST + i, MenuCampPackageCB);
+        menu->SetItemFlagBitOn(MID_CAMP_PKG_SQ_FIRST + i, C_BIT_INVISIBLE);
+    }
+}
+
+// Artscout - 2026: the stock "Add Flight" / "Add Package" items stay hidden in the campaign.
+//
+// They were un-hidden here first, on the reasoning that the machinery behind them is complete --
+// and it is, but it is reached through te_scf.lst's PACKAGE_WIN and TAC_FLIGHT_WIN, which only the
+// Tactical Engagement screen loads. In a campaign session tactical_add_package finds no window,
+// and because every use of it is guarded on FindWindow being non-NULL, the item came up and did
+// nothing at all. A menu entry that silently does nothing is worse than no entry.
+//
+// "Build package" (CampaignPackageMenuAttach, above) replaces them with something that does not
+// need those windows. These two stay hidden; MenuAddUnitCB is still wired to them for the
+// Tactical Engagement screen, which is where they work.
+static void CampaignMissionItems(C_PopupList *menu)
+{
+    if (not menu)
+        return;
+
+    menu->SetItemFlagBitOn(MID_ADD_FLIGHT, C_BIT_INVISIBLE);
+    menu->SetItemFlagBitOn(MID_ADD_PACKAGE, C_BIT_INVISIBLE);
 }
 
 void SetupCampaignMenus()
@@ -2206,6 +2700,8 @@ void MapMenuOpenCB(C_Base *themenu, C_Base *caller)
 
     menu = (C_PopupList *)themenu;
 
+    CampaignPackageMenuRebuild(menu, caller);
+
     // Enable certain stuff for TE VC window
     if (caller->Parent_->GetID() == TAC_VC_WIN)
     {
@@ -2241,6 +2737,8 @@ void OpenUnitMenuCB(C_Base *themenu, C_Base *caller)
         return;
 
     menu = (C_PopupList *)themenu;
+
+    CampaignPackageMenuRebuild(menu, caller);
 
     if (menu)
     {
@@ -2310,6 +2808,8 @@ void OpenNavalMenuCB(C_Base *themenu, C_Base *caller)
         return;
 
     menu = (C_PopupList *)themenu;
+
+    CampaignPackageMenuRebuild(menu, caller);
 
     if (menu)
     {
@@ -2406,6 +2906,8 @@ void ObjMenuOpenCB(C_Base *themenu, C_Base *caller)
 
     menu = (C_PopupList *)themenu;
 
+    CampaignPackageMenuRebuild(menu, caller);
+
     if (isAirbase) // Airbase
     {
         menu->SetItemFlagBitOn(MID_SQUADRONS, C_BIT_ENABLED);
@@ -2494,6 +2996,14 @@ void HookupCampaignMenus()
         menu->SetCallback(MID_RECON, MenuReconCB);
         menu->SetCallback(MID_ADD_FLIGHT, MenuAddUnitCB);
         menu->SetCallback(MID_ADD_PACKAGE, MenuAddUnitCB);
+        CampaignPackageMenuAttach(
+            menu); // Artscout - 2026: the campaign's own package builder
+        CampaignPackageMenuAttach(
+            menu); // Artscout - 2026: the campaign's own package builder
+        CampaignPackageMenuAttach(
+            menu); // Artscout - 2026: the campaign's own package builder
+        CampaignPackageMenuAttach(
+            menu); // Artscout - 2026: the campaign's own package builder
         menu->SetCallback(MID_ADD_BATTALION, MenuAddUnitCB);
         menu->SetCallback(MID_ADD_SQUADRON, MenuAddUnitCB);
         // Legend stuff
@@ -2584,6 +3094,8 @@ void HookupCampaignMenus()
 
             menu->SetItemState(MID_CAMP_LAYER_OFF, 1);
         }
+
+        CampaignPackageMenuAttach(menu);
     }
 
     menu = gPopupMgr->GetMenu(OBJECTIVE_POP);

@@ -2291,6 +2291,20 @@ enum
     MID_CAMP_LAYER_PROD = 86150,
     MID_CAMP_LAYER_DAMAGE = 86152,
     MID_CAMP_LAYER_GROUP = 86151,
+    // Artscout - 2026: "Build package" -- the squadron picker hung off the campaign
+    // right-click menus. Like the overlay items above, none of these are in the menu
+    // resource; the squadron entries in particular cannot be, because which squadrons
+    // are worth offering depends on the target that was right-clicked. The open
+    // callback rebuilds them each time the menu is raised, into the fixed slot range
+    // below -- fixed because a callback has to be attached per item ID, and a range
+    // known at compile time lets that happen once at hookup instead of on every open.
+    MID_CAMP_PACKAGE = 86153,
+    MID_CAMP_PKG_SIZE2 = 86154,
+    MID_CAMP_PKG_SIZE4 = 86155,
+    MID_CAMP_PKG_SIZE_GROUP = 86156,
+    MID_CAMP_PKG_SEP = 86157,
+    MID_CAMP_PKG_SQ_FIRST = 86160,
+    MID_CAMP_PKG_SQ_LAST = 86171,
     MID_UNITS_SQUAD_SQUADRON = 86049,
     MID_UNITS_SQUAD_PACKAGE = 86050,
     MID_OFF = 86100,
