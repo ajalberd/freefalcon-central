@@ -1369,7 +1369,37 @@ void SetupPackageControls(C_Window *win, C_Base *caller)
         btn->SetCallback(LockTimeOnTargetCB);
 
         if (not btn->GetState())
-            LockTakeoffTimeCB(0, C_TYPE_LMOUSEUP, NULL);
+        {
+            // Artscout - 2026: which clock the window opens pinned to.
+            //
+            // Both locks start at 0 -- package.scf sets no state -- and LockTakeoffTimeCB's else
+            // branch then turns the TOT lock ON, so the window has always opened pinned to "be
+            // over the target at exactly this second". That is the right default when authoring a
+            // scenario in the Tactical Engagement editor, where the whole point is a scripted
+            // time. In a running campaign it is the wrong one: you want the flight airborne as
+            // soon as the squadron can manage, and a hard TOT half an hour out is the tightest
+            // request the planner can be given -- it is why hand-built packages come back
+            // NO_ASSETS as often as they do, and why the Status dropdown appears to do nothing
+            // (tactical_make_flight consults gPackageTOT first and never reaches start_at).
+            //
+            // LockTimeOnTargetCB is the mirror of the call it replaces: with the TOT lock off it
+            // turns the takeoff lock on instead. Same interlock, other end.
+            //
+            // A real campaign is one that is neither a Tactical Engagement "campaign"
+            // (CAMP_TACTICAL, set by te_flow.cpp when TE play starts) nor the editor
+            // (CAMP_TACTICAL_EDIT). Both of those keep the default they have always had; the
+            // campaign's own GameType is file-static to campmenu.cpp and not visible here.
+            extern bool g_bCampaignPackageTakeoffLock;
+
+            const bool inCampaign =
+                not(TheCampaign.Flags bitand
+                    (CAMP_TACTICAL bitor CAMP_TACTICAL_EDIT));
+
+            if (inCampaign and g_bCampaignPackageTakeoffLock)
+                LockTimeOnTargetCB(0, C_TYPE_LMOUSEUP, NULL);
+            else
+                LockTakeoffTimeCB(0, C_TYPE_LMOUSEUP, NULL);
+        }
     }
 
     // Setup cancel and ok
@@ -2497,8 +2527,34 @@ void tactical_make_flight(long ID, short hittype, C_Base *control)
             }
 
             MonoPrint("Error planning flight. Aborting\n");
-            AreYouSure(TXT_FLIGHT_CANCELED, TXT_ERROR, CloseWindowCB,
-                       CloseWindowCB);
+
+            // Artscout - 2026: "Unable to do this" was the whole of it, and the lever that fixes
+            // it is a padlock two inches up the same window. gPackageTOT is non-zero only while
+            // Time on Target is locked, and that branch above pins mis.tot_type to TYPE_EQ -- be
+            // over the target at exactly this second -- which also means the Status dropdown is
+            // not being consulted at all. So a refusal under a locked TOT is usually about the
+            // clock rather than the squadron, however it is labelled, and the message should say
+            // which of the two it was and what can be moved.
+            {
+                extern void AreYouSure(long TitleID, _TCHAR * text,
+                                       void (*OkCB)(long, short, C_Base *),
+                                       void (*CancelCB)(long, short, C_Base *));
+
+                static _TCHAR lockedTot[] =
+                    "No aircraft can be over the target at that exact time. "
+                    "Unlock Time on Target, move it later, or pick a closer "
+                    "squadron.";
+                static _TCHAR noAssets[] =
+                    "That squadron has no aircraft free in this time block.";
+                static _TCHAR aborted[] =
+                    "The mission could not be planned for this timing.";
+
+                AreYouSure(TXT_FLIGHT_CANCELED,
+                           gPackageTOT       ? lockedTot
+                           : (error == PRET_ABORTED) ? aborted
+                                                     : noAssets,
+                           CloseWindowCB, CloseWindowCB);
+            }
             new_package->CancelFlight(new_flight);
             return;
         }

@@ -833,6 +833,8 @@ bool g_bLogCampProducers =
     false; // Artscout - 2026: log a one-off census of everything ProduceSupplies treats as a producer -- count, total DataRate and total status per objective type -- to FFDebug.log when the Production overlay is built. Answers "do storage depots actually contribute supply?" from the theater's own class table rather than by reading the loop that mentions them. "LogCampProducers".
 bool g_bCampaignPackageWindow =
     true; // Artscout - 2026: load art\taceng\package.scf (PACKAGE_WIN) and the FF4 window skin it needs into the CAMPAIGN screen. Neither has ever been loaded by anything: package.scf is named only by art\tenew_scf.lst, which appears nowhere in this source tree, and the skin it draws with (WIN_PACKAGE and the rest of "FF4 UI version 0.3") lives only in art\uiskin\ff4\win_all.idx/.rsc, which no image list names. So FindWindow(PACKAGE_WIN) returned NULL on every screen including Tactical Engagement, which is the real reason the stock Add Package item never did anything anywhere. Needs cp_uiskin.lst and cp_pkg_scf.lst in art\; without them the parser skips the load and the window stays absent, exactly as before. 0 to skip the load. "CampaignPackageWindow".
+bool g_bCampaignPackageTakeoffLock =
+    true; // Artscout - 2026: open the campaign's Add Package window pinned to TAKEOFF rather than to TIME ON TARGET. Both locks start off in package.scf and SetupPackageControls then turns the TOT one on, so the window has always opened demanding the flight be over the target at exactly the displayed second -- TYPE_EQ, the tightest request the planner takes, and the reason hand-built packages come back "no aircraft free" so often. It also means the Status dropdown does nothing, because tactical_make_flight consults gPackageTOT first and never reaches start_at. Locking takeoff instead asks for "airborne by then", which is what you want in a running campaign; the Tactical Engagement editor is untouched either way, since a scripted time on target is exactly what it is for. 0 restores the stock behaviour here too. "CampaignPackageTakeoffLock".
 bool g_bLogCampMenu =
     false; // Artscout - 2026: log what the "Build package" submenu decided, every time a campaign popup opens -- which menu, what was right-clicked, how many squadrons the theater offered and why the rest were dropped, and whether the parent item ended up enabled. The item is a submenu, so a disabled parent and a parent nobody thought to hover over look identical from the outside, and the candidate filter is three separate rejections (wrong team, no airframes, no role against this target) that all end in the same silence. "LogCampMenu".
 int g_nSupplyInterdiction =
@@ -1583,6 +1585,8 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bLogCampProducers}, // Artscout - 2026: census the campaign's supply producers
     {"LogCampMenu",
      &g_bLogCampMenu}, // Artscout - 2026: trace the "Build package" submenu rebuild
+    {"CampaignPackageTakeoffLock",
+     &g_bCampaignPackageTakeoffLock}, // Artscout - 2026: pin new campaign packages to takeoff, not TOT
     {"CampaignPackageWindow",
      &g_bCampaignPackageWindow}, // Artscout - 2026: load the never-wired Add Package window
     {"ReconRtt", &g_bReconRtt}, // Artscout - 2026: recon terrain via off-screen RTT
