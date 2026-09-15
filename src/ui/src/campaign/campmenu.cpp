@@ -33,6 +33,7 @@
 #include "classtbl.h"
 #include "textids.h"
 #include "fflog.h" // Artscout - 2026: "Build package" submenu trace
+#include "falcsess.h" // Artscout - 2026: FalconLocalSession, for the player's team
 
 void DeleteGroupList(long ID);
 void AddObjectiveToTargetTree(Objective obj);
@@ -1977,6 +1978,41 @@ static GridIndex gCampPkgX = 0, gCampPkgY = 0;
 static int gCampPkgSize = 2; // sticky across right-clicks, like the other menu preferences
 
 extern uchar gSelectedTeam;
+
+// Artscout - 2026: the player's team, from the local session rather than from gSelectedTeam.
+//
+// gSelectedTeam belongs to the Tactical Engagement editor. TE sets it from its team list box
+// (te_list.cpp) and hardcodes it to 1 for training; the campaign assigns it in exactly one place,
+// on entry (campaign.cpp), and nothing keeps it in step afterwards. Copying tactical_make_package
+// literally therefore carried across a variable that is only maintained on the other screen -- a
+// trace of a live campaign reported team=1 while all 112 squadrons in the theater sat on other
+// teams, so the candidate filter rejected every one of them and the submenu came up greyed with
+// nothing to show.
+//
+// Every other campaign screen -- the ATO and priority screens, the map's intel gate -- reads
+// FalconLocalSession->GetTeam(), which is ::GetTeam(country) and is the same value ato.cpp
+// filters the ATO by. That is the one this feature wants.
+static uchar CampPkgPlayerTeam(void)
+{
+    if (FalconLocalSession)
+        return FalconLocalSession->GetTeam();
+
+    return gSelectedTeam;
+}
+
+// SetOwner takes a COUNTRY, not a team: CampBaseClass::GetTeam() is ::GetTeam(owner), so an owner
+// holding a team number only reads back as the right team where the two coincide. TE passes
+// gSelectedTeam and gets away with it because its team numbers are its country numbers; a
+// campaign's need not be. Take the session's country, and fall back to the team when it has none
+// -- country can arrive as 0 after a campaign load, which is the case te_flow.cpp documents.
+static uchar CampPkgPlayerCountry(void)
+{
+    if (FalconLocalSession and FalconLocalSession->GetCountry())
+        return FalconLocalSession->GetCountry();
+
+    return CampPkgPlayerTeam();
+}
+
 extern void AreYouSure(long TitleID, _TCHAR *text,
                        void (*OkCB)(long, short, C_Base *),
                        void (*CancelCB)(long, short, C_Base *));
@@ -2110,7 +2146,7 @@ static int CampaignFilePackage(VU_ID squadronID, int role, int size)
 
     MissionRequestClass mis;
 
-    mis.who = gSelectedTeam;
+    mis.who = CampPkgPlayerTeam();
     mis.tx = gCampPkgX;
     mis.ty = gCampPkgY;
 
@@ -2133,7 +2169,7 @@ static int CampaignFilePackage(VU_ID squadronID, int role, int size)
     *(pkg->GetMissionRequest()) = mis;
     pkg->SetPackageFlags(MissionData[mis.mission].flags);
     pkg->SetFinal(0);
-    pkg->SetOwner(gSelectedTeam);
+    pkg->SetOwner(CampPkgPlayerCountry());
 
     int tid = GetClassID(DOMAIN_AIR, CLASS_UNIT, TYPE_FLIGHT,
                          squadron->GetSType(), squadron->GetSPType(), 0, 0, 0);
@@ -2319,6 +2355,9 @@ void CampaignPackageMenuRebuild(C_PopupList *menu, C_Base *caller)
     // Counted only so the trace can say which of the three filters emptied the list. All three
     // end in the same silence otherwise -- a greyed-out parent item.
     long nSquadrons = 0, nOtherTeam = 0, nNoVehicles = 0, nNoRole = 0;
+    long byTeam[NUM_TEAMS] = {0};
+
+    const uchar myTeam = CampPkgPlayerTeam();
 
     VuListIterator iter(AllAirList);
 
@@ -2329,7 +2368,12 @@ void CampaignPackageMenuRebuild(C_PopupList *menu, C_Base *caller)
 
         nSquadrons++;
 
-        if (e->GetTeam() not_eq gSelectedTeam)
+        const uchar sqTeam = e->GetTeam();
+
+        if (sqTeam < NUM_TEAMS)
+            byTeam[sqTeam]++;
+
+        if (sqTeam not_eq myTeam)
         {
             nOtherTeam++;
             continue;
@@ -2344,7 +2388,7 @@ void CampaignPackageMenuRebuild(C_PopupList *menu, C_Base *caller)
         }
 
         const int role = GetMissionFromTarget(
-            gSelectedTeam, sq->Type() - VU_LAST_ENTITY_TYPE, target);
+            myTeam, sq->Type() - VU_LAST_ENTITY_TYPE, target);
 
         if (not role)
         {
@@ -2421,18 +2465,36 @@ void CampaignPackageMenuRebuild(C_PopupList *menu, C_Base *caller)
 
     if (g_bLogCampMenu)
     {
-        _TCHAR line[320];
+        // The per-team tally is here because the team test is the one filter that can reject the
+        // whole theater on a value that looks perfectly reasonable on its own. Seeing team=1
+        // against a roster that lives on teams 2 and 6 is what named the bug; printing the roster
+        // means a wrong team never has to be inferred from a count again.
+        _TCHAR hist[96];
+        int at = 0;
+
+        for (int t = 0; t < NUM_TEAMS; t++)
+            if (byTeam[t])
+                at += sprintf(&hist[at], "%s%d:%ld", at ? " " : "", t,
+                              byTeam[t]);
+
+        if (not at)
+            strcpy(hist, "none");
+
+        _TCHAR line[420];
         sprintf(line,
-                "[PKGMENU] team=%d target=%s type=%d tgtTeam=%d | squadrons=%ld "
+                "[PKGMENU] myTeam=%d (session country=%d, gSelectedTeam=%d) "
+                "target=%s type=%d tgtTeam=%d | squadrons=%ld by team [%s] | "
                 "otherTeam=%ld noVehicles=%ld noRole=%ld | offered=%d -> %s\n",
+                (int)myTeam,
+                FalconLocalSession ? (int)FalconLocalSession->GetCountry() : -1,
                 (int)gSelectedTeam,
                 target ? (target->IsObjective()
                               ? "objective"
                               : (target->IsUnit() ? "unit" : "other"))
                        : "none(bare map)",
                 target ? (int)target->GetType() : -1,
-                target ? (int)target->GetTeam() : -1, nSquadrons, nOtherTeam,
-                nNoVehicles, nNoRole, found,
+                target ? (int)target->GetTeam() : -1, nSquadrons, hist,
+                nOtherTeam, nNoVehicles, nNoRole, found,
                 found ? "ENABLED" : "greyed out");
         FFDebugLog(line);
     }
