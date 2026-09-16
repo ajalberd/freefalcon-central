@@ -33,6 +33,16 @@ private:
     WORD *Palette_[16];
     O_Output *Image_;
 
+    // Artscout - 2026: optional higher-resolution stand-in for whatever the source rect
+    // currently shows. Set, Draw() uses these instead of the base image and overlay;
+    // GetW(), GetH() and GetImage() keep reporting the base image either way, so an
+    // owner's coordinate system never sees it. Not owned here -- the caller that builds
+    // them keeps them alive.
+    IMAGE_RSC *Detail_;
+    BYTE *DetailOverlay_;
+    long *DetailRows_;
+    long *DetailCols_;
+
 public:
     C_ScaleBitmap();
     C_ScaleBitmap(char **stream);
@@ -64,7 +74,17 @@ public:
     {
         UseOverlay_ = FALSE;
     }
+    BOOL OverlayInUse()
+    {
+        return (Overlay_ and UseOverlay_);
+    }
     void ClearOverlay();
+    // Artscout - 2026: the detail stand-in. image/overlay/rows/cols must all be sized
+    // together (see O_Output::Blend4BitDetail); passing anything NULL is the same as
+    // ClearDetail(). The image must use the base image's palette, since the blended
+    // palettes Draw() picks from are derived from that one.
+    void SetDetail(IMAGE_RSC *image, BYTE *overlay, long *rows, long *cols);
+    void ClearDetail();
     void PreparePalette(COLORREF color);
     void SetImage(long ID);
     void SetImage(IMAGE_RSC *image);

@@ -821,6 +821,12 @@ bool g_bCampMapFlipNS =
     true; // Artscout - 2026: flip the generated map north-south. Which way the terrain post grid runs against the map's north-up convention is the one thing that could not be settled by reading the code, so it is switchable -- if the generated map comes out mirrored, this is the line to change rather than a rebuild.
 bool g_bCampMapFlipEW =
     false; // Artscout - 2026: the same, east-west.
+bool g_bCampMapDetail =
+    true; // Artscout - 2026: past a certain zoom, draw the visible patch of campaign map out of the GROUND TILES the sim flies over instead of magnifying the one-pixel-per-post base map. Every post names a texID, four posts across share one, and the tile behind it is 256x256 DXT1 -- 12.8 ft per pixel against the base map's 820, which is sixty-four times the linear detail and is already on disk. The tiles are quantised into the theater's own TMap::ColorTable (the same table the base map is painted with, so the cost is a mean RGB error of about 9.6 out of 441) which keeps the whole 8-bit overlay pipeline working: the Logistics layers and the FLOT line tint detail pixels exactly as they tint base ones. This is a stand-in for what gets blitted, NOT a different map -- MapRect_, the zoom clamps, FEET_PER_PIXEL and every icon position stay in whole-theater base-map pixels. Needs CampMapFromTerrain; over the painted map the indices would mean other colours. 0 = the old magnified-post behaviour. "CampMapDetail".
+int g_nCampMapDetailTiles =
+    192; // Artscout - 2026: how many decoded ground tiles the detail layer keeps resident, at 64 KB each (192 = 12 MB). Tile reuse across a theater is extreme -- one tile is 49% of Korea's ground and the top two hundred cover 95% -- so a pool this size almost never evicts something about to be asked for again. Raise it if panning around a busy area stutters; lower it to save memory.
+bool g_bLogCampMapDetail =
+    false; // Artscout - 2026: log one line per campaign map detail rebuild to FFDebug.log -- the source and destination rects, the subdivision chosen, the resulting feet per pixel, and how many tiles failed to load. tileMisses above zero means tiles are missing or are not DXT1, and those cells fall back to flat colour. "LogCampMapDetail".
 bool g_bLogMenuTextures =
     false; // Artscout - 2026: log what the texture lookup returns while a MENU 3D viewer is drawing (tactical reference, loadout, recon), to FFDebug.log. The models in those screens have never been textured under D3D12 and three rounds of reading the code did not settle why, so this asks the running game instead. Each line is one surface: the bank index the BSP asked for, the handle the bank returned, and the GPU texture behind it -- which of those three is zero says whether the geometry is not requesting a texture, the bank has not loaded it, or it was loaded but never uploaded. Capped per viewer open, and off by default because it sits in the per-surface path. "LogMenuTextures".
 float g_fMenuModelDetail =
@@ -1600,6 +1606,10 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bCampMapFromTerrain}, // Artscout - 2026: build the campaign map from terrain posts
     {"CampMapFlipNS", &g_bCampMapFlipNS}, // Artscout - 2026: mirror it north-south
     {"CampMapFlipEW", &g_bCampMapFlipEW}, // Artscout - 2026: mirror it east-west
+    {"CampMapDetail",
+     &g_bCampMapDetail}, // Artscout - 2026: zoomed-in map drawn from the ground tiles, not magnified posts
+    {"LogCampMapDetail",
+     &g_bLogCampMapDetail}, // Artscout - 2026: trace each detail rebuild to FFDebug.log
     {"HudCanopyOcclude",
      &g_bHudCanopyOcclude}, // Artscout - 2026: cockpit structure occludes the collimated HUD
     {"CampaignAddMission",
@@ -1937,6 +1947,8 @@ static ConfigOption<int> IntOpts[] = {
      &g_nObjZBiasStep}, // Artscout - 2026: depth-bias units per dwzBias bucket
     {"CampMapTerrainLod",
      &g_nCampMapTerrainLod}, // Artscout - 2026: terrain LOD the campaign map is built from (0 = finest)
+    {"CampMapDetailTiles",
+     &g_nCampMapDetailTiles}, // Artscout - 2026: decoded ground tiles the detail layer keeps resident
     {"SupplyInterdiction",
      &g_nSupplyInterdiction}, // Artscout - 2026: damage-scaled supply loss per node (0 = stock flat 2%)
     {"SupplyMapThreshold",

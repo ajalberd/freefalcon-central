@@ -1128,6 +1128,67 @@ void O_Output::Blend4Bit(SCREEN *surface, BYTE *overlay, WORD *Palette[],
             (clip.bottom - clip.top), overlay, Palette);
 }
 
+/***************************************************************************\
+    Artscout - 2026: blit a stand-in image over the same destination rect.
+
+    Blend4Bit scales Src_ out of Image_ into Dest_. This does the same thing with an
+    image the caller supplies, which is expected to cover exactly the ground Src_
+    covers but at a higher resolution -- the campaign map's terrain detail layer.
+    Image_, Src_ and the control's reported width and height are NOT touched, which is
+    the whole point: the map's coordinate system is expressed in base-image pixels and
+    every icon position, zoom clamp and overlay stamp keeps working unchanged.
+
+    The stand-in brings its own overlay and its own row/column ramps because
+    ScaleUp8Overlay indexes image and overlay with one shared stride: both are one
+    entry per DETAIL pixel, not per base pixel. The caller owns all four buffers and
+    rebuilds them when the source rect or the destination changes, so nothing is
+    allocated per draw.
+\***************************************************************************/
+void O_Output::Blend4BitDetail(SCREEN *surface, IMAGE_RSC *detail, BYTE *overlay,
+                               long *rows, long *cols, WORD *Palette[],
+                               UI95_RECT *cliprect)
+{
+    UI95_RECT dummy, clip;
+
+    if (not detail or not detail->Header or not overlay or not rows or not cols)
+        return;
+
+    clip = *cliprect;
+
+    if (not(Owner_->GetFlags() bitand C_BIT_ABSOLUTE))
+        if (not Owner_->Parent_->ClipToArea(
+                &dummy, &clip,
+                &Owner_->Parent_->ClientArea_[Owner_->GetClient()]))
+            return;
+
+    // The ramps hold one entry per destination pixel and no more, unlike Rows_/Cols_,
+    // which are sized from the base image and are far larger than any destination rect.
+    // So the clip has to be inside Dest_ before it is used to index them. ClipToArea
+    // clips to the CLIENT AREA, which is the same rectangle for the campaign map but is
+    // not guaranteed to be; clamp rather than trust it.
+    if (clip.left < Dest_.left)
+        clip.left = Dest_.left;
+
+    if (clip.top < Dest_.top)
+        clip.top = Dest_.top;
+
+    if (clip.right > Dest_.right)
+        clip.right = Dest_.right;
+
+    if (clip.bottom > Dest_.bottom)
+        clip.bottom = Dest_.bottom;
+
+    if (clip.right <= clip.left or clip.bottom <= clip.top)
+        return;
+
+    // Always the scale-up path: the detail image is built no larger than the
+    // destination rect, so there is never anything to shrink.
+    detail->ScaleUp8Overlay(
+        surface, &rows[clip.top - Dest_.top], &cols[clip.left - Dest_.left],
+        clip.left + Owner_->Parent_->GetX(), clip.top + Owner_->Parent_->GetY(),
+        (clip.right - clip.left), (clip.bottom - clip.top), overlay, Palette);
+}
+
 void O_Output::SetImage(long ID)
 {
     IMAGE_RSC *image;

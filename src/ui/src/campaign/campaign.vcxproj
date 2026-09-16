@@ -316,6 +316,7 @@
     <ClCompile Include="camphack.cpp" />
     <ClCompile Include="campmenu.cpp" />
     <ClCompile Include="cmap.cpp" />
+    <ClCompile Include="cmapdetail.cpp" />
     <ClCompile Include="cpselect.cpp" />
     <ClCompile Include="cstores.cpp" />
     <ClCompile Include="general.cpp" />

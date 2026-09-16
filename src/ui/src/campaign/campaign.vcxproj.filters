@@ -23,6 +23,9 @@
     <ClCompile Include="cmap.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="cmapdetail.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="cpselect.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

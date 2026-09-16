@@ -30,6 +30,10 @@ C_ScaleBitmap::C_ScaleBitmap() : C_Base()
     Image_ = NULL;
     Overlay_ = NULL;
     UseOverlay_ = 0;
+    Detail_ = NULL;
+    DetailOverlay_ = NULL;
+    DetailRows_ = NULL;
+    DetailCols_ = NULL;
     r_shift_ = 0;
     g_shift_ = 0;
     b_shift_ = 0;
@@ -42,12 +46,18 @@ C_ScaleBitmap::C_ScaleBitmap() : C_Base()
     DefaultFlags_ = C_BIT_ENABLED;
 }
 
+// Artscout - 2026: these two leave every member of this class uninitialised, which was
+// survivable only because nothing constructs a C_ScaleBitmap from a stream -- both call
+// sites use the default constructor. Draw() now reads Detail_ on every call, so a
+// garbage value there would dereference it; clear at least the pointers Draw() trusts.
 C_ScaleBitmap::C_ScaleBitmap(char **stream) : C_Base(stream)
 {
+    ClearDetail();
 }
 
 C_ScaleBitmap::C_ScaleBitmap(FILE *fp) : C_Base(fp)
 {
+    ClearDetail();
 }
 
 C_ScaleBitmap::~C_ScaleBitmap()
@@ -70,6 +80,10 @@ void C_ScaleBitmap::Setup(long ID, short Type, long ImageID)
 void C_ScaleBitmap::Cleanup()
 {
     long i;
+
+    // Artscout - 2026: the detail buffers belong to whoever handed them over; just stop
+    // pointing at them, so a Cleanup here cannot outlive or free their owner's memory.
+    ClearDetail();
 
     if (Image_)
     {
@@ -277,6 +291,56 @@ void C_ScaleBitmap::Refresh()
     Image_->Refresh();
 }
 
+// Artscout - 2026: adopt a higher-resolution stand-in for the current source rect.
+//
+// Palette_[0] is normally filled by PreparePalette, which only runs when something wants
+// a blended overlay. The detail path needs it whether or not a layer is up -- an overlay
+// byte of 0 means "leave the image alone", and that still has to resolve through palette
+// 0 -- so take it from the base image here if nothing has set it yet.
+void C_ScaleBitmap::SetDetail(IMAGE_RSC *image, BYTE *overlay, long *rows,
+                              long *cols)
+{
+    if (not image or not overlay or not rows or not cols)
+    {
+        ClearDetail();
+        return;
+    }
+
+    // Taken fresh from the current base image every time, not just when it is NULL:
+    // PreparePalette points Palette_[0] at whatever image was loaded when an overlay was
+    // last switched on, and SetImage does not update it. Swap the map from the painted
+    // bitmap to the terrain-derived one after that and Palette_[0] still points at the
+    // painted image's table -- the base blit only notices while an overlay is up, but the
+    // detail path goes through these palettes unconditionally, so it would draw every
+    // pixel in the wrong colours.
+    if (Image_)
+    {
+        IMAGE_RSC *base = Image_->GetImage();
+
+        if (base and base->GetPalette())
+            Palette_[0] = base->GetPalette();
+    }
+
+    if (not Palette_[0])
+    {
+        ClearDetail();
+        return;
+    }
+
+    Detail_ = image;
+    DetailOverlay_ = overlay;
+    DetailRows_ = rows;
+    DetailCols_ = cols;
+}
+
+void C_ScaleBitmap::ClearDetail()
+{
+    Detail_ = NULL;
+    DetailOverlay_ = NULL;
+    DetailRows_ = NULL;
+    DetailCols_ = NULL;
+}
+
 void C_ScaleBitmap::Draw(SCREEN *surface, UI95_RECT *cliprect)
 {
     if (GetFlags() bitand C_BIT_INVISIBLE)
@@ -284,7 +348,14 @@ void C_ScaleBitmap::Draw(SCREEN *surface, UI95_RECT *cliprect)
 
     if (Image_)
     {
-        if (Overlay_ and UseOverlay_)
+        // Artscout - 2026: the detail stand-in covers the same ground as the source rect, so
+        // it replaces the base blit outright rather than drawing over it. It carries its own
+        // overlay -- zero-filled when no layer is up -- so it does not depend on UseOverlay_.
+        if (Detail_)
+            Image_->Blend4BitDetail(surface, Detail_, DetailOverlay_,
+                                    DetailRows_, DetailCols_, Palette_,
+                                    cliprect);
+        else if (Overlay_ and UseOverlay_)
             Image_->Blend4Bit(surface, Overlay_, Palette_, cliprect);
         else
             Image_->Draw(surface, cliprect);

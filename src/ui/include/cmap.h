@@ -151,6 +151,10 @@ private:
     VU_ID CurFlight_;
 
     void CalculateDrawingParams();
+    // Artscout - 2026: offer the map control a tile-resolution stand-in for whatever the
+    // current source rect shows, or take it away when the zoom is too far out to gain
+    // anything. Called from wherever the source rect or the overlay changes.
+    void UpdateTerrainDetail();
     void BuildWPList(C_Waypoint *wplist, C_Waypoint *wpzlist, Unit unit);
     void BuildCurrentWPList(Unit unit);
 

@@ -395,6 +395,11 @@ void C_Map::CalculateDrawingParams()
     Map_->SetScaleInfo(((MapRect_.right - MapRect_.left) * 1000) /
                        (DrawRect_.right - DrawRect_.left));
 
+    // Artscout - 2026: the source rect just moved, so the detail stand-in for it is stale.
+    // Everything above this line is untouched by the detail layer -- that is the point of
+    // it being a stand-in rather than a different map.
+    UpdateTerrainDetail();
+
     scale_ = (float)(DrawRect_.right - DrawRect_.left) /
              ((float)(MapRect_.right - MapRect_.left) * FEET_PER_PIXEL);
 
@@ -448,6 +453,30 @@ extern char FalconTerrainDataDir[];
 // Builds an empty 8-bit paletted IMAGE_RSC of any size (cpselect.cpp) -- the same helper
 // the occupation map uses, reused here for the terrain image.
 extern IMAGE_RSC *CreateOccupationMap(long ID, long w, long h, long palsize);
+
+// Artscout - 2026: the terrain detail layer (cmapdetail.cpp). This builds the base map at
+// one pixel per post; that draws the visible window out of the ground tiles those posts
+// name, which is sixty-four times finer. It needs the texID of each tile cell, which only
+// this function is in a position to record -- it is the one pass that reads every post.
+extern bool CampMapDetailBeginGrid(long mapW, long mapH, int lod);
+extern void CampMapDetailSetCell(long cellX, long cellY, DWORD texID);
+extern long CampMapDetailPostsPerCell();
+extern void CampMapDetailOverlayChanged();
+extern bool CampMapDetailBuild(const UI95_RECT *mapRect, long destW, long destH,
+                               const BYTE *baseOverlay, long baseW, long baseH,
+                               const WORD *basePalette);
+extern IMAGE_RSC *CampMapDetailImage();
+extern BYTE *CampMapDetailOverlay();
+extern long *CampMapDetailRows();
+extern long *CampMapDetailCols();
+// The ColorTable index a whole ground tile averages to -- used to give a water post,
+// whose colour byte is 0, the colour of the sea it actually sits on.
+extern BYTE CampMapDetailTileAverageIndex(DWORD texID);
+
+// Whether the image the map control is showing is the terrain-derived one. The detail
+// layer's pixels are indices into the terrain colour table, so it is only meaningful
+// over that image -- not over the painted fallback, which has its own palette.
+static bool s_terrainMapInUse = false;
 
 IMAGE_RSC *BuildTerrainMapImage(long ID, int lod)
 {
@@ -566,6 +595,15 @@ IMAGE_RSC *BuildTerrainMapImage(long ID, int lod)
         return NULL;
     }
 
+    // Artscout - 2026: record the tile each cell of posts is textured with while we are
+    // here. A tile spans four posts at LOD 0 and two at LOD 1, so the cell grid is that
+    // much coarser than the image; BeginGrid says how many, or refuses, in which case
+    // every SetCell below is a no-op and the map simply has no detail layer. Last of the
+    // allocations on purpose: a grid that outlived a failed image would be a grid
+    // describing ground the painted fallback map is not drawing.
+    const bool wantCells = CampMapDetailBeginGrid(w, h, lod);
+    const long postsPerCell = wantCells ? CampMapDetailPostsPerCell() : 0;
+
     for (long br = 0; br < bh; br++)
     {
         for (long bc = 0; bc < bw; bc++)
@@ -587,9 +625,28 @@ IMAGE_RSC *BuildTerrainMapImage(long ID, int lod)
                         blockBuf + (size_t)(r * POSTS_ACROSS_BLOCK + c) * postSize;
                     // color sits after texID and z in both layouts; the only difference
                     // is texID's width (UInt16 vs UInt32).
-                    const uchar col = g_LargeTerrainFormat ?
-                                          ((const TNewdiskPost *)p)->color :
-                                          ((const TdiskPost *)p)->color;
+                    uchar col = g_LargeTerrainFormat ?
+                                    ((const TNewdiskPost *)p)->color :
+                                    ((const TdiskPost *)p)->color;
+                    const DWORD texID = g_LargeTerrainFormat ?
+                                            (DWORD)((const TNewdiskPost *)p)->texID :
+                                            (DWORD)((const TdiskPost *)p)->texID;
+
+                    // Artscout - 2026: a post over water has no colour byte -- it is 0 on
+                    // 99.9% of the posts whose tile is the sea tile, and ColorTable[0] is
+                    // pure WHITE, so this map has always painted roughly half of Korea as
+                    // a flat white field. The sim never needed the byte there because
+                    // water is drawn from its texture. That texture is populated, so take
+                    // the tile's average colour instead; it is also exactly what the
+                    // detail layer resolves to for the same ground, so the sea does not
+                    // change colour as you zoom across the detail threshold.
+                    if (not col)
+                    {
+                        const uchar avg = CampMapDetailTileAverageIndex(texID);
+
+                        if (avg)
+                            col = avg;
+                    }
 
                     long px = bc * POSTS_ACROSS_BLOCK + c;
                     long py = br * POSTS_ACROSS_BLOCK + r;
@@ -606,6 +663,17 @@ IMAGE_RSC *BuildTerrainMapImage(long ID, int lod)
 
                     if (px >= 0 and px < w and py >= 0 and py < h)
                         img[py * w + px] = col;
+
+                    // The first post of each cell is by construction the one whose tile
+                    // the 3D engine maps across it -- DiskblockToMemblock starts that
+                    // post's u and v at the tile origin. A flip maps whole cells to whole
+                    // cells (the map is a whole number of cells wide and high), so the
+                    // flipped pixel's cell index is the cell to write.
+                    if (wantCells and not(r % postsPerCell) and
+                        not(c % postsPerCell) and px >= 0 and px < w and
+                        py >= 0 and py < h)
+                        CampMapDetailSetCell(px / postsPerCell,
+                                             py / postsPerCell, texID);
                 }
             }
         }
@@ -2828,6 +2896,11 @@ void C_Map::ShowCampaignOverlay(long which)
     if (which == CAMP_OVERLAY_OFF and not flot)
     {
         Map_->NoOverlay();
+        // Artscout - 2026: the overlay is stamped one byte per base-map pixel; the detail
+        // stand-in carries its own copy sampled from it, so tell the detail layer that copy
+        // is now stale and rebuild it before the map is redrawn.
+        CampMapDetailOverlayChanged();
+        UpdateTerrainDetail();
         flags_ or_eq I_NEED_TO_DRAW_MAP;
         return;
     }
@@ -3280,6 +3353,11 @@ void C_Map::ShowCampaignOverlay(long which)
     }
 
     Map_->UseOverlay();
+    // Artscout - 2026: the overlay is stamped one byte per base-map pixel; the detail
+    // stand-in carries its own copy sampled from it, so tell the detail layer that copy
+    // is now stale and rebuild it before the map is redrawn.
+    CampMapDetailOverlayChanged();
+    UpdateTerrainDetail();
     flags_ or_eq I_NEED_TO_DRAW_MAP;
     UI_Leave(Leave);
 }
@@ -3396,6 +3474,11 @@ void C_Map::ShowThreatType(long mask)
             Team_[i].Units->Type[j]->Levels[2]->ShowCircles(Circles_);
 
 #endif
+    // Artscout - 2026: the overlay is stamped one byte per base-map pixel; the detail
+    // stand-in carries its own copy sampled from it, so tell the detail layer that copy
+    // is now stale and rebuild it before the map is redrawn.
+    CampMapDetailOverlayChanged();
+    UpdateTerrainDetail();
     flags_ or_eq I_NEED_TO_DRAW_MAP;
     UI_Leave(Leave);
 }
@@ -3433,6 +3516,11 @@ void C_Map::HideThreatType(long mask)
             Team_[i].Units->Type[j]->Levels[2]->ShowCircles(Circles_);
 
 #endif
+    // Artscout - 2026: the overlay is stamped one byte per base-map pixel; the detail
+    // stand-in carries its own copy sampled from it, so tell the detail layer that copy
+    // is now stale and rebuild it before the map is redrawn.
+    CampMapDetailOverlayChanged();
+    UpdateTerrainDetail();
     flags_ or_eq I_NEED_TO_DRAW_MAP;
     UI_Leave(Leave);
 }
@@ -3465,9 +3553,19 @@ void C_Map::SetMapImage(long ID)
         }
 
         if (g_bCampMapFromTerrain and s_terrainMap)
+        {
             Map_->SetImage(s_terrainMap);
+            s_terrainMapInUse = true;
+        }
         else
+        {
             Map_->SetImage(MapID);
+            // The detail layer's pixels are indices into the TERRAIN colour table. The
+            // painted map has its own palette, so the same indices would mean other
+            // colours entirely -- no terrain base, no detail.
+            s_terrainMapInUse = false;
+            Map_->ClearDetail();
+        }
     }
 
     maxy = (float)(Map_->GetH()) * FEET_PER_PIXEL;
@@ -3499,6 +3597,54 @@ void C_Map::SetMapImage(long ID)
         DrawRect_ = DrawWindow_->ClientArea_[0];
         CalculateDrawingParams();
     }
+}
+
+/***************************************************************************\
+    Artscout - 2026: refresh the map's terrain detail stand-in.
+
+    The base map is one pixel per terrain post, so past a certain zoom it is magnifying
+    pixels rather than resolving ground. Each post also names the DDS tile the sim draws
+    on it, and one tile covers four posts at 256 pixels -- 12.8 ft per pixel against the
+    base map's 820. This asks for that window to be composited, quantised into the same
+    palette the base map uses, and hands it to the map control to blit in place of the
+    base image for the current source rect.
+
+    Deliberately NOT a different map: MapRect_, CenterX_, scale_, FEET_PER_PIXEL, the
+    zoom clamps and every icon position stay in whole-theater base-map pixels and are not
+    touched by any of this. The stand-in only replaces what is blitted.
+
+    Declines -- and the base map draws, exactly as before -- with the knob off, over the
+    painted map, without a tile grid, or at a zoom where there is nothing to add.
+\***************************************************************************/
+void C_Map::UpdateTerrainDetail()
+{
+    extern bool g_bCampMapDetail;
+
+    if (not Map_)
+        return;
+
+    if (not g_bCampMapDetail or not s_terrainMapInUse or not DrawWindow_)
+    {
+        Map_->ClearDetail();
+        return;
+    }
+
+    const long destW = DrawRect_.right - DrawRect_.left;
+    const long destH = DrawRect_.bottom - DrawRect_.top;
+
+    IMAGE_RSC *base = Map_->GetImage();
+    const WORD *pal = base ? base->GetPalette() : NULL;
+
+    // A zeroed detail overlay means "no tint", so an inactive overlay is simply not
+    // passed on rather than being a reason to decline.
+    const BYTE *overlay = Map_->OverlayInUse() ? Map_->GetOverlay() : NULL;
+
+    if (CampMapDetailBuild(&MapRect_, destW, destH, overlay, Map_->GetW(),
+                           Map_->GetH(), pal))
+        Map_->SetDetail(CampMapDetailImage(), CampMapDetailOverlay(),
+                        CampMapDetailRows(), CampMapDetailCols());
+    else
+        Map_->ClearDetail();
 }
 
 void C_Map::SetWindow(C_Window *win)

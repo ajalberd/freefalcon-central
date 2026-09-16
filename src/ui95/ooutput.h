@@ -320,6 +320,11 @@ public:
     void Draw(SCREEN *surface, UI95_RECT *cliprect);
     void Blend4Bit(SCREEN *surface, BYTE *overlay, WORD *Palette[],
                    UI95_RECT *cliprect);
+    // Artscout - 2026: same blit, but out of a caller-supplied stand-in image. See the
+    // comment on the implementation.
+    void Blend4BitDetail(SCREEN *surface, IMAGE_RSC *detail, BYTE *overlay,
+                         long *rows, long *cols, WORD *Palette[],
+                         UI95_RECT *cliprect);
     void Cleanup();
     void SetInfo();
     void SetText(_TCHAR *str);
