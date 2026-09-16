@@ -874,19 +874,37 @@ LPCTSTR __stdcall GetRegisterString(EXCEPTION_POINTERS* pExPtrs)
     ASSERT(FALSE);
 #elif defined(_M_X64)
     // Artscout - 2026 (x64): dump the x64 integer registers.
+    //
+    // Printed as two 32-bit halves rather than %016llX, because this is wsprintf -- the
+    // USER32 one, not the CRT -- and it has never supported the `ll` length modifier. It
+    // emitted a literal "lX" for every register and then read the remaining arguments off
+    // by several slots, so FLG and the segment registers were showing fragments of other
+    // registers. A crash report whose register block is quietly wrong is worse than one
+    // with no register block at all: it invites reasoning from numbers that mean nothing.
+    // wsprintf is kept on purpose -- it is a thin USER32 call with no CRT and no extra
+    // stack, which is what a handler running on a possibly-blown stack wants.
+#define HI32(v) ((DWORD)(((ULONG64)(v)) >> 32))
+#define LO32(v) ((DWORD)(((ULONG64)(v)) bitand 0xFFFFFFFFull))
     wsprintf(g_szBuff,
-             _T("RAX=%016llX RBX=%016llX RCX=%016llX RDX=%016llX\r\n"
-                "RSI=%016llX RDI=%016llX RBP=%016llX RSP=%016llX\r\n"
-                "RIP=%016llX FLG=%08X  CS=%04X DS=%04X SS=%04X ES=%04X FS=%04X "
-                "GS=%04X"),
-             pExPtrs->ContextRecord->Rax, pExPtrs->ContextRecord->Rbx,
-             pExPtrs->ContextRecord->Rcx, pExPtrs->ContextRecord->Rdx,
-             pExPtrs->ContextRecord->Rsi, pExPtrs->ContextRecord->Rdi,
-             pExPtrs->ContextRecord->Rbp, pExPtrs->ContextRecord->Rsp,
-             pExPtrs->ContextRecord->Rip, pExPtrs->ContextRecord->EFlags,
+             _T("RAX=%08X%08X RBX=%08X%08X RCX=%08X%08X RDX=%08X%08X\r\n"
+                "RSI=%08X%08X RDI=%08X%08X RBP=%08X%08X RSP=%08X%08X\r\n"
+                "RIP=%08X%08X FLG=%08X  CS=%04X DS=%04X SS=%04X ES=%04X "
+                "FS=%04X GS=%04X"),
+             HI32(pExPtrs->ContextRecord->Rax), LO32(pExPtrs->ContextRecord->Rax),
+             HI32(pExPtrs->ContextRecord->Rbx), LO32(pExPtrs->ContextRecord->Rbx),
+             HI32(pExPtrs->ContextRecord->Rcx), LO32(pExPtrs->ContextRecord->Rcx),
+             HI32(pExPtrs->ContextRecord->Rdx), LO32(pExPtrs->ContextRecord->Rdx),
+             HI32(pExPtrs->ContextRecord->Rsi), LO32(pExPtrs->ContextRecord->Rsi),
+             HI32(pExPtrs->ContextRecord->Rdi), LO32(pExPtrs->ContextRecord->Rdi),
+             HI32(pExPtrs->ContextRecord->Rbp), LO32(pExPtrs->ContextRecord->Rbp),
+             HI32(pExPtrs->ContextRecord->Rsp), LO32(pExPtrs->ContextRecord->Rsp),
+             HI32(pExPtrs->ContextRecord->Rip), LO32(pExPtrs->ContextRecord->Rip),
+             pExPtrs->ContextRecord->EFlags,
              pExPtrs->ContextRecord->SegCs, pExPtrs->ContextRecord->SegDs,
              pExPtrs->ContextRecord->SegSs, pExPtrs->ContextRecord->SegEs,
              pExPtrs->ContextRecord->SegFs, pExPtrs->ContextRecord->SegGs);
+#undef HI32
+#undef LO32
 #else
     // This puts 48 bytes on the stack.  This could be a problem when
     //  the stack is blown.
