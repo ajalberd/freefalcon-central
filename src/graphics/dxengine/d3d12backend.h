@@ -277,6 +277,17 @@ private:
     // finished back buffer out and write it. Called from Present, the only point where the
     // frame is complete and the buffer's state is known. See d3d12backend.cpp.
     void ServiceScreenCapture();
+    // Artscout - 2026 (VR screenshots): the same readback for an arbitrary texture, so the
+    // VR path can capture the rendered eye instead of a desktop back buffer that a VR session
+    // never writes. stateBefore is the state the caller guarantees the resource is in; it is
+    // restored afterwards. Returns false without writing anything if the format is not one of
+    // the four 8-bit RGBA/BGRA variants.
+    bool CaptureTextureToBmp(struct ID3D12Resource* src, unsigned subresource,
+                             int stateBefore, const char* path);
+    // Artscout - 2026 (VR screenshots): called from EndEyeFrame once the eye's list has
+    // executed and fenced -- the image is complete and still acquired (ReleaseEyes runs
+    // later). Consumes a pending request, so the desktop path leaves it alone in VR.
+    void ServiceEyeCapture(void* eyeImg);
     void
     MoveToNextFrame(); // signal this frame's allocator fence, then advance to the next back buffer
 

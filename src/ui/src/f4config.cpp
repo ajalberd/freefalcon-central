@@ -351,9 +351,17 @@ float g_fHudCanvasScale =
 // the HUD no longer needs shrinking to fit, so 0.9 (true-ish FOV) + AsecScale 1.0 are kept
 // and the clip handles the frame. Tune live: set HudCanvasScale / set AsecScale.
 
-// Artscout - 2026 (VR mirror): copy the rendered eye(s) onto the desktop window so RenderDoc (which
-// hooks the desktop Present, not the OpenXR compositor) can capture what the headset shows. Periphery
-// (view 0) -> left half, focus (view 2) -> right half. FFViper.cfg "set g_bXrMirror 0/1".
+// Artscout - 2026 (VR screenshots): take a screenshot from the rendered EYE rather than the desktop
+// back buffer. In a VR session the eyes go straight to the compositor's own swapchains and nothing
+// writes the desktop back buffer beyond its clear, so the screenshot key used to save a pure black
+// 1920x1080 BMP every time. With this on, EndEyeFrame claims a pending request and reads the left
+// eye image (full eye resolution) while it is still acquired; the desktop path stands aside for a
+// few frames and takes over if no eye claims it, which keeps the key working in the head-locked
+// menu. Off = the old desktop-back-buffer behaviour. FFViper.cfg "set g_bXrMirror 0/1".
+//
+// NOTE: this flag previously described a desktop mirror blit that was never implemented -- it was
+// declared, defaulted true, registered here, and read by nothing at all, while the capture path in
+// d3d12backend.cpp was written against the assumption that it worked.
 bool g_bXrMirror = true;
 
 // Artscout - 2026 (VR quad-views): sign/scale for the off-axis (asymmetric) per-view frustum

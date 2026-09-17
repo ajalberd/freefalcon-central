@@ -815,6 +815,30 @@ void OTWDriverClass::DisplayFrontText(void)
     {
         takeScreenShot = TRUE; // tell FreeFalcon to take a shot
         takePrettyScreenShot = CLEANUP; // advance state..
+
+        // Artscout - 2026 (VR): in VR the picture is captured off the EYE image, by
+        // EndEyeFrame, later in this same eye's submit -- while the flat path captures the
+        // back buffer at Present. The usual request point is the end of the whole draw
+        // (otwloop's "if (takeScreenShot) TakeScreenShot()"), which for VR is a frame too
+        // late: that request would be claimed by the NEXT frame's eye, and the next frame is
+        // the CLEANUP frame with the text and labels back on -- a "pretty" shot that isn't.
+        //
+        // This is the only place that knows the current eye is the clean one, so queue it
+        // here. TakeScreenShot clears takeScreenShot, so the usual call site does not fire
+        // again; deactivate the popup menu here for the same reason.
+        //
+        // DisplayFrontText runs once per eye, but only the first call sees EXECUTE, and that
+        // is eye 0 -- which is the eye the capture reads.
+        extern bool g_bVrFrameActive;
+
+        if (g_bVrFrameActive)
+        {
+            TakeScreenShot();
+
+            if (pMenuManager)
+                pMenuManager->DeActivate();
+        }
+
         return; // deactivate 2d text (by NOT drawing it :p)
     }
     else if (takePrettyScreenShot == CLEANUP)

@@ -236,7 +236,10 @@ even reached — so a refused start and a dead switch look and sound identical.
 naming the decision (`start`, `stop`, `throttle-not-idle`) and the state behind it. The
 line after a press that did nothing says which guard bit.
 
-### 7. VR screenshots are black — the mirror they read was never written
+### 7. VR screenshots are black — the mirror they read was never written (FIXED)
+
+Fixed by capturing the EYE instead of building the mirror. See "VR screenshots" below for
+what shipped; the diagnosis that follows is kept because it explains the shape of the fix.
 
 Screenshots land in `<install>/pictures` as `YYYY-MM-DD_HHMMSS.bmp`. Both keys reach
 `OTWDriverClass::TakeScreenShot`; "pretty" only suppresses 2D text and labels for one frame
@@ -315,6 +318,72 @@ asymmetry, so it stays.
 columns were built and with what button counts, whether each row-0 cell was created or
 reused, every context-menu open with its cell classification, every device-cell click, and
 the OK commit with a read-back.
+
+### 9. VR screenshots — capture the eye, not the desktop
+
+Both keys (normal and "pretty") reach `OTWDriverClass::TakeScreenShot` and land in
+`<install>/pictures` as `YYYY-MM-DD_HHMMSS.bmp`. The desktop back buffer is useless in VR,
+so `EndEyeFrame` now claims a pending request and reads the left eye image directly, at full
+eye resolution, after the eye's list has executed and fenced and before `ReleaseEyes` hands
+it back. The desktop path stands aside for 8 Presents and takes over if no eye claims it,
+which keeps the key working in the head-locked menu. Nothing happens unless a shot is pending.
+
+Two things this cost a round trip each, worth not rediscovering:
+
+- **The eye image is TYPELESS.** The runtime hands out typeless colour images so the app can
+  pick an sRGB or UNORM view — `openxrbackend.cpp` demotes `_SRGB` to `_UNORM` when building
+  the eye RTV for exactly that reason. `GetDesc()` then reports `R8G8B8A8_TYPELESS`, which is
+  not a legal placed-footprint format. Copy with the concrete UNORM member of the same family.
+  A capture that declines here writes **nothing at all**, which looks identical to a dead key.
+- **"Pretty" needs the request queued from inside `DisplayFrontText`.** Its EXECUTE frame is
+  the one with the text and labels suppressed, but the usual queue point is the end of the
+  whole draw — after both eyes are submitted. The request would then be claimed by the NEXT
+  frame's eye, which is the CLEANUP frame with the text back on. The flat path never had this
+  problem because it reads the back buffer at Present, still within the clean frame.
+
+Every screenshot now writes one `[SHOT]` line to `FFDebug.log`, unconditionally (it is a
+keypress). `g_bXrMirror` gates the eye path and finally means something; 0 restores the old
+desktop-back-buffer behaviour. The QUAD copy path (`EndViCopyGroup`) is not covered.
+
+### 10. Campaign teardown heap corruption — `STATUS_HEAP_CORRUPTION`
+
+**The crash handler cannot catch this.** Heap corruption raises a fast-fail that bypasses SEH,
+so `FFCrash.log` stays empty and stale. Use the Windows event log and the WER dumps instead:
+
+```
+Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddDays(-14)} |
+  Where-Object { $_.Message -match 'FFViper' -and $_.Id -eq 1000 }
+```
+
+Dumps land in `%LOCALAPPDATA%\CrashDumps`, one per crash, and `cdb.exe` ships with the
+Windows SDK at `C:\Program Files (x86)\Windows Kits\10\Debuggers\x64`. The exe's symbols are
+`RedViper.pdb` (not FFViper.pdb), now deployed next to the exe so dumps symbolise unaided:
+
+```
+cdb -z <dump> -y "<install>;<repo>\Falcon4___x64_Release" -c ".lines -e;.reload /f;.ecxr;kb 40;q"
+```
+
+That turned "crashes 4x on a campaign ramp start" into a named stack in one pass:
+
+```
+_free_base / O_Output::Cleanup (ooutput.cpp delete Cols_) / C_ScaleBitmap::Cleanup /
+C_Map::Cleanup / CleanupCampaignUI / HandleCampaignThread
+```
+
+`!analyze` verdict: `HEAP_CORRUPTION_ACTIONABLE_BlockNotBusy_DOUBLE_FREE`.
+
+**It is not new.** The identical signature goes back to 2026-09-14, 22 occurrences across many
+builds — it predates the 3D-pit and controller work entirely. What changed was hitting a path
+that trips it reliably.
+
+Fixed: all four buffers in `O_Output::Cleanup` (`Label_`, `Rows_`, `Cols_`, `Wrap_`) are
+`new[]` and were released with a scalar `delete` — the same defect a previous pass fixed one
+frame up in `C_ScaleBitmap::Cleanup`, whose comment already explains why it started to matter
+(the terrain-derived map made these buffers several times larger). **Unproven as the cause:**
+the types are POD, so on MSVC the mismatch usually resolves to the same free, and a size
+mismatch does not explain a *double* free. One ramp-start load survived where four had failed.
+If it returns, run under page heap (`gflags /p /enable FFViper.exe /full`) and the bad free
+faults where it happens instead of at the next unrelated allocation.
 
 ---
 

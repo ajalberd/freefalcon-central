@@ -18,6 +18,7 @@
 // wrong guesses). Headers must therefore be unconditional.
 #include <d3d12sdklayers.h> // ID3D12Debug / ID3D12InfoQueue
 #include <set> // dedupe the InfoQueue drain (PumpD3D12Messages)
+#include "../include/fflog.h" // Artscout - 2026: [SHOT] screenshot trace
 
 #include "d3d12backend.h"
 #include "d3d12/d3d12texturemanager.h" // #DX12 п.3 RTT: D3D12Texture (external RT bind)
@@ -740,10 +741,53 @@ static void WriteBmp24(const char* path, const BYTE* src, unsigned rowPitch,
     CloseHandle(f);
 }
 
+// Artscout - 2026 (VR screenshots): how many Presents the desktop path will wait for the VR eye
+// path to claim a pending request before taking it itself. Without this a request made while a
+// VR session is up but NOT rendering stereo (the head-locked menu quad, which never calls
+// EndEyeFrame) would sit queued forever and the key would look dead.
+static int s_captureAge = 0;
+
+// Artscout - 2026 (VR screenshots): one line per screenshot to FFDebug.log, always on. This
+// path is a keypress, so the cost is nil, and every way it can fail -- wrong format, no eye
+// frame, the request claimed by the path that cannot see the picture -- is otherwise silent
+// and produces either nothing at all or a black file, which look identical from the outside.
+static void ShotLog(const char* fmt, ...)
+{
+    char body[400];
+    va_list ap;
+    va_start(ap, fmt);
+    _vsnprintf(body, sizeof(body), fmt, ap);
+    va_end(ap);
+    body[sizeof(body) - 1] = '\0';
+
+    char ln[512];
+    _snprintf(ln, sizeof(ln), "[SHOT] %s\n", body);
+    ln[sizeof(ln) - 1] = '\0';
+    FFDebugLog(ln);
+}
+
 void D3D12Backend::ServiceScreenCapture()
 {
     if (!s_capturePath[0] || !m_pDevice || !m_pQueue)
         return;
+
+    // In a VR session the desktop back buffer holds only the BeginFrame clear -- the eyes go
+    // straight to the compositor's own swapchains and nothing ever mirrors them here. Let
+    // EndEyeFrame claim this request and capture the real eye instead.
+    {
+        extern bool g_bVrFrameActive;
+        extern bool g_bXrMirror;
+
+        if (g_bVrFrameActive && g_bXrMirror && ++s_captureAge < 8)
+            return; // still pending; the eye path gets first refusal
+
+        if (g_bVrFrameActive)
+            ShotLog("desktop path taking a VR request after %d frames -- no eye "
+                    "claimed it; expect a black frame",
+                    s_captureAge);
+    }
+
+    s_captureAge = 0;
 
     char path[MAX_PATH];
     strncpy(path, s_capturePath, MAX_PATH - 1);
@@ -755,23 +799,76 @@ void D3D12Backend::ServiceScreenCapture()
     if (!bb)
         return;
 
-    D3D12_RESOURCE_DESC bd = bb->GetDesc();
+    CaptureTextureToBmp(bb, 0, (int)D3D12_RESOURCE_STATE_PRESENT, path);
+}
+
+// Artscout - 2026 (VR screenshots): the eye image is complete and still ours here -- the runtime
+// takes it back at xrReleaseSwapchainImage, which ReleaseEyes does after both eyes. BeginEyeFrame
+// deliberately never transitions it, so it is exactly where the runtime handed it over:
+// RENDER_TARGET. We transition to COPY_SOURCE and back, which is well defined from a state we
+// know, unlike the COMMON->RT barrier that #DX12 п.5 had to avoid.
+//
+// Only the first eye of the frame claims the request, so a screenshot is the left eye.
+void D3D12Backend::ServiceEyeCapture(void* eyeImg)
+{
+    extern bool g_bXrMirror;
+
+    if (!s_capturePath[0] || !eyeImg || !g_bXrMirror)
+        return;
+
+    char path[MAX_PATH];
+    strncpy(path, s_capturePath, MAX_PATH - 1);
+    path[MAX_PATH - 1] = 0;
+    s_capturePath[0] = 0;
+    s_captureAge = 0;
+
+    ShotLog("eye capture claiming request -> %s", path);
+    CaptureTextureToBmp((ID3D12Resource*)eyeImg, 0,
+                        (int)D3D12_RESOURCE_STATE_RENDER_TARGET, path);
+}
+
+bool D3D12Backend::CaptureTextureToBmp(ID3D12Resource* src, unsigned subresource,
+                                       int stateBefore, const char* path)
+{
+    if (!src || !m_pDevice || !m_pQueue || !path || !*path)
+        return false;
+
+    D3D12_RESOURCE_DESC bd = src->GetDesc();
     const int w = (int)bd.Width;
     const int h = (int)bd.Height;
 
     if (w < 1 || h < 1)
-        return;
+        return false;
 
-    // The two formats a swap chain is realistically created with here. Anything else (HDR10, a
-    // 16-bit float chain) would need its own conversion, so decline rather than write garbage.
+    // The format we copy WITH, which is not always the one the resource reports. An OpenXR
+    // runtime commonly hands out TYPELESS colour images so the app can choose an sRGB or a
+    // UNORM view -- openxrbackend.cpp demotes _SRGB to _UNORM when it builds the eye RTV for
+    // exactly that reason -- and GetDesc() then reports the typeless family, which is not a
+    // legal placed-footprint format. Copying with the concrete UNORM member of the same
+    // family is, and the bytes are identical either way.
+    DXGI_FORMAT copyFmt;
     bool bgra = false;
 
-    if (bd.Format == DXGI_FORMAT_B8G8R8A8_UNORM ||
-        bd.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
+    switch (bd.Format)
+    {
+    case DXGI_FORMAT_B8G8R8A8_TYPELESS:
+    case DXGI_FORMAT_B8G8R8A8_UNORM:
+    case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+        copyFmt = DXGI_FORMAT_B8G8R8A8_UNORM;
         bgra = true;
-    else if (bd.Format != DXGI_FORMAT_R8G8B8A8_UNORM &&
-             bd.Format != DXGI_FORMAT_R8G8B8A8_UNORM_SRGB)
-        return;
+        break;
+
+    case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+    case DXGI_FORMAT_R8G8B8A8_UNORM:
+    case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+        copyFmt = DXGI_FORMAT_R8G8B8A8_UNORM;
+        break;
+
+    default:
+        ShotLog("capture DECLINED: unsupported format %d (%dx%d)",
+                (int)bd.Format, w, h);
+        return false;
+    }
 
     const unsigned rowPitch = (unsigned)(((unsigned)w * 4u + 255u) & ~255u);
 
@@ -794,8 +891,9 @@ void D3D12Backend::ServiceScreenCapture()
             &hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COMMON, NULL,
             __uuidof(ID3D12Resource), (void**)&rb)) ||
         !rb)
-        return;
+        return false;
 
+    bool wrote = false;
     ID3D12CommandAllocator* alloc = 0;
     ID3D12GraphicsCommandList* list = 0;
 
@@ -811,9 +909,9 @@ void D3D12Backend::ServiceScreenCapture()
         D3D12_RESOURCE_BARRIER b;
         ZeroMemory(&b, sizeof(b));
         b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        b.Transition.pResource = bb;
+        b.Transition.pResource = src;
         b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        b.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+        b.Transition.StateBefore = (D3D12_RESOURCE_STATES)stateBefore;
         b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
         list->ResourceBarrier(1, &b);
 
@@ -822,20 +920,20 @@ void D3D12Backend::ServiceScreenCapture()
         dstL.pResource = rb;
         dstL.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
         dstL.PlacedFootprint.Offset = 0;
-        dstL.PlacedFootprint.Footprint.Format = bd.Format;
+        dstL.PlacedFootprint.Footprint.Format = copyFmt;
         dstL.PlacedFootprint.Footprint.Width = (UINT)w;
         dstL.PlacedFootprint.Footprint.Height = (UINT)h;
         dstL.PlacedFootprint.Footprint.Depth = 1;
         dstL.PlacedFootprint.Footprint.RowPitch = rowPitch;
         ZeroMemory(&srcL, sizeof(srcL));
-        srcL.pResource = bb;
+        srcL.pResource = src;
         srcL.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        srcL.SubresourceIndex = 0;
+        srcL.SubresourceIndex = (UINT)subresource;
         list->CopyTextureRegion(&dstL, 0, 0, 0, &srcL, NULL);
 
-        // Hand it back in the state Present expects to find it, or the next frame's barrier is a lie.
+        // Hand it back in the state the caller guaranteed, or the next barrier on it is a lie.
         b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-        b.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+        b.Transition.StateAfter = (D3D12_RESOURCE_STATES)stateBefore;
         list->ResourceBarrier(1, &b);
 
         if (SUCCEEDED(list->Close()))
@@ -849,6 +947,7 @@ void D3D12Backend::ServiceScreenCapture()
             if (SUCCEEDED(rb->Map(0, NULL, &mapped)) && mapped)
             {
                 WriteBmp24(path, (const BYTE*)mapped, rowPitch, w, h, bgra);
+                wrote = true;
                 D3D12_RANGE wr;
                 wr.Begin = 0;
                 wr.End = 0;
@@ -864,6 +963,10 @@ void D3D12Backend::ServiceScreenCapture()
         alloc->Release();
 
     rb->Release();
+    ShotLog("%s %dx%d fmt=%d copyFmt=%d bgra=%d -> %s", path, w, h,
+            (int)bd.Format, (int)copyFmt, (int)bgra,
+            wrote ? "written" : "FAILED (nothing on disk)");
+    return wrote;
 }
 
 void D3D12Backend::Present(bool bVSync)
@@ -2168,6 +2271,11 @@ void D3D12Backend::EndStereoInstancedFrame(void* arrayImg)
     m_allocFence[m_frameIndex] = SignalQueue();
     WaitForFence(m_allocFence[m_frameIndex]);
     m_bRecording = false;
+
+    // Artscout - 2026 (VR screenshots): view-instanced stereo renders both eyes into one
+    // 2-slice array image; slice 0 is the left eye, so the same capture works with
+    // subresource 0. (The QUAD copy path goes through EndViCopyGroup and is not covered.)
+    ServiceEyeCapture(arrayImg);
 }
 
 // Artscout - 2026: #DX12 п.5 QUAD copy path -- typeless of a RGBA/BGRA swapchain format (so one committed resource
@@ -2771,6 +2879,11 @@ void D3D12Backend::EndEyeFrame(void* eyeImg)
     m_allocFence[m_frameIndex] = SignalQueue();
     WaitForFence(m_allocFence[m_frameIndex]);
     m_bRecording = false;
+
+    // Artscout - 2026 (VR screenshots): the eye is rendered and fenced and we still hold the
+    // image -- this is the only moment the picture the headset is about to show exists in a
+    // resource we can read. Costs nothing unless a screenshot is actually pending.
+    ServiceEyeCapture(eyeImg);
 }
 
 // #DX12 п.3 RTT: bind an external render-target texture as the current target (displays draw into it).
