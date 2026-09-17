@@ -394,17 +394,42 @@ void O_Output::SetTextWidth(long w)
     SetInfo();
 }
 
+// Artscout - 2026: every buffer released here is allocated with new[] -- Label_ (new _TCHAR[]),
+// Rows_ / Cols_ (new long[]) and Wrap_ (new WORDWRAP[]) -- and every one of them was released
+// with a scalar delete. That is undefined behaviour: the array and scalar forms are different
+// operators, and only the array form is paired with new[].
+//
+// This is the same defect a previous pass already fixed one frame UP the stack, in
+// C_ScaleBitmap::Cleanup, whose comment notes the buffers were "survivable while this buffer
+// was a few MB" and that "a terrain-derived campaign map makes it several times larger and the
+// heap much less forgiving". O_Output::Cleanup is what C_ScaleBitmap::Cleanup calls, and it is
+// where the campaign teardown is now dying with STATUS_HEAP_CORRUPTION:
+//
+//   FFViper!_free_base            <- ntdll reports the block is already free
+//   FFViper!O_Output::Cleanup     <- delete Cols_, below
+//   FFViper!C_ScaleBitmap::Cleanup
+//   FFViper!C_Map::Cleanup
+//   FFViper!CleanupCampaignUI
+//
+// These types are all POD, so on MSVC the mismatch usually resolves to the same free and
+// survives -- which is why this has limped along. It is still wrong, and it is the only
+// defect visible on that stack, so it is fixed here. It is NOT confirmed as the cause: the
+// heap reports a double free (block not busy), which a size mismatch alone does not explain.
+// If the crash outlives this fix, run the game under page heap and the faulting free will be
+// caught at the moment it happens rather than at the next unrelated allocation.
 void O_Output::Cleanup()
 {
     if (Label_)
     {
         if (flags_ bitand C_BIT_FIXEDSIZE)
+        {
 #ifdef USE_SH_POOLS
             MemFreePtr(Label_);
-
 #else
-            delete Label_;
+            delete[] Label_;
 #endif
+        }
+
         Label_ = NULL;
         SetReady(0);
     }
@@ -417,7 +442,7 @@ void O_Output::Cleanup()
 #ifdef USE_SH_POOLS
         MemFreePtr(Rows_);
 #else
-        delete Rows_;
+        delete[] Rows_;
 #endif
         Rows_ = NULL;
     }
@@ -427,7 +452,7 @@ void O_Output::Cleanup()
 #ifdef USE_SH_POOLS
         MemFreePtr(Cols_);
 #else
-        delete Cols_;
+        delete[] Cols_;
 #endif
         Cols_ = NULL;
     }
@@ -436,7 +461,7 @@ void O_Output::Cleanup()
 
     if (Wrap_)
     {
-        delete Wrap_;
+        delete[] Wrap_;
         Wrap_ = NULL;
     }
 }
