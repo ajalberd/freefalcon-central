@@ -9,6 +9,9 @@ Companion docs:
 - `CAMPAIGN-SUPPLY-ENGINE.md` — how supply, production and power actually work.
 - `tools/terrain/tilesurvey.py` — reads a theater's terrain and tile data offline, no
   build and no game needed. Re-run it instead of re-deriving any terrain number.
+- `tools/models/objsurvey.py` — same idea for the 3D object database. Reads `KoreaObj.DXH`
+  and `.DXL`: parent records, LOD names, and a model's whole node stream including every
+  switch number, its branches and the geometry hanging off each one.
 
 ---
 
@@ -145,6 +148,174 @@ must be `1`. Confirmed drawing in the field.
    tile's average colour instead. Base map and detail layer should now agree across the
    zoom threshold.
 
+### 4. JFS switch and the indicator lights — 3D pit
+
+The JFS switch was never missing from the model; it was never being drawn. Climb into the
+3D pit and look at the left console, forward of the throttle.
+
+1. **The lever is there with the jet cold.** Before this it only appeared once the JFS was
+   already running, which is precisely when you are no longer looking for it.
+2. **It throws.** Click it (or the `SimJfsStart` key). The lever should snap from the aft
+   OFF cant to upright START, and back when the JFS spins down.
+3. **The green RUN light beside it lights with it**, and only with it. It used to be wired
+   to the engine Overheat lamp, so it lit on an overheat and never on a JFS run.
+4. **The other lamps on that panel.** EPU RUN, EPU HYDRAZINE/AIR, ECM PWR/FAIL and the
+   eight ELEC panel lamps had the same defect and now read their own bits. Worth a glance
+   during a ramp start — that is where all of them are visible at once.
+5. Main power off still freezes these lamps rather than clearing them, because the whole
+   block is skipped when `mainPower == MainPowerOff`. Pre-existing; not touched.
+
+### 5. Avionics power levers — the lever now follows the lever
+
+Sixteen levers (SMS, FCC, MFD, UFC, GPS, DL, MAP, L/R HPT, HUD, FCR, IFF, and the four EWS
+switches) drew their position from `HasPower()`, which answers *is this box's bus live*,
+not *where did the pilot put the switch*. `SMSPower` and friends only appear in
+`systemStates[PowerNonEssentialBus]`, so on a cold jet `HasPower` is 0 whatever the lever
+is doing: the callback set the mask to 2 and `VCock_Exec` pulled it back to 1 the next
+frame. The switch clicked and snapped straight back. They now read `PowerSwitchOn`, the
+raw bit the callbacks write. The box staying dark until its bus comes up is unchanged.
+
+**If these still do nothing, check the Avionics setting.** `SimSMSOn`/`SimSMSOff` and their
+siblings open with `if (not g_bRealisticAvionics) return;` — on "Enhanced" they are inert
+before they touch anything, and the 3D button dispatch plays the click either way.
+
+### 6a. JFS: one start per engine run, and the light needs main power
+
+Measured in the field, not inferred:
+
+```
+[JFS] start  throttle=0.000 accum=0.0 fuel=7162.0 jfsFlag=1 engineStopped=1 mainPower=0
+```
+
+`jfsFlag=1` means the start **succeeded**. `accum=0.0` is the state *after* the start, not a
+refusal: `JfsEngineStart` passes the `>= 90` gate and then sets `jfsaccumulator = 0.0f`
+("all used up").
+
+**The accumulator only recharges above `auxaeroData->jfsMinRechargeRpm`** (`engine.cpp`), so
+with the engine stopped it stays at 0 forever — you get **one JFS start per engine run**.
+A second press then refuses silently and looks exactly like a dead switch. `jfsRechargeTime`
+defaults to 60 s.
+
+**`mainPower=0` is why the green run light stayed dark.** The whole indicator-light block in
+`VCock_Exec` is skipped when `mainPower == MainPowerOff`, so the lamp is never written. Put
+MAIN PWR to BATT first, as a real ramp start does.
+
+The switch has only two branches in `3DPIT_F16CJ_L1` — there is no START1/START2 to be stuck
+in, so "the first press logs `start`" is correct from OFF. **The branches are reversed from
+what their numbering suggests: branch 0 is the lever thrown to START, branch 1 is OFF.**
+Confirmed in the cockpit, not from the geometry — the tip cluster that reads as "upright" in
+the vertex dump is the OFF pose. So the mask is 1 while the JFS runs and 2 while it does not
+(`2 - IsSet(JfsStart)`), and `SimJfsStart`'s immediate writes match.
+
+### 6b. Starting the engine after the JFS — the detent is not optional
+
+`JfsStart` sets `rpmCmd = 0.25f` (`engine.cpp`), so the JFS spins the engine to **25%**, and
+`JFSSpinTime` gives it 240 s before it gives up. The bar for lighting is **rpm >= 0.20**.
+
+Nothing clears `EngineStopped` on its own. Two mutually exclusive paths:
+
+- `g_bUseAnalogIdleCutoff 0` (the default, and what is set here): only
+  `SimThrottleIdleDetent` clears it, and only when the throttle is already above 0.1 **and**
+  rpm >= 0.20. Press it below 0.1 and it *sets* `EngineStopped` instead. Advancing the
+  throttle alone does nothing at all — there is no automatic light.
+- `g_bUseAnalogIdleCutoff 1`: `SimThrottleIdleDetent` early-returns and becomes inert; the
+  engine lights by itself once rpm >= 0.20 and `IO.IsAxisCutOff(AXIS_THROTTLE)` is false.
+  The better setting for a HOTAS throttle with a real idle detent.
+
+Ramp start: MAIN PWR → BATT, JFS, wait for ~25% rpm, throttle up, then the detent.
+`SimThrottleIdleDetent` has a 3D hotspot in `3dbuttons.dat` at the throttle quadrant.
+
+### 6. The JFS refuses silently — `LogJfs`
+
+`SimJfsStart` needs the throttle below 0.1, and `JfsEngineStart` needs the accumulator at
+90%+ and fuel aboard; above 400 KIAS or 20,000 ft it also refuses at random. None of that
+is reported, and the click sound is played by the button dispatch before the callback is
+even reached — so a refused start and a dead switch look and sound identical.
+
+`set g_bLogJfs 1` in `FFViper.cfg` prints one `[JFS]` line per press to `FFDebug.log`
+naming the decision (`start`, `stop`, `throttle-not-idle`) and the state behind it. The
+line after a press that did nothing says which guard bit.
+
+### 7. VR screenshots are black — the mirror they read was never written
+
+Screenshots land in `<install>/pictures` as `YYYY-MM-DD_HHMMSS.bmp`. Both keys reach
+`OTWDriverClass::TakeScreenShot`; "pretty" only suppresses 2D text and labels for one frame
+first. Menu captures work. **Every in-VR capture is pure black**, and the reason is that
+`g_bXrMirror` is declared in `f4config.cpp`, defaults to true, is registered in the config
+table — and **has no reader anywhere in the source**. There is no eye-to-swapchain blit.
+
+`D3D12_RequestScreenCapture` defers to Present and reads the swap-chain back buffer on the
+stated assumption that "with XrMirror on it holds the eye the compositor was handed"
+(`d3d12backend.cpp`). It does not: in a VR session the eyes go straight to the compositor's
+own swapchains and the desktop back buffer only ever holds `BeginFrame(0xFF000000)`.
+Toggling `XrMirror` changes nothing either way.
+
+On **Vulkan** it is worse: there is no capture path at all, so `TakeScreenShot` falls
+through to `OTWImage->BackBufferToRAW`, the CPU-side RGB565 surface the 3D scene never
+touches. Fixing VR capture properly means writing the mirror blit (one eye, or both
+side-by-side as the `f4config` comment describes) in the OpenXR backend.
+
+### 8. Controllers "Assign" — the dialog was never loaded (FIXED, verified)
+
+Verified in the field: `open:` → `autodetect: staged button 36 on device 5 (held 6 polls)`
+→ `wrote buttonId=420; readback MATCHES`, four bindings in a row.
+
+**Root cause, from the trace.** `DeviceCellCB` fired correctly on every click
+(`deviceCell: click id=513000 func=set dev=5`) and no `open:` line ever followed, which puts
+the failure inside `OpenButtonAssignWindow` before its first statement completes:
+
+```cpp
+C_Window *win = gMainHandler->FindWindow(SETUP_BTNASSIGN_WIN);
+if (not win) return;                    // silent
+```
+
+`art/setup/buttonassign.scf` defines `SETUP_BTNASSIGN_WIN` and already shipped in
+`ffviperpatch.wxs`, but the only thing that loads a setup window is
+`LoadWindowList("st_scf.lst")` in `ui_setup.cpp`, and **`st_scf.lst` named every setup .scf
+except that one**. The window never existed, so the click ran the handler and did nothing.
+
+Fixed by adding `art\setup\buttonassign.scf` to `st_scf.lst`, and by shipping that list from
+`src/installer/res/art/st_scf.lst` (declared in the .wxs) — without the second half it is
+fixed only on one machine. Exactly the shape of the earlier `cp_pkg_scf.lst` fix.
+
+**The lesson worth keeping:** a .scf in `res/art/` and a `<File>` line in the .wxs are not
+enough. A window is inert until some `*_scf.lst` names it. `FindWindow` returning NULL was
+silent at every call site; `OpenButtonAssignWindow` now logs that abort by name.
+
+**Control-id map** (the .scf names do not read like their roles): OK = `BTNASSIGN_ASSIGN`,
+Cancel = `BTNASSIGN_OPEN`, Redetect = `BTNASSIGN_DETECT`. The dialog wires its own callbacks
+in `SetupButtonAssignWindow`, so it does not depend on `HookupSetupControls` — `ui_setup.cpp`
+mentions it nowhere, and that is fine.
+
+**Two controls the .scf does not define**, both null-guarded so they cost a feature rather
+than crash: `BTNASSIGN_CLEAR` (the staged per-device Clear is unreachable from the dialog)
+and `BTNASSIGN_DEVICE_LIST` (no device dropdown, so the dialog stays locked to the device of
+the cell that opened it — which matches the intended #53 device-locked behaviour anyway).
+`BTNASSIGN_FUNC_LIST`/`BTNASSIGN_SEARCH` are absent on purpose; the .scf header says the
+function list and search live in the main window. The `open:` line now reports which of
+these were found.
+
+### What the trace also ruled out
+
+Assign works for keyboard cells and does nothing for device cells; no `[ASSIGN]` line was
+produced at all, so `OpenButtonAssignWindow` is never reached. Ruled out by reading:
+`DEVCELL_BASE` (510000) is nowhere near the keyboard-cell range the `g_ctxIsKeyboard` test
+uses (`KEYCODES`=100000..110000), so device cells are not being misclassified;
+`gDIDevButtons` and `gDIDevNames` are written and read with the same full-device-index
+convention; the device dropdown's `GetTextID() - 1` matches how `BuildControllerList`
+numbers it.
+
+The device-cell reuse branch in `UpdateDeviceCells` was also made idempotent (it set only
+colour, text and user data, while the keyboard equivalent `UpdateKeyMapButton` re-applies
+`SetMenu`, `SetCallback`, `C_BIT_ENABLED` and the hotspot on every refresh). **That was not
+the bug** — the trace showed reused cells still delivering clicks — but it removes a real
+asymmetry, so it stays.
+
+`set g_bLogAssign 1` now traces the whole chain, not just the dialog: how many device
+columns were built and with what button counts, whether each row-0 cell was created or
+reused, every context-menu open with its cell classification, every device-cell click, and
+the OK commit with a read-back.
+
 ---
 
 ## Facts worth not re-deriving
@@ -170,6 +341,23 @@ for any other theater rather than assuming these.
   `SetupMap` — the floor never bites. Max zoom is 8.6 nm.
 - Tile reuse is extreme: 1,071 distinct tiles theater-wide, one of them 49.4% of the
   ground, top 200 = 95.2%. A small decoded-tile cache goes a long way.
+
+### The 3D pit object
+
+Measured with `tools/models/objsurvey.py` against the shipped `KoreaObj`.
+
+- **The live pit is parent 2402**, LOD `3DPIT_F16CJ_L1` — set by `cockpitmodel 2402` in
+  `art/ckptart/3Dckpit.dat`, not by `VIS_VRCOCKPIT`. It declares **255 switches**; the
+  three older pits (parents 1, 870, 2403) declare only 129, so every switch id above 128
+  is silently dropped on those — `DrawableBSP::SetSwitchMask` returns early.
+- **A switch is a run of sibling DOF nodes** sharing a `SwitchNumber`, each with its own
+  `SwitchBranch` and its whole subtree sized by `dwDOFTotalSize`. The engine draws the
+  first branch where `SwitchValues[n] & (1 << branch)`. **Mask 0 therefore draws nothing
+  at all** — that is what "the part is missing from the pit" usually means.
+- 150 switch numbers are present in the tree. Not all of the 255 declared are modelled, so
+  check before assuming a control exists — and check before modelling one that already does.
+- **`3dbuttons.dat` coordinates are model units × −569** (its own header says so). That is
+  how to confirm a click hotspot lands on the geometry it is supposed to drive.
 
 **The detail layer is a stand-in, not a different map.** `MapRect_`, `CenterX_`, `scale_`,
 `FEET_PER_PIXEL`, the zoom clamps, `CampGridToOverlay` and every icon position still speak
