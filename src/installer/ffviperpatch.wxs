@@ -182,6 +182,18 @@
       <Component Directory="dArt">
         <File Source="res\art\cp_pkg_scf.lst" />
       </Component>
+
+      <!-- art\st_scf.lst (Artscout - 2026: the Controllers page's button-assignment dialog).
+           buttonassign.scf defines SETUP_BTNASSIGN_WIN and already shipped above, but the only
+           thing that loads a setup window is LoadWindowList("st_scf.lst") in ui_setup.cpp, and
+           that list named every other setup .scf except this one. FindWindow(SETUP_BTNASSIGN_WIN)
+           therefore returned NULL and OpenButtonAssignWindow returned on its first line, so
+           clicking a controller cell ran the handler and did nothing at all. Shipping the list
+           with the extra line is what makes the dialog exist; same shape as the cp_pkg_scf.lst
+           fix above. -->
+      <Component Directory="dArt">
+        <File Source="res\art\st_scf.lst" />
+      </Component>
       <Component Directory="dResource">
         <File Source="res\art\resource\uiskin_ff4.irc" />
       </Component>

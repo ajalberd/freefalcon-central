@@ -829,6 +829,8 @@ bool g_bLogCampMapDetail =
     false; // Artscout - 2026: log one line per campaign map detail rebuild to FFDebug.log -- the source and destination rects, the subdivision chosen, the resulting feet per pixel, and how many tiles failed to load. tileMisses above zero means tiles are missing or are not DXT1, and those cells fall back to flat colour. "LogCampMapDetail".
 bool g_bLogJfs =
     false; // Artscout - 2026: log every JFS switch press to FFDebug.log -- the throttle position, the accumulator charge, the fuel, and the resulting JfsStart flag. SimJfsStart refuses silently when the throttle is off idle, and JfsEngineStart refuses silently when the accumulator is below 90 percent or there is no fuel. The 3D button dispatch plays the click sound before any of that is evaluated, so from the cockpit a refused start is indistinguishable from a dead switch. This says which it was. "LogJfs".
+bool g_bLogAssign =
+    false; // Artscout - 2026: trace the Controllers button-assignment dialog to FFDebug.log -- which device it locked onto when it opened, how many buttons the input layer reports per device and how many read as pressed, what autodetect or the dropdown staged, and whether OK actually committed the binding (with a read-back). Every stage of that dialog is silent, so "Assign does nothing" otherwise gives no way to tell a wrong device from a dead poll from a failed commit. "LogAssign".
 bool g_bLogMenuTextures =
     false; // Artscout - 2026: log what the texture lookup returns while a MENU 3D viewer is drawing (tactical reference, loadout, recon), to FFDebug.log. The models in those screens have never been textured under D3D12 and three rounds of reading the code did not settle why, so this asks the running game instead. Each line is one surface: the bank index the BSP asked for, the handle the bank returned, and the GPU texture behind it -- which of those three is zero says whether the geometry is not requesting a texture, the bank has not loaded it, or it was loaded but never uploaded. Capped per viewer open, and off by default because it sits in the per-surface path. "LogMenuTextures".
 float g_fMenuModelDetail =
@@ -1614,6 +1616,8 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bLogCampMapDetail}, // Artscout - 2026: trace each detail rebuild to FFDebug.log
     {"LogJfs",
      &g_bLogJfs}, // Artscout - 2026: why a JFS switch press did or did not start the JFS
+    {"LogAssign",
+     &g_bLogAssign}, // Artscout - 2026: trace the controller button-assignment dialog
     {"HudCanopyOcclude",
      &g_bHudCanopyOcclude}, // Artscout - 2026: cockpit structure occludes the collimated HUD
     {"CampaignAddMission",

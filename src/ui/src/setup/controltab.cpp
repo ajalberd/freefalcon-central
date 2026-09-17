@@ -5,6 +5,8 @@
 #include <mmsystem.h>
 #include "sim/include/stdhdr.h"
 #include "sim/include/simio.h"
+#include "graphics/include/fflog.h"
+#include <stdarg.h>
 #include "ui_setup.h"
 #include <tchar.h>
 #include "sim/include/inpfunc.h"
@@ -3476,6 +3478,63 @@ short g_baArmed[SIMLIB_MAX_DIGITAL * SIM_NUMDEVICES] = {
 #define BA_HOLD_THRESHOLD                                                      \
     6 // a changed button must stay stable for N polls -> catches a switch click, rejects oscillation/jitter
 
+// Artscout - 2026: trace the button-assignment dialog to FFDebug.log. Every stage of
+// this is silent -- the dialog opens, autodetect arms, OK closes the window -- so
+// "Assign does nothing" gives no clue whether the wrong device is selected, whether
+// IO.digital is live while the menu is up, whether anything got staged, or whether the
+// commit ran. Off by default; "set g_bLogAssign 1".
+extern bool g_bLogAssign;
+
+static void BaLog(const char *fmt, ...)
+{
+    if (not g_bLogAssign)
+        return;
+
+    char body[400];
+    va_list ap;
+    va_start(ap, fmt);
+    _vsnprintf(body, sizeof(body), fmt, ap);
+    va_end(ap);
+    body[sizeof(body) - 1] = '\0';
+
+    char ln[512];
+    _snprintf(ln, sizeof(ln), "[ASSIGN] %s\n", body);
+    ln[sizeof(ln) - 1] = '\0';
+    FFDebugLog(ln);
+}
+
+// One line per attached device: how many buttons the input layer thinks it has, and
+// how many of them are reading as pressed right now. A device whose buttons never
+// move here is not reaching IO.digital at all, which is a different problem from the
+// dialog mishandling them.
+static void BaLogDevices(void)
+{
+    if (not g_bLogAssign)
+        return;
+
+    BaLog("devices: gTotalJoy=%d (SIM_JOYSTICK1=%d SIM_NUMDEVICES=%d)", gTotalJoy,
+          SIM_JOYSTICK1, SIM_NUMDEVICES);
+
+    for (int d = SIM_JOYSTICK1; d < SIM_NUMDEVICES; ++d)
+    {
+        int cnt = gDIDevButtons[d];
+
+        if (cnt <= 0)
+            continue;
+
+        int base = (d - SIM_JOYSTICK1) * SIMLIB_MAX_DIGITAL;
+        int held = 0;
+        int scan = (cnt > SIMLIB_MAX_DIGITAL) ? SIMLIB_MAX_DIGITAL : cnt;
+
+        for (int b = 0; b < scan; ++b)
+            if (IO.digital[base + b])
+                held++;
+
+        BaLog("  dev %d '%s' buttons=%d digitalBase=%d heldNow=%d", d,
+              gDIDevNames[d] ? gDIDevNames[d] : "(null)", cnt, base, held);
+    }
+}
+
 static const char *g_baModNames[8] = {
     "None", "Shift",     "Ctrl",     "Ctrl+Shift",
     "Alt",  "Alt+Shift", "Ctrl+Alt", "Ctrl+Alt+Shift"};
@@ -3697,6 +3756,9 @@ void ButtonAssignAutodetectPoll(void)
     g_baStagedButton = cand;
     g_baActive = false;
 
+    BaLog("autodetect: staged button %d on device %d (held %d polls)", cand,
+          g_baDevice, s_holdCount);
+
     if (baw)
     {
         C_Text *dl = (C_Text *)baw->FindControl(BTNASSIGN_DEVICE_LABEL);
@@ -3746,6 +3808,7 @@ void ButtonAssignButtonCB(long, short hittype, C_Base *control)
         return;
 
     g_baStagedButton = btn;
+    BaLog("dropdown: staged button %d on device %d", btn, g_baDevice);
 
     C_Text *d = (C_Text *)control->Parent_->FindControl(BTNASSIGN_DETECTED);
 
@@ -3799,6 +3862,11 @@ void ButtonAssignOkCB(long, short hittype, C_Base *control)
     if (hittype not_eq C_TYPE_LMOUSEUP)
         return;
 
+    BaLog("OK: targetFunc=%s stagedButton=%d stagedClear=%d device=%d "
+          "(assign needs func!=NULL, button>=0, %d<=device<%d)",
+          g_baTargetFunc ? "set" : "NULL", g_baStagedButton,
+          (int)g_baStagedClear, g_baDevice, SIM_JOYSTICK1, SIM_NUMDEVICES);
+
     if (g_baStagedClear and g_baTargetFunc and g_baDevice >= SIM_JOYSTICK1 and
         g_baDevice < SIM_NUMDEVICES)
     {
@@ -3828,6 +3896,19 @@ void ButtonAssignOkCB(long, short hittype, C_Base *control)
                                             g_baTargetCpId);
         KeyVar.Modified = TRUE;
         g_keyListNeedRebuild = true;
+
+        // Read it straight back: if this does not echo the function we just wrote,
+        // the binding did not take and the table is where to look, not the dialog.
+        BaLog("  wrote buttonId=%d; readback %s",
+              buttonId,
+              (UserFunctionTable.GetButtonFunction(buttonId, NULL) ==
+               g_baTargetFunc) ?
+                  "MATCHES" :
+                  "DIFFERS -- the write did not stick");
+    }
+    else
+    {
+        BaLog("  no branch taken -- nothing was written");
     }
 
     g_baActive = false;
@@ -4138,7 +4219,15 @@ void OpenButtonAssignWindow(InputFunctionType func, int cpId, long sourceCtrl)
     C_Window *win = gMainHandler->FindWindow(SETUP_BTNASSIGN_WIN);
 
     if (not win)
+    {
+        // This was the whole bug: art/setup/buttonassign.scf defines the window but
+        // st_scf.lst did not name it, so LoadWindowList never built it and every
+        // caller here returned in silence. Never fail quietly again.
+        BaLog("open: ABORTED -- SETUP_BTNASSIGN_WIN (%d) does not exist. "
+              "Is art\\setup\\buttonassign.scf listed in art\\st_scf.lst?",
+              (int)SETUP_BTNASSIGN_WIN);
         return;
+    }
 
     g_baTargetFunc = func;
     g_baTargetCpId = cpId;
@@ -4176,6 +4265,25 @@ void OpenButtonAssignWindow(InputFunctionType func, int cpId, long sourceCtrl)
     gMainHandler->WindowToFront(win);
     g_baWindowOpen =
         true; // Artscout - 2026: modal — blocks leaving options until OK/Cancel
+
+    BaLog("open: targetFunc=%s cpId=%d device=%d (openDevice preselect was %s)",
+          g_baTargetFunc ? "set" : "NULL", g_baTargetCpId, g_baDevice,
+          (g_baDevice == SIM_KEYBOARD) ? "none -> keyboard" : "joystick");
+
+    // Which controls the .scf actually supplied. All of these are null-guarded, so a
+    // missing one costs a feature rather than crashing -- but silently, which is how
+    // you end up with a dialog that opens and half works.
+    BaLog("  controls: buttonList=%d deviceList=%d ok=%d cancel=%d redetect=%d "
+          "clear=%d detectedText=%d",
+          win->FindControl(BTNASSIGN_BUTTON_LIST) ? 1 : 0,
+          win->FindControl(BTNASSIGN_DEVICE_LIST) ? 1 : 0,
+          win->FindControl(BTNASSIGN_ASSIGN) ? 1 : 0,
+          win->FindControl(BTNASSIGN_OPEN) ? 1 : 0,
+          win->FindControl(BTNASSIGN_DETECT) ? 1 : 0,
+          win->FindControl(BTNASSIGN_CLEAR) ? 1 : 0,
+          win->FindControl(BTNASSIGN_DETECTED) ? 1 : 0);
+
+    BaLogDevices();
 }
 
 
@@ -4203,12 +4311,20 @@ void KeyCtxMenuOpenCB(C_Base *, C_Base *caller)
     // keyboard cells use ids KEYCODES..KEYCODES+rows; device cells use DEVCELL_BASE..
     g_ctxIsKeyboard =
         (g_ctxCtrlId >= KEYCODES and g_ctxCtrlId < KEYCODES + 10000);
+
+    BaLog("ctxMenu open: ctrlId=%ld isKeyboard=%d func=%s btnId=%d device=%d",
+          g_ctxCtrlId, (int)g_ctxIsKeyboard, g_ctxFunc ? "set" : "NULL",
+          g_ctxBtnId, g_ctxDevice);
 }
 
 // Context menu "Assign..." -> keyboard cell: cyan key-capture (KeystrokeCB binds the next key);
 // device cell: open the assign window targeting that device.
 void KeyCtxAssignCB(long, short hittype, C_Base *)
 {
+    BaLog("ctxAssign: hittype=%d isKeyboard=%d func=%s device=%d",
+          (int)hittype, (int)g_ctxIsKeyboard, g_ctxFunc ? "set" : "NULL",
+          g_ctxDevice);
+
     if (hittype not_eq C_TYPE_LMOUSEUP and hittype not_eq C_TYPE_RMOUSEUP)
         return;
 
@@ -4558,6 +4674,32 @@ static void RebuildTableDeviceList()
          dev < SIM_NUMDEVICES and g_tblDevCount < TBL_MAX_DEVCOLS; ++dev)
         if (gDIDevButtons[dev] > 0)
             g_tblDevs[g_tblDevCount++] = dev;
+
+    // No device columns means there is nothing on the Controllers page to click:
+    // every per-device cell loop below is bounded by this count. Report only when the
+    // set actually changes -- this runs on every table rebuild (filter, search, scroll)
+    // and logging it each time buries everything else.
+    static int s_lastCount = -1;
+    static int s_lastDevs[TBL_MAX_DEVCOLS] = {0};
+    bool changed = (s_lastCount not_eq g_tblDevCount);
+
+    for (int i = 0; not changed and i < g_tblDevCount; ++i)
+        changed = (s_lastDevs[i] not_eq g_tblDevs[i]);
+
+    if (changed)
+    {
+        BaLog("device columns: %d of max %d (gTotalJoy=%d)", g_tblDevCount,
+              TBL_MAX_DEVCOLS, gTotalJoy);
+
+        for (int i = 0; i < g_tblDevCount; ++i)
+            BaLog("  col %d -> dev %d buttons=%d", i, g_tblDevs[i],
+                  gDIDevButtons[g_tblDevs[i]]);
+
+        s_lastCount = g_tblDevCount;
+
+        for (int i = 0; i < g_tblDevCount; ++i)
+            s_lastDevs[i] = g_tblDevs[i];
+    }
 }
 
 // #53 0-based button number on a SPECIFIC device assigned to func, or -1 if none.
@@ -4845,11 +4987,18 @@ int UpdateMappingDescrip(C_Window *win, C_Text *Mapping, int height,
 void DeviceCellCB(long, short hittype, C_Base *control)
 {
     if (hittype not_eq C_TYPE_LMOUSEUP or not control)
+    {
+        BaLog("deviceCell: ignored hittype=%d (want LMOUSEUP=%d) control=%s",
+              (int)hittype, (int)C_TYPE_LMOUSEUP, control ? "set" : "NULL");
         return;
+    }
 
     InputFunctionType func =
         (InputFunctionType)control->GetUserPtr(FUNCTION_PTR);
     int dev = control->GetUserNumber(DEVICE_IDX);
+
+    BaLog("deviceCell: click id=%ld func=%s dev=%d", control->GetID(),
+          func ? "set" : "NULL", dev);
 
     if (not func)
         return;
@@ -4896,6 +5045,21 @@ void UpdateDeviceCells(C_Window *win, C_Button *Keycodes, C_Line *Vline,
             cell->SetText(0, s);
             cell->SetUserPtr(FUNCTION_PTR, (void *)Map.func);
             cell->SetUserNumber(DEVICE_IDX, g_tblDevs[vis]);
+
+            // Artscout - 2026: re-apply what makes the cell clickable. The keyboard
+            // equivalent (UpdateKeyMapButton) sets the menu, hotspot and callback on
+            // every refresh; this branch set only colour and text, so a reused device
+            // cell kept whatever it happened to have. Idempotent either way, and it
+            // removes the difference between a freshly built table and a rebuilt one
+            // (filter, search, Clear, re-entering the page) as a suspect.
+            cell->SetCallback(DeviceCellCB);
+            cell->SetMenu(KEYCTX_MENU);
+            cell->SetFlagBitOn(C_BIT_ENABLED);
+            cell->SetFixedHotSpot(1);
+            cell->SetHotSpot(-2, 0, DEVCOL_W - 14, g_tblRowH);
+            cell->SetMouseOverColor(RGB(255, 255, 255));
+            cell->SetMouseOverPerc(35);
+
             cell->Refresh();
             continue;
         }
