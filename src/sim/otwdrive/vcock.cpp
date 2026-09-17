@@ -3373,6 +3373,19 @@ void OTWDriverClass::VCock_Exec(void)
                     lastFault)); // blank
 
         // Indicator lights
+        //
+        // FlightData keeps its lamp bits in three separate words -- lightBits,
+        // lightBits2, lightBits3 -- read by IsSet, IsSet2 and IsSet3. The flag
+        // enums restart at 0x1 in each word, so a flag from one word tested
+        // against another silently reads whatever unrelated lamp happens to share
+        // that bit.
+        //
+        // Artscout - 2026: 14 of the 16 lamps below were read with plain IsSet
+        // regardless of which word the flag lives in, so they reported a different
+        // lamp entirely and never tracked their own. JFSOn (0x200000 in lightBits2)
+        // was reading Overheat (0x200000 in lightBits), so the JFS run light lit on
+        // an engine overheat and stayed dark for the whole JFS run. Each read below
+        // now matches the word cautions.cpp writes the flag into.
         if (not SimDriver.GetPlayerAircraft()->mainPower ==
             AircraftClass::MainPowerOff)
             vrCockpit->SetSwitchMask(
@@ -3383,82 +3396,82 @@ void OTWDriverClass::VCock_Exec(void)
             AircraftClass::MainPowerOff)
             vrCockpit->SetSwitchMask(
                 COMP_3DPIT_ECM_PWR,
-                cockpitFlightData.IsSet(FlightData::EcmPwr));
+                cockpitFlightData.IsSet2(FlightData::EcmPwr));
 
         if (not SimDriver.GetPlayerAircraft()->mainPower ==
             AircraftClass::MainPowerOff)
             vrCockpit->SetSwitchMask(
                 COMP_3DPIT_ECM_FAIL,
-                cockpitFlightData.IsSet(FlightData::EcmFail));
+                cockpitFlightData.IsSet2(FlightData::EcmFail));
 
         if (not SimDriver.GetPlayerAircraft()->mainPower ==
             AircraftClass::MainPowerOff)
             vrCockpit->SetSwitchMask(
-                COMP_3DPIT_EPU_ON, cockpitFlightData.IsSet(FlightData::EPUOn));
+                COMP_3DPIT_EPU_ON, cockpitFlightData.IsSet2(FlightData::EPUOn));
 
         if (not SimDriver.GetPlayerAircraft()->mainPower ==
             AircraftClass::MainPowerOff)
             vrCockpit->SetSwitchMask(
-                COMP_3DPIT_JFS_ON, cockpitFlightData.IsSet(FlightData::JFSOn));
+                COMP_3DPIT_JFS_ON, cockpitFlightData.IsSet2(FlightData::JFSOn));
 
         if (not SimDriver.GetPlayerAircraft()->mainPower ==
             AircraftClass::MainPowerOff)
             vrCockpit->SetSwitchMask(
                 COMP_3DPIT_EPU_HYD,
-                cockpitFlightData.IsSet(FlightData::Hydrazine));
+                cockpitFlightData.IsSet3(FlightData::Hydrazine));
 
         if (not SimDriver.GetPlayerAircraft()->mainPower ==
             AircraftClass::MainPowerOff)
             vrCockpit->SetSwitchMask(COMP_3DPIT_EPU_AIR,
-                                     cockpitFlightData.IsSet(FlightData::Air));
+                                     cockpitFlightData.IsSet3(FlightData::Air));
 
         if (not SimDriver.GetPlayerAircraft()->mainPower ==
             AircraftClass::MainPowerOff)
             vrCockpit->SetSwitchMask(
                 COMP_3DPIT_PWR_FLCSPGM,
-                cockpitFlightData.IsSet(FlightData::FlcsPmg));
+                cockpitFlightData.IsSet3(FlightData::FlcsPmg));
 
         if (not SimDriver.GetPlayerAircraft()->mainPower ==
             AircraftClass::MainPowerOff)
             vrCockpit->SetSwitchMask(
                 COMP_3DPIT_PWR_MAINGEN,
-                cockpitFlightData.IsSet(FlightData::MainGen));
+                cockpitFlightData.IsSet3(FlightData::MainGen));
 
         if (not SimDriver.GetPlayerAircraft()->mainPower ==
             AircraftClass::MainPowerOff)
             vrCockpit->SetSwitchMask(
                 COMP_3DPIT_PWR_STBYGEN,
-                cockpitFlightData.IsSet(FlightData::StbyGen));
+                cockpitFlightData.IsSet3(FlightData::StbyGen));
 
         if (not SimDriver.GetPlayerAircraft()->mainPower ==
             AircraftClass::MainPowerOff)
             vrCockpit->SetSwitchMask(
                 COMP_3DPIT_PWR_EPUGEN,
-                cockpitFlightData.IsSet(FlightData::EpuGen));
+                cockpitFlightData.IsSet3(FlightData::EpuGen));
 
         if (not SimDriver.GetPlayerAircraft()->mainPower ==
             AircraftClass::MainPowerOff)
             vrCockpit->SetSwitchMask(
                 COMP_3DPIT_PWR_EPUPMG,
-                cockpitFlightData.IsSet(FlightData::EpuPmg));
+                cockpitFlightData.IsSet3(FlightData::EpuPmg));
 
         if (not SimDriver.GetPlayerAircraft()->mainPower ==
             AircraftClass::MainPowerOff)
             vrCockpit->SetSwitchMask(
                 COMP_3DPIT_PWR_TOFLCS,
-                cockpitFlightData.IsSet(FlightData::ToFlcs));
+                cockpitFlightData.IsSet3(FlightData::ToFlcs));
 
         if (not SimDriver.GetPlayerAircraft()->mainPower ==
             AircraftClass::MainPowerOff)
             vrCockpit->SetSwitchMask(
                 COMP_3DPIT_PWR_FLCSRLY,
-                cockpitFlightData.IsSet(FlightData::FlcsRly));
+                cockpitFlightData.IsSet3(FlightData::FlcsRly));
 
         if (not SimDriver.GetPlayerAircraft()->mainPower ==
             AircraftClass::MainPowerOff)
             vrCockpit->SetSwitchMask(
                 COMP_3DPIT_PWR_BATFAIL,
-                cockpitFlightData.IsSet(FlightData::BatFail));
+                cockpitFlightData.IsSet3(FlightData::BatFail));
 
         if (not SimDriver.GetPlayerAircraft()->mainPower ==
             AircraftClass::MainPowerOff)
@@ -4255,53 +4268,82 @@ void OTWDriverClass::VCock_Exec(void)
         else
             vrCockpit->SetSwitchMask(COMP_3DPIT_RALT_PWR, 1);
 
-        // JSF start switch
-        vrCockpit->SetSwitchMask(COMP_3DPIT_JSF_START,
-                                 SimDriver.GetPlayerAircraft()->af->IsSet(
-                                     AirframeClass::JfsStart + 1));
-        // SMS power switch
+        // JFS start switch (the enum spells it JSF). The mask selects a branch of
+        // switch 176 in the pit model, and the two branches are the reverse of what
+        // their order suggests: confirmed in the cockpit, **branch 0 is the lever
+        // thrown to START and branch 1 is the lever at OFF**. So the mask is 1 while
+        // the JFS runs and 2 while it does not -- the same values SimJfsStart writes
+        // in commands.cpp. Getting this backwards puts the lever at START on a cold
+        // jet and snaps it to OFF the moment the JFS lights.
+        //
+        // Artscout - 2026: this read the flag as IsSet(JfsStart + 1). The '+ 1' was
+        // meant to turn the 0/1 answer into the 1/2 mask, but inside the call it made
+        // the test JfsStart|IsDigital, and IsDigital is *clear* on the player jet
+        // (MakePlayerVehicle clears it, virtuals.cpp). So with the JFS not running the
+        // mask was 0, no branch matched, and the lever was not drawn at all -- the
+        // switch appeared to be missing from the 3D pit. Once the JFS did run the mask
+        // became 1, which is the OFF branch, so it could never show the START position.
+        vrCockpit->SetSwitchMask(
+            COMP_3DPIT_JSF_START,
+            2 - SimDriver.GetPlayerAircraft()->af->IsSet(
+                    AirframeClass::JfsStart));
+        // Avionics power levers.
+        //
+        // These draw the position of a lever the pilot moved, so they must read
+        // PowerSwitchOn -- the raw bit PowerOn/PowerOff/PowerToggle set. HasPower
+        // answers a different question: whether the bus feeding that box is live
+        // (it ANDs the same bit with systemStates[currentPower]).
+        //
+        // Artscout - 2026: all 16 levers below read HasPower. SMSPower and friends
+        // only appear in systemStates[PowerNonEssentialBus], so with the engine not
+        // running HasPower is 0 no matter where the lever is. The callback set the
+        // mask to 2 and this block pulled it back to 1 on the very next frame --
+        // the switch made its click and snapped straight back to off, and no
+        // avionics switch could be moved on a cold jet, which is exactly when you
+        // want to move them. The lever now follows the lever; the box staying dark
+        // until its bus comes up is correct and unchanged.
         vrCockpit->SetSwitchMask(COMP_3DPIT_SMS_PWR,
-                                 1 << SimDriver.GetPlayerAircraft()->HasPower(
+                                 1 << SimDriver.GetPlayerAircraft()->PowerSwitchOn(
                                      AircraftClass::SMSPower));
         // FCC power switch
         vrCockpit->SetSwitchMask(COMP_3DPIT_FCC_PWR,
-                                 1 << SimDriver.GetPlayerAircraft()->HasPower(
+                                 1 << SimDriver.GetPlayerAircraft()->PowerSwitchOn(
                                      AircraftClass::FCCPower));
         // MFD power switch
         vrCockpit->SetSwitchMask(COMP_3DPIT_MFD_PWR,
-                                 1 << SimDriver.GetPlayerAircraft()->HasPower(
+                                 1 << SimDriver.GetPlayerAircraft()->PowerSwitchOn(
                                      AircraftClass::MFDPower));
         // UFC power switch
         vrCockpit->SetSwitchMask(COMP_3DPIT_UFC_PWR,
-                                 1 << SimDriver.GetPlayerAircraft()->HasPower(
+                                 1 << SimDriver.GetPlayerAircraft()->PowerSwitchOn(
                                      AircraftClass::UFCPower));
         // GPS power switch
         vrCockpit->SetSwitchMask(COMP_3DPIT_GPS_PWR,
-                                 1 << SimDriver.GetPlayerAircraft()->HasPower(
+                                 1 << SimDriver.GetPlayerAircraft()->PowerSwitchOn(
                                      AircraftClass::GPSPower));
         // DL power switch
         vrCockpit->SetSwitchMask(COMP_3DPIT_DL_PWR,
-                                 1 << SimDriver.GetPlayerAircraft()->HasPower(
+                                 1 << SimDriver.GetPlayerAircraft()->PowerSwitchOn(
                                      AircraftClass::DLPower));
         // MAP power switch
         vrCockpit->SetSwitchMask(COMP_3DPIT_MAP_PWR,
-                                 1 << SimDriver.GetPlayerAircraft()->HasPower(
+                                 1 << SimDriver.GetPlayerAircraft()->PowerSwitchOn(
                                      AircraftClass::MAPPower));
         // Right hardpoints power switch
         vrCockpit->SetSwitchMask(COMP_3DPIT_RIGHT_HPT_PWR,
-                                 1 << SimDriver.GetPlayerAircraft()->HasPower(
+                                 1 << SimDriver.GetPlayerAircraft()->PowerSwitchOn(
                                      AircraftClass::RightHptPower));
         // Left hardpoints power switch
         vrCockpit->SetSwitchMask(COMP_3DPIT_LEFT_HPT_PWR,
-                                 1 << SimDriver.GetPlayerAircraft()->HasPower(
+                                 1 << SimDriver.GetPlayerAircraft()->PowerSwitchOn(
                                      AircraftClass::LeftHptPower));
         // HUD power switch
         vrCockpit->SetSwitchMask(COMP_3DPIT_HUD_PWR,
-                                 1 << SimDriver.GetPlayerAircraft()->HasPower(
+                                 1 << SimDriver.GetPlayerAircraft()->PowerSwitchOn(
                                      AircraftClass::HUDPower));
         // FCR power switch
         vrCockpit->SetSwitchMask(COMP_3DPIT_FCR_PWR,
-                                 1 << SimDriver.GetPlayerAircraft()->HasPower(
+                                 1 << SimDriver.GetPlayerAircraft()->PowerSwitchOn(
                                      AircraftClass::FCRPower));
         // Fuel Control switch
         vrCockpit->SetSwitchMask(
@@ -4401,19 +4443,19 @@ void OTWDriverClass::VCock_Exec(void)
             1 << SimDriver.GetPlayerAircraft()->GetSpotLight());
         // EWS RWR power switch
         vrCockpit->SetSwitchMask(COMP_3DPIT_EWS_RWR_PWR,
-                                 1 << SimDriver.GetPlayerAircraft()->HasPower(
+                                 1 << SimDriver.GetPlayerAircraft()->PowerSwitchOn(
                                      AircraftClass::EWSRWRPower));
         // EWS jammer power
         vrCockpit->SetSwitchMask(COMP_3DPIT_EWS_JMR_PWR,
-                                 1 << SimDriver.GetPlayerAircraft()->HasPower(
+                                 1 << SimDriver.GetPlayerAircraft()->PowerSwitchOn(
                                      AircraftClass::EWSJammerPower));
         // EWS chaff power
         vrCockpit->SetSwitchMask(COMP_3DPIT_EWS_CHAFF_PWR,
-                                 1 << SimDriver.GetPlayerAircraft()->HasPower(
+                                 1 << SimDriver.GetPlayerAircraft()->PowerSwitchOn(
                                      AircraftClass::EWSChaffPower));
         // EWS flares
         vrCockpit->SetSwitchMask(COMP_3DPIT_EWS_FLARE_PWR,
-                                 1 << SimDriver.GetPlayerAircraft()->HasPower(
+                                 1 << SimDriver.GetPlayerAircraft()->PowerSwitchOn(
                                      AircraftClass::EWSFlarePower));
         // EWS PGM switch
         vrCockpit->SetSwitchMask(COMP_3DPIT_EWS_MODE,
@@ -4487,7 +4529,8 @@ void OTWDriverClass::VCock_Exec(void)
         // IFF power switch
         vrCockpit->SetSwitchMask(
             COMP_3DPIT_IFF_PWR,
-            SimDriver.GetPlayerAircraft()->HasPower(AircraftClass::IFFPower) +
+            SimDriver.GetPlayerAircraft()->PowerSwitchOn(
+                AircraftClass::IFFPower) +
                 1);
         // IFF query switch
         vrCockpit->SetSwitchMask(COMP_3DPIT_IFF_QUERY, 1);

@@ -1,5 +1,6 @@
 #include "stdhdr.h"
 #include "commands.h"
+#include "graphics/include/fflog.h"
 #include "simdrive.h"
 #include "otwdrive.h"
 #include "aircrft.h"
@@ -7548,6 +7549,34 @@ void SimThrottleIdleDetent(unsigned long, int state, void*)
     }
 }
 
+// Artscout - 2026: the JFS is the one cockpit control that can refuse silently.
+// SimJfsStart plays its click from the 3D button dispatch before the callback is
+// even reached, so a refusal looks exactly like a broken switch. This reports the
+// decision and the state behind it. Off by default; "set g_bLogJfs 1".
+extern bool g_bLogJfs;
+
+static void SimJfsLog(const char* what, float throttle)
+{
+    if (not g_bLogJfs)
+        return;
+
+    AircraftClass* ac = SimDriver.GetPlayerAircraft();
+
+    if (not ac or not ac->af)
+        return;
+
+    char ln[512];
+    _snprintf(ln, sizeof(ln),
+              "[JFS] %-18s throttle=%.3f accum=%.1f fuel=%.1f jfsFlag=%d "
+              "engineStopped=%d mainPower=%d\n",
+              what, throttle, ac->af->jfsaccumulator, ac->af->Fuel(),
+              ac->af->IsSet(AirframeClass::JfsStart),
+              ac->af->IsSet(AirframeClass::EngineStopped),
+              (int)ac->mainPower);
+    ln[sizeof(ln) - 1] = '\0';
+    FFDebugLog(ln);
+}
+
 // set Jfs to position
 void SimJfsStart(unsigned long, int state, void*)
 {
@@ -7561,18 +7590,37 @@ void SimJfsStart(unsigned long, int state, void*)
             SimDriver.GetPlayerAircraft()->af->ClearFlag(
                 AirframeClass::JfsStart);
 
+            // Branch 1 is the OFF pose (see the mapping note in vcock.cpp).
             if (OTWDriver.GetVirtualCockpit())
                 OTWDriver.GetVirtualCockpit()->SetSwitchMask(
-                    COMP_3DPIT_JSF_START, 1);
+                    COMP_3DPIT_JSF_START, 2);
+
+            SimJfsLog("stop", 0.0f);
         }
         // otherwise - if throttle is at idle, and accumulators charged, attempt JFS start
         else if (SimDriver.GetPlayerAircraft()->af->Throtl() < 0.1f)
         {
             SimDriver.GetPlayerAircraft()->af->JfsEngineStart();
 
+            // Branch 0 is the thrown/START pose (see the mapping note in vcock.cpp).
+            // VCock_Exec overwrites this next frame from the JfsStart flag, so if the
+            // start was refused the lever falls straight back to OFF, which is right.
             if (OTWDriver.GetVirtualCockpit())
                 OTWDriver.GetVirtualCockpit()->SetSwitchMask(
-                    COMP_3DPIT_JSF_START, 2);
+                    COMP_3DPIT_JSF_START, 1);
+
+            // JfsEngineStart is silent about why it gave up -- accumulator below
+            // 90%, no fuel, or a randomised refusal above 400 KIAS / 20,000 ft.
+            // The flag is the only observable, so report it with the inputs.
+            SimJfsLog("start", SimDriver.GetPlayerAircraft()->af->Throtl());
+        }
+        else
+        {
+            // Throttle not at idle: the start is refused before the airframe is
+            // ever asked. From the cockpit this is indistinguishable from a dead
+            // switch -- the click sound plays either way.
+            SimJfsLog("throttle-not-idle",
+                      SimDriver.GetPlayerAircraft()->af->Throtl());
         }
     }
 }

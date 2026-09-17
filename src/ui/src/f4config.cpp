@@ -827,6 +827,8 @@ int g_nCampMapDetailTiles =
     192; // Artscout - 2026: how many decoded ground tiles the detail layer keeps resident, at 64 KB each (192 = 12 MB). Tile reuse across a theater is extreme -- one tile is 49% of Korea's ground and the top two hundred cover 95% -- so a pool this size almost never evicts something about to be asked for again. Raise it if panning around a busy area stutters; lower it to save memory.
 bool g_bLogCampMapDetail =
     false; // Artscout - 2026: log one line per campaign map detail rebuild to FFDebug.log -- the source and destination rects, the subdivision chosen, the resulting feet per pixel, and how many tiles failed to load. tileMisses above zero means tiles are missing or are not DXT1, and those cells fall back to flat colour. "LogCampMapDetail".
+bool g_bLogJfs =
+    false; // Artscout - 2026: log every JFS switch press to FFDebug.log -- the throttle position, the accumulator charge, the fuel, and the resulting JfsStart flag. SimJfsStart refuses silently when the throttle is off idle, and JfsEngineStart refuses silently when the accumulator is below 90 percent or there is no fuel. The 3D button dispatch plays the click sound before any of that is evaluated, so from the cockpit a refused start is indistinguishable from a dead switch. This says which it was. "LogJfs".
 bool g_bLogMenuTextures =
     false; // Artscout - 2026: log what the texture lookup returns while a MENU 3D viewer is drawing (tactical reference, loadout, recon), to FFDebug.log. The models in those screens have never been textured under D3D12 and three rounds of reading the code did not settle why, so this asks the running game instead. Each line is one surface: the bank index the BSP asked for, the handle the bank returned, and the GPU texture behind it -- which of those three is zero says whether the geometry is not requesting a texture, the bank has not loaded it, or it was loaded but never uploaded. Capped per viewer open, and off by default because it sits in the per-surface path. "LogMenuTextures".
 float g_fMenuModelDetail =
@@ -1610,6 +1612,8 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bCampMapDetail}, // Artscout - 2026: zoomed-in map drawn from the ground tiles, not magnified posts
     {"LogCampMapDetail",
      &g_bLogCampMapDetail}, // Artscout - 2026: trace each detail rebuild to FFDebug.log
+    {"LogJfs",
+     &g_bLogJfs}, // Artscout - 2026: why a JFS switch press did or did not start the JFS
     {"HudCanopyOcclude",
      &g_bHudCanopyOcclude}, // Artscout - 2026: cockpit structure occludes the collimated HUD
     {"CampaignAddMission",
