@@ -131,3 +131,13 @@
 [GROUP] 7000
 [SOUNDBITE] SND_MENU C_TYPE_LMOUSEUP
 [CURSOR] CRSR_F16_ON
+
+## Artscout - 2026: per-device Clear. ButtonAssignClearCB and the clear branch of
+## ButtonAssignOkCB have always existed (#53) but no widget ever carried the id, so
+## staging a per-device unbind was unreachable. Bottom row, left of OK/Cancel.
+[BUTTON]
+[SETUP] BTNASSIGN_CLEAR, C_TYPE_NORMAL, 16 210
+[IMAGES] BID_CHK1_OFF BID_CHK1_ON NULL NULL
+[GROUP] 7000
+[SOUNDBITE] SND_MENU C_TYPE_LMOUSEUP
+[CURSOR] CRSR_F16_ON

@@ -68,6 +68,23 @@ enum
     DEVICE_IDX, // #53 device cell: SIM device index this cell belongs to
 };
 
+// Artscout - 2026: table geometry needed by AdvancedControlCB, which runs long before the
+// full set of layout macros further down. Identical macro redefinition is legal, and the
+// definitions below must stay token-for-token the same as these.
+#define TBL_LEFT 163 // = client 2 left (see SetClientArea in AdvancedControlCB)
+#define DEVCOL_X0                                                              \
+    340 // X of the first device column (full device names; table h-scrolls)
+// Width of the frozen strip: everything left of the first device column, i.e. FUNCTION
+// (x 3) and KEYBOARD (x 190). Equal to DEVCOL_X0 by construction -- the split is exactly
+// where the device columns used to begin.
+#define TBL_FROZEN_W DEVCOL_X0
+#define TBL_FROZEN_CLIENT                                                      \
+    4 // clients 0..3 are taken (window, axis scroll, table, joystick cal)
+#define TBL_SCROLL_CLIENT 2 // the device columns' client (owns both scrollbars)
+// Device-column origin INSIDE the narrowed client 2. The frozen strip ends exactly where
+// the device columns began, so this is 0 -- named rather than bare so the intent survives.
+#define DEVCOL_X0_C2 (DEVCOL_X0 - TBL_FROZEN_W)
+
 KeyVars KeyVar = {FALSE, 0, 0, 0, 0, FALSE, FALSE};
 KeyMap UndisplayedKeys[300] = {NULL, 0, 0, 0, 0, 0, 0, 0};
 int NumUndispKeys = 0;
@@ -1408,9 +1425,28 @@ void AdvancedControlCB(long, short hittype, C_Base *)
     // the .scf window header breaks the parse. x y WIDTH HEIGHT, fitted to the grey panel
     // of WIN_SETUP_NEW (panel 161,125..860,688). Controls tagged [CLIENT] 2 then offset/clip
     // to this rect and the table scrollbars work.
-    win->SetClientArea(
-        163, 155, 682, 528,
-        2); // 163 = TBL_LEFT; top 155 (header row at +2, data at +22)
+    // Artscout - 2026: the table is split across TWO clients so the FUNCTION and KEYBOARD
+    // columns stay put while the device columns scroll sideways. Scrolling all of it
+    // together meant that once you scrolled right to reach a controller you could no longer
+    // see which row was which -- you had to count rows.
+    //
+    //   client 4 = frozen strip, window x 163..503  (FUNCTION at 3, KEYBOARD at 190)
+    //   client 2 = scrolling strip, window x 503..845 (device columns, re-based to x 0)
+    //
+    // UI95 draws a control at (control.x + VX_[client]) and clips to ClientArea_[client],
+    // and the scrollbar clamps VX_ upward to ClientArea.left (cscroll.cpp) -- so a control's
+    // x is measured from its own client's left edge. That is why the frozen controls keep
+    // the coordinates they always had (their client still starts at 163) while the device
+    // columns drop the DEVCOL_X0 origin: their client now starts where that origin was.
+    //
+    // Client 4 carries no scrollbar, so ScanClientArea leaves its VX_/VY_ alone and it can
+    // never drift sideways. Its VERTICAL position is mirrored from client 2 once a frame in
+    // RefreshJoystickCB -- the wheel and the slider drag are handled inside ui95 and do not
+    // call back here, so hooking the scroll call sites would miss them.
+    win->SetClientArea(TBL_LEFT + TBL_FROZEN_W, 155, 682 - TBL_FROZEN_W, 528,
+                       2); // scrolling device columns
+    win->SetClientArea(TBL_LEFT, 155, TBL_FROZEN_W, 528,
+                       TBL_FROZEN_CLIENT); // frozen FUNCTION + KEYBOARD
 
     // #53 client 3 = MFD joystick-cal window (same 140x140 @273,273 as the old CONTROLLERS page in
     // setup.scf). The JOY_INDICATOR crosshair lives on client 3 and is positioned in RefreshJoystickCB.
@@ -1953,6 +1989,29 @@ void RefreshJoystickCB(long, short, C_Base *)
     C_Button *button;
 
     GetJoystickInput();
+
+    // Artscout - 2026: keep the frozen FUNCTION/KEYBOARD strip level with the scrolling
+    // device columns. Client 4 carries no scrollbar of its own -- that is what stops it
+    // drifting sideways -- so its vertical origin has to be copied from the table's client
+    // every frame. Done here rather than at the scroll call sites because the mouse wheel
+    // and the slider drag are handled inside ui95 (cscroll.cpp writes Parent_->VY_ directly)
+    // and never call back into this file. Costs a comparison per frame while the page is up.
+    {
+        C_Window *tw = gMainHandler->FindWindow(SETUP_CONTROL_ADVANCED_WIN);
+
+        if (tw)
+        {
+            // VY_ is the additive draw offset ui95 applies to controls in that client;
+            // SetVirtualY negates its argument, hence the minus.
+            const long tableY = tw->VY_[TBL_SCROLL_CLIENT];
+
+            if (tw->VY_[TBL_FROZEN_CLIENT] not_eq tableY)
+            {
+                tw->SetVirtualY(-tableY, TBL_FROZEN_CLIENT);
+                tw->RefreshClient(TBL_FROZEN_CLIENT);
+            }
+        }
+    }
 
     ButtonAssignAutodetectPoll(); // #18: button autodetect for the assign window (if open)
     ControlTab_KeepButtonAssignFront(); // Artscout - 2026: keep the modal assign dialog on top
@@ -3886,6 +3945,11 @@ void ButtonAssignOkCB(long, short hittype, C_Base *control)
 
         KeyVar.Modified = TRUE;
         g_keyListNeedRebuild = true; // refresh the table next frame
+        // Artscout - 2026: changing a binding does not add or remove rows, so the table
+        // must stay where the user scrolled it. Without this the rebuild's
+        // SetClientArea resets VX_/VY_ and every bind threw you back to the far left,
+        // which is punishing now that the device columns are the ones that scroll.
+        g_keyListPreserveScroll = true;
     }
     else if (g_baTargetFunc and g_baStagedButton >= 0 and
              g_baDevice >= SIM_JOYSTICK1 and g_baDevice < SIM_NUMDEVICES)
@@ -3896,6 +3960,11 @@ void ButtonAssignOkCB(long, short hittype, C_Base *control)
                                             g_baTargetCpId);
         KeyVar.Modified = TRUE;
         g_keyListNeedRebuild = true;
+        // Artscout - 2026: changing a binding does not add or remove rows, so the table
+        // must stay where the user scrolled it. Without this the rebuild's
+        // SetClientArea resets VX_/VY_ and every bind threw you back to the far left,
+        // which is punishing now that the device columns are the ones that scroll.
+        g_keyListPreserveScroll = true;
 
         // Read it straight back: if this does not echo the function we just wrote,
         // the binding did not take and the table is where to look, not the dialog.
@@ -4508,7 +4577,7 @@ int AddKeyMapLines(C_Window *win, C_Line *Hline, C_Line *Vline, int count)
     // (rightmost column separator = DEVCOL_X0 + g_tblDevCount*DEVCOL_W - 12). The template Hline
     // spans the full client width, so without clamping the row lines run past the right border
     // into the empty area, looking like extra (phantom) cells.
-    int hlRightX = DEVCOL_X0 + g_tblDevCount * DEVCOL_W - 12;
+    int hlRightX = DEVCOL_X0_C2 + g_tblDevCount * DEVCOL_W - 12;
     int hlWidth = hlRightX - Hline->GetX();
 
     if (hlWidth < 1)
@@ -4836,7 +4905,8 @@ int UpdateKeyMap(C_Window *win, C_Button *Keycodes, int height, KeyMap &Map,
             button->Setup(KEYCODES + count, Keycodes->GetType(),
                           Keycodes->GetX(), Keycodes->GetY() + height * count);
 
-            button->SetClient(Keycodes->GetClient());
+            // Artscout - 2026: frozen strip, not the scrolling one (see AdvancedControlCB).
+            button->SetClient(TBL_FROZEN_CLIENT);
             button->SetGroup(Keycodes->GetGroup());
             button->SetCluster(Keycodes->GetCluster());
             button->SetFont(Keycodes->GetFont());
@@ -4893,6 +4963,7 @@ void ClearKeyCB(long, short hittype, C_Base *control)
 
     // #52 do NOT rebuild synchronously here (we would delete ourselves -> UAF). Defer to the next frame.
     g_keyListNeedRebuild = true;
+    g_keyListPreserveScroll = true; // row set is unchanged -- stay put
 }
 
 // #52 deferred key-list rebuild (called from RefreshJoystickCB, not from a button callback).
@@ -4924,7 +4995,7 @@ void UpdateClearButton(C_Window *win, C_Button *Keycodes, C_Text *Mapping,
         return;
 
     btn->Setup(CLEARBTN + count, C_TYPE_NORMAL, 0, 0);
-    btn->SetClient(Keycodes->GetClient());
+    btn->SetClient(TBL_FROZEN_CLIENT);
     btn->SetGroup(Keycodes->GetGroup());
     btn->SetCluster(Keycodes->GetCluster());
     btn->SetFont(Keycodes->GetFont());
@@ -4965,7 +5036,7 @@ int UpdateMappingDescrip(C_Window *win, C_Text *Mapping, int height,
             text->Setup(MAPPING + count, Mapping->GetType());
             text->SetFGColor(Mapping->GetFGColor());
             text->SetBGColor(Mapping->GetBGColor());
-            text->SetClient(Mapping->GetClient());
+            text->SetClient(TBL_FROZEN_CLIENT); // frozen strip
             text->SetGroup(Mapping->GetGroup());
             text->SetCluster(Mapping->GetCluster());
             text->SetFont(Mapping->GetFont());
@@ -5071,8 +5142,10 @@ void UpdateDeviceCells(C_Window *win, C_Button *Keycodes, C_Line *Vline,
         if (not cell)
             continue;
 
-        cell->Setup(id, C_TYPE_NORMAL, DEVCOL_X0 + vis * DEVCOL_W, y);
-        cell->SetClient(Keycodes->GetClient());
+        cell->Setup(id, C_TYPE_NORMAL, DEVCOL_X0_C2 + vis * DEVCOL_W, y);
+        // Artscout - 2026: explicit -- this used to inherit from the KEYCODES template,
+        // which now lives in the frozen client. Device cells are what scrolls.
+        cell->SetClient(TBL_SCROLL_CLIENT);
         cell->SetGroup(Keycodes->GetGroup());
         cell->SetCluster(Keycodes->GetCluster());
         cell->SetFont(Keycodes->GetFont());
@@ -5141,13 +5214,18 @@ void BuildTableHeader(C_Window *win, C_Button *Keycodes, C_Text *Mapping)
     if (not win or not Keycodes or not Mapping)
         return;
 
-    long client = Mapping->GetClient();
     long cluster = Mapping->GetCluster();
     long font = Mapping->GetFont();
 
-    SetTableHeader(win, TBLHDR_FUNC, MAPCOL_X, client, cluster, font,
+    // Artscout - 2026: each header belongs to the client its column lives in, not to the
+    // MAPPING template's. FUNCTION and KEYBOARD label the frozen strip and must stay put with
+    // it; the device headers scroll with their columns. Taking one client for all of them
+    // left FUNCTION and KEYBOARD scrolling out over the device headers and overprinting them.
+    long client = TBL_SCROLL_CLIENT; // device headers, below
+
+    SetTableHeader(win, TBLHDR_FUNC, MAPCOL_X, TBL_FROZEN_CLIENT, cluster, font,
                    "FUNCTION");
-    SetTableHeader(win, TBLHDR_KEY, KEYCOL_X, client, cluster, font,
+    SetTableHeader(win, TBLHDR_KEY, KEYCOL_X, TBL_FROZEN_CLIENT, cluster, font,
                    "KEYBOARD");
 
     // device headers: truncated text + full name as a hover tooltip (help text). A C_Button
@@ -5177,7 +5255,7 @@ void BuildTableHeader(C_Window *win, C_Button *Keycodes, C_Text *Mapping)
         sprintf(trunc, "%.27s", dn); // truncated to the column width
 
         long id = DEVHDR_BASE + vis;
-        int x = DEVCOL_X0 + vis * DEVCOL_W;
+        int x = DEVCOL_X0_C2 + vis * DEVCOL_W;
         C_Button *hb = (C_Button *)win->FindControl(id);
 
         if (not hb)
@@ -5241,7 +5319,7 @@ void UpdateColumnSeparators(C_Window *win, C_Button *Keycodes, C_Line *Vline,
         if (wanted)
         {
             int x = (col == 0) ? Vline->GetX() :
-                                 (DEVCOL_X0 + (col - 1) * DEVCOL_W - 12);
+                                 (DEVCOL_X0_C2 + (col - 1) * DEVCOL_W - 12);
 
             C_Line *ln = (C_Line *)win->FindControl(id);
 
@@ -5274,7 +5352,7 @@ void UpdateColumnSeparators(C_Window *win, C_Button *Keycodes, C_Line *Vline,
     // static 1100px-wide [LINE] in the .scf with no id, so it always ran past the last device column
     // (the "stray over-long line / phantom cell under the header"). It is now code-owned (id
     // TBLHDR_SEP) and clamped to the real table right border, exactly like the column separators.
-    int rightX = DEVCOL_X0 + g_tblDevCount * DEVCOL_W - 12;
+    int rightX = DEVCOL_X0_C2 + g_tblDevCount * DEVCOL_W - 12;
     C_Line *hsep = (C_Line *)win->FindControl(TBLHDR_SEP);
 
     if (not hsep)
@@ -5807,7 +5885,7 @@ int UpdateKeyMapList(char *fname, int flag)
     // single stray line under the header and a phantom cell corner on the right.
     if (Hline)
         Hline->SetXYWH(Hline->GetX(), Hline->GetY(),
-                       (DEVCOL_X0 + g_tblDevCount * DEVCOL_W - 12) -
+                       (DEVCOL_X0_C2 + g_tblDevCount * DEVCOL_W - 12) -
                            Hline->GetX(),
                        Hline->GetH());
     BuildTableHeader(win, Keycodes, Mapping);
@@ -6070,7 +6148,7 @@ int CreateKeyMapList(char *filename)
     // single stray line under the header and a phantom cell corner on the right.
     if (Hline)
         Hline->SetXYWH(Hline->GetX(), Hline->GetY(),
-                       (DEVCOL_X0 + g_tblDevCount * DEVCOL_W - 12) -
+                       (DEVCOL_X0_C2 + g_tblDevCount * DEVCOL_W - 12) -
                            Hline->GetX(),
                        Hline->GetH());
     BuildTableHeader(win, Keycodes, Mapping);
