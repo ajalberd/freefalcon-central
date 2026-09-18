@@ -3,7 +3,9 @@
 #include "simio.h"
 
 int gTotalJoy = 0;
-_TCHAR* gDIDevNames[SIM_NUMDEVICES - SIM_JOYSTICK1] = {NULL};
+// Artscout - 2026: SIM_NUMDEVICES, not SIM_NUMDEVICES - SIM_JOYSTICK1 -- this is indexed
+// [SIM_JOYSTICK1+joy] like the two arrays below. See the note in sinput.h.
+_TCHAR* gDIDevNames[SIM_NUMDEVICES] = {NULL};
 // button count per device (DIDEVCAPS.dwButtons), index [SIM_JOYSTICK1+joy]; for the UI #18
 int gDIDevButtons[SIM_NUMDEVICES] = {0};
 // device instance GUID (a stable ID across runs), index [SIM_JOYSTICK1+joy];

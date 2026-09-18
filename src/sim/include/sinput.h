@@ -132,7 +132,13 @@ extern BOOL gSimInputEnabled;
 extern VU_TIME gTimeLastMouseMove;
 extern VU_TIME gTimeLastCursorUpdate; //Wombat778 1-24-04
 extern int gTotalJoy;
-extern _TCHAR* gDIDevNames[SIM_NUMDEVICES - SIM_JOYSTICK1];
+// Artscout - 2026: indexed [SIM_JOYSTICK1 + joy], like gDIDevButtons and gDIDevGUIDs
+// below -- so it must be SIM_NUMDEVICES long, not SIM_NUMDEVICES - SIM_JOYSTICK1. It was
+// the latter: 14 slots addressed 2..15, so the last two enumerated devices wrote two
+// pointers past the end of the array. Writer (sijoy.cpp) and readers (controltab.cpp)
+// already agreed on the full-device index, so only the size was ever wrong; it simply
+// took twelve attached devices to bite.
+extern _TCHAR* gDIDevNames[SIM_NUMDEVICES];
 extern int gDIDevButtons
     [SIM_NUMDEVICES]; // button count per device (for the assignment UI #18)
 extern GUID gDIDevGUIDs
