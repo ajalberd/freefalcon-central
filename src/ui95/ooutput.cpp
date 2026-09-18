@@ -1308,29 +1308,54 @@ void O_Output::SetScaleImage(IMAGE_RSC *newimage)
 
     SetXY(0, 0);
 
-    if (Rows_ == NULL)
+    // Artscout - 2026: these are sized FROM the image, so they must be rebuilt whenever the
+    // image changes -- they used to be allocated only when NULL, which is correct exactly
+    // once. Set a second, larger image on the same O_Output and the buffers kept the first
+    // image's size while SetScaleInfo below went on filling them to the NEW image's extent,
+    // writing off the end of both heap blocks.
+    //
+    // The campaign map does exactly that: cmap.cpp picks between the terrain-built map and
+    // the painted one at runtime (Map_->SetImage(s_terrainMap) / SetImage(MapID)), and the
+    // terrain image is the larger. The smashed neighbour then died later and elsewhere --
+    // as a heap "double free" during CleanupCampaignUI, nowhere near the actual write.
+    //
+    // Scratch buffers, so a straight free-and-reallocate is simplest and correct; this runs
+    // on image assignment (map setup / theater load), not per frame.
+    if (Rows_)
     {
 #ifdef USE_SH_POOLS
-        Rows_ =
-            (long *)MemAllocPtr(UI_Pools[UI_ART_POOL],
-                                sizeof(long) * (Image_->Header->h * 2), FALSE);
+        MemFreePtr(Rows_);
 #else
-        Rows_ = new long[Image_->Header->h * 2];
+        delete[] Rows_;
 #endif
-        memset(Rows_, 0, sizeof(long) * Image_->Header->h * 2);
+        Rows_ = NULL;
     }
 
-    if (Cols_ == NULL)
+    if (Cols_)
     {
 #ifdef USE_SH_POOLS
-        Cols_ =
-            (long *)MemAllocPtr(UI_Pools[UI_ART_POOL],
+        MemFreePtr(Cols_);
+#else
+        delete[] Cols_;
+#endif
+        Cols_ = NULL;
+    }
+
+#ifdef USE_SH_POOLS
+    Rows_ = (long *)MemAllocPtr(UI_Pools[UI_ART_POOL],
+                                sizeof(long) * (Image_->Header->h * 2), FALSE);
+#else
+    Rows_ = new long[Image_->Header->h * 2];
+#endif
+    memset(Rows_, 0, sizeof(long) * Image_->Header->h * 2);
+
+#ifdef USE_SH_POOLS
+    Cols_ = (long *)MemAllocPtr(UI_Pools[UI_ART_POOL],
                                 sizeof(long) * (Image_->Header->w * 2), FALSE);
 #else
-        Cols_ = new long[Image_->Header->w * 2];
+    Cols_ = new long[Image_->Header->w * 2];
 #endif
-        memset(Cols_, 0, sizeof(long) * Image_->Header->w * 2);
-    }
+    memset(Cols_, 0, sizeof(long) * Image_->Header->w * 2);
 
     ScaleSet_ = 0;
     SetWH(Image_->Header->w, Image_->Header->h);
@@ -1371,9 +1396,15 @@ void O_Output::SetScaleInfo(long scale)
 
         while (dd <= 0)
         {
-            if (not F4IsBadWritePtr(&(Rows_[k + 1]),
-                                    sizeof(short))) // JB 010304 CTD
+            // Artscout - 2026: bound by the buffer's real capacity. The old guard asked
+            // F4IsBadWritePtr, which only refuses a write to an UNMAPPED page -- running a
+            // few hundred longs past a heap block lands in the adjacent allocation, passes
+            // the check, and corrupts the heap silently. (It also asked about sizeof(short)
+            // on an array of long, so it under-checked by half.)
+            if (k < Image_->Header->h * 2)
                 Rows_[k++] = i;
+            else
+                break;
 
             dd += scale;
         }
@@ -1388,9 +1419,11 @@ void O_Output::SetScaleInfo(long scale)
 
         while (dd <= 0)
         {
-            if (not F4IsBadWritePtr(&(Cols_[k + 1]),
-                                    sizeof(short))) // JB 010304 CTD
+            // Artscout - 2026: see the Rows_ loop above -- real bound, not F4IsBadWritePtr.
+            if (k < Image_->Header->w * 2)
                 Cols_[k++] = i;
+            else
+                break;
 
             dd += scale;
         }
