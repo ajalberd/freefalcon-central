@@ -4122,6 +4122,34 @@ void SimReverseThrusterOff(unsigned long, int state, void*)
     }
 }
 
+// Artscout - 2026: the pilot's NWS/AR DISC selection. FF6 has never had a nosewheel
+// steering control of any kind -- no user function, no keybind, no 3D hotspot -- and
+// managed NoseSteerOn purely automatically from the airframe. This is the manual
+// override the real jet's stick button provides.
+//
+// Defaults ON so that not binding it leaves the automatic behaviour untouched. The
+// airframe still owns the envelope (below 80 knots, near-level, weight on wheels); this
+// only says whether the pilot wants steering at all, which is what lets you disengage it
+// for a crosswind takeoff roll instead of fighting the nosewheel.
+bool g_bNwsCommanded = true;
+
+void SimNWSToggle(unsigned long, int state, void*)
+{
+    if (not(state bitand KEY_DOWN))
+        return;
+
+    if (not SimDriver.GetPlayerAircraft() or
+        not SimDriver.GetPlayerAircraft()->IsSetFlag(MOTION_OWNSHIP))
+        return;
+
+    g_bNwsCommanded = not g_bNwsCommanded;
+
+    // Take it away immediately when deselected; re-engaging is left to the airframe so
+    // the speed/attitude envelope still has the final say.
+    if (not g_bNwsCommanded and SimDriver.GetPlayerAircraft()->af)
+        SimDriver.GetPlayerAircraft()->af->ClearFlag(AirframeClass::NoseSteerOn);
+}
+
 void SimWheelBrakes(unsigned long, int state, void*)
 {
     //Cobra double tap to turn on thrust reverse

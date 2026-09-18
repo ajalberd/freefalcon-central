@@ -543,6 +543,8 @@ void ACMIToggleRecording(unsigned long val, int state, void *);
 void SimSelectiveJettison(unsigned long val, int state, void *);
 void SimEmergencyJettison(unsigned long val, int state, void *);
 void SimWheelBrakes(unsigned long val, int state, void *);
+void SimNWSToggle(unsigned long val, int state,
+                  void *); // Artscout - 2026: NWS/AR DISC select
 void SimECMOn(unsigned long val, int state, void *);
 void SimECMStandby(unsigned long val, int state,
                    void *); //Wombat778 11-3-2003 + MD 20031128

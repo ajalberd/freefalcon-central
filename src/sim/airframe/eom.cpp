@@ -1477,9 +1477,30 @@ float AirframeClass::CalculateVt(float dt)
         oscillationTimer = Trig.sin;
         oscillationSlope = Trig.cos;
 
-        if (IsSet(IsDigital) or not g_bRealisticAvionics)
+        // Artscout - 2026: nosewheel steering. This used to be gated on
+        // "IsSet(IsDigital) or not g_bRealisticAvionics", which reads as "digital jets
+        // manage NWS for themselves" -- except MakePlayerVehicle CLEARS IsDigital on the
+        // player's airframe (virtuals.cpp), so with realistic avionics the gate excluded
+        // the one aircraft the pilot is steering. The other setter, in AircraftClass
+        // preflight, is skipped for START_RAMP. A realistic-avionics ramp start therefore
+        // met neither, NoseSteerOn was never set, and the block below that gives the
+        // rudder pedals authority over the nosewheel never ran -- the pedals moved the
+        // rudder surface and the jet would not turn while taxiing.
+        //
+        // Same root cause as the JFS switch: code that assumes IsDigital is set on the
+        // player jet. Grep for IsDigital before trusting any condition that uses it.
+        //
+        // The speed/attitude envelope is unchanged. g_bNwsCommanded is the pilot's
+        // NWS/AR-DISC selection (SimNWSToggle), consulted only for the ownship so one
+        // player's choice cannot steer the AI; it defaults on, so not binding the key
+        // leaves the automatic behaviour exactly as it was.
         {
-            if (vt < 80.0F * KNOTS_TO_FTPSEC and theta < 1.0F * DTR)
+            extern bool g_bNwsCommanded;
+            const bool commanded =
+                platform->IsSetFlag(MOTION_OWNSHIP) ? g_bNwsCommanded : true;
+
+            if (commanded and vt < 80.0F * KNOTS_TO_FTPSEC and
+                theta < 1.0F * DTR)
             {
                 SetFlag(NoseSteerOn);
             }

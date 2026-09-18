@@ -158,6 +158,8 @@ static struct UserFunctionListEntry UserFunctionList[] =
      //JAM 01Dec03 - Removing this USER_FUNCTION(OTWToggleAlpha)
      USER_FUNCTION(SimAVTRToggle) USER_FUNCTION(SimSelectiveJettison)
          USER_FUNCTION(SimEmergencyJettison) USER_FUNCTION(SimWheelBrakes)
+             USER_FUNCTION(
+                 SimNWSToggle) // Artscout - 2026: nosewheel steering select
              USER_FUNCTION(SimECMOn) USER_FUNCTION(
                  SimECMStandby) //Wombat778 11-3-2003 + MD 20031128
      USER_FUNCTION(SimECMConsent) //Wombat778 11-3-2003 + MD 20031128
