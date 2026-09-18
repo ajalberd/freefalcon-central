@@ -2928,6 +2928,25 @@ static void VrUpdateHandAnim(void)
             (g_vrHandAnim[0].active ? 0 : -1); // right wins if both
 }
 
+// Artscout - 2026: one cockpit lamp. Every lamp below used to be written under
+//
+//     if (not GetPlayerAircraft()->mainPower == AircraftClass::MainPowerOff)
+//         vrCockpit->SetSwitchMask(COMP_..., <lit?>);
+//
+// which SKIPS the write when the jet is unpowered rather than clearing it, so every lamp
+// froze at whatever it last showed instead of going dark -- switch the battery off with a
+// caution lit and it stays lit. Writing 0 is what darkens a lamp: mask 0 matches no branch
+// of the switch, so nothing is drawn and the unlit lens painted into the panel texture
+// shows through.
+//
+// (The odd `not x == y` spelling parsed as `(!x) == y` and happened to be correct only
+// because MainPowerOff is 0. It is gone now.)
+static void PitLamp(DrawableBSP *pit, bool powered, int comp, UInt32 on)
+{
+    if (pit)
+        pit->SetSwitchMask(comp, powered ? on : 0);
+}
+
 void OTWDriverClass::VCock_Exec(void)
 {
 #if 1
@@ -3003,6 +3022,11 @@ void OTWDriverClass::VCock_Exec(void)
     //ATARIBABY but big thanx to ASSOCIATOR, new 3dpit start
     if (g_bUseNew3dpit)
     {
+        // Artscout - 2026: main power feeds every lamp in this block; see PitLamp above.
+        const bool pitPowered =
+            (SimDriver.GetPlayerAircraft()->mainPower not_eq
+             AircraftClass::MainPowerOff);
+
         //******************************************
         // LIGHTS
         //******************************************
@@ -3155,219 +3179,155 @@ void OTWDriverClass::VCock_Exec(void)
         // New 3D cockpit Lights
         //******************************************
         // Caution Panel lights
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL1_1,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     flt_cont_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL1_2,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(elec_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL1_3,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     probeheat_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL1_4,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     lef_fault)); // LEF sub'ed for C ADC ????
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL1_5,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     stores_config_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL1_6,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     lastFault)); // no act sub'ed for AFT NOT ENGAGED ???
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL1_7,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     fwd_fuel_low_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL1_8,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     aft_fuel_low_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL2_1,
                 cockpitFlightData.IsSet(FlightData::EngineFault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL2_2,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(sec_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL2_3,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     fueloil_hot_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL2_4,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     le_flaps_fault)); // Flaps fault sub'ed for INLET ICING ???
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL2_5,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     overheat_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL2_6,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     ecm_fault)); // ecm fault sub'ed for ECC ???
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL2_7,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(buc_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL2_8,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     fuel_low_fault)); // Fuel Low fault sub'ed for blank
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL3_1,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     avionics_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL3_2,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     equip_host_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL3_3,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     radar_alt_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL3_4,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(iff_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL3_5,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     lastFault)); // no act sub'ed for NUCLEAR ???
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL3_6,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     fuel_trapped)); // Fuel trapped fault sub'ed for ECC ???
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL3_7,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     fuel_home)); // Fuel "Bingo" fault sub'ed for blank
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL3_8,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     lastFault)); // blank
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL4_1,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     seat_notarmed_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL4_2,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(nws_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL4_3,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     anti_skid_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL4_4,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(hook_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL4_5,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     oxy_low_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL4_6,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     cabin_press_fault));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL4_7,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     lastFault)); // blank
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL4_8,
                 SimDriver.GetPlayerAircraft()->mFaults->GetFault(
                     lastFault)); // blank
@@ -3386,96 +3346,64 @@ void OTWDriverClass::VCock_Exec(void)
         // was reading Overheat (0x200000 in lightBits), so the JFS run light lit on
         // an engine overheat and stayed dark for the whole JFS run. Each read below
         // now matches the word cautions.cpp writes the flag into.
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_TFR_STBY,
                 cockpitFlightData.IsSet(FlightData::TFR_STBY));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_ECM_PWR,
                 cockpitFlightData.IsSet2(FlightData::EcmPwr));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_ECM_FAIL,
                 cockpitFlightData.IsSet2(FlightData::EcmFail));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_EPU_ON, cockpitFlightData.IsSet2(FlightData::EPUOn));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_JFS_ON, cockpitFlightData.IsSet2(FlightData::JFSOn));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_EPU_HYD,
                 cockpitFlightData.IsSet3(FlightData::Hydrazine));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(COMP_3DPIT_EPU_AIR,
+        PitLamp(vrCockpit, pitPowered,COMP_3DPIT_EPU_AIR,
                                      cockpitFlightData.IsSet3(FlightData::Air));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_PWR_FLCSPGM,
                 cockpitFlightData.IsSet3(FlightData::FlcsPmg));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_PWR_MAINGEN,
                 cockpitFlightData.IsSet3(FlightData::MainGen));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_PWR_STBYGEN,
                 cockpitFlightData.IsSet3(FlightData::StbyGen));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_PWR_EPUGEN,
                 cockpitFlightData.IsSet3(FlightData::EpuGen));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_PWR_EPUPMG,
                 cockpitFlightData.IsSet3(FlightData::EpuPmg));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_PWR_TOFLCS,
                 cockpitFlightData.IsSet3(FlightData::ToFlcs));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_PWR_FLCSRLY,
                 cockpitFlightData.IsSet3(FlightData::FlcsRly));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(
+        PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_PWR_BATFAIL,
                 cockpitFlightData.IsSet3(FlightData::BatFail));
 
-        if (not SimDriver.GetPlayerAircraft()->mainPower ==
-            AircraftClass::MainPowerOff)
-            vrCockpit->SetSwitchMask(COMP_3DPIT_AVTR_ON, SimDriver.AVTROn());
+        PitLamp(vrCockpit, pitPowered,COMP_3DPIT_AVTR_ON, SimDriver.AVTROn());
 
         //******************************************
         // INSTRUMNETS
