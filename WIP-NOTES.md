@@ -376,14 +376,87 @@ C_Map::Cleanup / CleanupCampaignUI / HandleCampaignThread
 builds — it predates the 3D-pit and controller work entirely. What changed was hitting a path
 that trips it reliably.
 
-Fixed: all four buffers in `O_Output::Cleanup` (`Label_`, `Rows_`, `Cols_`, `Wrap_`) are
-`new[]` and were released with a scalar `delete` — the same defect a previous pass fixed one
-frame up in `C_ScaleBitmap::Cleanup`, whose comment already explains why it started to matter
-(the terrain-derived map made these buffers several times larger). **Unproven as the cause:**
-the types are POD, so on MSVC the mismatch usually resolves to the same free, and a size
-mismatch does not explain a *double* free. One ramp-start load survived where four had failed.
-If it returns, run under page heap (`gflags /p /enable FFViper.exe /full`) and the bad free
-faults where it happens instead of at the next unrelated allocation.
+**The cause is a write overrun, and the free side was a red herring.** `O_Output::SetScaleImage`
+assigns the new image and then allocates only when the buffers are still NULL:
+
+```c
+Image_ = newimage;
+if (Rows_ == NULL) Rows_ = new long[Image_->Header->h * 2];
+if (Cols_ == NULL) Cols_ = new long[Image_->Header->w * 2];
+```
+
+They are sized *from the image*, so "allocate once" is right exactly once. Give the same
+`O_Output` a second, larger image and they keep the first one's size while `SetScaleInfo`
+fills them to the new image's extent, writing off the end of both blocks.
+
+The campaign map does exactly that: `cmap.cpp` picks between `Map_->SetImage(s_terrainMap)`
+and `Map_->SetImage(MapID)` at runtime, and the terrain-built map is the larger. That is why
+this arrived with the terrain map work and why it is campaign-specific. The smashed neighbour
+dies later and elsewhere, which is why every dump blamed a "double free" in
+`CleanupCampaignUI` nowhere near the write.
+
+Fixed by reallocating both buffers for whatever image `SetScaleImage` is handed, and bounding
+both fill loops by the real capacity. That replaces an `F4IsBadWritePtr` guard tagged
+"JB 010304 CTD" which never worked: it only refuses a write to an **unmapped** page, so
+running a few hundred longs into the adjacent allocation passed it silently — and it asked
+about `sizeof(short)` on an array of `long`, so it under-checked by half.
+
+**A correction worth keeping.** The first attempt changed the four scalar `delete`s in
+`O_Output::Cleanup` to `delete[]`. That is correct C++ and is still in, but it was **not** the
+fix — the crash survived it, and one clean load afterwards was luck, not evidence. A heap
+"double free" verdict names where the damage surfaced, not where it was done; with corruption,
+read the reported site as a symptom and go looking for a writer.
+
+If it ever returns, page heap (`gflags /p /enable FFViper.exe /full`) faults on the bad write
+itself rather than the aftermath.
+
+### 11. Nosewheel steering, and the `IsDigital` trap
+
+`NoseSteerOn` gates the block in `eom.cpp` that gives the rudder pedals authority over the
+nosewheel. It has two setters and **a realistic-avionics ramp start met neither**: the
+preflight one in `AircraftClass` is skipped for `START_RAMP` by design, and the automatic one
+was gated on `IsSet(IsDigital) or not g_bRealisticAvionics` — and `MakePlayerVehicle` *clears*
+`IsDigital` on the player's airframe. The pedals moved the rudder surface and the jet would
+not turn while taxiing.
+
+**This is the second bug on this branch from that one assumption** (the JFS switch was the
+first). Treat any condition testing `IsDigital` as suspect: on the player jet it is false.
+
+`SimNWSToggle` is new — FF6 had no NWS control of any kind. It defaults ON so leaving it
+unbound just means steering works. It is registered in `findfunc.cpp` but **not yet listed in
+`controls.xml`'s function catalogue**, so it will not appear in the Controllers list until
+that entry is added; that file also stores the user's bindings and is rewritten by the game,
+so edit it with care.
+
+The AR/NWS panel lamp needed nothing: `cautions.cpp` already lights it from `NoseSteerOn` or
+boom contact, so it was dead on the ground for the same reason. It now doubles as a free
+indication that steering is engaged.
+
+### 12. The Controllers table is two client areas
+
+`ui95` draws a control at `control.x + VX_[client]` and clips to that client, and the
+scrollbar clamps `VX_` *upward* to `ClientArea.left` (`cscroll.cpp`) — so a control's x is
+measured from its own client's left edge. That is the whole trick behind the frozen columns:
+
+```
+client 4 = frozen strip,    window x 163..503   FUNCTION + KEYBOARD
+client 2 = scrolling strip, window x 503..845   device columns, re-based to x 0
+```
+
+The frozen controls keep the coordinates they always had; the device columns drop the
+`DEVCOL_X0` origin because their client now *starts* where that origin was. `WIN_MAX_CLIENTS`
+is 8 and this window uses 0..4.
+
+Client 4 has no scrollbar — that is what stops it drifting sideways — so its vertical position
+is mirrored from client 2 once a frame in `RefreshJoystickCB`. **Do not try to hook the scroll
+call sites instead:** the wheel and the slider drag are handled inside ui95, which writes
+`Parent_->VY_` directly and never calls back into `controltab.cpp`.
+
+A header belongs to the client its own column lives in. Giving them all one client is what made
+FUNCTION and KEYBOARD scroll out over the device headers.
+
+`g_keyListPreserveScroll` must be set by anything that rebuilds the list without changing the
+row set — binding, and all three clear paths. Only a search/filter should scroll back to the top.
 
 ---
 
