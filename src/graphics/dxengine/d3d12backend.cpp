@@ -2273,8 +2273,15 @@ void D3D12Backend::EndStereoInstancedFrame(void* arrayImg)
     m_bRecording = false;
 
     // Artscout - 2026 (VR screenshots): view-instanced stereo renders both eyes into one
-    // 2-slice array image; slice 0 is the left eye, so the same capture works with
-    // subresource 0. (The QUAD copy path goes through EndViCopyGroup and is not covered.)
+    // 2-slice array image; slice 0 is the left eye, so the same capture works on
+    // subresource 0.
+    //
+    // This also covers QUAD, for free: EndViCopyGroup renders each group into a private
+    // 2-slice array and finishes by calling us with it, after restoring it to
+    // RENDER_TARGET -- which is the state the capture expects. That array is created
+    // TYPELESS (ViTypelessOf), so it only works because the capture resolves typeless to
+    // the concrete UNORM member of the same family. Whichever group ends first claims a
+    // pending request; for quad that is the periphery pair, i.e. the wide view.
     ServiceEyeCapture(arrayImg);
 }
 
