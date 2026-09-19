@@ -31,14 +31,59 @@ static const float KNEEBOARD_SMALLEST_MAP_FRACTION =
     4.0f; // What is the smallest fraction of the map we'll zoom to
 
 
+// Artscout - 2026 (3D kneeboard): the page colour behind the two TEXT pages. DrawMissionText inks in
+// BLACK -- on the 2D board it lands on the kneeboard art painted into the cockpit bitmap, but the RTT
+// atlas is cleared to black at the top of the pass, so without a page under it the text is invisible.
+// ABGR, like every other colour in this file (WP_COLOR 0xFF0000FF is red). Warm paper white.
+static const UInt32 KNEE_PAGE_COLOR = 0xFFD0E4E8;
+
+// Artscout - 2026: a zeroed ObjectInitStr with the two fields CPObject actually scales by. Used by the
+// RTT constructor, which has no 2D cockpit dat block behind it. A base-class initialiser cannot take the
+// address of a temporary, hence the static -- CPObject copies every field out of it in its constructor,
+// so nothing outlives this call and the one 3D kneeview is built once, on the sim thread.
+static const ObjectInitStr *KneeRttInitStr(int w, int h)
+{
+    static ObjectInitStr s;
+    memset(&s, 0, sizeof(s));
+    s.hScale = 1.0f;
+    s.vScale = 1.0f;
+    s.bsurface = -1;
+    s.callbackSlot = -1;
+    s.destRect.top = 0;
+    s.destRect.left = 0;
+    // CPObject adds 1 to bottom/right, so subtract it here to land on exactly w x h.
+    s.destRect.bottom = h - 1;
+    s.destRect.right = w - 1;
+    return &s;
+}
+
 CPKneeView::CPKneeView(ObjectInitStr *pobjectInitStr, KneeBoard *pboard)
     : CPObject(pobjectInitStr)
 {
     mapImageBuffer = NULL;
+    mRtt = false;
+    mRttPixels = NULL;
+    mRttW = mRttH = 0;
+    mRttMapV = mRttMapH = mRttMapVS = mRttMapHS = 0.0f;
+    mRttTick = 0;
     mpKneeBoard = pboard;
 
     Setup(&FalconDisplay.theDisplayDevice, mDestRect.top, mDestRect.left,
           mDestRect.bottom, mDestRect.right);
+}
+
+CPKneeView::CPKneeView(KneeBoard *board, int w, int h)
+    : CPObject(KneeRttInitStr(w, h))
+{
+    mapImageBuffer = NULL;
+    mRtt = false;
+    mRttPixels = NULL;
+    mRttW = mRttH = 0;
+    mRttMapV = mRttMapH = mRttMapVS = mRttMapHS = 0.0f;
+    mRttTick = 0;
+    mpKneeBoard = board;
+
+    SetupRtt(board, w, h);
 }
 
 CPKneeView::~CPKneeView()
@@ -68,6 +113,29 @@ void CPKneeView::Setup(DisplayDevice *device, int top, int left, int bottom,
     Render2D::Setup(mapImageBuffer);
 }
 
+// Artscout - 2026 (3D kneeboard): the RTT twin of Setup. Same rects -- UpdateMapDimensions and the map
+// rasteriser both size themselves off srcRect/dstRect, so pointing those at the atlas zone is all it
+// takes for the map window maths to work at the 3D board's resolution. No ImageBuffer and no
+// Render2D::Setup: this instance never draws through its own base, only through the canvas it is given.
+void CPKneeView::SetupRtt(KneeBoard *board, int w, int h)
+{
+    mpKneeBoard = board;
+    mpKneeBoard->Setup();
+
+    dstRect.top = 0;
+    dstRect.left = 0;
+    dstRect.bottom = h;
+    dstRect.right = w;
+
+    srcRect = dstRect;
+
+    mRttW = w;
+    mRttH = h;
+    mRttPixels = new UInt32[(size_t)w * (size_t)h];
+    memset(mRttPixels, 0, (size_t)w * (size_t)h * sizeof(UInt32));
+    mRtt = true;
+}
+
 void CPKneeView::Cleanup()
 {
     if (mapImageBuffer)
@@ -77,8 +145,20 @@ void CPKneeView::Cleanup()
         mapImageBuffer = NULL;
     }
 
-    Render2D::Cleanup();
-    mpKneeBoard->Cleanup();
+    if (mRttPixels)
+    {
+        delete[] mRttPixels;
+        mRttPixels = NULL;
+    }
+
+    // The RTT instance never ran Render2D::Setup, so it has no image/context to tear down.
+    if (not mRtt)
+        Render2D::Cleanup();
+
+    mRtt = false;
+
+    if (mpKneeBoard)
+        mpKneeBoard->Cleanup();
 }
 
 void CPKneeView::Refresh(SimVehicleClass *platform)
@@ -100,6 +180,112 @@ void CPKneeView::DisplayBlit(void)
         mpOTWImage->Compose(mapImageBuffer, &srcRect, &dstRect);
     }
 }
+
+// Artscout - 2026 (3D kneeboard): refresh the off-screen page. Only the map costs anything -- the two
+// text pages are drawn straight from the briefing data every frame, as they are on the 2D board.
+void CPKneeView::ExecRtt(SimVehicleClass *platform)
+{
+    if (not mRtt or not mpKneeBoard or not platform or not mRttPixels)
+        return;
+
+    if (mpKneeBoard->GetPage() not_eq KneeBoard::MAP)
+        return;
+
+    UpdateMapDimensions(platform);
+
+    // Cheap so far -- UpdateMapDimensions is pure arithmetic. The blit below is a megapixel of palette
+    // lookups, so only run it when the window it draws has actually moved (or once in a while, for
+    // lighting). mRttTick starting at 0 makes the first frame after a page change always rasterise.
+    const bool moved =
+        (wsVcenter not_eq mRttMapV) or (wsHcenter not_eq mRttMapH) or
+        (wsVsize not_eq mRttMapVS) or (wsHsize not_eq mRttMapHS);
+
+    if (moved or (mRttTick % 32) == 0)
+    {
+        RasteriseMap(mRttPixels, mRttW * (int)sizeof(UInt32), true);
+        mRttMapV = wsVcenter;
+        mRttMapH = wsHcenter;
+        mRttMapVS = wsVsize;
+        mRttMapHS = wsHsize;
+    }
+
+    mRttTick++;
+}
+
+
+// Artscout - 2026 (3D kneeboard): draw the current page into canvas's atlas zone. Call inside the RTT
+// pass, between StartRtt and FinishRtt -- AdjustRttViewport binds the atlas and points this display's
+// -1..1 space at its own sub-zone, and the screen metric is the full atlas, which is the space
+// Render2DBitmap's destination is measured in.
+void CPKneeView::DisplayRtt(Render2D *canvas, SimVehicleClass *platform)
+{
+    if (not mRtt or not canvas or not mpKneeBoard or not platform)
+        return;
+
+    canvas->AdjustRttViewport();
+
+    // The canvas is reused frame to frame and DrawCurrentPosition below leaves the origin shifted;
+    // SetViewport does not reset it, so start from a known transform every frame.
+    canvas->CenterOriginInViewport();
+    canvas->ZeroRotationAboutOrigin();
+
+    int oldFont = VirtualDisplay::CurFont();
+
+    if (mpKneeBoard->GetPage() == KneeBoard::MAP)
+    {
+        int zLeft = 0, zTop = 0, zRight = 0, zBottom = 0;
+        canvas->GetRttRect(&zLeft, &zTop, &zRight, &zBottom);
+
+        int w = min(mRttW, zRight - zLeft);
+        int h = min(mRttH, zBottom - zTop);
+
+        if (mRttPixels and w > 0 and h > 0)
+        {
+            canvas->Render2DBitmap(0, 0, zLeft, zTop, w, h, mRttW,
+                                   (DWORD *)mRttPixels);
+        }
+
+        DrawWaypoints(canvas, platform);
+
+        // Same realism gate as the 2D board: no own-position symbol under full realism.
+        // M.N. Added Full realism mode
+        if (PlayerOptions.GetAvionicsType() not_eq ATRealistic and
+            PlayerOptions.GetAvionicsType() not_eq ATRealisticAV)
+        {
+            DrawCurrentPosition(NULL, canvas, platform);
+        }
+    }
+    else
+    {
+        // Lay the page down first -- see KNEE_PAGE_COLOR.
+        //
+        // NOT at +/-1.0. Render2D::Render2DTri does not CLIP, it REJECTS: if any vertex falls outside
+        // the viewport the whole triangle is dropped. A vertex at exactly +/-1.0 maps to exactly
+        // rightPixel/topPixel, so whether it survives is a floating-point coin flip -- and it lost, which
+        // is why the 3D board composited black instead of paper. Inset by a pixel's worth and it is
+        // deterministic. (Render2DLine has no such test, so the route overlay was never affected.)
+        static const float PAGE = 0.997f;
+        DWORD paper =
+            OTWDriver.pCockpitManager->ApplyLighting(KNEE_PAGE_COLOR, false);
+        canvas->SetColor(paper);
+        canvas->Tri(-PAGE, -PAGE, PAGE, -PAGE, PAGE, PAGE);
+        canvas->Tri(-PAGE, -PAGE, PAGE, PAGE, -PAGE, PAGE);
+
+        DrawMissionText(canvas, platform);
+    }
+
+    // Artscout - 2026: COMMIT the page while the atlas is still bound. The 2D primitives here -- the
+    // route lines and circles, the paper-fill tris, the text -- only BATCH into the context vertex
+    // buffer; they flush lazily on the next SelectTexture1 / RestoreState / EndDraw. Under D3D12 nothing
+    // in this draw does any of those, so they reached the eye only on frames where something else
+    // happened to trigger a flush -- the route overlay FLICKERED while the map, which goes through
+    // Render2DBitmap's immediate DrawTL, stayed rock solid. Same trap and same fix as the composite quad
+    // in DrawRttQuad; see the "#DX12: COMMIT the composite quad NOW" note there.
+    canvas->context.FlushPending();
+
+    VirtualDisplay::SetFont(oldFont);
+}
+
 
 void CPKneeView::DisplayDraw(void)
 {
@@ -145,7 +331,12 @@ void CPKneeView::DrawMissionText(Render2D *renderer, SimVehicleClass *platform)
     DWORD iColor = OTWDriver.pCockpitManager->ApplyLighting(0xFF000000, false);
     renderer->SetColor(iColor); // Black (ink color)
 
-    VirtualDisplay::SetFont(OTWDriver.pCockpitManager->KneeFont());
+    // Artscout - 2026: the 3D board gets its own font. DrawMissionText is shared with the 2D board, and
+    // that one should keep whatever the cockpit dat asked for -- this only diverges for the RTT instance.
+    extern int g_nKnee3DFont;
+    VirtualDisplay::SetFont((mRtt and g_nKnee3DFont >= 0) ?
+                                g_nKnee3DFont :
+                                OTWDriver.pCockpitManager->KneeFont());
 
     // Display the players call sign and assignment
     char string[1024];
@@ -418,7 +609,7 @@ void CPKneeView::RenderMap(SimVehicleClass *platform)
 
     // Draw in the waypoints
     StartDraw();
-    DrawWaypoints(platform);
+    DrawWaypoints(this, platform);
     EndDraw();
 }
 
@@ -429,7 +620,29 @@ void CPKneeView::DrawMap()
     bool m_imageloaded = false;
     ShiAssert(m_imageloaded);
 
-    if (mpKneeBoard == NULL)
+    // Lock the back buffer and fill it through the shared rasteriser. Pixel(ptr, row, 0) is
+    // ptr + row * lPitch, so the stride is the buffer's own, not width * 4.
+    UInt32 *ptr = (UInt32 *)mapImageBuffer->Lock();
+    RasteriseMap(ptr, mapImageBuffer->targetStride(), false);
+    mapImageBuffer->Unlock();
+}
+
+
+// Artscout - 2026: the body DrawMap used to inline, so the 2D cockpit surface and the 3D board's CPU
+// page are filled by one piece of code. dstPitchBytes is in BYTES.
+void CPKneeView::RasteriseMap(UInt32 *dst, int dstPitchBytes, bool forRtt)
+{
+    // Artscout - 2026: InvertRGBOrder MASKS OFF the alpha byte -- it keeps only bits 0..23 and swaps R
+    // with B -- so every map pixel comes out with alpha 0. That is harmless for the 2D board, whose
+    // ImageBuffer::Compose is a straight blit that ignores alpha, and fatal for the 3D one, whose
+    // Render2DBitmap -> DrawBitmap2D draws with BLEND_ALPHA: the entire map was being composited fully
+    // transparent while the out-of-range fill (0xff000000, alpha 255) was the only thing that drew.
+    // Force opacity for the RTT path only, so the 2D board's bytes are untouched.
+    const UInt32 rttAlpha = forRtt ? 0xff000000u : 0u;
+    // And out-of-map should be PAPER on a kneeboard, not black -- the window routinely overhangs the
+    // source image (the theater map is square, the page is not), so a black fill would letterbox it.
+    const UInt32 outside = forRtt ? KNEE_PAGE_COLOR : 0xff000000u;
+    if (mpKneeBoard == NULL or dst == NULL)
     {
         return;
     }
@@ -449,70 +662,78 @@ void CPKneeView::DrawMap()
     int h = mapImageFile.image.height;
 
     // Decide where to start in the source image
+    // Artscout - 2026: the two scales were SWAPPED here -- the ROW (vertical) offset divided by
+    // m_pixel2nmX (the horizontal km/pixel) and the COLUMN offset by m_pixel2nmY. Invisible on Korea,
+    // whose map and theater are both square so the two are equal to six decimals (0.999737), and wrong
+    // on any theater that is not.
     int srcRowInitOffset = (int)((TheMap.NorthEdge() - (wsVsize + wsVcenter)) *
-                                 FT_TO_KM / m_pixel2nmX);
+                                 FT_TO_KM / m_pixel2nmY);
     int srcColInitOffset =
-        (int)((wsHcenter - wsHsize) * FT_TO_KM / m_pixel2nmY);
+        (int)((wsHcenter - wsHsize) * FT_TO_KM / m_pixel2nmX);
 
-    // Lock the back buffer
-    DWORD *ptr = (DWORD *)mapImageBuffer->Lock();
+    // Artscout - 2026: honour pixelMag. UpdateMapDimensions sizes the world window as
+    // 0.5 * width / pixelMag * m_pixel2nm -- it ASSUMES the source is magnified by pixelMag on the way
+    // in. This loop copied 1:1 and always had, so the page showed pixelMag times more world than the
+    // route overlay was scaled for: the map could never line up with its own waypoints, and the window
+    // overran the image edge and letterboxed the page. Nearest-neighbour is enough -- the source is an
+    // 8-bit palettised map and pixelMag is a small integer (3 on Korea).
+    const int mag = (pixelMag > 0) ? pixelMag : 1;
+
+    // The source image may not have loaded (KneeBoard::LoadKneeImage tolerates a missing map).
+    if (mapImageFile.image.image == NULL or inColor == NULL)
+    {
+        return;
+    }
 
     //here we get a pointer to the initial position of the map(0,0)
     UInt8 *mapFirstPointer = mapImageFile.image.image;
     mapFirstPointer += 0; //srcRowInitOffset*w + srcColInitOffset;
 
-    //some auxiliary variables
-    int dstWidth = dstRect.right - dstRect.left;
-    int dstHeight = dstRect.bottom - dstRect.top;
-
     // Copy from map to kneeboard
     for (int dstRow = 0; dstRow < (dstRect.bottom - dstRect.top); dstRow++)
     {
+        const int srcRow = srcRowInitOffset + dstRow / mag;
+        const bool rowInside = (srcRow >= 0) and (srcRow < h);
         //find the first pointer of that row in the map
-        UInt8 *rowFirstPointer = mapFirstPointer +
-                                 (dstRow + srcRowInitOffset) * w +
-                                 srcColInitOffset;
+        UInt8 *rowFirstPointer = mapFirstPointer + srcRow * w;
         //first destination pointer
-        DWORD *dst = (DWORD *)mapImageBuffer->Pixel(ptr, dstRow, 0);
+        UInt32 *dstPix = (UInt32 *)((UInt8 *)dst + dstRow * dstPitchBytes);
 
         for (int dstCol = 0; dstCol < (dstRect.right - dstRect.left); dstCol++)
         {
-            //this points to the pixel
-            UInt8 *pixelPointer = rowFirstPointer + dstCol;
+            const int srcCol = srcColInitOffset + dstCol / mag;
 
-            if (((srcRowInitOffset + dstRow) >= h) or
-                ((srcRowInitOffset + dstRow) < 0) or
-                ((srcColInitOffset + dstCol) >= w) or
-                ((srcColInitOffset + dstCol) < 0))
+            if (not rowInside or (srcCol >= w) or (srcCol < 0))
             {
-                //we use a transparent pixel...
-                dst[0] = 0xff000000;
+                //off the edge of the source map
+                dstPix[0] = outside;
             }
             else
             {
                 //this is destination pixel
-                dst[0] = InvertRGBOrder(outColor[*pixelPointer]);
+                dstPix[0] =
+                    InvertRGBOrder(outColor[rowFirstPointer[srcCol]]) bitor
+                    rttAlpha;
             }
 
-            dst++;
+            dstPix++;
         }
     }
 
-    // Release the source image and unlock the target surface
-    mapImageBuffer->Unlock();
-    return;
 }
 
-void CPKneeView::DrawWaypoints(SimVehicleClass *platform)
+void CPKneeView::DrawWaypoints(Render2D *renderer, SimVehicleClass *platform)
 {
     WayPointClass *wp = NULL;
     BOOL isFirst = TRUE;
     float x1 = 0.0F, y1 = 0.0F, x2 = 0.0F, y2 = 0.0F;
 
+    if (not renderer or not platform)
+        return;
 
     DWORD color = OTWDriver.pCockpitManager->ApplyLighting(WP_COLOR, false);
     //OTWDriver.renderer->SetColor(color);
-    SetColor(color);
+    renderer->SetColor(color);
 
     // Draw in the waypoints
     for (wp = platform->waypoint; wp; wp = wp->GetNextWP())
@@ -522,11 +743,11 @@ void CPKneeView::DrawWaypoints(SimVehicleClass *platform)
         MapWaypointToDisplay(wp, &x1, &y1);
 
         // Draw the waypoint marker and the connecting line if this isn't the first one
-        Circle(x1, y1, WP_SIZE);
+        renderer->Circle(x1, y1, WP_SIZE);
 
         if (not isFirst)
         {
-            Line(x1, y1, x2, y2);
+            renderer->Line(x1, y1, x2, y2);
         }
 
         // Step to the next waypoint
@@ -536,8 +757,15 @@ void CPKneeView::DrawWaypoints(SimVehicleClass *platform)
     }
 
     // Draw the override waypoint marker (if any)
-    ShiAssert(platform->GetCampaignObject());
-    ShiAssert(platform->GetCampaignObject()->IsFlight());
+    // Artscout - 2026: these two were assert-only, so a release build walked straight into the cast --
+    // and outside a campaign flight (dogfight, instant action) there is no flight object to cast. The
+    // 2D board has always run this; the 3D board now runs it too, so make the check real.
+    if (not platform->GetCampaignObject() or
+        not platform->GetCampaignObject()->IsFlight())
+    {
+        return;
+    }
+
     wp = ((FlightClass *)platform->GetCampaignObject())->GetOverrideWP();
 
     if (wp)
@@ -551,10 +779,10 @@ void CPKneeView::DrawWaypoints(SimVehicleClass *platform)
         y1 = y1 - ORIDE_WP_SIZE;
 
         // Draw the waypoint marker
-        Line(x1, y1, x2, y1);
-        Line(x2, y1, x2, y2);
-        Line(x2, y2, x1, y2);
-        Line(x1, y2, x1, y1);
+        renderer->Line(x1, y1, x2, y1);
+        renderer->Line(x2, y1, x2, y2);
+        renderer->Line(x2, y2, x1, y2);
+        renderer->Line(x1, y2, x1, y1);
     }
 }
 

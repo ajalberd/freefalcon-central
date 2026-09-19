@@ -307,6 +307,8 @@ OTWDriverClass::OTWDriverClass(void)
     vRWRrenderer = NULL;
     vDEDrenderer = NULL;
     vPFLrenderer = NULL;
+    vKNEErenderer = NULL; // Artscout - 2026 (3D kneeboard)
+    v3DKneeView = NULL;
 
     vBoresightY = 0.75f; // ASSO:
 

@@ -310,6 +310,11 @@ public:
     // sensor scene's CPU spans arrive in zone pixels); the next atlas bind restores the atlas metric.
     void ConfineScreenMetricToZone();
     void GetRttCanvas(Tpoint *Canvas);
+    // Artscout - 2026 (3D kneeboard): this display's atlas sub-zone in ATLAS PIXELS (already scaled by
+    // g_rttSS, i.e. the rect DrawRttQuad samples). The vector/text primitives map -1..1 onto it by
+    // themselves (SetViewport adds tLeft/tTop), but the 2D screen path -- Render2DBitmap -- takes raw
+    // atlas pixels, so a caller rasterising an image into its own zone needs to read the rect out.
+    void GetRttRect(int *tLeft_, int *tTop_, int *tRight_, int *tBottom_);
 
 protected:
     int tLeft;

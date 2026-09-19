@@ -27,6 +27,8 @@
 #include "commands.h" //Wombat778 10-10-2003  Added for 3d clickable cockpit
 #include "fakerand.h"
 #include "cphsi.h"
+#include "kneeboard.h" // Artscout - 2026: the 3D kneeboard shares CockpitManager's board
+#include "cpkneeview.h"
 
 extern bool g_bUse_DX_Engine; // COBRA - RED
 
@@ -621,6 +623,32 @@ int tPFLtop = 600;
 int tPFLright = 200;
 int tPFLbottom = 680;
 
+// Artscout - 2026 (3D kneeboard): fallback canvas for a pit whose 3dckpit.dat carries a bare "kneeboard"
+// line with no numbers. Cockpit space is x forward, y right, z DOWN, in units of 1/RTT_POSITION_SCALING
+// feet (~1.16 in), measured from the design eye point -- the HUD combiner at x 20.063 is ~23 in ahead of
+// you. This is a 5.6 x 7.6 in page on the RIGHT thigh, following the leg about a unit clear of it.
+//
+// The leg was MEASURED off the pit model rather than estimated -- the first attempt put the board at
+// z 16.7..19.6 and it rendered INSIDE the thigh, invisible. tools/models/objsurvey.py, LOD 4105, surface
+// @32848 is the legs, and canvas = model * 10 (calibrated against switch 138, the CAT lever, whose
+// geometry sits at model 1.37,-1.31,1.71 under its hotspot's canvas 14.01,-13.09,16.99). The right
+// thigh's TOP runs z 15.7 at the hip, 12.8 at the knee crest (x 10..14), 14.5 out along the shin, and
+// spans y 2.0..7.2. Corroborated by the ejection handle hotspot: canvas 10.19, 0.0, 15.40 -- between
+// the knees, just below and inboard of this board.
+//
+// DrawRttQuad builds the fourth corner as (ll.x, ur.y, ll.z), so ul/ur must share x and z and ul/ll must
+// share y: the quad can pitch about the lateral axis but cannot roll or yaw. Fine for a board on a thigh.
+Tpoint vKNEEul = {13.000f, 2.200f, 12.000f};
+Tpoint vKNEEur = {13.000f, 7.000f, 12.000f};
+Tpoint vKNEEll = {7.000f, 2.200f, 14.600f};
+// The last free block of the shared 768 atlas: the HUD ends at x 430, the MFDs start at x 550 and end at
+// y 450, the RWR at x 430. 230 x 314 matches the quad's own 4.8 : 6.54 aspect, so the page is not stretched.
+// Multiplied by g_rttSS with everything else, so the fonts stay in proportion (see VCock_SetRttCanvas).
+int tKNEEleft = 432;
+int tKNEEtop = 452;
+int tKNEEright = 662;
+int tKNEEbottom = 766;
+
 int trMFDleft = 550;
 int trMFDtop = 250;
 int trMFDright = 750;
@@ -734,6 +762,17 @@ bool OTWDriverClass::VCock_SetRttCanvas(char** plinePtr, Render2D** canvaspp,
     // Canvas3D *canvas;
     Render2D* canvas;
 
+    // Artscout - 2026 (3D kneeboard): seed from the defaults first. When the sscanf below does not match
+    // all 9 geometry floats the existing code leaves ul/ur/ll as they are, which for every other device
+    // means uninitialised stack -- seeding makes a bare "kneeboard;" line mean "use the stock placement"
+    // instead, the same courtesy dev 6 gets.
+    if (dev == 7)
+    {
+        ul = vKNEEul;
+        ur = vKNEEur;
+        ll = vKNEEll;
+    }
+
     // no PFL data
     if (dev == 6)
     {
@@ -791,6 +830,13 @@ bool OTWDriverClass::VCock_SetRttCanvas(char** plinePtr, Render2D** canvaspp,
                 tRight = tPFLright;
                 tBottom = tPFLbottom;
                 hasPFL = false;
+                break;
+
+            case 7: // kneeboard
+                tLeft = tKNEEleft;
+                tTop = tKNEEtop;
+                tRight = tKNEEright;
+                tBottom = tKNEEbottom;
                 break;
             }
         }
@@ -1092,6 +1138,15 @@ bool OTWDriverClass::VCock_Init(int eCPVisType, TCHAR* eCPName,
                 plinePtr = plinePtr; // Release mode compile warning
                 F4Assert("Bad PFL description");
             }
+        }
+        else if (not strcmpi(ptoken, PROP_KNEEBOARD_STR)) // the 3D kneeboard
+        {
+            if (not VCock_SetRttCanvas(&plinePtr, &vKNEErenderer, 7))
+            {
+                plinePtr = plinePtr; // Release mode compile warning
+                F4Assert("Bad kneeboard description");
+            }
+
         }
         else if (not strcmpi(ptoken, TYPE_MACHASI_STR)) //  the rwr
         {
@@ -4975,6 +5030,41 @@ void OTWDriverClass::VCock_Exec(void)
                 pVColors[OTWDriver.renderer->GetGreenMode() not_eq 0][6]);
         }
 
+        //
+        // Do the kneeboard
+        //
+        // Artscout - 2026: the board on the pilot's knee. Unlike the panel displays this one has no
+        // avionics power gate -- it is paper on a strap, and it is readable with the jet cold and dark,
+        // which is exactly when you want the ramp-start checklist. Skipped entirely when 3dckpit.dat has
+        // no kneeboard line.
+        if (vKNEErenderer and pCockpitManager and pCockpitManager->mpKneeBoard)
+        {
+            // Built on first use, not in VCock_Init: the canvases are parsed before OTWDriverClass::Setup
+            // constructs the CockpitManager, so there is no KneeBoard to share yet at parse time. The
+            // page is rasterised at the canvas's own atlas-zone size (already multiplied by g_rttSS), so
+            // the blit is 1:1 with the texels DrawRttQuad samples.
+            if (not v3DKneeView)
+            {
+                int zl = 0, zt = 0, zr = 0, zb = 0;
+                vKNEErenderer->GetRttRect(&zl, &zt, &zr, &zb);
+
+                if (zr > zl and zb > zt)
+                    v3DKneeView = new CPKneeView(pCockpitManager->mpKneeBoard,
+                                                 zr - zl, zb - zt);
+            }
+
+            SimVehicleClass* kneePlatform =
+                (SimVehicleClass*)SimDriver.GetPlayerAircraft();
+
+            if (v3DKneeView and kneePlatform)
+            {
+                VirtualDisplay::SetFont(pCockpitManager->KneeFont());
+                v3DKneeView->ExecRtt(kneePlatform);
+                v3DKneeView->DisplayRtt(vKNEErenderer, kneePlatform);
+                VirtualDisplay::SetFont(oldFont);
+            }
+        }
+
 
         // DX - COBRA - RED - The AA texture corruption Problem?
         // renderer->FinishFrame();
@@ -5116,6 +5206,17 @@ void OTWDriverClass::VCock_Exec(void)
 
         if (vPFLrenderer)
             vPFLrenderer->DrawRttQuad();
+
+        // Artscout - 2026 (3D kneeboard): composites with whatever blend the dat asked for. Stock is 't'
+        // = STATE_TEXTURE: opaque and DEPTH-TESTED, so the board reads as a physical object -- the stick
+        // and the console occlude it, and it hides what is behind it. The panels use 'c', which
+        // DrawRttQuad rewrites to the additive emissive composite; that is right for glowing symbology
+        // and wrong for paper, which would turn into a ghost over the cockpit floor.
+        if (vKNEErenderer and v3DKneeView)
+        {
+            vKNEErenderer->DrawRttQuad();
+
+        }
 
         if (g_b3dMFDLeft)
         {
@@ -6516,6 +6617,21 @@ void OTWDriverClass::VCock_Cleanup(void)
         vPFLrenderer->Cleanup();
         delete vPFLrenderer;
         vPFLrenderer = NULL;
+    }
+
+    // Artscout - 2026 (3D kneeboard). The view first: its destructor drops a reference on the shared
+    // KneeBoard, which the 2D views also hold.
+    if (v3DKneeView)
+    {
+        delete v3DKneeView;
+        v3DKneeView = NULL;
+    }
+
+    if (vKNEErenderer)
+    {
+        vKNEErenderer->Cleanup();
+        delete vKNEErenderer;
+        vKNEErenderer = NULL;
     }
 
     VirtualDisplay::CleanupRttTarget();

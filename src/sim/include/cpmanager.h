@@ -246,6 +246,9 @@ extern MEM_POOL gCockMemPool;
 #define PROP_DED_TYPE "dedtype"
 #define PROP_DED_DED "ded"
 #define PROP_DED_PFL "pfl"
+// Artscout - 2026 (3D kneeboard): the kneeboard RTT canvas in 3dckpit.dat. Same 15-field syntax as the
+// other displays -- ul/ur/ll in cockpit space, then the atlas zone, blend char and alpha.
+#define PROP_KNEEBOARD_STR "kneeboard"
 #define PROP_DO2DPIT_STR "cockpit2d"
 #define PROP_LIFT_LINE_COLOR "liftlinecolor"
 #define PROP_RENDER_NEEDLE "renderneedle" //Wombat778 3-24-04

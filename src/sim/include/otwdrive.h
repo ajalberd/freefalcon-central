@@ -1008,6 +1008,13 @@ private:
     Render2D* vRWRrenderer; // ASSO:
     Render2D* vDEDrenderer; // ASSO:
     Render2D* vPFLrenderer; // ASSO:
+    // Artscout - 2026 (3D kneeboard): the board on the pilot's knee. NULL unless 3dckpit.dat carries a
+    // "kneeboard" line -- an older pit file simply does not get one. v3DKneeView is this pit's own
+    // CPKneeView: the 2D board's views live in CockpitManager's object list and are only Exec'd by the
+    // 2D panel cycle (CockpitManager::Exec runs in Mode2DCockpit alone), so the 3D pit has to drive
+    // its own. It shares CockpitManager::mpKneeBoard, so the page follows the 2D board and back.
+    Render2D* vKNEErenderer;
+    class CPKneeView* v3DKneeView;
 
     DrawableBSP* vrCockpit;
     int vrCockpitModel

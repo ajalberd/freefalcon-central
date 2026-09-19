@@ -413,6 +413,13 @@ bool g_bServerHostAll = false;
 bool g_bLogEvents = false;
 bool g_bVoiceCom = true;
 bool g_bwoeir = false;
+// Artscout - 2026 (3D kneeboard): which bitmap font the board on the knee draws its text pages with.
+// The 2D board uses the cockpit dat's "kneefont", which is 0 = 6x4font.gif -- the smallest of the three,
+// fine on a 345x500 panel you are looking straight at, small in a headset on a 5.6 in page seen at an
+// angle. 2 = 10x7font.gif is the largest of the matched set (3 is warn_font, a different typeface, not a
+// fourth size). -1 follows the 2D board. Glyphs scale with g_rttSS like everything else in the RTT pass,
+// so this changes apparent SIZE, not sharpness -- the source bitmap is the resolution ceiling.
+int g_nKnee3DFont = 2;
 int g_nPadlockBoxSize = 2;
 int g_nDeagTimer = 0;
 int g_nReagTimer = 0;
@@ -1980,6 +1987,7 @@ static ConfigOption<int> IntOpts[] = {
 
     {"FarLodExtra",
      &g_nFarLodExtra}, // Artscout - 2026 (#79): extra coarse terrain LOD rings (geomorph target for far tiles)
+    {"Knee3DFont", &g_nKnee3DFont}, // Artscout - 2026 (3D kneeboard)
     {"PadlockBoxSize", &g_nPadlockBoxSize},
     {"PadlockMode", &g_nPadlockMode},
     {"NumDefaultHatSwitches", &NumHats},

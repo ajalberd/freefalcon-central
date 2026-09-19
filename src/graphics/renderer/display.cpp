@@ -8,6 +8,7 @@
 #include <ciso646>
 #include <math.h>
 #include "display.h"
+#include "graphics/dxengine/common/ffstatemap.h" // Artscout - 2026: ask a STATE_* whether it depth-tests
 #include "render3d.h" // ASSO:
 
 // COBRA - DX - DX Engine includes
@@ -207,6 +208,26 @@ void VirtualDisplay::GetRttCanvas(Tpoint* Canvas)
     Canvas[0] = canUL;
     Canvas[1] = canUR;
     Canvas[2] = canLL;
+}
+
+
+// Artscout - 2026 (3D kneeboard): see the header. The rect is in atlas pixels, already multiplied by
+// g_rttSS -- exactly what Render2DBitmap wants, since AdjustRttViewport sets the screen metric to the
+// full atlas for the duration of the RTT pass.
+void VirtualDisplay::GetRttRect(int* tLeft_, int* tTop_, int* tRight_,
+                                int* tBottom_)
+{
+    if (tLeft_)
+        *tLeft_ = tLeft;
+
+    if (tTop_)
+        *tTop_ = tTop;
+
+    if (tRight_)
+        *tRight_ = tRight;
+
+    if (tBottom_)
+        *tBottom_ = tBottom;
 }
 
 
@@ -1957,6 +1978,33 @@ void VirtualDisplay::DrawRttQuad()
     RttWorldXform(&os);
     r3d->TransformPoint(&os, &v3);
 
+    // Artscout - 2026 (#61 near-clip): the CPU clipper's NEAR_CLIP_DISTANCE (clipflags.h) is **1.0 ft**,
+    // while the GPU near plane is ContextMPR::ZNEAR = 0.2. Nothing in this cockpit had ever been placed
+    // within a foot of the eye -- the HUD, the MFDs, the DED all sit around two -- so the gap never
+    // mattered. The 3D kneeboard sits about ONE foot from your face and straddles it.
+    //
+    // And the clipper does not merely reject: polylibclip.cpp PUSHES the offending vertex out to
+    // NEAR_CLIP_DISTANCE. So the near corner was being yanked from 0.4 ft to 1.0 ft and the quad folded
+    // -- which is what "the bottom-left corner is cut on a diagonal" was, since DrawSquare splits the
+    // quad along that very diagonal and clips the two triangles independently. Measured in the headset:
+    // LL csZ 0.38..1.07 ft with CLIP_NEAR (0x10) flickering on and off with an inch of head movement,
+    // and a vertex sitting on the plane smearing into a stretched sliver across the sky.
+    //
+    // So: keep CLIP_NEAR only when the vertex is behind the REAL near plane. In front of it, let the
+    // GPU do the clipping it is already configured for. Side/top/bottom flags are untouched -- those
+    // clips are legitimate and produce correct geometry.
+    {
+        const float gpuNear = r3d->context.ZNEAR;
+        ThreeDVertex* quad[4] = {&v0, &v1, &v2, &v3};
+
+        for (int qi = 0; qi < 4; ++qi)
+        {
+            if ((quad[qi]->clipFlag bitand CLIP_NEAR) and
+                quad[qi]->csZ > gpuNear)
+                quad[qi]->clipFlag and_eq (compl CLIP_NEAR);
+        }
+    }
+
     // UV as in the D3D7 reference (NO V-flip): v0/v1 top=tTop, v2/v3 bottom=tBottom.
     v0.u = (float)tLeft / (float)renderTexture->m_nActualWidth;
     v0.v = (float)tTop / (float)renderTexture->m_nActualHeight;
@@ -2024,9 +2072,31 @@ void VirtualDisplay::DrawRttQuad()
 
     // Tell the vertex emit to derive depth from q for THIS primitive only. The 2D path otherwise pins
     // screen prims to the far plane, and several of them want to stay there.
+    //
+    // Artscout - 2026: this used to be hudOcclude ONLY, which silently broke any canvas composited with a
+    // DEPTH-TESTED state. The panels never noticed -- 'c' resolves to STATE_RTT_SOFT, depth test off, and
+    // a state that does not test ignores sz entirely. But a canvas that asks for 't' (STATE_TEXTURE:
+    // opaque, depth-TESTED, like a physical object rather than emissive symbology) got sz = 0.0 = the far
+    // plane under reversed-Z, failed the test against every single thing in the cockpit, and drew nothing
+    // at all. That cost a full debugging round on the 3D kneeboard: the quad was correctly placed, its
+    // click hotspot worked, its atlas zone had content, and it was invisible.
+    //
+    // So: ask the state whether it tests depth, and give it real depth when it does. States that do not
+    // test are unaffected (they ignore sz), and none of the composite states write depth except the
+    // opaque ones, which SHOULD leave depth behind -- they are solid objects in the pit.
     extern bool g_bScreenPrimDepthFromQ;
 
-    if (hudOcclude)
+    bool depthFromQ = hudOcclude;
+
+    if (not depthFromQ)
+    {
+        FFStateDesc sd;
+
+        if (FFMapState(compositeState, sd) and sd.depthTest)
+            depthFromQ = true;
+    }
+
+    if (depthFromQ)
         g_bScreenPrimDepthFromQ = true;
 
     r3d->DrawSquare(&v0, &v1, &v2, &v3, CULL_ALLOW_ALL, false);
