@@ -13,6 +13,24 @@ Companion docs:
   and `.DXL`: parent records, LOD names, and a model's whole node stream including every
   switch number, its branches and the geometry hanging off each one.
 
+Planned work, one doc each. These are reconnaissance, not plans — what is already in the
+tree, what the data looks like, and where the first hour should go. **Put findings in the
+topic doc, not here**; this file only keeps the pointer.
+
+- `CAMPAIGN-EDITOR.md` — an external GUI for authoring campaigns and scenarios. Headline:
+  **an editor already exists** (`src/campaign/camptool/`, a Win32 dialog app in the solution)
+  but `CAMPTOOL` is only defined in the Debug configs, so it compiles to nothing in Release.
+  First question is how much of it still works, which one Debug|x64 build answers.
+- `RENDER-LIGHTING.md` — lighting redo, cockpit shadows, the missile fin flicker, and GT7
+  tone mapping. Headline: **the renderer is LDR end to end** (`R8G8B8A8_UNORM` swapchain, no
+  HDR target, no global tone-map pass), so the GT7 curve is not a drop-in — the HDR pipeline
+  is the project and the curve is its last step. Also: no shadow machinery exists at all.
+- `COCKPIT-OVERHAUL.md` — textures, fonts, shading. Headline: the cockpit displays use a
+  **three-size GIF+`.rct` bitmap font set** in `art/ckptart/`, entirely separate from the
+  `.bft` menu fonts, and `g_rttFontScale` magnifies glyph geometry without touching UVs — so
+  the source bitmap is a hard ceiling on sharpness, and better display type means new atlases
+  or SDF glyphs, not tuning.
+
 ---
 
 ## THE LIVE TASK: recon crashes when map-detail logging is on
@@ -501,6 +519,60 @@ Measured with `tools/models/objsurvey.py` against the shipped `KoreaObj`.
 - **`3dbuttons.dat` coordinates are model units × −569** (its own header says so). That is
   how to confirm a click hotspot lands on the geometry it is supposed to drive.
 
+### The RTT display canvases (3Dckpit.dat) and the 3D kneeboard
+
+- **A depth-TESTED RTT composite needs `g_bScreenPrimDepthFromQ`, or it is pinned to the far
+  plane and never draws.** The 2D screen path emits `sz = 0.0` for screen prims, which under
+  reversed-Z is the FAR plane (`context.cpp:2585`). `DrawRttQuad` used to set the flag only for
+  the HUD-occlusion case, so a canvas asking for blend `t` (`STATE_TEXTURE`: opaque and
+  depth-tested) failed the depth test against everything in the pit and was invisible --
+  correctly placed, atlas zone full, click hotspot working, nothing on screen. Now derived from
+  the state itself (`FFMapState(...).depthTest`), so any depth-testing composite gets real
+  depth. States that do not test ignore `sz` entirely, so nothing else changed.
+- **Corollary for debugging a missing RTT quad: change ONE variable.** Moving the kneeboard to
+  the HUD *and* switching blend `t`->`c` in the same test proved only that some combination
+  worked, and pointed at placement when the cause was the blend.
+
+- **`Render2D::Render2DTri` does not clip, it REJECTS.** If any vertex falls outside the
+  viewport the whole triangle is dropped (`render2d.cpp:301`). A vertex at exactly +/-1.0 maps
+  to exactly `rightPixel`/`topPixel`, so surviving is a floating-point coin flip — a full-zone
+  fill drawn at +/-1.0 silently vanishes. Inset it. `Render2DLine` has no such test, which is
+  why symbology never hits this and filled backgrounds do. (Same function already carries a
+  fix comment for TRIANGLES-vs-TRIFAN emitting zero indices; it is a trap-rich path.)
+
+- **Three coordinate frames, and they are not the same one.** `3Dckpit.dat` canvas points
+  are in a **pilot-eye** frame: x forward, y right, **z down**, one unit =
+  `1 / RTT_POSITION_SCALING` ft = **1.159 in**. `3dbuttons.dat` hotspots are the same frame
+  × **−56.9**. The BSP model's own coordinates are feet in the *aircraft* frame and share
+  neither origin nor scale. Derived by matching the left MFD's OSB hotspots to the
+  `mfdleft` canvas, and cross-checked against the HUD combiner (5.5 units = 6.6 in wide,
+  which is the real one).
+- **A canvas quad can pitch but cannot roll or yaw.** `DrawRttQuad` builds the fourth
+  corner as `(ll.x, ur.y, ll.z)`, so `ul`/`ur` must share x and z and `ul`/`ll` must share y.
+- **The blend char in the dat decides whether it looks like a display or like an object.**
+  `c` → `STATE_CHROMA_TEXTURE_GOURAUD2`, which `DrawRttQuad` rewrites to the additive
+  emissive composite — right for symbology, and **drawn over everything**. `t` →
+  `STATE_TEXTURE`: opaque, **depth-tested**, so it is occluded by the pit. The depth buffer
+  still holds the cockpit at composite time: the `ClearZBuffer()` just before `VCock_Exec`
+  is a genuine no-op (`ContextMPR::ClearBuffers` only clears the *colour* RTT, and only
+  during the RTT batch).
+- **The atlas is the scarce resource.** 768×768 base, hardcoded — `rttTarget` in the dat is
+  parsed and then overwritten with `768 * g_rttSS`. Stock occupancy is 55%; the kneeboard
+  took the last usable portrait block, `432 452 668 766`. Zones and the font scale are both
+  multiplied by `g_rttSS` (3), so a zone's *base* size sets the apparent text density and
+  the SS factor only buys sharpness.
+- **`CockpitManager::Exec` runs in `Mode2DCockpit` only**, so no `CPObject` ticks in the 3D
+  pit. Anything the 3D pit shares with a 2D cockpit object has to be driven from
+  `VCock_Exec`. The 3D kneeboard owns its own `CPKneeView` for exactly this reason, and
+  shares `CockpitManager::mpKneeBoard` so the page state stays common to both boards.
+- **`VCock_Init` runs before the `CockpitManager` exists** (`OTWDriverClass::Setup` parses
+  the canvases first). Anything needing the manager must be built on first use.
+- **`Render2D::Render2DBitmap` puts a CPU raster into the atlas** with no new machinery:
+  during the RTT pass `AdjustRttViewport` sets the screen metric to the whole atlas, so its
+  destination is in atlas pixels (`VirtualDisplay::GetRttRect`). That is how the kneeboard's
+  map page gets its bitmap. It creates and destroys a temp texture **per call**, so it is a
+  per-frame upload — see Known open.
+
 **The detail layer is a stand-in, not a different map.** `MapRect_`, `CenterX_`, `scale_`,
 `FEET_PER_PIXEL`, the zoom clamps, `CampGridToOverlay` and every icon position still speak
 in whole-theater base-map pixels and were not edited. `C_ScaleBitmap::SetDetail` swaps only
@@ -518,6 +590,13 @@ normalised to 256² on load).
 | Item | State |
 |---|---|
 | Damage does not feed **link cost** | A dropped bridge is expensive to cross but pathfinding still routes over it. Touches everything walking the objective graph. |
+| 3D kneeboard map page uploads every frame | `Render2DBitmap` → `DrawBitmap2D` creates and destroys a temp texture per call. The raster itself is throttled (the map window is fixed for a mission), but the upload is ~2.7 MB/frame at the stock 3× supersample. Fix if it costs frames: keep a persistent `TextureHandle` and draw a textured fan, as `RenderGMComposite::DrawComposite` does. |
+| 3D kneeboard | Works: board on the right thigh, three pages, click to cycle, own font (`g_nKnee3DFont`). Placement and blend live in the `kneeboard` line of `3Dckpit.dat` — data, no rebuild. The `[knee]` bring-up trace in `vcock.cpp` is still in and should come out. |
+| **CPU near-clip is 1.0 ft while the GPU near plane is 0.2** | **Root-caused and fixed 2026-09-19.** `NEAR_CLIP_DISTANCE` (clipflags.h) is 1.0 ft; `ContextMPR::ZNEAR` is 0.2. Nothing in the pit had ever been within a foot of the eye (HUD/MFD/DED all ~2 ft), so the gap never showed. The 3D kneeboard sits at ~1 ft and straddles it. Worse, `polylibclip.cpp:39` does not reject -- it PUSHES the vertex out to `NEAR_CLIP_DISTANCE`, so the near corner jumped 0.4 ft -> 1.0 ft and the quad folded along the diagonal `DrawSquare` splits it on. Measured in the headset: LL `csZ` 0.38..1.07 with `CLIP_NEAR` (0x10) toggling on an inch of head movement. Fixed surgically in `DrawRttQuad` (drop CLIP_NEAR when the vertex is in front of the real near plane; the GPU clips at 0.2 as configured). **Open, wider:** the same 1.0 ft clip still applies to ALL BSP geometry, so any cockpit surface within a foot of your eye in VR is being clipped and displaced. Lowering the constant globally is the principled fix and needs its own testing -- it touches terrain and objects too. |
+| **RTT panels drift against the cockpit when the head moves (VR)** | Confirmed in the headset 2026-09-18: HUD/DED/MFD/RWR all slide against the pit geometry as the head leans, the kneeboard worst. This is the `#61` "residual head-coupled drift / parallax-frame reconciliation" already noted in `vcock.cpp:4703`, not new. Two concrete leads, both measured: (a) RTT quads are placed at `canvas / RTT_POSITION_SCALING` = **/10.35**, but the cockpit model is at **canvas / 10** exactly (calibrated against switch 138, the CAT lever) -- so every panel sits at 96.6% of its intended distance from the cockpit origin, ~0.8 in for the HUD; (b) `rttWorldCam` is on by default because `g_bHud3DGlass` defaults true, so the world-frame path (`RttWorldXform`, camera = `headOrigin`) is the live one -- the legacy `Pan = headPan * 10.35` path is NOT what is running. **Measured 2026-09-19 and both leads were WRONG**: `xrEye` and `gpuScreen` agree (2720x2976, so the prior panel-drift fix works and there is no quad-view size mix-up), and the projected corner depths match the geometry exactly. The real cause was the CPU near-clip row above. The 10 vs 10.35 scale error is real but is a ~0.8 in static offset, not drift. **Amplifier for testing: the 3D kneeboard** -- closest panel to the eye and viewed most obliquely, so it shows the error at ~10x the magnitude of an MFD. |
+| **Grey sliver at the horizon at high altitude (VR)** | Reported 2026-09-19 with a screenshot: a thin dark-grey horizontal band at/near eye level, tracking head orientation. **Altitude-gated: present at ~40k ft, completely gone at 30k.** (User also thought it survived clear weather but explicitly asked that not be taken as confirmed -- do not rely on it.) **Leading suspect: the sky haze band / horizon filler** in `otwsky.cpp` -- a screen-space haze-colour band positioned by `tan(Pitch() + angleOfDepression)`, drawn BEHIND the terrain and deliberately over-extended downward by `g_fHorizonFillerExtend` (default 8.0, recently raised from 4.0) on the assumption that "terrain draws on top where it exists, so over-extending is safe -- it only shows in the gaps". That assumption fails at altitude, where the terrain mesh ends before the visible horizon and the filler is left exposed against sky. Screen-space => tracks the head; `angleOfDepression` => altitude-gated; no cloud involvement => weather-independent. **TESTED 2026-09-19: `g_fHorizonFillerExtend 0` made NO difference -- the filler EXTENSION is ruled out.** Note that 0 does not remove `DrawSkyHazeBand` itself, only its downward stretch, so the band proper is not fully excluded -- but a screen-space band would be perfectly straight and the sliver visibly UNDULATES in the screenshot, which says terrain following ground elevation. Current lead: the outermost terrain ring / fartiles seam, supported by `L3 noSrv=150090 of 304130` in the same log. Next test (no rebuild): `set g_bTerrainMeshDebugTint 1` (flat per-LOD tint) -- if the sliver takes a ring colour it is terrain and the colour names the LOD; if it stays grey it is not terrain at all. **TESTED: `TerrainMeshDebugTint 1` -- the sliver does NOT take a per-LOD tint, so it is NOT terrain.** And the user reports it is BLACK, i.e. nothing drawn there. **Current best explanation: the near/far terrain seam, uncovered since the 3D skydome landed.** `RenderOTW::DrawSky` returns immediately after `DrawSkyDome()` when `g_b3DSky` (default TRUE, #96), so `DrawSkyNoRoof`/`DrawSkyBelow`/`DrawSkyAbove` -- and with them the horizon FILLER whose entire purpose is to cover "a black contour stripe" at the fartiles seam with ground haze -- are DEAD CODE in a stock build. That is also why the `HorizonFillerExtend` test was meaningless: the knob is only read by a path that never runs. Black = the gap; undulating = it follows the terrain seam; altitude-gated = nearer terrain covers the seam lower down. Confirm with `set g_b3DSky 0` (no rebuild) -- if the sliver disappears, the fix is to give the skydome path the filler's gap-covering job, NOT to turn the dome off. **Ruled out: `Drawable2DCloud`** (the flat overcast quad) -- `RealWeather::Setup` only allocates `real2DClouds`/`real3DClouds` under `if (not DisplayOptions.bZBuffering)`, and `bZBuffering` defaults TRUE (`dispopts.cpp:51`), so those drawables are never created. Still unidentified. Next discriminator: does it sit at a fixed WORLD altitude or always at eye level, and does it survive clear weather. |
+| Half the farthest terrain ring draws with no texture | Seen in the user's `[terr-mesh]` log, not reported as a symptom: `L3 lod=4 ... posts=304130 tiled=154040 noSrv=150090` -- 49% of the far ring has no texture SRV resident (L2 is 16%). `tex=0` on those rows is NOT "untextured", it means `lod > TheMap.LastNearTexLOD()` so they index the FAR texture set (see the terrain facts above). Worth chasing on its own: the far ring is the horizon, and untextured posts there are flat grey. |
+| Dead 2D/3D cloud path has two latent bugs | Only reachable with Z-buffering OFF, so harmless today. (a) `Drawable2DCloud::Update()` is never called from anywhere, so `position` and `cloudTexture` are never assigned -- and `DrawableObject`'s constructor does not initialise `position`, so `Draw()` would build an 80,000 ft quad from uninitialised memory. (b) `RealWeather::Setup`'s `for` loop calls `real2DClouds[i].Setup()` and `real3DClouds[i].Setup()` OUTSIDE the `if (cumulusList)` / `if (stratusList)` guards that allocate them -- if only one list exists, the other array is NULL and this is a null deref. |
 | Missile fin flicker | Long-standing. Per-surface `dwzBias` was restored and did **not** fix it — do not re-chase that. |
 | Objective icons shaded by health | Asked for, not built. The *Damage overlay layer* exists but must be switched on; the request was to darken the red icons themselves. |
 | Pale circles on the campaign map | Pre-dates this work. Ruled out: Logistics overlays, threat rings (`ShowCircles` is inside `#if 0`), the terrain basemap, the waypoint list. They sit near steerpoints and airfields. Cheap test: zoom in and out — map imagery scales, drawn marks do not. |
