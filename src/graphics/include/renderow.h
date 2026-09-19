@@ -311,6 +311,10 @@ protected:
     void DrawSkyBillboard(const void *dir, float R, float sz, float r, float g,
                           float b, void *srv = 0, float a = 1.0f,
                           float flatten = 1.0f, bool additive = false);
+    // Artscout - 2026 (#96 follow-up): the 2D sky's terrain-seam filler, run over the 3D skydome.
+    // The dome replaced the 2D sky wholesale and left the seam uncovered -- a black sliver at the
+    // horizon above ~35k ft. See otwsky.cpp.
+    void DrawHorizonFillerOverDome(void);
     void DrawSkyNoRoof(void);
     void DrawSkyAbove(void);
     void DrawSkyBelow(void);

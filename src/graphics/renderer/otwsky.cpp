@@ -144,8 +144,14 @@ BOOL RenderOTW::DrawSky(void)
     if (g_b3DSky)
     {
         DrawSkyDome();
+
         if (skyRoof and viewpoint->Z() < -SKY_ROOF_HEIGHT)
             return FALSE; // above the deck: ground hidden
+
+        // Artscout - 2026: the one thing the dome did not inherit from the 2D sky -- covering the
+        // near/far terrain seam. See DrawHorizonFillerOverDome. Ground is visible here (we did not
+        // return above), so there is a seam to cover.
+        DrawHorizonFillerOverDome();
         return TRUE;
     }
 
@@ -173,6 +179,93 @@ BOOL RenderOTW::DrawSky(void)
     context.m_2DPrimZ =
         1.0f; // restore NEAR plane for UI/HUD 2D primitives (reversed-Z: near = 1.0)
     return needTerrain;
+}
+
+
+/***************************************************************************    Artscout - 2026 (#96 follow-up): the horizon filler, for the 3D skydome path.
+
+    DrawSky() returns immediately after DrawSkyDome() when g_b3DSky, so the whole 2D sky --
+    DrawClearSky, DrawSkyHazeBand, DrawFillerToHorizon, stars, sun, moon -- is dead code in a
+    stock build. The dome legitimately replaces all of it but ONE: DrawFillerToHorizon was not
+    drawing sky, it was covering the near/far (fartiles) TERRAIN SEAM with ground haze, "instead
+    of a black contour stripe" (see the note in its caller). Nothing took that job over.
+
+    Symptom, reported 2026-09-19 and reproduced: a black, slightly undulating sliver at the
+    horizon, present at ~40k ft and gone by 30k -- the altitude where you look down steeply
+    enough to see past the near terrain to the seam. Black because nothing is drawn there;
+    undulating because it follows the seam. Confirmed by g_b3DSky 0 making it disappear, which
+    is a diagnostic and not a fix (it costs the 3D sun/moon/stars).
+
+    So: run JUST the filler, over the dome. Deliberately the filler ALONE -- no clear, no haze
+    band, no celestial objects. Those are the dome's, and drawing them twice would fight it. The
+    geometry below is the subset of DrawSkyNoRoof's horizon record that DrawFillerToHorizon
+    actually reads: the horizon line, the bottom of the filler band, the VR off-axis shift and
+    the sunrise/sunset tint.
+\***************************************************************************/
+void RenderOTW::DrawHorizonFillerOverDome(void)
+{
+    HorizonRecord horizon;
+
+    const float vpZ = -viewpoint->Z();
+
+    if (vpZ <= 0.0f)
+        return;
+
+    const float top = Pitch() + diagonal_half_angle;
+    const float bottom = Pitch() - diagonal_half_angle;
+
+    // How far below centre the edge of the terrain data is.
+    const double angleOfDepression = atan2(vpZ, viewpoint->GetDrawingRange());
+
+    // Same gate as the 2D path: only when the band between the terrain edge and the horizon is
+    // actually on screen.
+    if (not(top > -angleOfDepression and bottom < 0.0f))
+        return;
+
+    const float cR = (float)cos(Roll());
+    const float sR = (float)sin(Roll());
+    const float pixelWidth = (float)sqrt(scaleX * scaleX + scaleY * scaleY);
+
+    horizon.hx = pixelWidth * cR;
+    horizon.hy = pixelWidth * -sR;
+
+    // The real horizon line.
+    double percentHalfXscale = tan(Pitch()) * oneOVERtanHFOV;
+    float pixelDistance = scaleX * (float)percentHalfXscale;
+    horizon.vx = pixelDistance * sR;
+    horizon.vy = pixelDistance * cR;
+
+    // The bottom of the terrain-to-horizon filler band. tan blows up at +-90 deg; the 2D path
+    // substitutes a large constant there and so do we.
+    percentHalfXscale = Pitch() + angleOfDepression;
+
+    if (percentHalfXscale < PI_OVER_2)
+        percentHalfXscale = tan(Pitch() + angleOfDepression) * oneOVERtanHFOV;
+    else
+        percentHalfXscale = 10.0f;
+
+    pixelDistance = scaleX * (float)percentHalfXscale;
+    horizon.vxDn = pixelDistance * sR;
+    horizon.vyDn = pixelDistance * cR;
+
+    // Over-extend downward exactly as the 2D path does -- the filler sits behind the terrain, so
+    // it only shows in the gaps and reaching too far costs nothing.
+    extern float g_fHorizonFillerExtend;
+    horizon.vxDn += (horizon.vxDn - horizon.vx) * g_fHorizonFillerExtend;
+    horizon.vyDn += (horizon.vyDn - horizon.vy) * g_fHorizonFillerExtend;
+
+    ShiftHorizonOffAxis(&horizon, -m_vrOffAxisX * scaleX,
+                        -m_vrOffAxisY * scaleY, sR, cR);
+
+    // Sunrise/sunset tint, so the filler matches the haze it is standing in for.
+    ComputeHorizonEffect(&horizon);
+
+    // The filler is a 2D screen primitive: push it to the FAR plane like the rest of the 2D sky
+    // path does, or it lands in front of the world and the cockpit. Restored on the way out.
+    const float savedPrimZ = context.m_2DPrimZ;
+    context.m_2DPrimZ = 0.0f;
+    DrawFillerToHorizon(&horizon);
+    context.m_2DPrimZ = savedPrimZ;
 }
 
 
