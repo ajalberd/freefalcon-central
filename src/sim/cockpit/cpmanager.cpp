@@ -6095,8 +6095,13 @@ void CockpitManager::GetCockpitFill(float *rgb)
     const float flood = (float)pAircraft->GetInteriorLight() / 2.0f;
     const float inst = (float)pAircraft->GetInstrumentLight() / 2.0f;
 
+    // PitFillScale: 1.0 = the values the 2D art is tinted by; 0 = no fill (the model's own lamps
+    // still light the pit, just as weakly as they always did).
+    extern float g_fPitFillScale;
+    const float k = (g_fPitFillScale > 0.0f) ? g_fPitFillScale : 0.0f;
+
     for (int i = 0; i < 3; ++i)
-        rgb[i] = mFloodLight[i] * flood + mInstLight[i] * inst;
+        rgb[i] = (mFloodLight[i] * flood + mInstLight[i] * inst) * k;
 }
 
 //====================================================//
