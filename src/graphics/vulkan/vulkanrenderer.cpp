@@ -2210,6 +2210,12 @@ void VulkanRenderer::BeginObjectPass()
     m->skyNoFog =
         false; // #15: only the sky dome suppresses fog; objects/terrain (BeginTerrainPass calls this) fog normally
     m->stateFlags = FF_VERTEXCOLOR | FF_LIGHTING | FF_ALPHATEST;
+    {
+        // Artscout - 2026: per-pixel object lighting (see FF_PIXELLIGHT in ffstatemap.h).
+        extern bool g_bObjPixelLight;
+        if (g_bObjPixelLight)
+            m->stateFlags |= FF_PIXELLIGHT;
+    }
     if (m->nvg)
         m->stateFlags |=
             FF_NVG; // #97 green the cockpit / aircraft / world objects

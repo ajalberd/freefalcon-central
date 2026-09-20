@@ -369,6 +369,7 @@ public:
     bool MeshShaderSupported() const;
     bool MeshTerrainAvailable() const;
     void SetObjectDepthBias(int level);
+    void SetObjectCull(int mode);
     bool CreateTerrainClipmap(int texels, int levels, int chunksPerSide);
     void UpdateTerrainClipmap(int level, int x, int y, int w, int h,
                               const void* postRgba32f, const void* infoR32u);

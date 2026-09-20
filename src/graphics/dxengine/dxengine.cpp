@@ -98,6 +98,7 @@ TextureHandle *CDXEngine::ZeroTex;
 StencilModeType CDXEngine::m_StencilMode;
 DWORD CDXEngine::m_StencilRef;
 bool CDXEngine::m_PitMode;
+bool CDXEngine::m_SurfacePit;
 
 DX_StateType CDXEngine::m_RenderState;
 DWORD CDXEngine::m_StatesStackLevel;
@@ -562,6 +563,8 @@ DWORD CDXEngine::PushSurface(SurfaceStackType *Stack, D3DXMATRIX *State)
         Stack->Stack[l].TexID = m_TexID;
         Stack->Stack[l].ObjInst = m_TheObjectInstance;
         Stack->Stack[l].FogLevel = m_FogLevel;
+        Stack->Stack[l].Pit =
+            m_PitMode; // Artscout - 2026: carry the pit flag to the deferred flush
         memcpy(Stack->Stack[l].LightMap, TheLightEngine.LightsToOn,
                sizeof(Stack->Stack[l].LightMap));
     }
@@ -596,6 +599,8 @@ bool CDXEngine::PopSurface(SurfaceStackType *Stack, D3DXMATRIX *State)
         m_TexID = Stack->Stack[l].TexID;
         m_TheObjectInstance = Stack->Stack[l].ObjInst;
         m_FogLevel = Stack->Stack[l].FogLevel;
+        m_SurfacePit =
+            Stack->Stack[l].Pit; // Artscout - 2026: pit flag for DrawSurface's cull decision
         memcpy(TheLightEngine.LightsToOn, Stack->Stack[l].LightMap,
                sizeof(TheLightEngine.LightsToOn));
         return true;
@@ -618,6 +623,8 @@ bool CDXEngine::GetSurface(DWORD Level, SurfaceStackType *Stack,
         m_TexID = Stack->Stack[Level].TexID;
         m_TheObjectInstance = Stack->Stack[Level].ObjInst;
         m_FogLevel = Stack->Stack[Level].FogLevel;
+        m_SurfacePit =
+            Stack->Stack[Level].Pit; // Artscout - 2026: pit flag for DrawSurface's cull decision
         memcpy(TheLightEngine.LightsToOn, Stack->Stack[Level].LightMap,
                sizeof(TheLightEngine.LightsToOn));
         return true;
@@ -835,6 +842,18 @@ void CDXEngine::DrawSurface()
                         (g_bUseVulkan ? m_VB.VbVulkan : (void *)m_VB.VbD3D11);
         if (g_pRenderer and vbh)
         {
+            // Artscout - 2026: D3D7-parity back-face culling for object surfaces (see g_nObjCullMode).
+            // The models carry two coincident windings on every thin fin; unculled, both rasterise at
+            // the same depth and the tie-break speckles the fin between the two opposite-shaded sides.
+            // The pit path (m_SurfacePit) covers the 3D pit AND the stores attached to it -- the
+            // player's own wing missiles ride it, which is why the fins kept flickering while every
+            // other object was already culled. g_bObjCullPit=0 keeps the old no-cull for that path.
+            {
+                extern int g_nObjCullMode;
+                extern bool g_bObjCullPit;
+                g_pRenderer->SetObjectCull((m_SurfacePit and not g_bObjCullPit) ? 0 : g_nObjCullMode);
+            }
+
             // per-model buffer: vertices from 0, baseVertex=0, indices 0-based as is.
             void *idxPtr = m_NODE.BYTE + sizeof(DxSurfaceType);
 
@@ -1566,6 +1585,8 @@ inline void CDXEngine::DrawNode(ObjectInstance *objInst, DWORD LightOwner,
             break;
         }
 
+        m_SurfacePit =
+            m_PitMode; // Artscout - 2026: immediate draw -- cull decision follows the live pit flag
         DrawSurface();
         break;
 
@@ -1843,6 +1864,15 @@ void CDXEngine::DrawSortedAlpha(DWORD Level, bool SetupMode)
     // Initialize data parameters
     if (SetupMode)
         FlushInit();
+
+    // Artscout - 2026: this is a MODEL alpha surface (`POLY_3DOBJECT`), not a 2D sprite, and in
+    // D3D7 it was drawn with the object-pass lighting state. The port inherited whatever 2D state
+    // ran last -- texture + vertex colour, NO lighting -- so glass surfaces never responded to
+    // outside brightness (the F-16's gold canopy stayed gold at night). Restore the object pass
+    // base flags; DrawSurface still re-issues the per-surface caches (texture, specular, dwzBias,
+    // emissive / afterburner). Called per item, because 2D items can run between 3D ones.
+    if (g_pRenderer)
+        g_pRenderer->BeginObjectPass();
 
     // Setup Alpha features
     if (g_pRenderer) // PHASE 5: sorted transparency (D3D7 removed #34)

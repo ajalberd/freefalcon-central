@@ -75,6 +75,14 @@ enum FFFlags
         << 19, // Artscout - 2026 (#107): sample the base texture from the resident heap by the
     // per-vertex slot instead of t0. Set only by DrawTerrainMeshBindless; same bit and
     // meaning as FF_BINDLESS in the Vulkan shader.
+    // Artscout - 2026: per-PIXEL object lighting. The light model (sun + point/spot) is the same;
+    // the question is only WHERE it is evaluated. Off (legacy): per-vertex Gouraud -- a lamp's
+    // contribution is computed at the triangle corners and interpolated, so a small-range lamp
+    // (an air-intake light with a 3 ft range) smears its colour across whole low-poly panels.
+    // On: the VS passes the world normal/position/view vector and the PS evaluates the light loop
+    // (and the Blinn-Phong specular) per pixel -- the lamp falls off at its real range.
+    // Set by the backends' BeginObjectPass from g_bObjPixelLight; terrain/2D never set FF_LIGHTING.
+    FF_PIXELLIGHT = 1u << 20,
 };
 
 // Coarse buckets the ~38 states collapse into. Each names a small set of D3D11

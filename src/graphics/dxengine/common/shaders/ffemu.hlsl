@@ -95,6 +95,13 @@ cbuffer cbViewStereo : register(b5)
 #define FF_BINDLESS     (1u << 19)  // Artscout - 2026 (#107): sample the base texture from the resident heap by
                                     // the per-vertex slot instead of t0. Set only by DrawTerrainMeshBindless;
                                     // same bit as FF_BINDLESS in the Vulkan shader and in ffstatemap.h.
+#define FF_PIXELLIGHT   (1u << 20)  // Artscout - 2026: per-PIXEL object lighting (see FFObjectLighting below).
+                                    // The light model is unchanged; the VS then leaves the vertex colour unlit and
+                                    // passes the world normal/position/view vector, and the PS runs the light loop
+                                    // and the Blinn-Phong specular per pixel. Fixes small lamps smearing their
+                                    // colour across whole low-poly panels (Gouraud interpolation). Set by the
+                                    // backends' BeginObjectPass from g_bObjPixelLight; terrain/2D never set
+                                    // FF_LIGHTING so they are unaffected. Same bit as ffstatemap.h.
 #define FF_NVG          (1u << 16)  // Artscout - 2026: #97 night-vision goggles -- recolor the fully-composed world
                                     // colour to green phosphor + tube gain. Set on the WORLD passes (terrain/objects/
                                     // cockpit/sky) when NVG is on, so everything seen through the goggles goes green.
@@ -260,6 +267,13 @@ struct VSOut
     // Artscout - 2026 (#107): the tile slot, flat -- it is per vertex of a tile, not something to blend.
     nointerpolation uint TexIndex : TEXCOORD6;
 #endif
+    // Artscout - 2026: per-pixel lighting inputs (FF_PIXELLIGHT). The world-space normal and the
+    // camera->point vector are interpolated and normalized in the PS; unused when the flag is clear.
+    float3 Nrm    : TEXCOORD7;
+    float3 View   : TEXCOORD8;
+    // Artscout - 2026: the vertex EMISSIVE colour, needed by the PS for FF_EMISSIVE surfaces once the
+    // emissive is ADDED to the lit material (D3D7) instead of replacing it. See ObjectVSCore.
+    float3 Emis   : TEXCOORD9;
 };
 
 //============================ Helpers ========================================
@@ -269,6 +283,82 @@ float ComputeFog(float viewDepth)
     // Linear fog, matching D3DFOG_LINEAR.
     float f = saturate((gFogEnd - viewDepth) / max(gFogEnd - gFogStart, 1e-4));
     return f;
+}
+
+// Artscout - 2026: the object light model, in ONE place, so the vertex shader (legacy Gouraud,
+// FF_PIXELLIGHT clear) and the pixel shader (FF_PIXELLIGHT set) can never drift apart.
+//   N       world-space normal (normalized)
+//   wpos    camera-relative world position of the point being lit
+//   viewVec camera -> point vector (unnormalized is fine)
+//   lit     ambient + summed sun/point/spot contribution (saturate at the call site)
+//   spec    Blinn-Phong highlight from light 0 (the main source), already coloured
+// Everything here reads gFlags/gAmbient/gLights/gSpecular, so it behaves identically in both stages.
+void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, out float3 lit, out float3 spec)
+{
+    // #72 cockpit: build depth by BRIGHTENING sun-lit faces; the ambient floor stays (uniform
+    // darkening muddies an already dark pit) but its level follows the sun so the pit goes dark at night.
+    float ambScale = 1.0f;
+    const float sunScale = (gFlags & FF_COCKPIT) ? 1.25f : 1.0f;
+    if (gFlags & FF_COCKPIT)
+    {
+        const float sunLvl = (gNumLights > 0) ? dot(gLights[0].Color.rgb, float3(0.299f, 0.587f, 0.114f)) : 1.0f;
+        ambScale = clamp(sunLvl, 0.06f, 1.0f);
+    }
+
+    lit = gAmbient.rgb * ambScale;
+    [loop] for (uint l = 0; l < gNumLights; ++l)
+    {
+        GpuLight L = gLights[l];
+        float3 Ldir;
+        float  atten = 1.0f;
+        if (L.Params.y < 0.5f)              // directional (sun) -- no attenuation
+            Ldir = -normalize(L.Direction.xyz);
+        else                                // point/spot (dynamic: lamps, muzzle flashes, explosions)
+        {
+            float3 toL = L.Position.xyz - wpos;
+            float  dist = length(toL);
+            Ldir = toL / max(dist, 1e-3f);
+            // linear range attenuation (Params.x=range) -> the lamp lights only
+            // nearby, not the whole world. Otherwise every flash would light the entire scene.
+            atten = saturate(1.0f - dist / max(L.Params.x, 1.0f));
+            // Artscout - 2026: spot cone. Params.y = 2 (spot), z = cos(outer half-angle),
+            // w = cos(inner half-angle), Direction = beam axis. Every port light was an omni
+            // point, so the F-16's anti-collision beacon (a ~5 degree beam, range 1500 ft)
+            // lit the whole jet and every store within its range instead.
+            if (L.Params.y > 1.5f)
+            {
+                const float cosA = dot(Ldir, -normalize(L.Direction.xyz)); // 1 = on the beam axis
+                atten *= saturate((cosA - L.Params.z) / max(L.Params.w - L.Params.z, 1e-4f));
+            }
+        }
+        // #72 boost only the directional (sun) term for the cockpit -- point lights (muzzle
+        // flashes/explosions) keep their own intensity so a flash doesn't over-blow the pit.
+        float lScale = (L.Params.y < 0.5f) ? sunScale : 1.0f;
+        lit += L.Color.rgb * max(dot(N, Ldir), 0.0f) * atten * lScale;
+    }
+    if (gFlags & FF_FULLBRIGHT) lit = float3(1.0f, 1.0f, 1.0f);   // #97 unlit: full material colour (exit menu)
+
+    // Specular (Blinn-Phong) from the MAIN source (light 0 = sun/NVG). gSpecular.rgb = highlight
+    // colour (from the surface material), gSpecular.w = power. Added in the PS on top of the texture.
+    // #72 cockpit: most pit surfaces carry NO material specular -> give them a subtle default so
+    // knobs/glass glint as the head moves (VR).
+    spec = float3(0, 0, 0);
+    float  specPow = gSpecular.w;
+    float3 specCol = gSpecular.rgb;
+    if ((gFlags & FF_COCKPIT) && specPow <= 0.0f)
+    {
+        specPow = 20.0f;
+        specCol = float3(0.10f, 0.10f, 0.10f);
+    }
+    if (specPow > 0.0f && gNumLights > 0)
+    {
+        float3 V  = normalize(viewVec);
+        GpuLight L0 = gLights[0];
+        float3 Ls = (L0.Params.y < 0.5f) ? -normalize(L0.Direction.xyz) : normalize(L0.Position.xyz - wpos);
+        float3 H  = normalize(Ls + V);
+        float  s  = pow(max(dot(N, H), 0.0f), specPow);
+        spec = specCol * L0.Color.rgb * s;
+    }
 }
 
 //============================ Vertex shaders =================================
@@ -299,6 +389,9 @@ VSOut VS_Screen(VSInScreen i)
     o.FogF = (gFlags & FF_FOG) ? ComputeFog(wv) : 1.0f;
     o.Spec = float3(0, 0, 0);   // screen/2D path with no specular (otherwise the PS adds garbage)
     o.WPos = float3(0, 0, 0);   // #13: no world position in the 2D path (FF_CLOUD never runs here)
+    o.Nrm = float3(0, 0, 1);    // per-pixel lighting inputs: unused here
+    o.View = float3(0, 0, 0);
+    o.Emis = float3(0, 0, 0);
     o.ViewId = 0;
 #if FF_BINDLESS_OK
     o.TexIndex = 0xFFFFFFFFu;   // #107: the 2D path has no tile slot -- the PS falls back to t0
@@ -318,6 +411,10 @@ VSOut ObjectVSCore(VSInObject i, float4x4 wmat, float4x4 vmat, float4x4 pmat, fl
     float4 viewPos  = mul(worldPos, vmat);
     o.Pos = mul(viewPos, pmat);
     o.WPos = worldPos.xyz;   // #13 camera-relative world pos -> the PS reconstructs the view ray for FF_CLOUD
+    // Artscout - 2026: per-pixel lighting inputs. The normal and the camera->point vector travel to
+    // the PS, which normalizes both (interpolated normals are not unit length).
+    o.Nrm  = mul(i.Normal, (float3x3)wmat);
+    o.View = camWorld - worldPos.xyz;
     o.ViewId = 0;            // #13 overridden by VS_ObjectVI; the flat path renders one view into slice 0
 #if FF_BINDLESS_OK
     o.TexIndex = i.TexIndex; // #107 tile slot, carried through untouched
@@ -329,6 +426,7 @@ VSOut ObjectVSCore(VSInObject i, float4x4 wmat, float4x4 vmat, float4x4 pmat, fl
     // to white by lighting (day=white, sunset=gray).
     float4 col = i.Color;
     o.Spec = float3(0, 0, 0);   // specular (filled when FF_LIGHTING + gSpecular.w>0)
+    o.Emis = i.Emissive.rgb;    // the PS needs it for FF_EMISSIVE (see below)
 
     // #49 self-illuminated (D3D7 SwEmissive: afterburner cone, lights): use the EMISSIVE vertex
     // color (COLOR2 / dwSpecular -- the bright flame/light color in D3D7) and do NOT darken by
@@ -340,81 +438,42 @@ VSOut ObjectVSCore(VSInObject i, float4x4 wmat, float4x4 vmat, float4x4 pmat, fl
     }
     else if (gFlags & FF_EMISSIVE)
     {
-        col.rgb = i.Emissive.rgb;   // self-illuminated flame/light color (keep diffuse alpha)
+        // Artscout - 2026: D3D7 semantics -- the EMISSIVE term is ADDED to the lit material
+        // (materialDiffuse * (ambient + sum lights) + materialEmissive), it does not replace it.
+        // The old shortcut (col = emissive) rendered the F-16's thin formation-light strips as flat
+        // saturated red/green panels -- the "intake red" patches. NOTE this is about LIGHT surfaces;
+        // the afterburner keeps its own override above (that mapping is deliberate, #49).
+        if (gFlags & FF_PIXELLIGHT)
+        {
+            o.Spec = float3(0, 0, 0); // the PS lights the surface and adds i.Emis afterwards
+        }
+        else
+        {
+            float3 N = normalize(mul(i.Normal, (float3x3)wmat));
+            float3 lit, spec;
+            FFObjectLighting(N, worldPos.xyz, camWorld - worldPos.xyz, lit, spec);
+            col.rgb = i.Color.rgb * saturate(lit) + i.Emissive.rgb;
+        }
     }
     else if (gFlags & FF_LIGHTING)
     {
-        // Per-vertex lighting: col = diffuse(dwColour) * saturate(ambient + lights).
-        // NOTE: dwSpecular (COLOR2) is NOT added as emissive -- in cockpit models it is
-        // near white (specular/fog encoding), and as emissive it blew the panels
-        // white. In D3D7 this is a subtle specular, not self-illumination.
-        float3 N = normalize(mul(i.Normal, (float3x3)wmat));
-
-        // #72 cockpit: the flat "cartoonish" look came from ambient lighting EVERY face to near-full
-        // brightness (no crevice shade, no gradient). Dampen the ambient FLOOR and boost the sun term
-        // for cockpit surfaces so the N.L gradient reads -- shadowed faces go darker, lit faces stay
-        // bright -> depth. World geometry keeps 1.0/1.0 (unchanged). Tune freely (runtime shader).
-        // #72 user feedback: cutting ambient made the (already dark) F-16 pit too dark -- uniform
-        // darkening muddies it (true crevice depth needs SSAO). So DON'T cut ambient (1.0); build depth
-        // ONLY by brightening the sun-lit faces (a gradient by adding light, never removing it).
-        float  ambScale = 1.0f;
-        float  sunScale = (gFlags & FF_COCKPIT) ? 1.25f : 1.0f;
-        // Artscout - 2026: #97 NIGHT cockpit. The pit was full-bright at night (ambient floor didn't drop). For
-        // cockpit surfaces, dim the AMBIENT by the SUN LEVEL (light 0 = sun -> dark at night) so the pit goes dark
-        // after dusk, lit only by the self-illuminated instruments (RTT displays, FF_EMISSIVE) + console lamps.
-        // Daytime is unchanged (sun ~ full -> ambScale ~ 1); a small floor keeps a hint of glow (moon/panel spill).
-        if (gFlags & FF_COCKPIT)
+        // Per-vertex OR per-pixel lighting -- ONE shared model (see FFObjectLighting), so the two
+        // paths cannot drift. Legacy: per-vertex Gouraud into the vertex colour. FF_PIXELLIGHT: the
+        // vertex colour stays unlit here and the PS evaluates the loop from o.Nrm/o.WPos/o.View.
+        // NOTE: dwSpecular (COLOR2) is NOT added as emissive -- in cockpit models it is near white
+        // (specular/fog encoding), and as emissive it blew the panels white: in D3D7 it is a subtle
+        // specular, not self-illumination.
+        if (gFlags & FF_PIXELLIGHT)
         {
-            float sunLvl = (gNumLights > 0) ? dot(gLights[0].Color.rgb, float3(0.299, 0.587, 0.114)) : 1.0f;
-            ambScale = clamp(sunLvl, 0.06f, 1.0f);
+            o.Spec = float3(0, 0, 0); // specular is per-pixel too (computed in PS_Main)
         }
-        float3 lit = gAmbient.rgb * ambScale;
-        [loop] for (uint l = 0; l < gNumLights; ++l)
+        else
         {
-            GpuLight L = gLights[l];
-            float3 Ldir;
-            float  atten = 1.0f;
-            if (L.Params.y < 0.5f)              // directional (sun) -- no attenuation
-                Ldir = -normalize(L.Direction.xyz);
-            else                                // point (dynamic: muzzle flashes/explosions)
-            {
-                float3 toL = L.Position.xyz - worldPos.xyz;
-                float  dist = length(toL);
-                Ldir = toL / max(dist, 1e-3f);
-                // linear range attenuation (Params.x=range) -> the lamp lights only
-                // nearby, not the whole world. Otherwise every flash would light the entire scene.
-                atten = saturate(1.0f - dist / max(L.Params.x, 1.0f));
-            }
-            // #72 boost only the directional (sun) term for the cockpit -- point lights (muzzle
-            // flashes/explosions) keep their own intensity so a flash doesn't over-blow the pit.
-            float lScale = (L.Params.y < 0.5f) ? sunScale : 1.0f;
-            lit += L.Color.rgb * max(dot(N, Ldir), 0.0f) * atten * lScale;
-        }
-        if (gFlags & FF_FULLBRIGHT) lit = float3(1.0f, 1.0f, 1.0f);   // #97 unlit: full material colour (exit menu)
-        col.rgb *= saturate(lit);
-
-        // Specular (Blinn-Phong, per-vertex) from the MAIN source (light 0 = sun/NVG).
-        // gSpecular.rgb = highlight color (from the surface material), gSpecular.w = power.
-        // Added in the PS ON TOP of the texture (like D3D7 SPECULAR), hence in o.Spec, not col.
-        // #72 cockpit: most pit surfaces carry NO material specular (SpecularIndex=0) -> matte/dead.
-        // Give them a subtle default highlight so knobs/glass glint as the head moves (VR). Per-vertex
-        // (soft/blocky on flat panels) but adds life; the model's own specular still wins when present.
-        float  specPow = gSpecular.w;
-        float3 specCol = gSpecular.rgb;
-        if ((gFlags & FF_COCKPIT) && specPow <= 0.0f)
-        {
-            specPow = 20.0f;                       // #72 default cockpit gloss (tune freely)
-            specCol = float3(0.10f, 0.10f, 0.10f); // #72 dim grey highlight (tune freely)
-        }
-        if (specPow > 0.0f && gNumLights > 0)
-        {
-            float3 V  = normalize(camWorld - worldPos.xyz);
-            GpuLight L0 = gLights[0];
-            float3 Ls = (L0.Params.y < 0.5f) ? -normalize(L0.Direction.xyz)
-                                             : normalize(L0.Position.xyz - worldPos.xyz);
-            float3 H  = normalize(Ls + V);
-            float  s  = pow(max(dot(N, H), 0.0f), specPow);
-            o.Spec = specCol * L0.Color.rgb * s;
+            float3 N = normalize(mul(i.Normal, (float3x3)wmat));
+            float3 lit, spec;
+            FFObjectLighting(N, worldPos.xyz, camWorld - worldPos.xyz, lit, spec);
+            col.rgb *= saturate(lit);
+            o.Spec = spec;
         }
     }
 
@@ -1740,6 +1799,23 @@ float4 PS_Main(VSOut i) : SV_Target
     if (gFlags & FF_VERTEXCOLOR || true)
         c *= i.Color;       // vertex color always carried (1,1,1,1 if unused)
 
+    // Artscout - 2026: per-PIXEL object lighting (FF_PIXELLIGHT). The VS left the vertex colour
+    // unlit; run the same light model here from the interpolated world normal/position/view vector
+    // so a lamp's range actually falls off across a surface instead of being smeared between its
+    // vertices (Gouraud). Applied BEFORE the texture, exactly where the VS used to apply it.
+    float3 pixSpec = float3(0, 0, 0);
+    if ((gFlags & FF_LIGHTING) && (gFlags & FF_PIXELLIGHT) &&
+        !(gFlags & FF_AFTERBURNER)) // the afterburner keeps the VS's white->flame override
+    {
+        float3 N = normalize(i.Nrm);
+        float3 lit, spec;
+        FFObjectLighting(N, i.WPos, i.View, lit, spec);
+        c.rgb *= saturate(lit);
+        if (gFlags & FF_EMISSIVE)
+            c.rgb += i.Emis; // D3D7: emissive adds to the lit material, before the texture
+        pixSpec = spec;
+    }
+
     float texA = 1.0f;          // texture alpha (chroma baked as a=0 at load time)
 
     if (gFlags & FF_TEXTURE0)
@@ -1851,7 +1927,8 @@ float4 PS_Main(VSOut i) : SV_Target
     }
 
     // The specular highlight is added ON TOP of the texture (like D3D7 specular), before fog.
-    c.rgb += i.Spec;
+    // Legacy: per-vertex, interpolated in i.Spec. FF_PIXELLIGHT: computed per pixel above.
+    c.rgb += ((gFlags & FF_PIXELLIGHT) ? pixSpec : i.Spec);
 
     // #12: animated water. The terrain is drawn through the screen path (no world-space
     // normal/position), so this is a UV+time effect: a cool tint over the base water tile

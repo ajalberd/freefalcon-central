@@ -2301,6 +2301,10 @@ void CDXEngine::DrawBlitNode(void)
                         (g_bUseVulkan ? m_VB.VbVulkan : (void*)m_VB.VbD3D11);
         if (g_pRenderer and vbh)
         {
+            // Artscout - 2026: the radar blit is a screen-space quad, not model geometry -- keep it
+            // unculled (the object pass may have left a per-surface cull set; see g_nObjCullMode).
+            g_pRenderer->SetObjectCull(0);
+
             void* idxPtr = m_NODE.BYTE + sizeof(DxSurfaceType);
             if (m_NODE.SURFACE->dwPrimType == D3DPT_POINTLIST)
                 g_pRenderer->DrawObjectStrip(m_NODE.SURFACE->dwPrimType, vbh,

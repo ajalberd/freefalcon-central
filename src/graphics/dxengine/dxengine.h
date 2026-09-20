@@ -61,6 +61,8 @@ typedef struct
     ObjectInstance *ObjInst;
     float FogLevel;
     bool LightMap[MAX_DYNAMIC_LIGHTS];
+    bool Pit; // Artscout - 2026: pushed while this surface's object was a pit object (SetPitMode);
+              // deferred flushes happen after the pit flag flips, so the surface must carry it.
 } SurfaceItemType;
 
 typedef union
@@ -269,6 +271,10 @@ private:
     static StencilModeType m_StencilMode;
     static DWORD m_StencilRef;
     static bool m_PitMode;
+    // Artscout - 2026: pit flag of the surface currently being drawn (immediate draws take the live
+    // m_PitMode; deferred stack draws restore the flag the surface was pushed with). Drives the
+    // per-surface back-face-cull decision in DrawSurface.
+    static bool m_SurfacePit;
 
     // Debug Flags
     bool m_bCullEnable, m_bDofMove;

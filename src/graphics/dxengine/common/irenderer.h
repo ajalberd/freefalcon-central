@@ -124,6 +124,14 @@ public:
     // plates, thin fins) from the surface it sits on. ~10% of the shipped models set it. Level is a small
     // bucket, 0 = none. Default no-op: a backend that has not adopted it behaves exactly as before.
     virtual void SetObjectDepthBias(int /*level*/) {}
+    // Artscout - 2026: back-face culling for object surfaces, D3D7 parity. The BSP models are
+    // authored for culling (thin fins are double-wound zero-thickness polygons); with culling off
+    // both windings rasterise at the same depth and the lit/unlit tie-break flickers -- the missile
+    // fin flicker. mode is the config semantic: 0 none, 1 D3D7 parity, 2 the other side. NOTE the
+    // port's clip projection reflects (RH->LH, det=-1), which reverses screen winding, so parity is
+    // D3D12 CULL_FRONT, not CULL_BACK -- see RENDER-LIGHTING.md. Default no-op: a backend that has
+    // not adopted it behaves exactly as before.
+    virtual void SetObjectCull(int /*mode*/) {}
     virtual void RebuildTerrainRasters() = 0;
     // Artscout - 2026: #96 3D skydome -- object-path pass for the sky dome: vertex-colour only (no lighting/fog),
     // depth OFF (drawn FIRST as the background; terrain/objects then draw over it). Default reuses BeginTerrainPass;

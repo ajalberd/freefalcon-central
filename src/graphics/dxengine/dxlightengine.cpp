@@ -102,10 +102,18 @@ DWORD CDXLight::AddDynamicLight(DWORD ID, DXLightType *Light,
             LightList[Index].Flags = Light->Flags;
             // apply the ID of the light
             LightList[Index].LightID = ID;
-            // transform the Direction
-            D3DXVec3TransformCoord(
-                (D3DXVECTOR3 *)&LightList[Index].Light.dvDirection,
-                (D3DXVECTOR3 *)&LightList[Index].Light.dvDirection, RotMatrix);
+            // transform the Direction as a direction, not a point: the legacy TransformCoord added
+            // the object's translation to it (the matrix is applied as v*M, so translation is the
+            // fourth row), which corrupted the spot axis. Only the 3x3 part applies here.
+            {
+                D3DXVECTOR3 d = *(D3DXVECTOR3 *)&LightList[Index].Light.dvDirection;
+                LightList[Index].Light.dvDirection.x =
+                    d.x * RotMatrix->m00 + d.y * RotMatrix->m10 + d.z * RotMatrix->m20;
+                LightList[Index].Light.dvDirection.y =
+                    d.x * RotMatrix->m01 + d.y * RotMatrix->m11 + d.z * RotMatrix->m21;
+                LightList[Index].Light.dvDirection.z =
+                    d.x * RotMatrix->m02 + d.y * RotMatrix->m12 + d.z * RotMatrix->m22;
+            }
             // transform the Position
             D3DXVec3TransformCoord(
                 (D3DXVECTOR3 *)&LightList[Index].Light.dvPosition,
@@ -185,6 +193,24 @@ void CDXLight::UpdateDynamicLights(DWORD ID, D3DVECTOR *pos, float Radius)
 
         for (DWORD i = 0; i < DynamicLights and n < MAXL; ++i)
         {
+            // Artscout - 2026: honour the model's per-light flags, which the D3D7 light engine used and
+            // the port dropped. OwnLight = the light may only light the object that owns it (the F-16's
+            // nav/formation lights: their glow must not spill onto the stores next to them);
+            // NotSelfLight = it must NOT light its own object (the anti-collision strobe, muzzle-flash
+            // and explosion particle lights). Ignoring them lit the F-16 with its own strobe -- the
+            // external model flashes white with every strobe pulse -- and let wingtip lights bleed onto
+            // whatever sits beside them. g_bObjLightMasks = 0 restores the old (flag-blind) behaviour.
+            {
+                extern bool g_bObjLightMasks;
+                if (g_bObjLightMasks)
+                {
+                    const bool self = (LightList[i].LightID == ID);
+                    if ((LightList[i].Flags.OwnLight and not self) or
+                        (LightList[i].Flags.NotSelfLight and self))
+                        continue;
+                }
+            }
+
             D3DLIGHT7 &L = LightList[i].Light;
             const float dx = L.dvPosition.x - pos->x;
             const float dy = L.dvPosition.y - pos->y;
@@ -204,6 +230,39 @@ void CDXLight::UpdateDynamicLights(DWORD ID, D3DVECTOR *pos, float Radius)
             g.Params[0] =
                 (L.dvRange > 1.0f) ? L.dvRange : 1.0f; // range (attenuation)
             g.Params[1] = 1.0f; // point
+
+            // Artscout - 2026: spot cones. The port uploaded every dynamic light as a point, so the
+            // F-16's anti-collision beacon (D3DLIGHT_SPOT, range 1500 ft, a ~5-degree beam pointing aft)
+            // lit the whole aircraft and every store within 1500 ft as if it were an omni lamp.
+            // Params.y = 2 = spot, Params.z = cos(outer half-angle), Params.w = cos(inner half-angle).
+            // g_bObjSpotCones = 0 restores the old point approximation.
+            {
+                extern bool g_bObjSpotCones;
+                if (g_bObjSpotCones and L.dltType == D3DLIGHT_SPOT)
+                {
+                    const float dxn = L.dvDirection.x, dyn = L.dvDirection.y,
+                                dzn = L.dvDirection.z;
+                    const float dl = sqrtf(dxn * dxn + dyn * dyn + dzn * dzn);
+                    if (dl > 1e-6f)
+                    {
+                        const float pi = 3.14159265f;
+                        float outer = 0.5f * L.dvPhi;
+                        float inner = 0.5f * L.dvTheta;
+                        if (outer > pi)
+                            outer = pi;
+                        if (outer < 0.0f)
+                            outer = 0.0f;
+                        if (inner > outer)
+                            inner = outer;
+                        g.Direction[0] = dxn / dl;
+                        g.Direction[1] = dyn / dl;
+                        g.Direction[2] = dzn / dl;
+                        g.Params[1] = 2.0f;
+                        g.Params[2] = cosf(outer);
+                        g.Params[3] = cosf(inner);
+                    }
+                }
+            }
         }
         g_pRenderer->SetLights(g_d3d11Amb, n, lights, sizeof(lights[0]));
         return;

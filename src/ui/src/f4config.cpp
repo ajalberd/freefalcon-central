@@ -785,6 +785,16 @@ bool g_bTerrainMeshDebugTint =
     false; // Artscout - 2026: #78 -- flat per-LOD tint on the mesh terrain, bypassing tiles and lighting. Tells "no geometry" apart from "geometry drawn black": if the tint shows, the grid is there and the problem is the texture/light path.
 bool g_bObjZBiasEnable =
     true; // Artscout - 2026: honour each BSP surface's own dwzBias in the object pass. The models use it to lift coplanar detail (decals, panel plates, thin fins) off the surface underneath; D3D7 pushed it through D3DRENDERSTATE_ZBIAS and the port dropped it, so those surfaces z-fight and flicker as the camera moves. 0 = the old pass-wide bias only.
+int g_nObjCullMode =
+    1; // Artscout - 2026: back-face culling for object surfaces, D3D7 parity. 0 = no cull (the port's old behaviour; thin double-wound fins then rasterise BOTH windings at the same depth and the tie-break flickers them between lit and unlit), 1 = cull the reflected back face (correct -- see RENDER-LIGHTING.md), 2 = cull the other side (wrong on this projection; makes ground/pavement disappear). The port's clip projection carries a deliberate reflection (RH->LH, det=-1, the Flip in Render3D::SetFOV), which REVERSES screen-space winding, so D3D7's cull-back is the port's CULL_FRONT. The pit keeps mode 0 regardless (m_SurfacePit).
+bool g_bObjLightMasks =
+    true; // Artscout - 2026: honour the model's per-light flags in the object light set. OwnLight = the light may only light its own object (F-16 nav/formation lights -- no spill onto stores); NotSelfLight = it must NOT light its own object (anti-collision strobe, muzzle/explosion particle lights). D3D7 honoured both; the port dropped them, so the F-16 lit itself with its own strobe (external model flashes white with every pulse) and wingtip lights bled onto nearby stores. 0 = old flag-blind behaviour.
+bool g_bObjSpotCones =
+    true; // Artscout - 2026: apply spot-light cones to object lighting (Params.y=2). Every port light was uploaded as an omni point, so the F-16's anti-collision beacon (D3DLIGHT_SPOT, ~5 deg beam, 1500 ft range) lit the whole jet and every store within 1500 ft. 0 = old point approximation.
+bool g_bObjCullPit =
+    true; // Artscout - 2026: also apply g_nObjCullMode to objects drawn from the VB manager's PIT list (the 3D pit AND everything attached to it -- CockAttachWeapons/VCock_DrawThePit run under SetPitMode(true), so the player's own wing stores ride the pit path). This is the one that matters for the missile fin flicker: the fins are two near-coincident faces of a thin plate, and with culling they were still drawn unculled because they were on the pit path. 0 = keep the old no-cull for pit-list draws.
+bool g_bObjPixelLight =
+    true; // Artscout - 2026: evaluate object lighting PER PIXEL instead of per vertex (FF_PIXELLIGHT). The light model does not change; the sun + point/spot lights (and the Blinn-Phong specular) are computed in the pixel shader from the interpolated world normal/position/view vector. Per-vertex Gouraud is what smears a small lamp's colour across whole low-poly panels -- e.g. the F-16's air-intake light (range 3 ft) washing a multi-foot fuselage triangle red. 0 = legacy per-vertex lighting.
 int g_nObjZBiasStep =
     60; // Artscout - 2026: depth-bias units added per dwzBias bucket (reversed-Z, so this pulls toward the camera). Bigger = more separation but more risk of detail floating visibly off curved surfaces; the pass-wide object bias is 100 for scale.
 bool g_bAutoBuildVoiceBank =
@@ -1566,6 +1576,14 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bAutoBuildVoiceBank}, // Artscout - 2026: generate sounds/falcon_pcm.tlk on first run (radio chatter on x64)
     {"ObjZBiasEnable",
      &g_bObjZBiasEnable}, // Artscout - 2026: honour per-surface dwzBias in the object pass
+    {"ObjLightMasks",
+     &g_bObjLightMasks}, // Artscout - 2026: honour OwnLight/NotSelfLight in the object light set (strobe must not light its own jet)
+    {"ObjSpotCones",
+     &g_bObjSpotCones}, // Artscout - 2026: apply spot-light cones (F-16 beacon is a spot, not a 1500 ft omni lamp)
+    {"ObjCullPit",
+     &g_bObjCullPit}, // Artscout - 2026: cull pit-list draws too (wing stores ride the pit path -- fins!)
+    {"ObjPixelLight",
+     &g_bObjPixelLight}, // Artscout - 2026: per-pixel object lighting (small lamps stop washing whole panels)
     {"VrHandTracking", &g_bVrHandTracking}, // skeletal gloves from XR hand tracking (fallback: controller morph)
     {"VrSkinSwapHands", &g_bVrSkinSwapHands}, // swap which mesh each tracked hand wears
     {"VrHandDump", &g_bVrHandDump}, // dump raw XR joint geometry (diag: inferred clench vs skinning bug)
@@ -1968,6 +1986,8 @@ static ConfigOption<int> IntOpts[] = {
      &g_nSubtitleFont}, // Artscout - 2026: radio subtitle font index (bigger = larger glyphs)
     {"ObjZBiasStep",
      &g_nObjZBiasStep}, // Artscout - 2026: depth-bias units per dwzBias bucket
+    {"ObjCullMode",
+     &g_nObjCullMode}, // Artscout - 2026: object back-face cull 0/1/2 (1 = D3D7 parity -- cull FRONT, the projection reflects)
     {"CampMapTerrainLod",
      &g_nCampMapTerrainLod}, // Artscout - 2026: terrain LOD the campaign map is built from (0 = finest)
     {"CampMapDetailTiles",

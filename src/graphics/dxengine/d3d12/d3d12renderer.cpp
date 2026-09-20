@@ -2500,6 +2500,13 @@ void D3D12Renderer::BeginObjectPass()
     m_depthTest = true;
     m_flags = FF_VERTEXCOLOR | FF_LIGHTING |
               FF_ALPHATEST; // matches D3D11 BeginObjectPass bring-up flags
+    // Artscout - 2026: per-pixel object lighting (see FF_PIXELLIGHT in ffstatemap.h). The VS then
+    // leaves the vertex colour unlit and the PS runs the light loop per pixel.
+    {
+        extern bool g_bObjPixelLight;
+        if (g_bObjPixelLight)
+            m_flags |= FF_PIXELLIGHT;
+    }
     if (m_nvg)
         m_flags |=
             FF_NVG; // #97 NVG: green the cockpit / aircraft / world objects
@@ -2698,6 +2705,22 @@ void D3D12Renderer::SetObjectDepthBias(int level)
     if (level > 3)
         level = 3;
     m_objZBias = level;
+}
+
+// Artscout - 2026: back-face cull for object surfaces. m_cull is folded into the PSO cache key
+// ((cull & 3) << 7), so the culled and unculled pipelines coexist. Set per surface from
+// CDXEngine::DrawSurface; the pit and the radar blit path pass 0 (see irenderer.h).
+// mode is the CONFIG semantic: 0 = no cull, 1 = D3D7 parity, 2 = the other side. The port's
+// clip projection reflects (RH->LH, det=-1), which reverses screen winding, so D3D7's cull-back
+// is D3D12's CULL_FRONT (m_cull=2) and the naive other side is CULL_BACK (m_cull=1).
+void D3D12Renderer::SetObjectCull(int mode)
+{
+    if (mode == 0)
+        m_cull = 0;
+    else if (mode == 1)
+        m_cull = 2; // parity: cull the reflected back face == D3D12_CULL_MODE_FRONT
+    else
+        m_cull = 1; // other side: D3D12_CULL_MODE_BACK (wrong on this projection)
 }
 
 void D3D12Renderer::DrawColorTrisScreen(const ScreenVertex* verts, int count,

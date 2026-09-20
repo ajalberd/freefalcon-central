@@ -24,6 +24,10 @@
 #define FF_NVG             (1u << 16)
 #define FF_FULLBRIGHT      (1u << 17)
 #define FF_BINDLESS        (1u << 19)
+// Artscout - 2026: per-PIXEL object lighting -- see the D3D12 twin's FF_PIXELLIGHT. The VS leaves
+// the vertex colour unlit and passes the world normal/position/view vector; the PS runs the light
+// loop + Blinn-Phong per pixel. Set by the backend's BeginObjectPass from g_bObjPixelLight.
+#define FF_PIXELLIGHT      (1u << 20)
 
 struct Light
 {

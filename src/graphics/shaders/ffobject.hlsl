@@ -37,6 +37,11 @@ struct VSOut
     [[vk::location(3)]] float3 spec  : TEXCOORD2;
     [[vk::location(4)]] float  fogF  : TEXCOORD3;
     [[vk::location(5)]] nointerpolation uint texIndex : TEXCOORD4;
+    // Artscout - 2026: per-pixel lighting inputs (FF_PIXELLIGHT); the PS normalizes both.
+    [[vk::location(6)]] float3 nrm   : TEXCOORD5;
+    [[vk::location(7)]] float3 view  : TEXCOORD6;
+    [[vk::location(8)]] float3 wpos  : TEXCOORD7;
+    [[vk::location(9)]] float3 emis  : TEXCOORD8;
 };
 
 // The VS writes one field more than the PS reads: PointSize is a builtin, takes
@@ -51,7 +56,78 @@ struct VSOutVs
     [[vk::location(3)]] float3 spec  : TEXCOORD2;
     [[vk::location(4)]] float  fogF  : TEXCOORD3;
     [[vk::location(5)]] nointerpolation uint texIndex : TEXCOORD4;
+    [[vk::location(6)]] float3 nrm   : TEXCOORD5;
+    [[vk::location(7)]] float3 view  : TEXCOORD6;
+    [[vk::location(8)]] float3 wpos  : TEXCOORD7;
+    [[vk::location(9)]] float3 emis  : TEXCOORD8;
 };
+
+//============================== Lighting =====================================
+
+// Artscout - 2026: the object light model in ONE place, used per-vertex (legacy Gouraud) and
+// per-pixel (FF_PIXELLIGHT) exactly like the D3D12 twin's FFObjectLighting -- the two backends
+// must not drift. N is the world-space normal (normalized), wpos the camera-relative world
+// position, viewVec the unnormalized camera->point vector.
+void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, out float3 lit, out float3 spec)
+{
+    float ambScale = 1.0f;
+    const float sunScale = Has(FF_COCKPIT) ? 1.25f : 1.0f;
+    if (Has(FF_COCKPIT))
+    {
+        const float sunLvl =
+            (gNumLights.x > 0u) ?
+                dot(gLights[0].color.rgb, float3(0.299f, 0.587f, 0.114f)) :
+                1.0f;
+        ambScale = clamp(sunLvl, 0.06f, 1.0f);
+    }
+
+    lit = gAmbient.rgb * ambScale;
+    for (uint l = 0u; l < gNumLights.x && l < 8u; ++l)
+    {
+        float3 Ldir;
+        float atten = 1.0f;
+        if (gLights[l].params.y < 0.5f) // directional (sun)
+        {
+            Ldir = -normalize(gLights[l].direction.xyz);
+        }
+        else // point/spot (muzzle flashes / explosions / lamps)
+        {
+            const float3 toL = gLights[l].position.xyz - wpos;
+            const float dist = length(toL);
+            Ldir = toL / max(dist, 1e-3f);
+            atten = saturate(1.0f - dist / max(gLights[l].params.x, 1.0f));
+            if (gLights[l].params.y > 1.5f) // spot cone (see the D3D12 twin)
+            {
+                const float cosA = dot(Ldir, -normalize(gLights[l].direction.xyz));
+                atten *= saturate((cosA - gLights[l].params.z) /
+                                  max(gLights[l].params.w - gLights[l].params.z, 1e-4f));
+            }
+        }
+        const float lScale = (gLights[l].params.y < 0.5f) ? sunScale : 1.0f;
+        lit += gLights[l].color.rgb * max(dot(N, Ldir), 0.0f) * atten * lScale;
+    }
+    if (Has(FF_FULLBRIGHT))
+        lit = float3(1.0f, 1.0f, 1.0f);
+
+    spec = float3(0.0f, 0.0f, 0.0f);
+    float specPow = gSpec.w;
+    float3 specCol = gSpec.rgb;
+    if (Has(FF_COCKPIT) && specPow <= 0.0f)
+    {
+        specPow = 20.0f;
+        specCol = float3(0.10f, 0.10f, 0.10f);
+    }
+    if (specPow > 0.0f && gNumLights.x > 0u)
+    {
+        const float3 V  = normalize(viewVec);
+        const float3 Ls = (gLights[0].params.y < 0.5f) ?
+                              -normalize(gLights[0].direction.xyz) :
+                              normalize(gLights[0].position.xyz - wpos);
+        const float3 H  = normalize(Ls + V);
+        spec = specCol * gLights[0].color.rgb *
+               pow(max(dot(N, H), 0.0f), specPow);
+    }
+}
 
 //============================== Vertex =======================================
 
@@ -64,6 +140,11 @@ VSOutVs VS_Object(VSIn i, uint viewId : SV_ViewID)
 
     const float4 wp = mul(float4(i.pos, 1.0f), gWorld);
     o.pos = mul(mul(wp, gView[viewId]), gProj[viewId]);
+    // Artscout - 2026: per-pixel lighting inputs (FF_PIXELLIGHT); cheap even when unused.
+    o.nrm  = mul(i.normal, (float3x3)gWorld);
+    o.view = gCamPos.xyz - wp.xyz;
+    o.wpos = wp.xyz;
+    o.emis = i.emissive.rgb; // PS needs it for FF_EMISSIVE (added to the lit material)
 
     // COLORVERTEX is always on in the D3D7 object path, so the vertex colour
     // applies unconditionally -- dropping it blows the cockpit panels white.
@@ -76,69 +157,30 @@ VSOutVs VS_Object(VSIn i, uint viewId : SV_ViewID)
     }
     else if (Has(FF_EMISSIVE))
     {
-        col.rgb = i.emissive.rgb; // self-lit flame/light colour, diffuse alpha kept
+        // Artscout - 2026: D3D7 semantics -- emissive ADDS to the lit material, it does not replace
+        // it (see the D3D12 twin; the old shortcut made the F-16's light strips flat red/green panels).
+        if (Has(FF_PIXELLIGHT))
+        {
+            // the PS lights the surface and adds i.emis afterwards
+        }
+        else
+        {
+            const float3 N = normalize(mul(i.normal, (float3x3)gWorld));
+            float3 lit, specE; // specular stays 0 on emissive surfaces, as before
+            FFObjectLighting(N, wp.xyz, gCamPos.xyz - wp.xyz, lit, specE);
+            col.rgb = i.color.rgb * saturate(lit) + i.emissive.rgb;
+        }
     }
     else if (Has(FF_LIGHTING))
     {
-        const float3 N = normalize(mul(i.normal, (float3x3)gWorld));
-
-        // #72: build cockpit depth by BRIGHTENING sun-lit faces, never by
-        // cutting ambient (uniform darkening just muddies an already dark pit).
-        float ambScale = 1.0f;
-        const float sunScale = Has(FF_COCKPIT) ? 1.25f : 1.0f;
-        if (Has(FF_COCKPIT))
+        // Artscout - 2026: FF_PIXELLIGHT -> the PS runs the same model per pixel from
+        // o.nrm/o.view; leave the vertex colour unlit here (bit-identical legacy path otherwise).
+        if (!Has(FF_PIXELLIGHT))
         {
-            // #97: dim ambient by the SUN level so the pit goes dark after dusk.
-            const float sunLvl =
-                (gNumLights.x > 0u) ?
-                    dot(gLights[0].color.rgb, float3(0.299f, 0.587f, 0.114f)) :
-                    1.0f;
-            ambScale = clamp(sunLvl, 0.06f, 1.0f);
-        }
-
-        float3 lit = gAmbient.rgb * ambScale;
-        for (uint l = 0u; l < gNumLights.x && l < 8u; ++l)
-        {
-            float3 Ldir;
-            float atten = 1.0f;
-            if (gLights[l].params.y < 0.5f) // directional (sun)
-            {
-                Ldir = -normalize(gLights[l].direction.xyz);
-            }
-            else // point (muzzle flashes / explosions)
-            {
-                const float3 toL = gLights[l].position.xyz - wp.xyz;
-                const float dist = length(toL);
-                Ldir = toL / max(dist, 1e-3f);
-                // Linear range falloff: a lamp lights its neighbourhood only.
-                atten = saturate(1.0f - dist / max(gLights[l].params.x, 1.0f));
-            }
-            // #72: boost only the sun -- a muzzle flash must not blow out the pit.
-            const float lScale = (gLights[l].params.y < 0.5f) ? sunScale : 1.0f;
-            lit += gLights[l].color.rgb * max(dot(N, Ldir), 0.0f) * atten * lScale;
-        }
-        if (Has(FF_FULLBRIGHT))
-            lit = float3(1.0f, 1.0f, 1.0f); // #97 unlit (exit menu)
-        col.rgb *= saturate(lit);
-
-        // Blinn-Phong from light 0, added in the PS on top of the texture.
-        float specPow = gSpec.w;
-        float3 specCol = gSpec.rgb;
-        if (Has(FF_COCKPIT) && specPow <= 0.0f)
-        {
-            specPow = 20.0f;
-            specCol = float3(0.10f, 0.10f, 0.10f);
-        }
-        if (specPow > 0.0f && gNumLights.x > 0u)
-        {
-            const float3 V = normalize(gCamPos.xyz - wp.xyz);
-            const float3 Ls =
-                (gLights[0].params.y < 0.5f) ?
-                    -normalize(gLights[0].direction.xyz) :
-                    normalize(gLights[0].position.xyz - wp.xyz);
-            const float3 H = normalize(Ls + V);
-            spec = specCol * gLights[0].color.rgb *
-                   pow(max(dot(N, H), 0.0f), specPow);
+            const float3 N = normalize(mul(i.normal, (float3x3)gWorld));
+            float3 lit;
+            FFObjectLighting(N, wp.xyz, gCamPos.xyz - wp.xyz, lit, spec);
+            col.rgb *= saturate(lit);
         }
     }
 
@@ -168,6 +210,22 @@ float4 PS_Object(VSOut i) : SV_Target
     }
 
     float4 c = gMaterialColor * i.color;
+
+    // Artscout - 2026: per-PIXEL object lighting (FF_PIXELLIGHT) -- same model as the D3D12 twin.
+    // The VS left the vertex colour unlit; run the loop here from the interpolated world
+    // normal/position/view so a lamp's range falls off across a surface, not between vertices.
+    float3 pixSpec = float3(0.0f, 0.0f, 0.0f);
+    if (Has(FF_LIGHTING) && Has(FF_PIXELLIGHT) && !Has(FF_AFTERBURNER))
+    {
+        const float3 N = normalize(i.nrm);
+        float3 lit, spec;
+        FFObjectLighting(N, i.wpos, i.view, lit, spec);
+        c.rgb *= saturate(lit);
+        if (Has(FF_EMISSIVE))
+            c.rgb += i.emis; // D3D7: emissive adds to the lit material, before the texture
+        pixSpec = spec;
+    }
+
     float texA = 1.0f; // chroma is baked to a=0 at load time
 
     if (Has(FF_TEXTURE0))
@@ -252,7 +310,7 @@ float4 PS_Object(VSOut i) : SV_Target
             discard;
     }
 
-    c.rgb += i.spec; // D3D7-style specular, on top of the texture, before fog
+    c.rgb += (Has(FF_PIXELLIGHT) ? pixSpec : i.spec); // D3D7-style specular, on top of the texture, before fog
 
     // #12 water: a UV+time effect (the terrain has no world normal here).
     if (Has(FF_WATER))
