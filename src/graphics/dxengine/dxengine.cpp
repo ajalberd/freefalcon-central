@@ -2219,8 +2219,18 @@ void CDXEngine::DrawLightSprites(void)
                 const float dx = ((x + 0.5f) / D) * 2.0f - 1.0f;
                 const float dy = ((y + 0.5f) / D) * 2.0f - 1.0f;
                 const float r = sqrtf(dx * dx + dy * dy);
-                float a = (r >= 1.0f) ? 0.0f : (1.0f - r);
-                a *= a; // soft falloff
+                // BROAD bright core, soft rim. The first version used (1-r)^2, which is a pin-point
+                // with a faint halo -- a pixel history showed the sprite drawing and passing at the
+                // lamp, yet the lamp's own (unlit, black) housing still read black around it. A
+                // plateau to r=0.35 then a smoothstep fade fills the housing with glow.
+                float a = 0.0f;
+                if (r < 0.35f)
+                    a = 1.0f;
+                else if (r < 1.0f)
+                {
+                    const float t = (r - 0.35f) / 0.65f;
+                    a = 1.0f - t * t * (3.0f - 2.0f * t); // smoothstep down to 0
+                }
                 const unsigned char v = (unsigned char)(a * 255.0f);
                 unsigned char *p = &px[(y * D + x) * 4];
                 p[0] = p[1] = p[2] = v;
