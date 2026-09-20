@@ -43,6 +43,19 @@ public:
     static bool LightsToOn[MAX_DYNAMIC_LIGHTS];
     void EnableMappedLights(void);
 
+    // Artscout - 2026: read-only view of the ACTIVE dynamic lights, for the visible-source sprites
+    // (CDXEngine::DrawLightSprites). Entries [0, ActiveLightCount()) are live this frame; positions
+    // are camera-relative world -- the same space the object pass draws in -- and each carries the
+    // authored D3DLIGHT7 (diffuse colour, range) that the sprite is built from.
+    static int ActiveLightCount()
+    {
+        return (int)DynamicLights;
+    }
+    static const CDXLightElement *ActiveLight(int i)
+    {
+        return (i >= 0 and i < (int)DynamicLights) ? &LightList[i] : 0;
+    }
+
 private:
     static CDXLightElement LightList[MAX_DYNAMIC_LIGHTS];
     // #34 C1: D3D7 device pointers (m_pD3DD/m_pD3D) removed -- D3D11 lights go via SetLights.

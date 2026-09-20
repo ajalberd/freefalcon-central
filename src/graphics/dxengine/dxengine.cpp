@@ -2181,6 +2181,123 @@ bool CDXEngine::RenderPitShadowMap(void)
     return true;
 }
 
+// Artscout - 2026: the visible source for every active dynamic light.
+//   The models carry no emissive geometry at most lamp positions (the F-16's wingtip nav lights and
+//   its intake strips are plain grey / very dim surfaces, and the pit model has no emissive surfaces
+//   at all), so a lamp whose light node works still had NO source: a grey box outside, a black dot in
+//   the cockpit, and only the light's spill on the skin around it. This draws one camera-facing
+//   additive billboard per active dynamic light -- position from the light, colour from its diffuse,
+//   size from its range -- through the particle path (one DrawIndexedInstanced for all of them).
+//   Knobs: LightSprites, LightSpriteSize, LightSpriteGain.
+void CDXEngine::DrawLightSprites(void)
+{
+    extern bool g_bLightSprites;
+    extern float g_fLightSpriteSize;
+    extern float g_fLightSpriteGain;
+    if (!g_bLightSprites || !g_pRenderer || !g_bUseGpu)
+        return;
+
+    const int n = CDXLight::ActiveLightCount();
+    if (n <= 0)
+        return;
+
+    // The glow dot, baked once: white centre -> transparent rim. RGB carries the falloff for the
+    // additive blend (A the same, for any alpha use). LoadTextureRGBA is the engine's bake-a-bitmap
+    // path (the moon uses it); the returned handle is renderer-owned and opaque here.
+    static void *s_dot = 0;
+    if (!s_dot)
+    {
+        enum
+        {
+            D = 32
+        };
+        static unsigned char px[D * D * 4];
+        for (int y = 0; y < D; ++y)
+        {
+            for (int x = 0; x < D; ++x)
+            {
+                const float dx = ((x + 0.5f) / D) * 2.0f - 1.0f;
+                const float dy = ((y + 0.5f) / D) * 2.0f - 1.0f;
+                const float r = sqrtf(dx * dx + dy * dy);
+                float a = (r >= 1.0f) ? 0.0f : (1.0f - r);
+                a *= a; // soft falloff
+                const unsigned char v = (unsigned char)(a * 255.0f);
+                unsigned char *p = &px[(y * D + x) * 4];
+                p[0] = p[1] = p[2] = v;
+                p[3] = v;
+            }
+        }
+        s_dot = (void *)g_pRenderer->LoadTextureRGBA(px, D, D);
+    }
+    if (!s_dot)
+        return;
+
+    // Layout MUST match IRenderer::DrawParticlesInstanced's documented record (== D3D12ParticleInstance):
+    // 3f centre, 2f size, 1f rot, 1 packed colour, 4f uv rect = 44 bytes.
+    struct LightSprite
+    {
+        float center[3];
+        float size[2];
+        float rot;
+        unsigned color; // 0xAARRGGBB, read as BGRA bytes like every engine colour
+        float uvRect[4];
+    };
+    static LightSprite recs[MAX_DYNAMIC_LIGHTS];
+    int m = 0;
+    for (int i = 0; i < n && m < MAX_DYNAMIC_LIGHTS; ++i)
+    {
+        const CDXLightElement *el = CDXLight::ActiveLight(i);
+        if (!el)
+            continue;
+        const D3DLIGHT7 &L = el->Light;
+
+        float px = L.dvPosition.x, py = L.dvPosition.y, pz = L.dvPosition.z;
+        const float d2 = px * px + py * py + pz * pz;
+        // A light at the eye is not a lamp on the model (the pit's flood/instrument fill lives there)
+        // and its sprite would sit in your face. 2 ft.
+        if (d2 < 4.0f)
+            continue;
+        const float d = sqrtf(d2);
+        // Nudge toward the eye so a lamp sitting ON the skin is not buried by the surface it is on.
+        const float k = 0.2f / d;
+        px -= px * k;
+        py -= py * k;
+        pz -= pz * k;
+
+        float size = L.dvRange * 0.35f * g_fLightSpriteSize;
+        if (size < 0.15f)
+            size = 0.15f;
+        else if (size > 4.0f)
+            size = 4.0f;
+
+        const float gain = (g_fLightSpriteGain > 0.0f) ? g_fLightSpriteGain : 0.0f;
+        float r = L.dcvDiffuse.r * gain, g = L.dcvDiffuse.g * gain,
+              b = L.dcvDiffuse.b * gain;
+        if (r > 1.0f)
+            r = 1.0f;
+        if (g > 1.0f)
+            g = 1.0f;
+        if (b > 1.0f)
+            b = 1.0f;
+
+        LightSprite &s = recs[m++];
+        s.center[0] = px;
+        s.center[1] = py;
+        s.center[2] = pz;
+        s.size[0] = size;
+        s.size[1] = size;
+        s.rot = 0.0f;
+        s.color = 0xFF000000u | ((unsigned)(r * 255.0f) << 16) |
+                  ((unsigned)(g * 255.0f) << 8) | (unsigned)(b * 255.0f);
+        s.uvRect[0] = 0.0f;
+        s.uvRect[1] = 0.0f;
+        s.uvRect[2] = 1.0f;
+        s.uvRect[3] = 1.0f;
+    }
+    if (m > 0)
+        g_pRenderer->DrawParticlesInstanced(recs, m, s_dot, 0); // 0 = additive
+}
+
 extern DWORD LODsLoaded;
 // *************** This function is the REAL SCENE DRAW FUNCTION *********************
 // it flushes all requested Drawsand draws all poly types
@@ -2272,6 +2389,10 @@ void CDXEngine::FlushBuffers(void)
 
     // Flush Dynamic Buffers bitand sorted objects
     FlushDynamicObjects();
+
+    // Artscout - 2026: the lamps' visible sources -- after the object pass, BEFORE the light list is
+    // reset (the sprites are built from that list). See DrawLightSprites.
+    DrawLightSprites();
 
     //Reset Features
     ResetFeatures();

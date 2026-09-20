@@ -805,6 +805,12 @@ float g_fPitFillScale =
     1.0f; // Artscout - 2026: scale on the 3D pit's flood/instrument fill (CockpitManager::GetCockpitFill). 1.0 = the same values the 2D pit art is tinted by; raise for a stronger knob effect, 0 to disable the fill and judge the model's own lamps alone.
 float g_fPitFillReach =
     10.0f; // Artscout - 2026: how far the pit fill reaches, in MODEL units, from the pilot's eye (the pit is drawn camera-relative, so that is the fill's distance). The fill is a lamp at the eye, not an ambient: too far and it lights the nose/wings the pit LOD carries for the view out of the canopy ("the cockpit lights light the whole plane"), too near and the panel misses it. The F-16 pit is ~22 units long with the panel a few units ahead.
+bool g_bLightSprites =
+    true; // Artscout - 2026: draw a small additive glow at every active dynamic light's position, so the lamp SOURCES are visible. The models carry no emissive geometry at most lamp positions (the F-16CJ's wingtip nav lights and intake strips are plain grey / very dim surfaces; the 3D pit model has none at all), so a working light node had no visible source -- a grey box outside, a black dot inside, with only the light's spill on the skin. 0 = no sprites (the old look).
+float g_fLightSpriteSize =
+    1.0f; // Artscout - 2026: light-sprite size multiplier. The sprite is 0.35 x the light's authored range x this, clamped to 0.15..4 world units. 0.5 = small bright points, 2.0 = big soft glows.
+float g_fLightSpriteGain =
+    1.0f; // Artscout - 2026: light-sprite brightness multiplier on the light's diffuse colour (additive). Raise if the lamps should read brighter than their light does.
 int g_nObjZBiasStep =
     60; // Artscout - 2026: depth-bias units added per dwzBias bucket (reversed-Z, so this pulls toward the camera). Bigger = more separation but more risk of detail floating visibly off curved surfaces; the pass-wide object bias is 100 for scale.
 bool g_bAutoBuildVoiceBank =
@@ -1598,6 +1604,8 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bPitShadow}, // Artscout - 2026: cockpit sun shadows (depth-only pit replay + PS lookup)
     {"LightFalloffD3D7",
      &g_bLightFalloffD3D7}, // Artscout - 2026: authored D3D7 light attenuation, not the linear ramp
+    {"LightSprites",
+     &g_bLightSprites}, // Artscout - 2026: visible glow at each dynamic light (lamp sources)
     {"VrHandTracking", &g_bVrHandTracking}, // skeletal gloves from XR hand tracking (fallback: controller morph)
     {"VrSkinSwapHands", &g_bVrSkinSwapHands}, // swap which mesh each tracked hand wears
     {"VrHandDump", &g_bVrHandDump}, // dump raw XR joint geometry (diag: inferred clench vs skinning bug)
@@ -2175,6 +2183,10 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fPitFillScale}, // Artscout - 2026: scale on the 3D pit's flood/instrument fill (0 = off)
     {"PitFillReach",
      &g_fPitFillReach}, // Artscout - 2026: how far the pit fill reaches from the pilot's eye (model units)
+    {"LightSpriteSize",
+     &g_fLightSpriteSize}, // Artscout - 2026: dynamic light sprite size multiplier
+    {"LightSpriteGain",
+     &g_fLightSpriteGain}, // Artscout - 2026: dynamic light sprite brightness multiplier
     {"VrSubQuadX",
      &g_fVrSubQuadX}, // #59: subtitle quad horizontal offset (m, + = right)
     {"VrSubQuadY",

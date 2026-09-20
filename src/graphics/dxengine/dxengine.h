@@ -284,6 +284,10 @@ private:
     // the eye loop / the cockpit draw).
     static bool m_PitShadowDone;
     bool RenderPitShadowMap(void);
+    // Artscout - 2026: draw a small additive glow at each active dynamic light's position, so the
+    // lamp SOURCES are visible (the models carry no emissive geometry at the wingtip/intake lamps --
+    // see RENDER-LIGHTING.md). One billboard per light through the particle path.
+    void DrawLightSprites(void);
 
     // Debug Flags
     bool m_bCullEnable, m_bDofMove;

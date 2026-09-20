@@ -125,6 +125,20 @@ The 3D pit model (LOD 4105) carries **6 light nodes**: nav (switch 8, green/red)
   aircraft, so `OwnLight` (nav/formation) excluded every one of the jet's lights from the cockpit.
   `UpdateDynamicLights` now lets `OwnLight` through when the RECEIVER is the pit; `NotSelfLight`
   (the landing light, flashes) stays excluded, and each light's own range keeps the spill small.
+- **Lamps have a visible SOURCE again: `DrawLightSprites` (2026-09-20).** A pixel history in
+  RenderDoc (frame1282, the wingtip lamp) proved there is **no lamp draw at all** — the only thing
+  at that pixel is an ordinary model surface. The models carry no emissive geometry at most lamp
+  positions: the F-16CJ's wingtip nav lights have no switch-emissive surface anywhere near them,
+  its intake strips carry only a dim emissive (83,0,0 / 65,0,0) whose light nodes are flagged
+  Static, and the 3D pit model has no emissive surfaces at all. So a working light node produced a
+  grey box outside and a black dot inside, with only its spill on the skin. `CDXEngine::
+  DrawLightSprites` now draws one camera-facing additive billboard per active dynamic light
+  (position from the light, colour from its diffuse, size = 0.35 x its range) through the existing
+  particle path — one `DrawIndexedInstanced` for all of them. Lights within 2 ft of the eye (the
+  pit's flood/instrument fill) are skipped, and each sprite is nudged 0.2 ft toward the eye so it is
+  not buried in the skin it sits on. Knobs: `LightSprites`, `LightSpriteSize`, `LightSpriteGain`.
+  This is a *presentation* fix, not a lighting one: the light model is untouched, the lamps just
+  have something to look at.
 - **The fill skips TRANSPARENT draws.** The HUD combiner and canopy glass sit at the fill's origin
   (the pilot's eye), so they took it at full strength and read as a lit gray box over the cockpit.
   `FillRenderCB` (D3D12) / `RecordObjectDraw` (Vulkan) now pass `gCockpitFill` only when the draw is
