@@ -7,6 +7,9 @@ and commit messages carry the rest.
 Companion docs:
 
 - `CAMPAIGN-SUPPLY-ENGINE.md` — how supply, production and power actually work.
+- `OBJECT-RENDERING.md` — the missile fin flicker, the dynamic-light flags/spot fixes and
+  per-pixel object lighting, plus the RenderDoc recipes. Read it before touching the object
+  pass or the light CB.
 - `tools/terrain/tilesurvey.py` — reads a theater's terrain and tile data offline, no build
   and no game needed. Re-run it instead of re-deriving any terrain number.
 - `tools/models/objsurvey.py` — same for the 3D object database. Reads `KoreaObj.DXH`/`.DXL`:
@@ -21,7 +24,8 @@ here.**
   compiles to nothing in Release. One Debug|x64 build answers how much still works.
 - `RENDER-LIGHTING.md` — **the renderer is LDR end to end**, so GT7's tone curve is not a
   drop-in; the HDR pipeline is the project and the curve is its last step. No shadow
-  machinery exists at all. The "missile shading issue" is the fin flicker.
+  machinery exists at all. The "missile shading issue" turned out to be the fin z-fight, not
+  lighting — see `OBJECT-RENDERING.md`.
 - `COCKPIT-OVERHAUL.md` — the cockpit displays use a **three-size GIF+`.rct` bitmap font
   set**, separate from the `.bft` menu fonts, and `g_rttFontScale` magnifies glyph geometry
   without touching UVs — the source bitmap is a hard ceiling on sharpness.
@@ -72,6 +76,25 @@ the log call, so a crash there is not the map at all.
 
 The commits and code comments carry the detail. This is only what a future session would
 otherwise have to rediscover.
+
+**Object rendering (2026-09-20).** Five object-pass
+fixes landed in one session; all the knobs below default to the new behaviour and each has a
+`ffviper.cfg` escape hatch. Full write-up, evidence and RenderDoc recipes: `OBJECT-RENDERING.md`.
+- **Missile fin flicker — fixed** (verified in 2D; VR check pending). Thin fins z-fight; the
+  first cull excluded the pit path, and the player's own stores ride it. `g_nObjCullMode`
+  (1 = D3D7 parity = cull FRONT: the clip projection reflects, so cull-back kills the ground),
+  `g_bObjCullPit` (1 = cull pit-list draws too).
+- **F-16 external strobe flash — fixed** (awaiting a look). The port dropped the `D3DLIGHT7`
+  `OwnLight`/`NotSelfLight` flags and the spot cone. `g_bObjLightMasks` / `g_bObjSpotCones`.
+- **F-16 light-strip "red patches" — fixed** (awaiting a look). The port *replaced* the material
+  with the emissive colour; D3D7 *adds* it. No knob — this is the corrected semantics.
+- **Per-pixel object lighting — landed**, user says it looks better; VR cost unmeasured.
+  `g_bObjPixelLight` (0 = legacy per-vertex). The light model is one shared function per
+  backend (`FFObjectLighting`).
+- **Canopy/glass surfaces were unlit — fixed** (awaiting a look). The sorted-alpha path
+  (`DrawSortedAlpha`) never restored the object-pass flags, so alpha model surfaces drew with
+  whatever 2D state ran last (no `FF_LIGHTING`) — the glass never responded to outside light.
+  `DrawSortedAlpha` now calls `BeginObjectPass()` per item.
 
 **Campaign planning.** The candidate filter must use `FalconLocalSession->GetTeam()`, never
 `gSelectedTeam` — that is the TE editor's variable and it holds a *country*. `PACKAGE_WIN`
@@ -278,7 +301,6 @@ Measured against the shipped Korea data with `tilesurvey.py`. Re-run it for any 
 | `SimNWSToggle` not in `controls.xml` | Registered in `findfunc.cpp` but absent from the function catalogue, so it cannot be bound from the Controllers page. That file also stores user bindings and is rewritten by the game — edit with care. |
 | Half the farthest terrain ring has no texture | `L3 lod=4 posts=304130 tiled=154040 noSrv=150090` — 49% of the far ring has no SRV resident (L2 is 16%). `tex=0` on those rows means `lod > LastNearTexLOD()` (far texture set), not "untextured". The far ring is the horizon. |
 | Damage does not feed **link cost** | A dropped bridge is expensive to cross but pathfinding still routes over it. Touches everything walking the objective graph. |
-| Missile fin flicker | See `RENDER-LIGHTING.md`. `dwzBias` was restored and did **not** fix it. Next move is a two-frame capture, not more reading. |
 | Dead 2D/3D cloud path, two latent bugs | Only reachable with Z-buffering off, so harmless today. (a) `Drawable2DCloud::Update()` is never called, so `position`/`cloudTexture` are never assigned — and `DrawableObject`'s ctor does not initialise `position`, so `Draw()` would build an 80,000 ft quad from uninitialised memory. (b) `RealWeather::Setup`'s loop calls `real2DClouds[i].Setup()` outside the guard that allocates the array. |
 | Objective icons shaded by health | Asked for, not built. The damage overlay exists but must be switched on; the request was to darken the red icons themselves. |
 | Pale circles on the campaign map | Pre-dates this work. Ruled out: Logistics overlays, threat rings (`ShowCircles` is inside `#if 0`), the terrain basemap, the waypoint list. Cheap test: zoom — map imagery scales, drawn marks do not. |
