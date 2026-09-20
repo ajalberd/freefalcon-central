@@ -2258,17 +2258,22 @@ void CDXEngine::DrawLightSprites(void)
         if (d2 < 4.0f)
             continue;
         const float d = sqrtf(d2);
-        // Nudge toward the eye so a lamp sitting ON the skin is not buried by the surface it is on.
-        const float k = 0.2f / d;
-        px -= px * k;
-        py -= py * k;
-        pz -= pz * k;
 
         float size = L.dvRange * 0.35f * g_fLightSpriteSize;
         if (size < 0.15f)
             size = 0.15f;
         else if (size > 4.0f)
             size = 4.0f;
+
+        // Nudge toward the eye so the sprite is not buried by the surface it sits on -- the light node
+        // usually sits a little INSIDE its housing, and the sprite is depth-tested, so a small nudge
+        // left the (unlit, black) fixture in front and the glow invisible: "the black sprite is still
+        // here". Scale the nudge with the glow so a big housing gets pushed clear of it.
+        const float nudge = 0.4f + size * 0.5f;
+        const float k = nudge / d;
+        px -= px * k;
+        py -= py * k;
+        pz -= pz * k;
 
         const float gain = (g_fLightSpriteGain > 0.0f) ? g_fLightSpriteGain : 0.0f;
         float r = L.dcvDiffuse.r * gain, g = L.dcvDiffuse.g * gain,
