@@ -2732,7 +2732,9 @@ static void RecordObjectDraw(VulkanRenderer::Impl* m, VkPipeline pipe,
     memcpy(ubo->gloc, m->glocParams, sizeof(ubo->gloc));
     // Artscout - 2026: the cockpit fill is for the pit's OPAQUE surfaces; transparent (glass) draws
     // must not take it -- the HUD/canopy glass sits at the fill's origin and read as a lit gray box.
-    if (m->blend == 0) // FFBlendMode BLEND_OPAQUE
+    // The HUD GLASS PLATE is drawn opaque + stenciled (SetHudStencil), so the stencil is the second
+    // gate: anything drawn while the aperture stencil is armed gets no fill.
+    if (m->blend == 0 && m->hudStencil == 0) // FFBlendMode BLEND_OPAQUE
         memcpy(ubo->cockpitFill, m->cockpitFill, sizeof(ubo->cockpitFill));
     auto argb2rgb = [](unsigned long a, float* o)
     {

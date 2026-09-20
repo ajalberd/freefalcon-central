@@ -1507,7 +1507,10 @@ void D3D12Renderer::FillRenderCB(void* pCb)
     // Artscout - 2026: the cockpit fill is for the pit's OPAQUE surfaces. A TRANSPARENT surface must
     // not take it: the HUD combiner / canopy glass sits right at the fill's origin (the pilot's eye),
     // so it took the full strength and read as a lit gray box over the cockpit. Alpha draws get none.
-    if (m_blend == BLEND_OPAQUE)
+    //   The HUD GLASS PLATE is the exception the blend test cannot catch: it is drawn opaque and
+    // stenciled (SetHudStencil MARK, display.cpp), so it passed the opaque test and still became the
+    // gray box. Anything drawn while the aperture stencil is armed gets no fill.
+    if (m_blend == BLEND_OPAQUE && m_hudStencil == 0)
         memcpy(cb.cockpitFill, m_cockpitFill, sizeof(cb.cockpitFill));
 }
 
