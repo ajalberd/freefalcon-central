@@ -803,6 +803,8 @@ bool g_bLightFalloffD3D7 =
     true; // Artscout - 2026: use each dynamic light's AUTHORED D3D7 attenuation (1/(a0 + a1*d), cut at its range) instead of the port's hard linear ramp (1 - d/range). The ramp is what made the pit's own lamps read as dead: the F-16 pit's flood/instrument lights are authored with a 2.2-unit range inside a 22-unit pit, so the ramp lit a 2-unit ball and the flood knob appeared to do nothing. 0 = old ramp (the fallback for lights whose data has no falloff, e.g. the tail strobe, is automatic either way).
 float g_fPitFillScale =
     1.0f; // Artscout - 2026: scale on the 3D pit's flood/instrument fill (CockpitManager::GetCockpitFill). 1.0 = the same values the 2D pit art is tinted by; raise for a stronger knob effect, 0 to disable the fill and judge the model's own lamps alone.
+float g_fPitFillReach =
+    10.0f; // Artscout - 2026: how far the pit fill reaches, in MODEL units, from the pilot's eye (the pit is drawn camera-relative, so that is the fill's distance). The fill is a lamp at the eye, not an ambient: too far and it lights the nose/wings the pit LOD carries for the view out of the canopy ("the cockpit lights light the whole plane"), too near and the panel misses it. The F-16 pit is ~22 units long with the panel a few units ahead.
 int g_nObjZBiasStep =
     60; // Artscout - 2026: depth-bias units added per dwzBias bucket (reversed-Z, so this pulls toward the camera). Bigger = more separation but more risk of detail floating visibly off curved surfaces; the pass-wide object bias is 100 for scale.
 bool g_bAutoBuildVoiceBank =
@@ -2171,6 +2173,8 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fPitShadowStrength}, // Artscout - 2026: cockpit shadow darkness (1 = sun dies in shadow, 0 = no darkening)
     {"PitFillScale",
      &g_fPitFillScale}, // Artscout - 2026: scale on the 3D pit's flood/instrument fill (0 = off)
+    {"PitFillReach",
+     &g_fPitFillReach}, // Artscout - 2026: how far the pit fill reaches from the pilot's eye (model units)
     {"VrSubQuadX",
      &g_fVrSubQuadX}, // #59: subtitle quad horizontal offset (m, + = right)
     {"VrSubQuadY",

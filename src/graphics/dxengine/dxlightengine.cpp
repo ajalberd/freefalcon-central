@@ -205,7 +205,15 @@ void CDXLight::UpdateDynamicLights(DWORD ID, D3DVECTOR *pos, float Radius)
                 if (g_bObjLightMasks)
                 {
                     const bool self = (LightList[i].LightID == ID);
-                    if ((LightList[i].Flags.OwnLight and not self) or
+                    // Artscout - 2026: the 3D PIT is a separate object from the player's aircraft, so
+                    // every one of the jet's own lights (nav/formation/strobe) is "not self" to it and
+                    // OwnLight kept them out of the cockpit entirely. They should spill in a little --
+                    // the pit is the same physical aircraft. Let OwnLight through when the RECEIVER is
+                    // the pit; NotSelfLight (the landing light, muzzle flashes) stays excluded, and the
+                    // light's own range/falloff keeps the spill small. g_bObjLightMasks = 0 still
+                    // disables the whole mask.
+                    const bool pitReceiver = TheDXEngine.GetPitMode();
+                    if ((LightList[i].Flags.OwnLight and not self and not pitReceiver) or
                         (LightList[i].Flags.NotSelfLight and self))
                         continue;
                 }
@@ -234,13 +242,15 @@ void CDXLight::UpdateDynamicLights(DWORD ID, D3DVECTOR *pos, float Radius)
             // a2 is 0 in every shipped light). The shader then falls off the way the models were lit
             // and cuts at the range, instead of the port's hard ramp (1 - d/range). That ramp is what
             // made the pit's own flood/instrument lamps read as dead: they are authored with a 2.2-unit
-            // range inside a 22-unit pit. The shader keeps the ramp as its fallback when Params.z == 0
-            // (a light whose data has no falloff at all -- the tail strobe has a1 == 0 -- stays bounded
-            // by its range exactly as before). Params.z/w are free for POINT lights; spots use them for
-            // the cone cosines.
+            // range inside a 22-unit pit. Params.z/w are free for POINT lights; spots use them for the
+            // cone cosines.
+            //   ONLY when a1 > 0. A light with no falloff term (the F-16 tail strobe is authored
+            // a0=1.01, a1=0) degenerates under the curve to a FLAT ~0.99 blob out to its range -- it
+            // lit the whole tail as a hard-edged disc and read as "the light is under the plane".
+            // Those keep the ramp, which fades them the way they always did.
             {
                 extern bool g_bLightFalloffD3D7;
-                if (g_bLightFalloffD3D7)
+                if (g_bLightFalloffD3D7 and L.dvAttenuation1 > 0.0f)
                 {
                     g.Params[2] = L.dvAttenuation0;
                     g.Params[3] = L.dvAttenuation1;

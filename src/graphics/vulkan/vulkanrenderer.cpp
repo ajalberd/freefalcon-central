@@ -1979,10 +1979,12 @@ void VulkanRenderer::SetCockpitPass(bool on)
 // the 3D pit the way they already move the 2D art.
 void VulkanRenderer::SetCockpitFill(float r, float g, float b)
 {
+    extern float g_fPitFillReach;
     m->cockpitFill[0] = r;
     m->cockpitFill[1] = g;
     m->cockpitFill[2] = b;
-    m->cockpitFill[3] = 0.0f;
+    // w = the fill's reach from the pilot's eye (the shader falls off with |WPos|). 0 = no fill.
+    m->cockpitFill[3] = (g_fPitFillReach > 0.0f) ? g_fPitFillReach : 0.0f;
 }
 void VulkanRenderer::SetIRGrey(bool on)
 {

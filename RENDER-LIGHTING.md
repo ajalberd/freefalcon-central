@@ -105,15 +105,26 @@ The 3D pit model (LOD 4105) carries **6 light nodes**: nav (switch 8, green/red)
   the flood lit a 2-unit ball in the middle of the pit — "the knob does nothing". Fixed:
   `g_bLightFalloffD3D7` (default 1) has the light engine hand `a0`/`a1` to the shader in
   `Params.z/w` (free for point lights; spots keep the cone cosines there) and the shader uses the
-  curve. `Params.z == 0` falls back to the ramp, which is what still bounds a light whose data has
-  no falloff at all (`a1 == 0`, e.g. the strobe) — so nothing that was bounded became unbounded.
+  curve. **Only when `a1 > 0`**: the F-16 tail strobe is authored `a0=1.01, a1=0`, and the curve
+  degenerates for it to a flat ~0.99 blob out to its range — a hard-edged disc under the tail that
+  reads as "the light is on the bottom of the plane". Lights without a falloff term keep the ramp.
 - **The knob's real effect belongs to the 2D art.** `CockpitManager::ComputeLightFactors` is what
   the 2D pit is tinted by; the 3D pit never saw it. Now `CockpitManager::GetCockpitFill` publishes
   the flood+instrument contribution (without the environment, which the object pass already carries
   as `gAmbient`), `VCock_Exec` hands it to the renderer per frame, and `FFObjectLighting` adds it
-  to the ambient for `FF_COCKPIT` surfaces. The knob now moves the 3D pit exactly as it moves the
-  2D one. Plumbing: `IRenderer::SetCockpitFill` → `cbRender.gCockpitFill` (D3D12) /
-  `ObjUbo.cockpitFill` (Vulkan, appended after the light array so no existing offset shifts).
+  to the ambient for `FF_COCKPIT` surfaces. Plumbing: `IRenderer::SetCockpitFill` →
+  `cbRender.gCockpitFill` (D3D12) / `ObjUbo.cockpitFill` (Vulkan, appended after the light array so
+  no existing offset shifts). Knobs: `PitFillScale`, `PitFillReach`.
+- **The fill is a lamp at the pilot's eye, not an ambient.** The pit is drawn camera-relative, so
+  `|WPos|` is the distance from the eye and the fill falls off from there (`gCockpitFill.w` =
+  reach, default 10 model units). A flat add lit the *whole* pit LOD — including the nose and wings
+  it carries for the view out of the canopy — and read as "the cockpit lights light up the entire
+  plane". `PitFillReach` tunes it: too far and the exterior lights up again, too near and the panel
+  misses it.
+- **The jet's own lights spill into the pit.** The pit is a separate object from the player's
+  aircraft, so `OwnLight` (nav/formation) excluded every one of the jet's lights from the cockpit.
+  `UpdateDynamicLights` now lets `OwnLight` through when the RECEIVER is the pit; `NotSelfLight`
+  (the landing light, flashes) stays excluded, and each light's own range keeps the spill small.
 
 Note the CPU light set is culled by `dvRange + objectRadius` while the shader cut at `dvRange`
 alone — the flood light was *in* the pit's set and the shader then zeroed it. That inconsistency
@@ -240,10 +251,11 @@ These are listed in the order they were asked, which is not the order to do them
   `ffobject.hlsl`); per-vertex and per-pixel paths both go through it. Do not fork it. Its
   `sunShadow` parameter (D3D12 only for now) scales the DIRECTIONAL term alone.
 - Point lamps use their AUTHORED D3D7 attenuation (`1/(a0 + a1·d)`, cut at the range), handed over
-  in `Params.z/w`; the old hard ramp is the fallback when `Params.z == 0` (a1 == 0 data such as the
-  tail strobe stays bounded by its range). The pit's flood/instrument knob effect comes from
-  `CockpitManager::GetCockpitFill` → `gCockpitFill` → the FF_COCKPIT ambient, NOT from the model's
-  own 2.2-unit flood light node.
+  in `Params.z/w` — but only when `a1 > 0`; a1 == 0 data (the tail strobe) keeps the ramp, or the
+  curve degenerates to a flat disc. The pit's flood/instrument knob effect comes from
+  `CockpitManager::GetCockpitFill` → `gCockpitFill` → the FF_COCKPIT ambient, as a LAMP AT THE EYE
+  (`|WPos|` falloff, `PitFillReach`), never a flat add; and `OwnLight` lights are let into the pit
+  (the pit is the same aircraft) while `NotSelfLight` stays out.
 - Emissive is ADDED to the lit material, never a replacement (`FF_AFTERBURNER` excepted).
 - The clip projection reflects (`det = −1`), so D3D7's cull-back is this port's cull-FRONT —
   and the player's own stores are drawn from the pit list. Both bit us; see `OBJECT-RENDERING.md`.

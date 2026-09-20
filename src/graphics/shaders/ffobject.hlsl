@@ -83,10 +83,12 @@ void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, out float3 lit, out
 
     lit = gAmbient.rgb * ambScale;
     // Artscout - 2026: the pit's flood/instrument fill -- what the two cockpit light knobs add on
-    // top of the environment (the environment is already in gAmbient). FF_COCKPIT only; it is the
-    // cockpit's own lighting, not a scene light. See CockpitManager::GetCockpitFill.
+    // top of the environment (the environment is already in gAmbient). FF_COCKPIT only, and LOCAL:
+    // |wpos| is the distance from the pilot's eye (the pit is drawn camera-relative), so the fill
+    // falls off from there instead of lighting the whole model. gCockpitFill.w = the reach.
     if (Has(FF_COCKPIT))
-        lit += gCockpitFill.rgb;
+        lit += gCockpitFill.rgb *
+               saturate(1.0f - length(wpos) / max(gCockpitFill.w, 1.0e-3f));
     for (uint l = 0u; l < gNumLights.x && l < 8u; ++l)
     {
         float3 Ldir;
