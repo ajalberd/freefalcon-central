@@ -799,6 +799,8 @@ bool g_bPitShadow =
     true; // Artscout - 2026: cockpit sun shadows. The 3D pit BSP is replayed depth-only into a small sun-space shadow map once per flush, and the cockpit branch of the object pixel shader darkens only the SUN term where the pit occludes it (ambient/lamps are untouched). The map is fitted to the pit model's own bounding box in MODEL space, so it is independent of camera and aircraft attitude -- only the sun direction in the pit frame changes it. 0 = no cockpit shadows (the PS returns unshadowed).
 float g_fPitShadowStrength =
     1.0f; // Artscout - 2026: how much a fully occluded sun texel darkens the cockpit surface. 1.0 = the sun term goes to zero in shadow (hard reality), lower = the shadow is filled by the surface's own ambient. Tunable in flight; a little under 1 usually reads best because the pit is dark already.
+bool g_bLightFalloffD3D7 =
+    true; // Artscout - 2026: use each dynamic light's AUTHORED D3D7 attenuation (1/(a0 + a1*d), cut at its range) instead of the port's hard linear ramp (1 - d/range). The ramp is what made the pit's own lamps read as dead: the F-16 pit's flood/instrument lights are authored with a 2.2-unit range inside a 22-unit pit, so the ramp lit a 2-unit ball and the flood knob appeared to do nothing. 0 = old ramp (the fallback for lights whose data has no falloff, e.g. the tail strobe, is automatic either way).
 int g_nObjZBiasStep =
     60; // Artscout - 2026: depth-bias units added per dwzBias bucket (reversed-Z, so this pulls toward the camera). Bigger = more separation but more risk of detail floating visibly off curved surfaces; the pass-wide object bias is 100 for scale.
 bool g_bAutoBuildVoiceBank =
@@ -1590,6 +1592,8 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bObjPixelLight}, // Artscout - 2026: per-pixel object lighting (small lamps stop washing whole panels)
     {"PitShadow",
      &g_bPitShadow}, // Artscout - 2026: cockpit sun shadows (depth-only pit replay + PS lookup)
+    {"LightFalloffD3D7",
+     &g_bLightFalloffD3D7}, // Artscout - 2026: authored D3D7 light attenuation, not the linear ramp
     {"VrHandTracking", &g_bVrHandTracking}, // skeletal gloves from XR hand tracking (fallback: controller morph)
     {"VrSkinSwapHands", &g_bVrSkinSwapHands}, // swap which mesh each tracked hand wears
     {"VrHandDump", &g_bVrHandDump}, // dump raw XR joint geometry (diag: inferred clench vs skinning bug)

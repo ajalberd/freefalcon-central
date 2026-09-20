@@ -6077,10 +6077,31 @@ void CockpitManager::ComputeLightFactors(float *cLight, float *iLight)
 }
 
 
+// Artscout - 2026: the 3D pit's flood/instrument fill -- the part of the cockpit lighting that comes
+// from the two knobs rather than the environment. ComputeLightFactors above folds the environment
+// (lightLevel) in; the object pass already carries that as gAmbient, so the shader adds only THIS on
+// top for FF_COCKPIT surfaces. It is the same mFloodLight/mInstLight data the 2D pit art is tinted by
+// (ApplyLighting), which is the point: the knob now moves the 3D pit exactly as it moves the 2D one.
+void CockpitManager::GetCockpitFill(float *rgb)
+{
+    rgb[0] = rgb[1] = rgb[2] = 0.0f;
+
+    AircraftClass *pAircraft = SimDriver.GetPlayerAircraft();
+    if (not pAircraft)
+        return;
+
+    // LT_OFF = 0, LT_LOW = 1, LT_NORMAL = 2 (AircraftClass::LightSwitch); /2 matches floodFactor in
+    // ComputeLightFactors.
+    const float flood = (float)pAircraft->GetInteriorLight() / 2.0f;
+    const float inst = (float)pAircraft->GetInstrumentLight() / 2.0f;
+
+    for (int i = 0; i < 3; ++i)
+        rgb[i] = mFloodLight[i] * flood + mInstLight[i] * inst;
+}
+
 //====================================================//
 // CreateCockpitGeometry
 //====================================================//
-
 void CreateCockpitGeometry(DrawableBSP **ppGeometry, int normalType,
                            int dogType)
 {

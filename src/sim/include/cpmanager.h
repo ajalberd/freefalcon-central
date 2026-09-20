@@ -671,6 +671,13 @@ public:
     * the parameters must have 3 positions each(RGB)
     */
     void ComputeLightFactors(float* cockpit, float* instrument);
+    /** Artscout - 2026: the 3D pit's flood/instrument FILL -- the part of the cockpit lighting that
+     * comes from the two knobs, without the environment term (the object pass already carries that
+     * as gAmbient). The FF_COCKPIT shading adds this to the pit's ambient, which is what makes the
+     * interior-light knob change the 3D pit: the model's own flood light node is authored with a
+     * 2.2-unit range inside a 22-unit pit, so on its own it reads as "does nothing". 3 floats (RGB).
+     */
+    void GetCockpitFill(float* rgb);
 
     //Wombat778 3-12-04
     int GetNumPanels(void)

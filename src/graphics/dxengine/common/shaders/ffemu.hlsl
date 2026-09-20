@@ -165,6 +165,11 @@ cbuffer cbRender : register(b3)
     // overwritten by the projection, and as SunGain never reaching the shader: always from taking an occupied
     // slot without grepping it first. (gCloudDiag2.w is free again now that the reference port is gone.)
     float4 gCloudLib;
+    // Artscout - 2026: the cockpit flood/instrument FILL (FF_COCKPIT only) -- what the two cockpit
+    // light knobs add on top of the environment, handed over by the sim per frame. The object pass
+    // already carries the environment as gAmbient, so this is only the knobs' contribution. MUST
+    // match CBRender's cockpitFill in d3d12renderer.cpp.
+    float4 gCockpitFill;
 };
 
 //============================ Lighting =======================================
@@ -332,6 +337,12 @@ void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, float sunShadow,
     }
 
     lit = gAmbient.rgb * ambScale;
+    // Artscout - 2026: the pit's flood/instrument fill -- what the two cockpit light knobs add on
+    // top of the environment (the environment is already in gAmbient). FF_COCKPIT only: this is the
+    // cockpit's own lighting, not a scene light, and it is what makes the interior-light knob move
+    // the 3D pit (see CockpitManager::GetCockpitFill).
+    if (gFlags & FF_COCKPIT)
+        lit += gCockpitFill.rgb;
     [loop] for (uint l = 0; l < gNumLights; ++l)
     {
         GpuLight L = gLights[l];
@@ -344,15 +355,29 @@ void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, float sunShadow,
             float3 toL = L.Position.xyz - wpos;
             float  dist = length(toL);
             Ldir = toL / max(dist, 1e-3f);
-            // linear range attenuation (Params.x=range) -> the lamp lights only
-            // nearby, not the whole world. Otherwise every flash would light the entire scene.
-            atten = saturate(1.0f - dist / max(L.Params.x, 1.0f));
-            // Artscout - 2026: spot cone. Params.y = 2 (spot), z = cos(outer half-angle),
-            // w = cos(inner half-angle), Direction = beam axis. Every port light was an omni
-            // point, so the F-16's anti-collision beacon (a ~5 degree beam, range 1500 ft)
-            // lit the whole jet and every store within its range instead.
-            if (L.Params.y > 1.5f)
+            if (L.Params.y < 1.5f)
             {
+                // Artscout - 2026: point lamp. When the CPU hands over the AUTHORED D3D7 attenuation
+                // (Params.z = a0, Params.w = a1) use the curve the models were lit with and cut at the
+                // light's range -- D3D9's rule, and the reason the pit's own lamps can light the pit at
+                // all (its flood/instrument lights carry a 2.2-unit range inside a 22-unit pit, which
+                // the old ramp reduced to a 2-unit ball). Params.z == 0 falls back to that ramp, which
+                // is still what bounds a light whose data has no falloff at all (a1 == 0: the tail
+                // strobe), so nothing that used to be bounded is now unbounded.
+                atten = (L.Params.z > 0.0f)
+                            ? ((dist <= L.Params.x)
+                                   ? min(1.0f, 1.0f / max(L.Params.z + L.Params.w * dist, 1.0e-4f))
+                                   : 0.0f)
+                            : saturate(1.0f - dist / max(L.Params.x, 1.0f));
+            }
+            else
+            {
+                // Artscout - 2026: spot cone. Params.y = 2 (spot), z = cos(outer half-angle),
+                // w = cos(inner half-angle), Direction = beam axis. Every port light was an omni
+                // point, so the F-16's anti-collision beacon (a ~5 degree beam, range 1500 ft)
+                // lit the whole jet and every store within its range instead. The cone is the
+                // bound here; the range stays the beam's reach.
+                atten = saturate(1.0f - dist / max(L.Params.x, 1.0f));
                 const float cosA = dot(Ldir, -normalize(L.Direction.xyz)); // 1 = on the beam axis
                 atten *= saturate((cosA - L.Params.z) / max(L.Params.w - L.Params.z, 1e-4f));
             }

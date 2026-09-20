@@ -82,6 +82,11 @@ void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, out float3 lit, out
     }
 
     lit = gAmbient.rgb * ambScale;
+    // Artscout - 2026: the pit's flood/instrument fill -- what the two cockpit light knobs add on
+    // top of the environment (the environment is already in gAmbient). FF_COCKPIT only; it is the
+    // cockpit's own lighting, not a scene light. See CockpitManager::GetCockpitFill.
+    if (Has(FF_COCKPIT))
+        lit += gCockpitFill.rgb;
     for (uint l = 0u; l < gNumLights.x && l < 8u; ++l)
     {
         float3 Ldir;
@@ -95,9 +100,22 @@ void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, out float3 lit, out
             const float3 toL = gLights[l].position.xyz - wpos;
             const float dist = length(toL);
             Ldir = toL / max(dist, 1e-3f);
-            atten = saturate(1.0f - dist / max(gLights[l].params.x, 1.0f));
-            if (gLights[l].params.y > 1.5f) // spot cone (see the D3D12 twin)
+            if (gLights[l].params.y < 1.5f) // point lamp (see the D3D12 twin's note)
             {
+                // Artscout - 2026: the AUTHORED D3D7 attenuation when the CPU supplies it
+                // (params.z = a0, params.w = a1), cut at the light's range; the port's hard ramp
+                // (1 - d/range) is the fallback and still bounds a1 == 0 data (the tail strobe).
+                atten = (gLights[l].params.z > 0.0f)
+                            ? ((dist <= gLights[l].params.x)
+                                   ? min(1.0f, 1.0f / max(gLights[l].params.z +
+                                                              gLights[l].params.w * dist,
+                                                          1.0e-4f))
+                                   : 0.0f)
+                            : saturate(1.0f - dist / max(gLights[l].params.x, 1.0f));
+            }
+            else // spot cone
+            {
+                atten = saturate(1.0f - dist / max(gLights[l].params.x, 1.0f));
                 const float cosA = dot(Ldir, -normalize(gLights[l].direction.xyz));
                 atten *= saturate((cosA - gLights[l].params.z) /
                                   max(gLights[l].params.w - gLights[l].params.z, 1e-4f));

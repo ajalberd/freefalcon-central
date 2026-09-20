@@ -135,6 +135,9 @@ struct VulkanRenderer::Impl
     bool glocActive = false;
     float glocParams[4] = {0, 0, 0,
                            0}; // FF_GLOC vignette (intensity, innerR, outerR)
+    // Artscout - 2026: the cockpit flood/instrument fill (FF_COCKPIT only), published by the sim
+    // (CockpitManager::GetCockpitFill). rgb = the two knobs' contribution on top of the environment.
+    float cockpitFill[4] = {0, 0, 0, 0};
     int stencilMode = 0;
     unsigned stencilRef = 0;
     int hudStencil = 0;
@@ -288,6 +291,8 @@ struct VulkanRenderer::Impl
             [4]; // FF_GLOC vignette: x = intensity, y = innerR, z = outerR, w unused
         GpuLightUbo lights
             [kMaxLights]; // the scene's real lights (sun + dynamic lamps), from SetLights
+        float cockpitFill
+            [4]; // Artscout - 2026: FF_COCKPIT flood/instrument fill (rgb), from SetCockpitFill
     };
     VkDescriptorSetLayout objDsLayout =
         VK_NULL_HANDLE; // binding0 = UBO, binding1 = gTex0, binding2 = gTex1
@@ -411,9 +416,11 @@ static_assert(offsetof(VulkanRenderer::Impl::ObjUbo, gloc) == 736,
               "ObjUbo/std140 drift: gloc");
 static_assert(offsetof(VulkanRenderer::Impl::ObjUbo, lights) == 752,
               "ObjUbo/std140 drift: lights");
+static_assert(offsetof(VulkanRenderer::Impl::ObjUbo, cockpitFill) == 1264,
+              "ObjUbo/std140 drift: cockpitFill");
 static_assert(sizeof(VulkanRenderer::Impl::GpuLightUbo) == 64,
               "GpuLightUbo must match GpuLightCPU and the std140 array stride");
-static_assert(sizeof(VulkanRenderer::Impl::ObjUbo) == 1264,
+static_assert(sizeof(VulkanRenderer::Impl::ObjUbo) == 1280,
               "ObjUbo/std140 drift: total size");
 
 // ---------------------------------------------------------------------------------------------- helpers
@@ -1967,6 +1974,16 @@ void VulkanRenderer::SetCockpitPass(bool on)
 {
     m->cockpitPass = on;
 }
+// Artscout - 2026: the cockpit flood/instrument fill (see IRenderer + CockpitManager::GetCockpitFill).
+// FF_COCKPIT surfaces add it to their ambient in FFObjectLighting, so the two cockpit light knobs move
+// the 3D pit the way they already move the 2D art.
+void VulkanRenderer::SetCockpitFill(float r, float g, float b)
+{
+    m->cockpitFill[0] = r;
+    m->cockpitFill[1] = g;
+    m->cockpitFill[2] = b;
+    m->cockpitFill[3] = 0.0f;
+}
 void VulkanRenderer::SetIRGrey(bool on)
 {
     m->irGrey = on;
@@ -2711,6 +2728,8 @@ static void RecordObjectDraw(VulkanRenderer::Impl* m, VkPipeline pipe,
     ubo->flags[0] = gf;
     ubo->flags[1] = ubo->flags[2] = ubo->flags[3] = 0;
     memcpy(ubo->gloc, m->glocParams, sizeof(ubo->gloc));
+    // Artscout - 2026: the cockpit flood/instrument fill (FF_COCKPIT only), published by the sim.
+    memcpy(ubo->cockpitFill, m->cockpitFill, sizeof(ubo->cockpitFill));
     auto argb2rgb = [](unsigned long a, float* o)
     {
         o[0] = ((a >> 16) & 0xFF) / 255.0f;

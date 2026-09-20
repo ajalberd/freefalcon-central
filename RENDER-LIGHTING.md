@@ -93,6 +93,32 @@ CPU side: `CockpitManager::ComputeLightFactors` and `CockpitManager::ApplyLighti
 the per-frame light factors the 2D/3D pit art is tinted by. `ApplyLightingToPalette` does the
 same for palettised images (the kneeboard map uses it).
 
+### The pit's own lamps, and why the flood knob did nothing (2026-09-20)
+
+The 3D pit model (LOD 4105) carries **6 light nodes**: nav (switch 8, green/red), tail strobe
+(7), landing (9, a spot), and — the two that matter — **interior/flood (127)** and
+**instrument (128)**, both authored as points with a **2.2-unit range inside a 22-unit pit**
+(`tools/models/objsurvey.py --tree 4105` dumps them). Two port decisions made them dead:
+
+- **The shader's attenuation was a hard linear ramp, `saturate(1 - d/range)`.** D3D7 used the
+  light's authored curve `1/(a0 + a1·d + a2·d²)`, cut at the range (D3D9's rule). With the ramp
+  the flood lit a 2-unit ball in the middle of the pit — "the knob does nothing". Fixed:
+  `g_bLightFalloffD3D7` (default 1) has the light engine hand `a0`/`a1` to the shader in
+  `Params.z/w` (free for point lights; spots keep the cone cosines there) and the shader uses the
+  curve. `Params.z == 0` falls back to the ramp, which is what still bounds a light whose data has
+  no falloff at all (`a1 == 0`, e.g. the strobe) — so nothing that was bounded became unbounded.
+- **The knob's real effect belongs to the 2D art.** `CockpitManager::ComputeLightFactors` is what
+  the 2D pit is tinted by; the 3D pit never saw it. Now `CockpitManager::GetCockpitFill` publishes
+  the flood+instrument contribution (without the environment, which the object pass already carries
+  as `gAmbient`), `VCock_Exec` hands it to the renderer per frame, and `FFObjectLighting` adds it
+  to the ambient for `FF_COCKPIT` surfaces. The knob now moves the 3D pit exactly as it moves the
+  2D one. Plumbing: `IRenderer::SetCockpitFill` → `cbRender.gCockpitFill` (D3D12) /
+  `ObjUbo.cockpitFill` (Vulkan, appended after the light array so no existing offset shifts).
+
+Note the CPU light set is culled by `dvRange + objectRadius` while the shader cut at `dvRange`
+alone — the flood light was *in* the pit's set and the shader then zeroed it. That inconsistency
+is why the symptom looked like a missing light rather than a falloff.
+
 ## Cockpit shadows (2026-09-20) — D3D12 landed
 
 One model, one light, so this is a depth map, not a shadow system. The pit BSP is replayed
@@ -213,6 +239,11 @@ These are listed in the order they were asked, which is not the order to do them
 - The object light model is ONE function per backend (`FFObjectLighting` in `ffemu.hlsl` /
   `ffobject.hlsl`); per-vertex and per-pixel paths both go through it. Do not fork it. Its
   `sunShadow` parameter (D3D12 only for now) scales the DIRECTIONAL term alone.
+- Point lamps use their AUTHORED D3D7 attenuation (`1/(a0 + a1·d)`, cut at the range), handed over
+  in `Params.z/w`; the old hard ramp is the fallback when `Params.z == 0` (a1 == 0 data such as the
+  tail strobe stays bounded by its range). The pit's flood/instrument knob effect comes from
+  `CockpitManager::GetCockpitFill` → `gCockpitFill` → the FF_COCKPIT ambient, NOT from the model's
+  own 2.2-unit flood light node.
 - Emissive is ADDED to the lit material, never a replacement (`FF_AFTERBURNER` excepted).
 - The clip projection reflects (`det = −1`), so D3D7's cull-back is this port's cull-FRONT —
   and the player's own stores are drawn from the pit list. Both bit us; see `OBJECT-RENDERING.md`.

@@ -230,6 +230,22 @@ void CDXLight::UpdateDynamicLights(DWORD ID, D3DVECTOR *pos, float Radius)
             g.Params[0] =
                 (L.dvRange > 1.0f) ? L.dvRange : 1.0f; // range (attenuation)
             g.Params[1] = 1.0f; // point
+            // Artscout - 2026: hand over the AUTHORED D3D7 attenuation (Params.z = a0, Params.w = a1;
+            // a2 is 0 in every shipped light). The shader then falls off the way the models were lit
+            // and cuts at the range, instead of the port's hard ramp (1 - d/range). That ramp is what
+            // made the pit's own flood/instrument lamps read as dead: they are authored with a 2.2-unit
+            // range inside a 22-unit pit. The shader keeps the ramp as its fallback when Params.z == 0
+            // (a light whose data has no falloff at all -- the tail strobe has a1 == 0 -- stays bounded
+            // by its range exactly as before). Params.z/w are free for POINT lights; spots use them for
+            // the cone cosines.
+            {
+                extern bool g_bLightFalloffD3D7;
+                if (g_bLightFalloffD3D7)
+                {
+                    g.Params[2] = L.dvAttenuation0;
+                    g.Params[3] = L.dvAttenuation1;
+                }
+            }
 
             // Artscout - 2026: spot cones. The port uploaded every dynamic light as a point, so the
             // F-16's anti-collision beacon (D3DLIGHT_SPOT, range 1500 ft, a ~5-degree beam pointing aft)

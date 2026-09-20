@@ -146,6 +146,10 @@ struct CBRender
         [4]; // #13: x=SUN extinction/ft (NOT the view's), y=multiple-scattering strength
     float cloudLib
         [4]; // #13: x=model count (0=none), y/z=sdf encode range, w=cell size (noise units)
+    // Artscout - 2026: the cockpit flood/instrument fill (FF_COCKPIT only). rgb = what the two knobs
+    // add on top of the environment, handed over by the sim (CockpitManager::GetCockpitFill); the
+    // object pass already carries the environment as gAmbient. MUST match cbRender in ffemu.hlsl.
+    float cockpitFill[4];
 };
 // Object/dynamic vertex layouts (match DXVbManager / the object input layout below).
 struct DynV
@@ -265,6 +269,8 @@ D3D12Renderer::D3D12Renderer()
         m_shadowVP[i] = (i % 5 == 0) ? 1.0f : 0.0f;
     m_shadowParams[0] = m_shadowParams[1] = m_shadowParams[2] =
         m_shadowParams[3] = 0.0f;
+    // Artscout - 2026: no cockpit fill until the sim publishes one (the knobs are off in the menus).
+    m_cockpitFill[0] = m_cockpitFill[1] = m_cockpitFill[2] = m_cockpitFill[3] = 0.0f;
     // Artscout - 2026: #13 clouds off until SetCloudParams runs (FF_CLOUD is only set by BeginCloudPass anyway).
     for (int c = 0; c < 4; ++c)
     {
@@ -1411,6 +1417,18 @@ void D3D12Renderer::EndPitShadowPass()
     // force the next draw to re-copy t0..t6 with the now-valid shadow view.
     m_tableDirty = true;
 }
+
+// Artscout - 2026: the cockpit flood/instrument fill (see IRenderer + CockpitManager::GetCockpitFill).
+// Stored in the cbRender shadow and uploaded with the next draw; FF_COCKPIT surfaces add it to their
+// ambient, so the two cockpit light knobs move the 3D pit the way they already move the 2D art.
+void D3D12Renderer::SetCockpitFill(float r, float g, float b)
+{
+    m_cockpitFill[0] = r;
+    m_cockpitFill[1] = g;
+    m_cockpitFill[2] = b;
+    m_cockpitFill[3] = 0.0f;
+    m_dRender = true;
+}
 void D3D12Renderer::SetIRGrey(bool on)
 {
     m_irGrey = on;
@@ -1484,6 +1502,7 @@ void D3D12Renderer::FillRenderCB(void* pCb)
     memcpy(cb.specular, m_specular, sizeof(cb.specular));
     cb.waterParams[0] = (float)(GetTickCount() % 1000000) * 0.001f;
     memcpy(cb.gloc, m_gloc, sizeof(cb.gloc));
+    memcpy(cb.cockpitFill, m_cockpitFill, sizeof(cb.cockpitFill));
 }
 
 void D3D12Renderer::BeginFrameStateIfNeeded()

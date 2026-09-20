@@ -64,6 +64,8 @@ public:
     void SetEmissive(bool on) override;
     void SetAfterburner(bool on) override;
     void SetCockpitPass(bool on) override;
+    // Artscout - 2026: cockpit flood/instrument fill (see IRenderer); FF_COCKPIT surfaces add it.
+    void SetCockpitFill(float r, float g, float b) override;
     void SetIRGrey(bool on) override;
     void SetNvgMode(bool on) override;
     void SetFullBright(bool on) override;

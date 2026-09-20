@@ -3230,6 +3230,20 @@ void OTWDriverClass::VCock_Exec(void)
         else
             vrCockpit->SetSwitchMask(COMP_3DPIT_INSTRUMENT_LIGHTS, 0);
 
+        // Artscout - 2026: hand the flood/instrument fill to the 3D pit's shading. The object pass
+        // already carries the environment; this is what the two knobs add, and it is the same data
+        // the 2D pit art is tinted by. Without it the interior-light knob does nothing in the 3D pit
+        // (the model's own flood light node is a 2.2-unit bubble inside a 22-unit pit -- see
+        // CockpitManager::GetCockpitFill and RENDER-LIGHTING.md).
+        if (pCockpitManager)
+        {
+            extern IRenderer* g_pRenderer;
+            float fill[3];
+            pCockpitManager->GetCockpitFill(fill);
+            if (g_pRenderer)
+                g_pRenderer->SetCockpitFill(fill[0], fill[1], fill[2]);
+        }
+
         //******************************************
         // New 3D cockpit Lights
         //******************************************

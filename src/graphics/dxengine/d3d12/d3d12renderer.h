@@ -165,6 +165,8 @@ public:
     void SetPitShadowVP(const float* vp, float bias, float strength) override;
     bool BeginPitShadowPass() override;
     void EndPitShadowPass() override;
+    // Artscout - 2026: the cockpit flood/instrument fill (see IRenderer); cbRender's gCockpitFill.
+    void SetCockpitFill(float r, float g, float b) override;
     void SetIRGrey(bool on); // #DX12 A5: sensor pass -> grey (luma in PS)
     void SetNvgMode(bool on)
         override; // Artscout - 2026: #97 NVG -- green the world passes (terrain/objects/cockpit/sky)
@@ -547,6 +549,8 @@ private:
     bool m_shadowPass; // inside the depth-only replay -> GetPSO builds the shadow variant
     float m_savedShadowView[16], m_savedShadowProj[16], m_savedShadowCam[4];
     int m_pitShadowRes; // shadow map edge (texels); 0 = not created yet
+    // Artscout - 2026: the cockpit flood/instrument fill (cbRender gCockpitFill) -- rgb, a unused.
+    float m_cockpitFill[4];
 
     // Dirty flags: which CBs changed since last bind (per-slot root CBV rebind).
     bool m_dViewport, m_dView, m_dObject, m_dRender, m_dLights;

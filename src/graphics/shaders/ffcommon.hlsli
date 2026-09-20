@@ -57,6 +57,10 @@ cbuffer ObjUbo : register(b0)
     float4 gSpec;      // rgb = specular colour, w = power (0 = none)
     float4 gGloc;      // x = intensity, y = innerR, z = outerR
     Light  gLights[8];
+    // Artscout - 2026: the cockpit flood/instrument fill (FF_COCKPIT only) -- what the two cockpit
+    // light knobs add on top of the environment, published by the sim. MUST match ObjUbo::cockpitFill
+    // in vulkanrenderer.cpp (appended after the light array on purpose: it shifts no existing offset).
+    float4 gCockpitFill;
 };
 
 bool Has(uint f)

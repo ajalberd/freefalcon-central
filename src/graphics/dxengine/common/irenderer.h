@@ -256,6 +256,14 @@ public:
     {
     }
 
+    // Artscout - 2026: the cockpit's flood/instrument FILL -- the sim hands over what the two cockpit
+    // light knobs add on top of the environment (CockpitManager::GetCockpitFill). The FF_COCKPIT
+    // branch of the object lighting adds it to the pit's ambient, so the knobs move the 3D pit the
+    // way they already move the 2D art. Default no-op (backends that do not shade the pit).
+    virtual void SetCockpitFill(float /*r*/, float /*g*/, float /*b*/)
+    {
+    }
+
     // #78 mesh-shader terrain: the CPU uploads a toroidal post clipmap (one
     // array slice per LOD) instead of vertices. Unsupported by default.
     virtual bool MeshTerrainAvailable() const
