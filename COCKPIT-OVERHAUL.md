@@ -65,7 +65,10 @@ a metrics dependency, not a code task.
 
 The 3D kneeboard has its own font selector, `g_nKnee3DFont` (`f4config.cpp`), defaulting to 2
 (10×7) instead of the 2D board's `kneefont` (0, 6×4). That is a per-display override of the
-same three-size set — a pattern worth reusing, not a fix for the underlying limit.
+same three-size set — a pattern worth reusing, not a fix for the underlying limit, and it is
+the concrete evidence that the limit bites: 10×7 is the largest matched size there is, and on
+a 5.6 in page seen at an angle in a headset it is still only just adequate. That page renders
+708×942 actual pixels, so the shortfall is not resolution — it is the source bitmap.
 
 ## Textures
 

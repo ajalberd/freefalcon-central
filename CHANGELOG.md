@@ -96,6 +96,13 @@ The long‑term goal of the render work, now shipped.
   them (Varjo/Pimax), with the focus pair driving anything resolution‑dependent.
 * **Cockpit in VR** — RTT displays, HUD through a proper collimator (the symbology sits at
   infinity instead of painted on the glass), canopy, and a head‑pan limit.
+* **3D kneeboard** — the pilot's kneeboard on the right thigh, on its own render‑to‑texture
+  canvas: map with the route drawn on it, briefing and steerpoint pages, clickable to cycle,
+  opaque and correctly occluded by the cockpit. Placement, size and blend are data
+  (`3Dckpit.dat`), and it has its own font size knob for headset legibility.
+* **Screenshots in VR** — captures read the rendered **eye** instead of the desktop back
+  buffer, which in a VR session only ever holds the clear. Both the normal and the "pretty"
+  key work in the headset.
 * **VR interface** — the 2D menus, comms and AWACS panels are composited onto XR quad layers with
   a pointer ray and a 3D mouse cursor; the in‑3D menu and the exit dialog work in the headset.
 * **Touch controllers** — models, click/pointer input, a ring menu, and skeletal hand tracking
@@ -140,6 +147,14 @@ The long‑term goal of the render work, now shipped.
 
 ## 6. Gameplay & QoL
 
+* **Ramp start actually works** — the JFS switch is drawn and animated in the 3D pit (it was
+  modelled all along, just never given a draw mask), its green run light reads the JFS bit
+  instead of the engine overheat lamp, and sixteen avionics levers follow the switch the pilot
+  moved rather than whether the bus behind it is live.
+* **Nosewheel steering** — FF6 had no NWS control of any kind; there is one now, and the
+  AR/NWS caution lamp doubles as an indication that steering is engaged.
+* **Cockpit indicator lamps** — the EPU, ECM and ELEC panel lamps read their own status bits;
+  several were wired to the wrong word and lit on unrelated conditions.
 * **Instant Action**: unlimited ammo / chaff / flares (independent of options); fixed a weapon
   count leak that blocked missile launches.
 * **MRM / AIM‑120**: launches in maddog (MRM) as it should; HUD MRM redesign (wider circle,
@@ -178,6 +193,11 @@ The long‑term goal of the render work, now shipped.
 
 ## 7. Stability (corruption / hangs / crashes)
 
+* **Campaign teardown heap corruption** — `O_Output` sized its scale buffers from the first
+  image it was ever given and then kept them for every later, larger one, writing off the end.
+  Long‑standing; it surfaced as a "double free" far from the damage.
+* **Black stripe at the horizon at altitude** — the 3D skydome replaced the 2D sky wholesale,
+  including the band that covered the near/far terrain seam. The dome now inherits that job.
 * **Object‑list lifetime overhaul** — recursive lock serializing render vs sim/campaign access,
   idempotent insert, out‑of‑line `DrawableObject` destructor that unlinks on delete, SEH‑guarded
   draw/update callbacks; fixes the use‑after‑free (0xDD), self‑cycle OOM, and enter/exit‑3D hangs.
