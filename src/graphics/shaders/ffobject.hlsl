@@ -241,8 +241,8 @@ float4 PS_Object(VSOut i) : SV_Target
         float3 lit, spec;
         FFObjectLighting(N, i.wpos, i.view, lit, spec);
         c.rgb *= saturate(lit);
-        if (Has(FF_EMISSIVE))
-            c.rgb += i.emis; // D3D7: emissive adds to the lit material, before the texture
+        // NOTE: the emissive is added AFTER the texture for this path -- see the block past the
+        // texture stage. Added here it was multiplied by the albedo and could extinguish a lamp.
         pixSpec = spec;
     }
 
@@ -293,6 +293,12 @@ float4 PS_Object(VSOut i) : SV_Target
         if (Has(FF_MODULATE2X))
             c.rgb *= 2.0f;
     }
+
+    // Artscout - 2026: the EMISSIVE term is added AFTER the texture for the per-pixel path (see the
+    // D3D12 twin's note): albedo*(lit+emissive) extinguished lamps whose texture is dark. Unmodulated,
+    // a lamp reads as a source (albedo*lit + emissive). The legacy per-vertex path keeps D3D7's order.
+    if (Has(FF_EMISSIVE) && Has(FF_PIXELLIGHT) && !Has(FF_AFTERBURNER))
+        c.rgb += i.emis;
 
     // #49 afterburner: scale colour BY texture brightness, with time-animated
     // turbulence and flicker so the plume licks instead of sitting frozen.

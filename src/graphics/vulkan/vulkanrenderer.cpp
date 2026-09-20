@@ -2730,8 +2730,10 @@ static void RecordObjectDraw(VulkanRenderer::Impl* m, VkPipeline pipe,
     ubo->flags[0] = gf;
     ubo->flags[1] = ubo->flags[2] = ubo->flags[3] = 0;
     memcpy(ubo->gloc, m->glocParams, sizeof(ubo->gloc));
-    // Artscout - 2026: the cockpit flood/instrument fill (FF_COCKPIT only), published by the sim.
-    memcpy(ubo->cockpitFill, m->cockpitFill, sizeof(ubo->cockpitFill));
+    // Artscout - 2026: the cockpit fill is for the pit's OPAQUE surfaces; transparent (glass) draws
+    // must not take it -- the HUD/canopy glass sits at the fill's origin and read as a lit gray box.
+    if (m->blend == 0) // FFBlendMode BLEND_OPAQUE
+        memcpy(ubo->cockpitFill, m->cockpitFill, sizeof(ubo->cockpitFill));
     auto argb2rgb = [](unsigned long a, float* o)
     {
         o[0] = ((a >> 16) & 0xFF) / 255.0f;

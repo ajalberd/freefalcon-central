@@ -1922,8 +1922,9 @@ float4 PS_Main(VSOut i) : SV_Target
         const float sunShadow = (gFlags & FF_COCKPIT) ? CockpitSunShadow(i.NrmL, i.PosL) : 1.0f;
         FFObjectLighting(N, i.WPos, i.View, sunShadow, lit, spec);
         c.rgb *= saturate(lit);
-        if (gFlags & FF_EMISSIVE)
-            c.rgb += i.Emis; // D3D7: emissive adds to the lit material, before the texture
+        // NOTE: the emissive is added AFTER the texture for this path -- see the block past the
+        // texture stage. It used to be added here, which multiplied it by the albedo and could
+        // extinguish a lamp whose texture is dark.
         pixSpec = spec;
     }
 
@@ -1985,6 +1986,15 @@ float4 PS_Main(VSOut i) : SV_Target
         if (gFlags & FF_MODULATE2X)
             c.rgb *= 2.0f;
     }
+
+    // Artscout - 2026: the EMISSIVE term is added AFTER the texture for the per-pixel path. D3D7
+    // multiplied it by the albedo like the lit material, and for the F-16's lamps that extinguished
+    // the SOURCE: the intake strip's albedo is dark and its authored emissive is a dim red (74,0,0),
+    // so albedo*(lit+emissive) showed only the light's spill on the skin, never the lamp itself.
+    // Unmodulated, a lamp reads as a source (albedo*lit + emissive). The legacy per-vertex path
+    // keeps the D3D7 order: there the VS already folded the emissive into the vertex colour.
+    if ((gFlags & FF_EMISSIVE) && (gFlags & FF_PIXELLIGHT) && !(gFlags & FF_AFTERBURNER))
+        c.rgb += i.Emis;
 
     // #49 afterburner warm recolor (reference real_af.png): map the plume texture brightness to a
     // white-hot core -> orange/red body gradient. c.rgb is texture*white here (VS set col=white),

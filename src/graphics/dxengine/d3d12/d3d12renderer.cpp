@@ -1504,7 +1504,11 @@ void D3D12Renderer::FillRenderCB(void* pCb)
     memcpy(cb.specular, m_specular, sizeof(cb.specular));
     cb.waterParams[0] = (float)(GetTickCount() % 1000000) * 0.001f;
     memcpy(cb.gloc, m_gloc, sizeof(cb.gloc));
-    memcpy(cb.cockpitFill, m_cockpitFill, sizeof(cb.cockpitFill));
+    // Artscout - 2026: the cockpit fill is for the pit's OPAQUE surfaces. A TRANSPARENT surface must
+    // not take it: the HUD combiner / canopy glass sits right at the fill's origin (the pilot's eye),
+    // so it took the full strength and read as a lit gray box over the cockpit. Alpha draws get none.
+    if (m_blend == BLEND_OPAQUE)
+        memcpy(cb.cockpitFill, m_cockpitFill, sizeof(cb.cockpitFill));
 }
 
 void D3D12Renderer::BeginFrameStateIfNeeded()

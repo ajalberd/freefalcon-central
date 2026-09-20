@@ -125,6 +125,19 @@ The 3D pit model (LOD 4105) carries **6 light nodes**: nav (switch 8, green/red)
   aircraft, so `OwnLight` (nav/formation) excluded every one of the jet's lights from the cockpit.
   `UpdateDynamicLights` now lets `OwnLight` through when the RECEIVER is the pit; `NotSelfLight`
   (the landing light, flashes) stays excluded, and each light's own range keeps the spill small.
+- **The fill skips TRANSPARENT draws.** The HUD combiner and canopy glass sit at the fill's origin
+  (the pilot's eye), so they took it at full strength and read as a lit gray box over the cockpit.
+  `FillRenderCB` (D3D12) / `RecordObjectDraw` (Vulkan) now pass `gCockpitFill` only when the draw is
+  opaque (`BLEND_OPAQUE`). Opaque pit surfaces keep it; glass gets none, which is also physically
+  right — light passes through a transparent surface rather than scattering in it.
+- **The EMISSIVE term is added AFTER the texture** on the per-pixel path (both backends). D3D7's
+  order was `albedo * (lit + emissive)`, and the port matched it — but that multiplies a lamp's
+  emissive by its own albedo, and the F-16's intake strip has a dark albedo and a dim red emissive
+  (74,0,0, read out of LOD 2648 with `tools/models/objsurvey.py`), so the lamp's own surface stayed
+  dark and only the light's spill on the skin showed. Unmodulated, a lamp reads as a source
+  (`albedo * lit + emissive`). The legacy per-vertex path keeps the D3D7 order (there the VS folds
+  the emissive into the vertex colour). If this ever reads as flat saturated strips again, this is
+  the one block to revisit.
 
 Note the CPU light set is culled by `dvRange + objectRadius` while the shader cut at `dvRange`
 alone — the flood light was *in* the pit's set and the shader then zeroed it. That inconsistency
