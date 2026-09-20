@@ -258,11 +258,12 @@ public:
     // render targets (the shadow PSO is depth-only) and clears it; UnbindPitShadowTarget transitions it to
     // a sampled state and rebinds whatever scene target was current (back buffer / eye / MSAA / RTT).
     //   The resource is R32G8X24_TYPELESS viewed as D32_FLOAT_S8X24 for the pass (the same format every
-    // other PSO bakes, so the shadow PSO needs no format of its own) and as R32_FLOAT for sampling.
+    // other PSO bakes, so the shadow PSO needs no format of its own) and as R32_FLOAT_X8X24_TYPELESS
+    // for sampling -- NOT R32_FLOAT, which this typeless parent does not allow (see the cpp).
     bool EnsurePitShadowTarget(int res);
     void BindPitShadowTarget();
     void UnbindPitShadowTarget();
-    unsigned __int64 PitShadowSrvCpu() const; // R32_FLOAT view, 0 while it is still being written
+    unsigned __int64 PitShadowSrvCpu() const; // depth-plane SRV, 0 while it is still being written
     int PitShadowRes() const
     {
         return m_pitShadowRes;

@@ -1241,7 +1241,12 @@ bool D3D12Backend::EnsurePitShadowTarget(int res)
 
     D3D12_SHADER_RESOURCE_VIEW_DESC sd;
     ZeroMemory(&sd, sizeof(sd));
-    sd.Format = DXGI_FORMAT_R32_FLOAT; // the depth plane only
+    // R32_FLOAT_X8X24_TYPELESS, NOT R32_FLOAT: an R32G8X24_TYPELESS resource cannot be viewed as
+    // plain R32_FLOAT -- asking for it makes CreateShaderResourceView REMOVE THE DEVICE (DXGI
+    // _INVALID_CALL, reproduced with the debug layer), which then fails every later PSO with
+    // DEVICE_REMOVED and presents a black screen. This is the same view the scene depth uses
+    // (SceneDepthSrvCpu); the depth plane is the only part a shader can read anyway.
+    sd.Format = DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
     sd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     sd.Texture2D.MipLevels = 1;

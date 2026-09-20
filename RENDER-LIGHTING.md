@@ -127,7 +127,15 @@ The decisions that matter, in the order they bit:
 - **Depth-only PSO**: `NumRenderTargets = 0`, no pixel shader, stencil off, cull NONE (the object
   pass culls against a *reflected* camera projection — meaningless for a light-space pass). The
   shadow target is `R32G8X24_TYPELESS` viewed as `D32_FLOAT_S8X24` (the format every PSO already
-  bakes, so no new DSV format) and as `R32_FLOAT` for the SRV (t6).
+  bakes, so no new DSV format) and as `R32_FLOAT_X8X24_TYPELESS` for the SRV (t6).
+- **The format trap that cost a black screen**: an `R32G8X24_TYPELESS` resource **cannot** be viewed
+  as plain `R32_FLOAT`. `CreateShaderResourceView` with that format does not return an error — it
+  **removes the device** (`DXGI_ERROR_INVALID_CALL`), after which *every* later PSO creation fails
+  with `DEVICE_REMOVED` and the screen goes black in all views. The log's tell is
+  `[D3D12R] PSO create failed (key 0x201059)` followed by every other key. The scene depth uses
+  `R32_FLOAT_X8X24_TYPELESS` for the same reason (`SceneDepthSrvCpu`); do the same. Reproduced
+  offline with the debug layer before fixing — that is the fastest way to settle a PSO/format
+  question, and it is worth doing for any new view.
 - **Where it lives**: `IRenderer::SetPitShadowVP/BeginPitShadowPass/EndPitShadowPass` +
   `PitShadowSupported` (default no-op, so Vulkan compiles and skips); `D3D12Backend::Ensure/
   Bind/UnbindPitShadowTarget`; `cbShadow` is root CBV b6 and t6 joins the per-draw SRV table
