@@ -275,6 +275,15 @@ private:
     // m_PitMode; deferred stack draws restore the flag the surface was pushed with). Drives the
     // per-surface back-face-cull decision in DrawSurface.
     static bool m_SurfacePit;
+    // Artscout - 2026: true while the depth-only cockpit shadow replay is walking the pit's nodes.
+    // DrawNode then draws every OPAQUE surface immediately (no alpha/solid deferral, no slot children)
+    // and DrawSurface skips texture/material/blend state entirely -- the shadow PSO is depth-only.
+    static bool m_ShadowWalk;
+    // One shadow replay per frame is enough: the map is in the pit's model space, so it depends on
+    // the sun direction, not on the eye. Reset by SetSunLight (StartDraw runs once per frame, before
+    // the eye loop / the cockpit draw).
+    static bool m_PitShadowDone;
+    bool RenderPitShadowMap(void);
 
     // Debug Flags
     bool m_bCullEnable, m_bDofMove;

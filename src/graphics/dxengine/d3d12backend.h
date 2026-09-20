@@ -253,12 +253,34 @@ public:
     // Legal only because the cloud pass does not write depth.
     void SetSceneDepthReadable(bool readable);
 
+    // Artscout - 2026: cockpit sun shadow map -- a small DEPTH-ONLY target the engine renders the 3D pit
+    // into from the sun's direction, in the pit's own model space. BindPitShadowTarget binds it with ZERO
+    // render targets (the shadow PSO is depth-only) and clears it; UnbindPitShadowTarget transitions it to
+    // a sampled state and rebinds whatever scene target was current (back buffer / eye / MSAA / RTT).
+    //   The resource is R32G8X24_TYPELESS viewed as D32_FLOAT_S8X24 for the pass (the same format every
+    // other PSO bakes, so the shadow PSO needs no format of its own) and as R32_FLOAT for sampling.
+    bool EnsurePitShadowTarget(int res);
+    void BindPitShadowTarget();
+    void UnbindPitShadowTarget();
+    unsigned __int64 PitShadowSrvCpu() const; // R32_FLOAT view, 0 while it is still being written
+    int PitShadowRes() const
+    {
+        return m_pitShadowRes;
+    }
+
 private:
     struct ID3D12Resource*
         m_pSceneDepthRes; // #13: the depth resource the CURRENT scene pass bound (not owned)
     int m_sceneDepthSlices; // #13: its array slice count (1 flat, 2 stereo, 2/4 quad groups)
     bool m_sceneDepthMs; // #13: true = multisampled (flat MSAA) -> no array SRV
     bool m_sceneDepthReadable;
+    // Artscout - 2026: cockpit sun shadow map (see the public block). DSV + SRV live in their own tiny
+    // CPU heaps, like the scene-depth SRV above; both are single-descriptor and never grow.
+    struct ID3D12Resource* m_pPitShadowTex;
+    struct ID3D12DescriptorHeap* m_pPitShadowDsvHeap;
+    struct ID3D12DescriptorHeap* m_pPitShadowSrvHeap;
+    int m_pitShadowRes;
+    bool m_pitShadowReadable; // true = DEPTH_READ|PSR (samplable); false = DEPTH_WRITE
     struct ID3D12DescriptorHeap*
         m_pDepthSrvHeap; // #13: tiny CPU heap holding the depth SRV
     struct ID3D12Resource*

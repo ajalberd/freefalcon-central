@@ -94,6 +94,8 @@ D3D12Backend::D3D12Backend()
       m_sceneRtvPtr(0), m_sceneDsvPtr(0), m_sceneW(0), m_sceneH(0),
       m_pSceneDepthRes(0), m_sceneDepthSlices(1), m_sceneDepthMs(false),
       m_sceneDepthReadable(false), m_pDepthSrvHeap(0), m_depthSrvFor(0),
+      m_pPitShadowTex(0), m_pPitShadowDsvHeap(0), m_pPitShadowSrvHeap(0),
+      m_pitShadowRes(0), m_pitShadowReadable(false),
       m_pList(0), m_pFence(0), m_fenceCounter(0), m_fenceEvent(0),
       m_frameIndex(0), m_pQuadRS(0), m_pQuadPSO(0), m_pQuadPSOBlend(0),
       m_pSrvHeap(0), m_pQuadTex(0), m_pQuadUpload(0), m_quadTexW(0),
@@ -1145,6 +1147,192 @@ void D3D12Backend::SetSceneDepthReadable(bool readable)
             D3D12_RESOURCE_STATE_DEPTH_WRITE;
     m_pList->ResourceBarrier(1, &b);
     m_sceneDepthReadable = readable;
+}
+
+//============================ cockpit sun shadow map =========================
+// Artscout - 2026: a small DEPTH-ONLY target for the 3D pit's sun shadow (see RENDER-LIGHTING.md).
+// The pit is one rigid BSP drawn near-Z, and it is lit by one directional light, so its shadow is
+// just that light's depth: an ortho fitted to the model's own bounding box, rendered in MODEL space.
+// The target therefore never follows the camera, the eye or the aircraft -- only the sun's direction
+// in the pit frame changes it. DSV is D32_FLOAT_S8X24 (the format every PSO already bakes, so the
+// shadow PSO needs no format of its own); the SRV reads the depth plane as R32_FLOAT.
+bool D3D12Backend::EnsurePitShadowTarget(int res)
+{
+    if (!m_pDevice || res < 1)
+        return false;
+    if (m_pPitShadowTex && m_pitShadowRes == res)
+        return true;
+
+    if (m_pPitShadowTex)
+    {
+        WaitForGpu(); // it may still be referenced by frames in flight
+        D12_RELEASE(m_pPitShadowTex);
+    }
+
+    if (!m_pPitShadowDsvHeap)
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC hd;
+        ZeroMemory(&hd, sizeof(hd));
+        hd.NumDescriptors = 1;
+        hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+        hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        if (FAILED(m_pDevice->CreateDescriptorHeap(
+                &hd, IID_PPV_ARGS(&m_pPitShadowDsvHeap))))
+        {
+            D12Log("[D3D12] pit shadow DSV heap failed\n");
+            m_pPitShadowDsvHeap = 0;
+            return false;
+        }
+    }
+    if (!m_pPitShadowSrvHeap)
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC hd;
+        ZeroMemory(&hd, sizeof(hd));
+        hd.NumDescriptors = 1;
+        hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        hd.Flags =
+            D3D12_DESCRIPTOR_HEAP_FLAG_NONE; // CPU staging: FlushConstants copies it to the ring
+        if (FAILED(m_pDevice->CreateDescriptorHeap(
+                &hd, IID_PPV_ARGS(&m_pPitShadowSrvHeap))))
+        {
+            D12Log("[D3D12] pit shadow SRV heap failed\n");
+            m_pPitShadowSrvHeap = 0;
+            return false;
+        }
+    }
+
+    D3D12_HEAP_PROPERTIES hp;
+    ZeroMemory(&hp, sizeof(hp));
+    hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC rd;
+    ZeroMemory(&rd, sizeof(rd));
+    rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    rd.Width = (UINT64)res;
+    rd.Height = (UINT)res;
+    rd.DepthOrArraySize = 1;
+    rd.MipLevels = 1;
+    rd.Format = DXGI_FORMAT_R32G8X24_TYPELESS;
+    rd.SampleDesc.Count = 1;
+    rd.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+    D3D12_CLEAR_VALUE cv;
+    ZeroMemory(&cv, sizeof(cv));
+    cv.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    cv.DepthStencil.Depth = 0.0f; // reversed-Z: 0 is the FAR plane
+    cv.DepthStencil.Stencil = 0;
+
+    if (FAILED(m_pDevice->CreateCommittedResource(
+            &hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            &cv, IID_PPV_ARGS(&m_pPitShadowTex))))
+    {
+        D12Log("[D3D12] pit shadow target create failed\n");
+        m_pPitShadowTex = 0;
+        return false;
+    }
+
+    D3D12_DEPTH_STENCIL_VIEW_DESC dv;
+    ZeroMemory(&dv, sizeof(dv));
+    dv.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    dv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    m_pDevice->CreateDepthStencilView(
+        m_pPitShadowTex, &dv,
+        m_pPitShadowDsvHeap->GetCPUDescriptorHandleForHeapStart());
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC sd;
+    ZeroMemory(&sd, sizeof(sd));
+    sd.Format = DXGI_FORMAT_R32_FLOAT; // the depth plane only
+    sd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    sd.Texture2D.MipLevels = 1;
+    m_pDevice->CreateShaderResourceView(
+        m_pPitShadowTex, &sd,
+        m_pPitShadowSrvHeap->GetCPUDescriptorHandleForHeapStart());
+
+    m_pitShadowRes = res;
+    m_pitShadowReadable = false;
+    return true;
+}
+
+void D3D12Backend::BindPitShadowTarget()
+{
+    if (!m_pList || !m_bRecording || !m_pPitShadowTex)
+        return;
+    if (m_pitShadowReadable)
+    {
+        // It was sampled last frame -> back to a depth attachment for this frame's replay.
+        D3D12_RESOURCE_BARRIER b;
+        ZeroMemory(&b, sizeof(b));
+        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b.Transition.pResource = m_pPitShadowTex;
+        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        b.Transition.StateBefore = (D3D12_RESOURCE_STATES)(
+            D3D12_RESOURCE_STATE_DEPTH_READ |
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        b.Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        m_pList->ResourceBarrier(1, &b);
+        m_pitShadowReadable = false;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv =
+        m_pPitShadowDsvHeap->GetCPUDescriptorHandleForHeapStart();
+    // ZERO render targets: the shadow PSO is depth-only (NumRenderTargets=0). A null RTV array is
+    // exactly what that pipeline expects.
+    m_pList->OMSetRenderTargets(0, NULL, FALSE, &dsv);
+    // Reversed-Z: 0 is the far plane, so that is what a cleared map holds (nothing lit it).
+    m_pList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, NULL);
+    m_curSampleCount = 1; // single-sample: GetPSO's SampleDesc must match
+
+    D3D12_VIEWPORT vp;
+    vp.TopLeftX = 0;
+    vp.TopLeftY = 0;
+    vp.Width = (FLOAT)m_pitShadowRes;
+    vp.Height = (FLOAT)m_pitShadowRes;
+    vp.MinDepth = 0;
+    vp.MaxDepth = 1;
+    D3D12_RECT sc;
+    sc.left = 0;
+    sc.top = 0;
+    sc.right = m_pitShadowRes;
+    sc.bottom = m_pitShadowRes;
+    m_pList->RSSetViewports(1, &vp);
+    m_pList->RSSetScissorRects(1, &sc);
+
+    if (g_pD3D12Renderer)
+        g_pD3D12Renderer->SetDepthTargetBound(true);
+}
+
+void D3D12Backend::UnbindPitShadowTarget()
+{
+    if (!m_pList || !m_bRecording || !m_pPitShadowTex)
+        return;
+    if (!m_pitShadowReadable)
+    {
+        D3D12_RESOURCE_BARRIER b;
+        ZeroMemory(&b, sizeof(b));
+        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b.Transition.pResource = m_pPitShadowTex;
+        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        b.Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        b.Transition.StateAfter = (D3D12_RESOURCE_STATES)(
+            D3D12_RESOURCE_STATE_DEPTH_READ |
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        m_pList->ResourceBarrier(1, &b);
+        m_pitShadowReadable = true;
+    }
+    // Restore whatever scene target was current (back buffer / VR eye / MSAA / RTT) and the
+    // matching sample count. The pit flush only ever runs inside the 3D scene pass, so this is
+    // the scene target, never a display-atlas RTT.
+    BindBackBufferRTV();
+}
+
+unsigned __int64 D3D12Backend::PitShadowSrvCpu() const
+{
+    if (!m_pPitShadowTex || !m_pPitShadowSrvHeap || !m_pitShadowReadable)
+        return 0; // still a depth attachment -> FlushConstants substitutes the white SRV
+    return (unsigned __int64)m_pPitShadowSrvHeap
+        ->GetCPUDescriptorHandleForHeapStart()
+        .ptr;
 }
 
 // Artscout - 2026: #DX12 -- stamp the fence value that retires THIS frame's allocator, then hand the ring on. The
@@ -3449,6 +3637,11 @@ void D3D12Backend::Release()
     m_depthSrvFor = 0;
     m_pSceneDepthRes = 0;
     m_sceneDepthReadable = false;
+    D12_RELEASE(m_pPitShadowTex); // Artscout - 2026: cockpit sun shadow map
+    D12_RELEASE(m_pPitShadowDsvHeap);
+    D12_RELEASE(m_pPitShadowSrvHeap);
+    m_pitShadowRes = 0;
+    m_pitShadowReadable = false;
     D12_RELEASE(m_pDsvHeap);
     D12_RELEASE(m_pRttDepthTex); // Artscout - 2026: off-screen RTT depth
     D12_RELEASE(m_pRttDsvHeap);

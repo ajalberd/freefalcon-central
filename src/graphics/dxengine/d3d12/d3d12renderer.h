@@ -153,6 +153,18 @@ public:
     void SetEmissive(bool on);
     void SetAfterburner(bool on);
     void SetCockpitPass(bool on);
+    // Artscout - 2026: cockpit sun shadow map (see IRenderer's block and RENDER-LIGHTING.md).
+    // SetPitShadowVP hands over the model-space light matrix + tuning; Begin/End bracket the depth-only
+    // replay of the pit. The replay draws with the object VS in the pit's MODEL space (world/view
+    // identity, the light VP in the projection), through a NumRenderTargets=0 PSO; the cockpit PS then
+    // samples cbShadow(b6)/t6 on the normal pass.
+    bool PitShadowSupported() const override
+    {
+        return true;
+    }
+    void SetPitShadowVP(const float* vp, float bias, float strength) override;
+    bool BeginPitShadowPass() override;
+    void EndPitShadowPass() override;
     void SetIRGrey(bool on); // #DX12 A5: sensor pass -> grey (luma in PS)
     void SetNvgMode(bool on)
         override; // Artscout - 2026: #97 NVG -- green the world passes (terrain/objects/cockpit/sky)
@@ -525,6 +537,16 @@ private:
     unsigned char
         m_lightsBuf[16 + 16 +
                     8 * 64]; // cbLights shadow (ambient, num, pad, 8 lights)
+
+    // Artscout - 2026: cockpit sun shadow map -- cbShadow(b6) mirror + pass state. m_shadowParams:
+    // x = 1/resolution (PCF step), y = depth-compare bias, z = occlusion strength, w = 1 when the
+    // map is bound (0 = the PS returns unshadowed -- no pit, no shadows, disabled).
+    float m_shadowVP[16];
+    float m_shadowParams[4];
+    bool m_dShadow;    // b6 needs (re)upload
+    bool m_shadowPass; // inside the depth-only replay -> GetPSO builds the shadow variant
+    float m_savedShadowView[16], m_savedShadowProj[16], m_savedShadowCam[4];
+    int m_pitShadowRes; // shadow map edge (texels); 0 = not created yet
 
     // Dirty flags: which CBs changed since last bind (per-slot root CBV rebind).
     bool m_dViewport, m_dView, m_dObject, m_dRender, m_dLights;

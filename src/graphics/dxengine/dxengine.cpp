@@ -99,6 +99,9 @@ StencilModeType CDXEngine::m_StencilMode;
 DWORD CDXEngine::m_StencilRef;
 bool CDXEngine::m_PitMode;
 bool CDXEngine::m_SurfacePit;
+// Artscout - 2026: cockpit sun shadow replay state (see the header + RenderPitShadowMap).
+bool CDXEngine::m_ShadowWalk = false;
+bool CDXEngine::m_PitShadowDone = false;
 
 DX_StateType CDXEngine::m_RenderState;
 DWORD CDXEngine::m_StatesStackLevel;
@@ -385,6 +388,11 @@ void CDXEngine::Release(void)
 // Setup the Environmental light properties
 void CDXEngine::SetSunLight(float Ambient, float Diffuse, float Specular)
 {
+    // Artscout - 2026: SetSunLight is the once-per-frame light refresh (Render3D::StartDraw -> it runs
+    // before the eye loop / the cockpit draw), so this is where the cockpit shadow replay is re-armed
+    // for the new frame: its map is model-space and view-independent, and only the sun moves it.
+    m_PitShadowDone = false;
+
     TheSun.dcvAmbient.r = TheSunColour.r * Ambient;
     TheSun.dcvAmbient.g = TheSunColour.g * Ambient;
     TheSun.dcvAmbient.b = TheSunColour.b * Ambient;
@@ -697,6 +705,33 @@ DWORD D3DErroCount;
 // ********************************
 void CDXEngine::DrawSurface()
 {
+    // Artscout - 2026: the cockpit shadow replay draws DEPTH ONLY. Skipping the state block is not an
+    // optimisation -- the texture/material/specular/emissive writes below would leak state into the
+    // normal pit draws that run right after. The backend's shadow PSO has no pixel shader, so all the
+    // replay needs is the SAME vertex/index issue as the main path (kept in step with the block at the
+    // bottom of this function on purpose -- that is the only geometry source).
+    if (m_ShadowWalk)
+    {
+        extern bool g_bUseD3D12;
+        extern bool g_bUseVulkan;
+        void *vbh = g_bUseD3D12 ? m_VB.VbD3D12 :
+                    (g_bUseVulkan ? m_VB.VbVulkan : (void *)m_VB.VbD3D11);
+        if (g_pRenderer and vbh)
+        {
+            void *idxPtr = m_NODE.BYTE + sizeof(DxSurfaceType);
+            if (m_NODE.SURFACE->dwPrimType == D3DPT_POINTLIST)
+                g_pRenderer->DrawObjectStrip(
+                    m_NODE.SURFACE->dwPrimType, vbh, VERTEX_STRIDE,
+                    (int)((DWORD) * ((Int16 *)idxPtr)),
+                    (int)m_NODE.SURFACE->dwVCount);
+            else
+                g_pRenderer->DrawObjectIndexed(
+                    m_NODE.SURFACE->dwPrimType, vbh, VERTEX_STRIDE, 0,
+                    (unsigned short *)idxPtr, (int)m_NODE.SURFACE->dwVCount);
+        }
+        return;
+    }
+
 #ifdef DEBUG_ENGINE
     DXDrawCalls++;
     DXDrawVertices += m_NODE.SURFACE->dwVCount;
@@ -1551,6 +1586,18 @@ inline void CDXEngine::DrawNode(ObjectInstance *objInst, DWORD LightOwner,
 
         // * SURFACE MANAGEMENT *
     case DX_SURFACE: // Setup the Texture setup the Texture to be used
+        // Artscout - 2026: cockpit shadow replay -- draw every OPAQUE surface immediately, in model
+        // space. No alpha/solid deferral (depth ordering is irrelevant to a depth map) and no GLASS:
+        // an Alpha surface is the canopy / HUD glass, which must not cast an opaque shadow into the pit.
+        if (m_ShadowWalk)
+        {
+            if (not m_NODE.SURFACE->dwFlags.b.Alpha)
+            {
+                m_SurfacePit = true;
+                DrawSurface();
+            }
+            break;
+        }
 #ifdef EDIT_ENGINE
         if (m_SkipSwitch)
             break;
@@ -1613,6 +1660,11 @@ inline void CDXEngine::DrawNode(ObjectInstance *objInst, DWORD LightOwner,
 
         // if bad slot exit else get the Slot Children
     case DX_SLOT:
+        // Artscout - 2026: the shadow replay runs BEFORE FlushObjects, so the slot children (attached
+        // stores) have not been queued yet and there is nothing to descend into. They also sit outside
+        // the pit's fitted shadow extent -- the pit's own shell is the only occluder that matters here.
+        if (m_ShadowWalk)
+            break;
 #ifdef EDIT_ENGINE
         if (m_SkipSwitch)
             break;
@@ -1934,6 +1986,201 @@ void CDXEngine::DrawSolidSurfaces(void)
 #endif
 
 
+// Artscout - 2026: cockpit sun shadows -- the depth-only replay of the pit's own geometry.
+//   Fit: an ortho along the sun's direction over the pit model's bounding box, in the PIT'S MODEL
+// SPACE. That frame is what makes this cheap: the pit is a rigid shell, so its self-shadow depends on
+// the sun direction relative to the model, not on where the camera or the aircraft is. The map is
+// therefore view-independent and identical for both VR eyes, and it is built from the same node walk
+// the normal draw uses -- same DOF/switch handling, no second geometry path to drift.
+//   Alpha (canopy/glass) surfaces are skipped: transparent glass must not cast an opaque shadow.
+//   Attached stores are NOT replayed: at this point they have not been queued (they are added as slot
+// children during the normal walk), and they live outside the pit's fitted extent anyway.
+bool CDXEngine::RenderPitShadowMap(void)
+{
+    extern bool g_bPitShadow;
+    extern float g_fPitShadowStrength;
+    if (!g_bPitShadow || m_ShadowWalk || !g_pRenderer || !g_pRenderer->PitShadowSupported())
+        return false;
+    if (!g_bUseGpu)
+        return false;
+
+    CDrawItem *item = TheVbManager.GetPitListRoot();
+    if (!item || !item->Object)
+        return false;
+    ObjectInstance *objInst = (ObjectInstance *)item->Object;
+    if (!objInst->ParentObject)
+        return false;
+
+    // The pit model's own extent, in model units (the same units the vertex data uses; the pit draws
+    // at scale 1 under the DX engine -- see COCKPIT-OVERHAUL.md).
+    const float minX = objInst->ParentObject->minX, maxX = objInst->ParentObject->maxX;
+    const float minY = objInst->ParentObject->minY, maxY = objInst->ParentObject->maxY;
+    const float minZ = objInst->ParentObject->minZ, maxZ = objInst->ParentObject->maxZ;
+    if (maxX - minX < 1.0e-3f || maxY - minY < 1.0e-3f || maxZ - minZ < 1.0e-3f)
+        return false;
+
+    // The sun, in the pit's model frame. LightDir is the RAY direction (away from the sun; see
+    // SetSunLight), and the item's RotMatrix is the pit's world rotation. Row-vector convention:
+    // multiplying a direction through the matrix's rotation gives its components along the model axes.
+    float toSun[3] = {-LightDir.x, -LightDir.y, -LightDir.z};
+    {
+        const float len = (float)sqrt(toSun[0] * toSun[0] + toSun[1] * toSun[1] + toSun[2] * toSun[2]);
+        if (len < 1.0e-6f)
+            return false;
+        toSun[0] /= len;
+        toSun[1] /= len;
+        toSun[2] /= len;
+    }
+    const D3DXMATRIX &R = item->RotMatrix;
+    float s[3];
+    s[0] = toSun[0] * R.m00 + toSun[1] * R.m10 + toSun[2] * R.m20; // dot(toSun, row0)
+    s[1] = toSun[0] * R.m01 + toSun[1] * R.m11 + toSun[2] * R.m21;
+    s[2] = toSun[0] * R.m02 + toSun[1] * R.m12 + toSun[2] * R.m22;
+    {
+        const float len = (float)sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2]);
+        if (len < 1.0e-6f)
+            return false;
+        s[0] /= len;
+        s[1] /= len;
+        s[2] /= len;
+    }
+
+    // Light-space basis. forward = the direction the light "camera" looks (from the sun at the pit).
+    const float f[3] = {-s[0], -s[1], -s[2]};
+    float up0[3] = {0.0f, 0.0f, 1.0f};
+    if (fabsf(f[2]) > 0.9f)
+    {
+        up0[0] = 0.0f;
+        up0[1] = 1.0f;
+        up0[2] = 0.0f;
+    }
+    float r[3], u[3];
+    // right = normalize(cross(up0, forward)); up = cross(forward, right)
+    r[0] = up0[1] * f[2] - up0[2] * f[1];
+    r[1] = up0[2] * f[0] - up0[0] * f[2];
+    r[2] = up0[0] * f[1] - up0[1] * f[0];
+    {
+        const float len = (float)sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+        if (len < 1.0e-6f)
+            return false;
+        r[0] /= len;
+        r[1] /= len;
+        r[2] /= len;
+    }
+    u[0] = f[1] * r[2] - f[2] * r[1];
+    u[1] = f[2] * r[0] - f[0] * r[2];
+    u[2] = f[0] * r[1] - f[1] * r[0];
+
+    // Fit in the LIGHT'S OWN VIEW SPACE, measured from the bbox centre. The eye is then placed on
+    // the sun side of the box by the depth span, so every corner is in front of the light camera --
+    // and, critically, the ortho's depth bounds are measured from THAT eye, not from the centre.
+    // (Mixing the two offsets the depth by the eye pull-back; a map whose depths do not match the
+    // matrix that samples it shadows the wrong surfaces.)
+    const float ccx = (minX + maxX) * 0.5f;
+    const float ccy = (minY + maxY) * 0.5f;
+    const float ccz = (minZ + maxZ) * 0.5f;
+    float vx0 = 0.0f, vx1 = 0.0f, vy0 = 0.0f, vy1 = 0.0f, vz0 = 0.0f, vz1 = 0.0f;
+    bool first = true;
+    for (int c = 0; c < 8; ++c)
+    {
+        const float dx = ((c & 1) ? maxX : minX) - ccx;
+        const float dy = ((c & 2) ? maxY : minY) - ccy;
+        const float dz = ((c & 4) ? maxZ : minZ) - ccz;
+        const float vx = dx * r[0] + dy * r[1] + dz * r[2];
+        const float vy = dx * u[0] + dy * u[1] + dz * u[2];
+        const float vz = dx * f[0] + dy * f[1] + dz * f[2];
+        if (first)
+        {
+            vx0 = vx1 = vx;
+            vy0 = vy1 = vy;
+            vz0 = vz1 = vz;
+            first = false;
+        }
+        else
+        {
+            if (vx < vx0) vx0 = vx;
+            if (vx > vx1) vx1 = vx;
+            if (vy < vy0) vy0 = vy;
+            if (vy > vy1) vy1 = vy;
+            if (vz < vz0) vz0 = vz;
+            if (vz > vz1) vz1 = vz;
+        }
+    }
+    // A margin: the PCF kernel samples half a texel beyond the edge, and the light pass must not
+    // clip geometry the fit says is inside.
+    const float span = (vx1 - vx0) > (vy1 - vy0) ? (vx1 - vx0) : (vy1 - vy0);
+    const float margin = span * 0.02f + 1.0e-3f;
+    vx0 -= margin; vx1 += margin; vy0 -= margin; vy1 += margin;
+    const float marginZ = 1.0f; // model units of depth slack on both ends
+    const float eyeZ = vz1 + marginZ; // pull the eye back past the far corner, toward the sun
+    const float nearZ = vz0 + eyeZ;
+    const float farZ = vz1 + eyeZ;
+
+    // Reversed-Z ortho (near -> 1, far -> 0), like every other projection in this renderer: the
+    // shadow PSO uses GREATER_EQUAL and a map cleared to 0 (far = "nothing lit it").
+    //   The CPU matrix is consumed by the shader as out_j = dot(p, ROW_j): HLSL packs cbuffer matrices
+    //   column-major by default, so cb0[j] IS the CPU's row j, and mul(p, M) dots p with each register
+    //   (verified in the DXBC: "dp4 o0.x, v0, cb0[0]"). That is why the light view and the ortho are
+    //   composed DIRECTLY into the rows here -- row j = (axis_j * scale_j, translation_j) -- instead of
+    //   building two D3DX matrices and multiplying them under a convention this file cannot see.
+    const float sx = 2.0f / (vx1 - vx0);
+    const float sy = 2.0f / (vy1 - vy0);
+    const float sz = -1.0f / (farZ - nearZ); // reversed: near -> 1, far -> 0
+    const float tx = (vx1 + vx0) / (vx0 - vx1);
+    const float ty = (vy1 + vy0) / (vy0 - vy1);
+    const float tz = farZ / (farZ - nearZ);
+    // eye = centre - f * eyeZ, so dot(eye, axis) = dot(centre, axis) for r/u and dot(centre, f) - eyeZ.
+    const float exr = ccx * r[0] + ccy * r[1] + ccz * r[2];
+    const float exu = ccx * u[0] + ccy * u[1] + ccz * u[2];
+    const float exf = ccx * f[0] + ccy * f[1] + ccz * f[2] - eyeZ;
+
+    D3DXMATRIX vp;
+    vp.m00 = r[0] * sx; vp.m01 = r[1] * sx; vp.m02 = r[2] * sx; vp.m03 = -exr * sx + tx;
+    vp.m10 = u[0] * sy; vp.m11 = u[1] * sy; vp.m12 = u[2] * sy; vp.m13 = -exu * sy + ty;
+    vp.m20 = f[0] * sz; vp.m21 = f[1] * sz; vp.m22 = f[2] * sz; vp.m23 = -exf * sz + tz;
+    vp.m30 = 0.0f; vp.m31 = 0.0f; vp.m32 = 0.0f; vp.m33 = 1.0f;
+
+    // Bias: a constant depth slack in clip units. The normal offset in the shader does the heavy
+    // lifting (see CockpitSunShadow); this only has to cover the ortho depth quantisation, so it is
+    // small -- a fat bias detaches contact shadows and reads as floating geometry.
+    g_pRenderer->SetPitShadowVP((const float *)&vp, 1.5e-3f, g_fPitShadowStrength);
+    if (not g_pRenderer->BeginPitShadowPass())
+        return false; // no depth target -> do NOT replay (it would write into the scene)
+
+    // Replay the pit list's geometry, depth-only, in model space. The list is intact here: FlushObjects
+    // dispenses it later. m_NODE/TheMaterial/etc. are scratch that FlushObjects re-initialises per item.
+    D3DXMATRIX identity;
+    D3DXMatrixIdentity(&identity);
+    m_ShadowWalk = true;
+    for (CDrawItem *d = TheVbManager.GetPitListRoot(); d; d = d->Next)
+    {
+        if (!d->Object)
+            continue;
+        ObjectInstance *o = (ObjectInstance *)d->Object;
+        TheVbManager.GetModelData(m_VB, d->ID);
+        if (!m_VB.Valid)
+            continue;
+        m_TheObjectInstance = o;
+        AppliedState = identity; // model space: the shadow VP carries the whole light transform
+        DX_SET_WORLD(AppliedState);
+        m_NODE.BYTE = (BYTE *)m_VB.Nodes;
+        long guard = 0;
+        const long maxNodes = (long)m_VB.NNodes + 16;
+        while (m_NODE.HEAD->Type not_eq DX_MODELEND)
+        {
+            DrawNode(o, d->LightID, d->ID);
+            const DWORD step = m_NODE.HEAD->dwNodeSize;
+            if (step == 0 or ++guard > maxNodes)
+                break;
+            m_NODE.BYTE += step;
+        }
+    }
+    m_ShadowWalk = false;
+
+    g_pRenderer->EndPitShadowPass();
+    return true;
+}
+
 extern DWORD LODsLoaded;
 // *************** This function is the REAL SCENE DRAW FUNCTION *********************
 // it flushes all requested Drawsand draws all poly types
@@ -2006,6 +2253,13 @@ void CDXEngine::FlushBuffers(void)
 
     // Start resetting Draw Pointers
     TheVbManager.ResetDrawList();
+
+    // Artscout - 2026: cockpit sun shadows -- replay the pit's geometry depth-only BEFORE FlushObjects
+    // dispenses the list, so this frame's pit draws can sample the map the replay just built. Once per
+    // frame (re-armed by SetSunLight): the map lives in the pit's model space, so it is view-independent
+    // and the second eye / the quad group reuse it.
+    if (not m_PitShadowDone)
+        m_PitShadowDone = RenderPitShadowMap();
 
     // Flush all cached VB objects
     if (m_RenderState == DX_DBS)

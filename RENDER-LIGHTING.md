@@ -1,8 +1,9 @@
 # Lighting, shadows and tone mapping
 
 **Status: item 3 (the "missile shading issue") is resolved — and it was never lighting. Per-pixel
-object lighting has landed as the first piece of item 1.** Items 2 (cockpit shadows) and 4
-(HDR + GT7 tone mapping) are still not started. Reconnaissance below; append findings here
+object lighting has landed as the first piece of item 1. Item 2 (cockpit shadows) has landed for
+D3D12 — see below. Item 4 (HDR + GT7 tone mapping) is still not started, and it is the last step of
+the lighting redo, not a feature that can land first. Reconnaissance below; append findings here
 rather than growing `WIP-NOTES.md`. The object-pass work has its own doc — read
 `OBJECT-RENDERING.md` before touching the object light path, the light CB, or the shaders.
 
@@ -11,7 +12,7 @@ rather than growing `WIP-NOTES.md`. The object-pass work has its own doc — rea
 Four things, and they are not one project:
 
 1. Redo the lighting system. — **started**: per-pixel object lighting landed (see below).
-2. Real shadows in the cockpit. — not started.
+2. Real shadows in the cockpit. — **landed on D3D12** (2026-09-20, below); Vulkan pending.
 3. Fix the missile shading issue. — **done**, and it was the fin z-fight, not lighting (below).
 4. Integrate Gran Turismo 7 tone mapping. — not started; needs the HDR project (below).
 
@@ -92,30 +93,96 @@ CPU side: `CockpitManager::ComputeLightFactors` and `CockpitManager::ApplyLighti
 the per-frame light factors the 2D/3D pit art is tinted by. `ApplyLightingToPalette` does the
 same for palettised images (the kneeboard map uses it).
 
-## Shadows: there is nothing to build on
+## Cockpit shadows (2026-09-20) — D3D12 landed
 
-Grep for `shadowmap` / `ShadowPass` / `ShadowMatrix` across `src/graphics` returns **zero
-hits**. `DrawableShadowed` (`drawshdw.h`) is the 1997 class for drawing an aircraft's blob
-shadow on the ground — not a shadow map, and not reusable for the cockpit.
+One model, one light, so this is a depth map, not a shadow system. The pit BSP is replayed
+depth-only through the object path into a 1024² D32 target from the sun's direction; the cockpit
+branch of `PS_Main` compares and darkens **only the sun term**. Knobs: `PitShadow` (default 1) and
+`PitShadowStrength` (default 1.0) in `FFViper.cfg`.
 
-So "real shadows in the cockpit" is from-scratch: a depth-only pass from the sun, a shadow
-map, and a lookup in the cockpit branch of `ffemu.hlsl`. Notes that matter here:
+The decisions that matter, in the order they bit:
 
-- The cockpit is one BSP model (parent 2402, LOD `3DPIT_F16CJ_L1`) drawn at near-Z in its own
-  pass with `TheDXEngine.SetPitMode(true)` around it (`otwloop.cpp:3500`). A cockpit-only
-  shadow map is therefore a well-bounded thing: one model, one light, a small world extent.
-  That is a much easier first target than world shadows.
+- **The map is fitted in the PIT'S MODEL SPACE, not world space.** The pit is a rigid shell, so its
+  self-shadow depends on the sun direction *in the pit's frame* — not on the camera, the eye or the
+  aircraft's attitude. That makes the map view-independent (VR renders it once per frame and both
+  eyes sample it), it keeps the fit tight (the pit's bbox, not a world region), and it removes the
+  per-eye camera-relative translation problem entirely. The sun direction is rotated into the model
+  frame with the pit's own `RotMatrix` (`CDXEngine::RenderPitShadowMap`).
+- **The replay is the SAME node walk as the normal draw** (`DrawNode`/`DrawSurface` with
+  `m_ShadowWalk` set): same DOF/switch handling, no second geometry path to drift. Alpha surfaces
+  are skipped — the canopy/HUD glass must not cast an opaque shadow. Slot children (attached stores)
+  are skipped: they are not queued yet at that point, and they sit outside the fitted extent.
+- **Ordering**: `FlushBuffers` replays the pit list *before* `FlushObjects` dispenses it, so the
+  list is still full. Once per frame only — `SetSunLight` re-arms the latch (`StartDraw` runs once
+  per frame, before the eye loop), so the second eye / the quad group reuse the map.
+- **The matrix layout is the trap.** The shader's `mul(p, M)` dots p with each **CPU matrix row**
+  (HLSL packs cbuffers column-major by default; verified in the DXBC: `dp4 o0.x, v0, cb0[0]`), so
+  `CDXEngine::RenderPitShadowMap` composes the light view and the ortho **directly into the rows**
+  rather than multiplying two D3DX matrices. The fit was validated offline (all bbox corners inside
+  uv/depth for six sun directions, depth monotone with "nearer the sun = deeper", reversed-Z).
+- **Reversed-Z**: the map clears to 0 (far) and the PSO uses `GREATER_EQUAL`; a texel nearer the sun
+  holds a larger depth. The PS is lit when `stored <= own + bias`; a normal offset (1.5 shadow
+  texels, derived from the matrix's first row) carries the acne, and the constant bias only absorbs
+  quantisation.
+- **Depth-only PSO**: `NumRenderTargets = 0`, no pixel shader, stencil off, cull NONE (the object
+  pass culls against a *reflected* camera projection — meaningless for a light-space pass). The
+  shadow target is `R32G8X24_TYPELESS` viewed as `D32_FLOAT_S8X24` (the format every PSO already
+  bakes, so no new DSV format) and as `R32_FLOAT` for the SRV (t6).
+- **Where it lives**: `IRenderer::SetPitShadowVP/BeginPitShadowPass/EndPitShadowPass` +
+  `PitShadowSupported` (default no-op, so Vulkan compiles and skips); `D3D12Backend::Ensure/
+  Bind/UnbindPitShadowTarget`; `cbShadow` is root CBV b6 and t6 joins the per-draw SRV table
+  (bump `srvRange.NumDescriptors` AND `SRV_PER_DRAW` together — they are the same fact twice).
+- **Testing gotcha**: the renderer prefers an EXTERNAL `<FalconDataDirectory>\shaders\FFEmu.hlsl`
+  over the copy baked into the exe (runtime-tunable workflow, see `embeddedshader.h`). If a tuned
+  shader from an earlier session is sitting in the install, the new one is ignored — update or
+  delete it before judging the shadows.
+
+Known limits, deliberately:
+
+- **D3D12 only.** `VulkanRenderer` inherits the no-op default (`PitShadowSupported() == false`) and
+  `ffobject.hlsl` has no lookup, so Vulkan renders exactly as before. The Vulkan port is mechanical
+  (set-0 binding 4, a depth-only render pass, the same model-space fit) but it is not done.
+- **The per-pixel path only** (`FF_PIXELLIGHT`). With `ObjPixelLight 0` the legacy Gouraud VS path
+  passes `sunShadow = 1.0`, so there are no cockpit shadows. The VS cannot sample t6 anyway — the
+  SRV table is PIXEL visibility.
+- **Attached stores do not cast** and are outside the fitted extent (they still sample it and get
+  "outside = lit").
+- **Watch the deferred solid surfaces.** `DrawSolidSurfaces` runs at the pit→world transition,
+  *after* `SetPitMode(false)` cleared `FF_COCKPIT`; if the pit's own surfaces ever move onto the
+  VColor/solid stack they would silently lose both the cockpit shading and the shadow. Verify in
+  flight if the pit's look changes after touching the surface flags.
+- Per-frame cost: one depth-only replay of the pit's ~400 surfaces, shared by both VR eyes. If VR
+  CPU time regresses, the merge candidate is one combined index buffer for the pit (one draw).
+
+## Shadows: the rest of the world still has nothing
+
+Grep for `shadowmap` / `ShadowPass` / `ShadowMatrix` across `src/graphics` still returns **zero
+hits** — the cockpit map is named `PitShadow*` throughout, so those greps no longer mean "no
+shadow code anywhere", only "no world shadow code". `DrawableShadowed` (`drawshdw.h`) is the 1997
+class for drawing an aircraft's blob shadow on the ground — not a shadow map, and not reusable for
+the cockpit.
+
+The cockpit path above is deliberately pit-only. World shadows would need a cascaded/tiled scheme
+and a much larger fit; nothing about the pit's model-space trick carries over to terrain.
+
 - The depth buffer already has a stencil and it is already used (HUD aperture clip), so don't
-  assume the stencil is free.
-- In VR this runs twice per frame. Anything added to the pit pass costs double.
+  assume the stencil is free. The pit shadow target is a *separate* depth texture with an unused
+  stencil plane, exactly so the scene stencil is never touched.
+- In VR this runs once per frame (model space), but the pit's normal draws run per eye.
 
 ## Suggested order
 
 These are listed in the order they were asked, which is not the order to do them.
 
 1. **Missile fin flicker** — **done** (it was the cull, not lighting; see above).
-2. **Cockpit shadows** — self-contained, one model, visible payoff, and it forces the cockpit
-   lighting path to be understood properly, which is prerequisite for (3) anyway.
+2. **Cockpit shadows** — **done on D3D12** (2026-09-20, above). The next steps, in order of value:
+   - **Vulkan parity** — the user's canonical VR path is Vulkan multiview, so the feature is
+     invisible there. Mechanical: set-0 binding 4 + a depth-only render pass + the same fit.
+   - **The pit's look** (the user's "it's kind of old looking", 2026-09-20) — now that the pit has
+     real shadows, the remaining flatness is (a) no crevice occlusion (SSAO — the PS comment at the
+     cockpit branch already calls it "a separate step"), (b) most pit surfaces carry no material
+     specular (`SpecularIndex = 0`, a DATA problem — see `COCKPIT-OVERHAUL.md`), (c) the texture
+     and font resolution ceiling. Shadows were the shading half; those are the art half.
 3. **Lighting redo + HDR + GT7 tone mapping** — one project, not two. The tone curve is the
    last step of it, not a feature that can land first. Per-pixel object lighting is the first
    piece of the redo and is already in.
@@ -125,12 +192,19 @@ These are listed in the order they were asked, which is not the order to do them
 - Swapchain `R8G8B8A8_UNORM`; depth `D32_FLOAT_S8X24_UINT`. LDR, no tone-map pass.
 - `CloudTonemap`/`CloudTonemapInv` are the *only* tone mapping in the engine and they are
   cloud-local.
-- No shadow-map machinery exists.
+- No world shadow-map machinery exists. The cockpit shadow map (2026-09-20) is a *separate*,
+  pit-only depth target and shares nothing with a world scheme: 1024² `R32G8X24_TYPELESS`
+  (DSV `D32_FLOAT_S8X24`, SRV `R32_FLOAT`), t6 + cbShadow(b6), fitted to the pit's model bbox,
+  replayed once per frame, gated on `FF_COCKPIT`.
+- The shader's `mul(p, M)` dots p with each CPU matrix **row** (HLSL column-major cbuffer packing);
+  the shadow VP is composed into the rows on purpose. Any new hand-built matrix must do the same,
+  and the fit must be validated against that operation, not against `p * M` on paper.
 - The legacy STATE_* enum is translated to state bundles in `ffstatemap.cpp`. `Make()` there
   gives the blend/filter/depth defaults for every state — that table is the fastest way to
   answer "is this thing depth-tested / what blend does it use".
 - The object light model is ONE function per backend (`FFObjectLighting` in `ffemu.hlsl` /
-  `ffobject.hlsl`); per-vertex and per-pixel paths both go through it. Do not fork it.
+  `ffobject.hlsl`); per-vertex and per-pixel paths both go through it. Do not fork it. Its
+  `sunShadow` parameter (D3D12 only for now) scales the DIRECTIONAL term alone.
 - Emissive is ADDED to the lit material, never a replacement (`FF_AFTERBURNER` excepted).
 - The clip projection reflects (`det = −1`), so D3D7's cull-back is this port's cull-FRONT —
   and the player's own stores are drawn from the pit list. Both bit us; see `OBJECT-RENDERING.md`.

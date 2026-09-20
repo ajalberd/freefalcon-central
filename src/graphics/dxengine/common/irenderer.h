@@ -226,6 +226,36 @@ public:
     // Artscout - 2026: appending leaves every existing vtable slot where it was,
     // so a stale object file cannot dispatch into the wrong method.
 
+    // Artscout - 2026: cockpit sun shadow map. The engine fits a light-space ortho to the 3D pit
+    // BSP in the pit's OWN model space and replays the pit's geometry depth-only through this
+    // window; the cockpit branch of the object pixel shader then samples the result. "Model space"
+    // is the point: the map is independent of camera, eye and aircraft attitude, so the VR passes
+    // can share it and only the sun direction in the pit frame invalidates it.
+    //   False = this backend has no shadow support (the engine then skips the pass entirely).
+    virtual bool PitShadowSupported() const
+    {
+        return false;
+    }
+    // The engine calls this once per shadow pass, before BeginPitShadowPass:
+    // vp = row-vector model-space -> reversed-Z shadow clip; bias = constant depth-compare bias in
+    // clip units; strength = how dark a full occlusion goes (0 = off). The renderer owns the target
+    // resolution and derives the PCF texel step from it.
+    virtual void SetPitShadowVP(const float* /*vp*/, float /*bias*/, float /*strength*/)
+    {
+    }
+    // Depth-only replay window: the backend binds its shadow depth target on Begin and restores the
+    // scene target on End. Geometry drawn between them is expected to be in the PIT'S MODEL SPACE
+    // (identity world/view, the shadow VP in the projection). Begin returns false when the backend
+    // cannot provide a target -- the caller MUST then skip the replay entirely (drawing it into the
+    // scene target would write shadow depths into the scene).
+    virtual bool BeginPitShadowPass()
+    {
+        return false;
+    }
+    virtual void EndPitShadowPass()
+    {
+    }
+
     // #78 mesh-shader terrain: the CPU uploads a toroidal post clipmap (one
     // array slice per LOD) instead of vertices. Unsupported by default.
     virtual bool MeshTerrainAvailable() const

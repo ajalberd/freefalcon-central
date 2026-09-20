@@ -795,6 +795,10 @@ bool g_bObjCullPit =
     true; // Artscout - 2026: also apply g_nObjCullMode to objects drawn from the VB manager's PIT list (the 3D pit AND everything attached to it -- CockAttachWeapons/VCock_DrawThePit run under SetPitMode(true), so the player's own wing stores ride the pit path). This is the one that matters for the missile fin flicker: the fins are two near-coincident faces of a thin plate, and with culling they were still drawn unculled because they were on the pit path. 0 = keep the old no-cull for pit-list draws.
 bool g_bObjPixelLight =
     true; // Artscout - 2026: evaluate object lighting PER PIXEL instead of per vertex (FF_PIXELLIGHT). The light model does not change; the sun + point/spot lights (and the Blinn-Phong specular) are computed in the pixel shader from the interpolated world normal/position/view vector. Per-vertex Gouraud is what smears a small lamp's colour across whole low-poly panels -- e.g. the F-16's air-intake light (range 3 ft) washing a multi-foot fuselage triangle red. 0 = legacy per-vertex lighting.
+bool g_bPitShadow =
+    true; // Artscout - 2026: cockpit sun shadows. The 3D pit BSP is replayed depth-only into a small sun-space shadow map once per flush, and the cockpit branch of the object pixel shader darkens only the SUN term where the pit occludes it (ambient/lamps are untouched). The map is fitted to the pit model's own bounding box in MODEL space, so it is independent of camera and aircraft attitude -- only the sun direction in the pit frame changes it. 0 = no cockpit shadows (the PS returns unshadowed).
+float g_fPitShadowStrength =
+    1.0f; // Artscout - 2026: how much a fully occluded sun texel darkens the cockpit surface. 1.0 = the sun term goes to zero in shadow (hard reality), lower = the shadow is filled by the surface's own ambient. Tunable in flight; a little under 1 usually reads best because the pit is dark already.
 int g_nObjZBiasStep =
     60; // Artscout - 2026: depth-bias units added per dwzBias bucket (reversed-Z, so this pulls toward the camera). Bigger = more separation but more risk of detail floating visibly off curved surfaces; the pass-wide object bias is 100 for scale.
 bool g_bAutoBuildVoiceBank =
@@ -1584,6 +1588,8 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bObjCullPit}, // Artscout - 2026: cull pit-list draws too (wing stores ride the pit path -- fins!)
     {"ObjPixelLight",
      &g_bObjPixelLight}, // Artscout - 2026: per-pixel object lighting (small lamps stop washing whole panels)
+    {"PitShadow",
+     &g_bPitShadow}, // Artscout - 2026: cockpit sun shadows (depth-only pit replay + PS lookup)
     {"VrHandTracking", &g_bVrHandTracking}, // skeletal gloves from XR hand tracking (fallback: controller morph)
     {"VrSkinSwapHands", &g_bVrSkinSwapHands}, // swap which mesh each tracked hand wears
     {"VrHandDump", &g_bVrHandDump}, // dump raw XR joint geometry (diag: inferred clench vs skinning bug)
@@ -2155,6 +2161,8 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fMenuModelDetail}, // Artscout - 2026: LOD detail for the tacref/loadout model viewer
     {"TerrainCullPad",
      &g_fTerrainCullPad}, // Artscout - 2026: #78 -- terrain cull frustum widened by this fraction of FOV (head-turn margin)
+    {"PitShadowStrength",
+     &g_fPitShadowStrength}, // Artscout - 2026: cockpit shadow darkness (1 = sun dies in shadow, 0 = no darkening)
     {"VrSubQuadX",
      &g_fVrSubQuadX}, // #59: subtitle quad horizontal offset (m, + = right)
     {"VrSubQuadY",

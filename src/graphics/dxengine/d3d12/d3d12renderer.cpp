@@ -226,6 +226,7 @@ D3D12Renderer::D3D12Renderer()
       m_fogEnd(1.0e9f), m_fogColor(0xFF808080), m_chromaKey(0xFF000000),
       m_chromaTol(0.02f), m_texColorDiffuse(false), m_cockpitPass(false),
       m_hasTex0(false), m_irGrey(false), m_nvg(false), m_fullBright(false),
+      m_dShadow(false), m_shadowPass(false), m_pitShadowRes(0),
       m_dViewport(true), m_dView(true), m_dObject(true), m_dRender(true),
       m_dLights(true), m_dyn2DVerts(0), m_dyn2DVcount(0)
 {
@@ -258,6 +259,12 @@ D3D12Renderer::D3D12Renderer()
     m_specular[0] = m_specular[1] = m_specular[2] = m_specular[3] = 0.0f;
     m_gloc[0] = m_gloc[1] = m_gloc[2] = m_gloc[3] =
         0.0f; // Artscout - 2026: FF_GLOC off
+    // Artscout - 2026: cockpit sun shadow map -- w = 0 until the engine hands over a matrix for the
+    // frame, so the cockpit PS returns unshadowed instead of reading an unbound t6.
+    for (int i = 0; i < 16; ++i)
+        m_shadowVP[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+    m_shadowParams[0] = m_shadowParams[1] = m_shadowParams[2] =
+        m_shadowParams[3] = 0.0f;
     // Artscout - 2026: #13 clouds off until SetCloudParams runs (FF_CLOUD is only set by BeginCloudPass anyway).
     for (int c = 0; c < 4; ++c)
     {
@@ -615,7 +622,9 @@ bool D3D12Renderer::CreateRootSignature()
     // FFEmu layout: CBVs b0..b4 (root CBVs), SRVs t0..t1 (one table), static samplers s0,s1.
     // Artscout - 2026: #DX12 п.5 -- a 6th root CBV (b5 = cbViewStereo) is appended as param 6 (AFTER the SRV
     // table at param 5) so existing param indices are unchanged; the flat/per-eye path never binds it (harmless).
-    D3D12_ROOT_PARAMETER params[7];
+    // Artscout - 2026: a 7th (b6 = cbShadow) is appended the same way -- param 7, ALL visibility, read by the
+    // cockpit branch of PS_Main. The shadow draws themselves read only b1/b2/b3 from this signature.
+    D3D12_ROOT_PARAMETER params[8];
     ZeroMemory(params, sizeof(params));
     for (int b = 0; b < 5; ++b)
     {
@@ -630,7 +639,10 @@ bool D3D12Renderer::CreateRootSignature()
     // world (terrain/objects). It is bound for EVERY draw (a 1x1 dummy when there is no depth to read) because
     // the table is one contiguous range; only the cloud branch samples it.
     // #13: t3 = the NVDF, t4 = the up-rez DETAIL noise, t5 = the LIGHT CACHE (filled by CS_LightCache).
-    srvRange.NumDescriptors = 6; // t0,t1,t2,t3,t4,t5
+    // Artscout - 2026: t6 = the cockpit sun shadow map (R32_FLOAT). Like t2..t5 it is bound for every
+    // draw -- a white stand-in where there is no pit/shadow -- because the table is one contiguous
+    // range; only the FF_COCKPIT branch of PS_Main samples it.
+    srvRange.NumDescriptors = 7; // t0,t1,t2,t3,t4,t5,t6
     srvRange.OffsetInDescriptorsFromTableStart =
         D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
     params[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -642,6 +654,12 @@ bool D3D12Renderer::CreateRootSignature()
     params[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     params[6].Descriptor.ShaderRegister = 5;
     params[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+
+    // Artscout - 2026: b6 = cbShadow (model-space light matrix + tuning for the cockpit sun shadow).
+    // ALL visibility: PS_Main samples it; the shadow replay's VS ignores it (only b1/b2/b3 matter there).
+    params[7].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    params[7].Descriptor.ShaderRegister = 6;
+    params[7].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     // Artscout - 2026 (#78 terrain shimmer): the far ground boils under motion because its baked high-contrast
     // features (roads, coastlines) alias even with mips+aniso. A positive mip LOD bias nudges sampling toward
@@ -708,7 +726,7 @@ bool D3D12Renderer::CreateRootSignature()
 
     D3D12_ROOT_SIGNATURE_DESC rsd;
     ZeroMemory(&rsd, sizeof(rsd));
-    rsd.NumParameters = 7;
+    rsd.NumParameters = 8;
     rsd.pParameters = params;
     rsd.NumStaticSamplers = 3;
     rsd.pStaticSamplers = sampAll;
@@ -1325,6 +1343,74 @@ void D3D12Renderer::SetCockpitPass(bool on)
         m_dRender = true;
     }
 }
+
+// Artscout - 2026: cockpit sun shadow map -- see the IRenderer block and RENDER-LIGHTING.md.
+// The engine fits the ortho to the pit's own bounding box in the pit's model space and hands the
+// matrix over here; cbShadow(b6) carries it to PS_Main (the shadow replay itself only reads b1/b2).
+void D3D12Renderer::SetPitShadowVP(const float* vp, float bias, float strength)
+{
+    if (vp)
+        memcpy(m_shadowVP, vp, sizeof(m_shadowVP));
+    const int res = m_pitShadowRes > 0 ? m_pitShadowRes : 1;
+    m_shadowParams[0] = 1.0f / (float)res; // PCF step, one shadow texel in UV
+    m_shadowParams[1] = bias;
+    m_shadowParams[2] = strength;
+    m_shadowParams[3] = 1.0f; // armed: PS_Main may sample
+    m_dShadow = true;
+}
+
+bool D3D12Renderer::BeginPitShadowPass()
+{
+    if (!g_pD3D12Backend)
+        return false;
+    // The shadow map is square and fixed; the backend caches it across frames. 1024 is plenty for
+    // a cockpit interior seen at arm's length (the F-16 pit is a few metres across).
+    const int kRes = 1024;
+    if (!g_pD3D12Backend->EnsurePitShadowTarget(kRes))
+    {
+        m_shadowParams[3] = 0.0f; // no target -> the cockpit PS stays unshadowed
+        m_dShadow = true;
+        return false; // caller must NOT replay geometry: there is no depth target to replay into
+    }
+    m_pitShadowRes = g_pD3D12Backend->PitShadowRes();
+    // Keep the texel step honest if the backend had to change the resolution.
+    m_shadowParams[0] = 1.0f / (float)(m_pitShadowRes > 0 ? m_pitShadowRes : 1);
+
+    g_pD3D12Backend->BindPitShadowTarget();
+
+    // MODEL SPACE replay: world and view identity, the light VP in the projection, so the object VS
+    // computes pos = local * I * I * shadowVP. Saved so End can restore the live camera for the
+    // normal pit draws that follow (the engine's SetProj/SetView already ran for this frame).
+    memcpy(m_savedShadowView, m_view, sizeof(m_view));
+    memcpy(m_savedShadowProj, m_proj, sizeof(m_proj));
+    memcpy(m_savedShadowCam, m_camPos, sizeof(m_camPos));
+    for (int i = 0; i < 16; ++i)
+    {
+        m_view[i] = m_world[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+    }
+    memcpy(m_proj, m_shadowVP, sizeof(m_proj));
+    m_camPos[0] = m_camPos[1] = m_camPos[2] = 0.0f;
+    m_camPos[3] = 1.0f;
+    m_shadowPass = true;
+    m_dView = true;
+    m_dObject = true;
+    return true;
+}
+
+void D3D12Renderer::EndPitShadowPass()
+{
+    m_shadowPass = false;
+    memcpy(m_view, m_savedShadowView, sizeof(m_view));
+    memcpy(m_proj, m_savedShadowProj, sizeof(m_proj));
+    memcpy(m_camPos, m_savedShadowCam, sizeof(m_camPos));
+    m_dView = true;
+    if (g_pD3D12Backend)
+        g_pD3D12Backend->UnbindPitShadowTarget();
+    // The map only becomes samplable on Unbind (it was a depth attachment during the replay), and the
+    // SRV table may already have been copied with the white stand-in for the replay's own draws -- so
+    // force the next draw to re-copy t0..t6 with the now-valid shadow view.
+    m_tableDirty = true;
+}
 void D3D12Renderer::SetIRGrey(bool on)
 {
     m_irGrey = on;
@@ -1586,6 +1672,7 @@ void D3D12Renderer::FlushConstants()
                                heaps); // this frame's shader-visible SRV ring
         m_dViewport = m_dView = m_dObject = m_dRender = m_dLights =
             true; // root args cleared by list Reset
+        m_dShadow = true; // Artscout - 2026: cbShadow(b6) must be re-bound after a list reset
         m_dStereo =
             true; // #DX12 п.5: re-bind cbViewStereo(b5) after a list reset
         m_tableDirty =
@@ -1604,7 +1691,7 @@ void D3D12Renderer::FlushConstants()
         // A silent heap overrun, and mine: I added t3, then t4, and never came back to the stride they are
         // allocated with. The root signature's NumDescriptors and this number are the same fact stated twice.
         const unsigned SRV_PER_DRAW =
-            6; // t0,t1,t2,t3,t4,t5 -- MUST match srvRange.NumDescriptors
+            7; // t0,t1,t2,t3,t4,t5,t6 -- MUST match srvRange.NumDescriptors
         // On overflow do NOT wrap to 0 (that would corrupt earlier, not-yet-executed draws -> "swapped tiles").
         // Clamp to the last slot: only the overflowing tail aliases (visually wrong there, but the bulk is correct).
         // The ring proper starts past the resident bindless prefix.
@@ -1714,6 +1801,20 @@ void D3D12Renderer::FlushConstants()
         dst5.ptr += (SIZE_T)5 * m_srvInc;
         m_pDevice->CopyDescriptorsSimple(
             1, dst5, s5h, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        // Artscout - 2026: t6 = the cockpit sun shadow map. 0 while the map is being written / has never
+        // been made -- the white stand-in then makes the shader's compare read "lit" (the PS checks
+        // gShadowParams.w first anyway, so the pit only samples it when the engine armed the pass).
+        SIZE_T p6 = (SIZE_T)(g_pD3D12Backend ? g_pD3D12Backend->PitShadowSrvCpu() : 0);
+        if (p6 == 0 || p6 == (SIZE_T)-1)
+            p6 = (SIZE_T)m_whiteSrvCpu;
+        if (p6 == 0)
+            return;
+        D3D12_CPU_DESCRIPTOR_HANDLE s6h;
+        s6h.ptr = p6;
+        D3D12_CPU_DESCRIPTOR_HANDLE dst6 = dst;
+        dst6.ptr += (SIZE_T)6 * m_srvInc;
+        m_pDevice->CopyDescriptorsSimple(
+            1, dst6, s6h, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         D3D12_GPU_DESCRIPTOR_HANDLE gpu =
             m_pSrvRing[f]->GetGPUDescriptorHandleForHeapStart();
         gpu.ptr += (UINT64)off * m_srvInc;
@@ -1807,6 +1908,24 @@ void D3D12Renderer::FlushConstants()
         if (va)
             cl->SetGraphicsRootConstantBufferView(6, va);
         m_dStereo = false;
+    }
+
+    // Artscout - 2026: cbShadow(b6) -- the model-space light matrix + tuning for the cockpit sun
+    // shadow. Layout MUST match HLSL cbShadow { float4x4 gShadowVP; float4 gShadowParams; }.
+    // Uploaded only when the engine armed a new pass (or a list reset cleared the root args).
+    if (m_dShadow)
+    {
+        struct CBShadow
+        {
+            float vp[16];
+            float params[4];
+        } sb;
+        memcpy(sb.vp, m_shadowVP, sizeof(sb.vp));
+        memcpy(sb.params, m_shadowParams, sizeof(sb.params));
+        unsigned __int64 va = AllocCB(&sb, sizeof(sb));
+        if (va)
+            cl->SetGraphicsRootConstantBufferView(7, va);
+        m_dShadow = false;
     }
 }
 
@@ -1978,6 +2097,19 @@ ID3D12PipelineState* D3D12Renderer::GetPSO(int pass, int blend, bool dWrite,
         dTest = false;
     }
 
+    // Artscout - 2026: the cockpit sun shadow replay is its own program -- depth-only (no RTV, no
+    // pixel shader), strictly depth write+test, no stencil, no cull. Cull NONE is deliberate: the
+    // object pass culls against a REFLECTED camera projection, which says nothing about which side
+    // faces the sun, and the pit is a shell whose nearest-to-light surface must win the depth test.
+    if (m_shadowPass)
+    {
+        dWrite = m_depthTargetBound;
+        dTest = m_depthTargetBound;
+        cull = 0;
+        bias = 0;
+        blend = BLEND_OPAQUE;
+    }
+
     // Artscout - 2026: MSAA -- the PSO's SampleDesc MUST match the currently-bound render target. The MSAA
     // scene target has >1 samples; the single-sample backbuffer / RTT atlas / menu have 1. The backend reports
     // the current target's count. Fold it into the cache key so both variants coexist.
@@ -1987,7 +2119,7 @@ ID3D12PipelineState* D3D12Renderer::GetPSO(int pass, int blend, bool dWrite,
 
     // #DX12 п.5: view-instanced variant is a DISTINCT PSO (DXIL shaders + view-instancing subobject). The view
     // count (2 stereo / 4 quad) is part of the PSO -> fold it into the key so both coexist.
-    bool stereo = m_stereoActive && m_viAvailable;
+    bool stereo = m_stereoActive && m_viAvailable && !m_shadowPass;
     unsigned key =
         ((unsigned)(pass & 1)) | ((unsigned)(blend & 3) << 1) |
         ((unsigned)(dWrite ? 1 : 0) << 3) | ((unsigned)(dTest ? 1 : 0) << 4) |
@@ -2002,7 +2134,8 @@ ID3D12PipelineState* D3D12Renderer::GetPSO(int pass, int blend, bool dWrite,
         | ((unsigned)((stereo && m_stereoViewCount == 4) ? 1 : 0)
            << 18) // quad (4-view) VI variant
         | ((unsigned)(m_objZBias & 3)
-           << 19); // per-surface dwzBias bucket (object pass)
+           << 19) // per-surface dwzBias bucket (object pass)
+        | ((unsigned)(m_shadowPass ? 1u : 0u) << 21); // cockpit shadow depth-only variant
 
     PsoMap* cache = (PsoMap*)m_pPsoCache;
     PsoMap::iterator it = cache->find(key);
@@ -2114,6 +2247,13 @@ ID3D12PipelineState* D3D12Renderer::GetPSO(int pass, int blend, bool dWrite,
         pd.PS.pShaderBytecode = ps->GetBufferPointer();
         pd.PS.BytecodeLength = ps->GetBufferSize();
     }
+    // Artscout - 2026: the cockpit shadow replay writes DEPTH ONLY. Dropping the pixel shader also
+    // drops every texture/material/lighting branch at once -- nothing but rasterised depth survives.
+    if (m_shadowPass)
+    {
+        pd.PS.pShaderBytecode = 0;
+        pd.PS.BytecodeLength = 0;
+    }
     if (topoType == 3)
     {
         // Artscout - 2026 (#107 bindless): the object layout plus a per-vertex tile slot at offset 40.
@@ -2181,7 +2321,8 @@ ID3D12PipelineState* D3D12Renderer::GetPSO(int pass, int blend, bool dWrite,
     // #76 HUD aperture stencil (depth stays OFF; ref 0x80 set at draw time via OMSetStencilRef). MARK: EQUAL
     // with ReadMask 0x40 (draw where the cockpit bit is clear) -> REPLACE writes bit 0x80 (WriteMask 0x80).
     // TEST: EQUAL with ReadMask 0xC0 -> draw where (stencil & 0xC0) == 0x80 (aperture set, cockpit clear).
-    if (m_hudStencil != 0)
+    // The shadow replay never touches the scene stencil (its own target has an unused stencil plane).
+    if (m_hudStencil != 0 && !m_shadowPass)
     {
         pd.DepthStencilState.StencilEnable = TRUE;
         pd.DepthStencilState.StencilReadMask =
@@ -2241,8 +2382,9 @@ ID3D12PipelineState* D3D12Renderer::GetPSO(int pass, int blend, bool dWrite,
         (topoType == 1) ? D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE :
                           D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pd.SampleMask = 0xFFFFFFFFu;
-    pd.NumRenderTargets = 1;
-    pd.RTVFormats[0] = (DXGI_FORMAT)D3D12Backend::BackBufferFormat();
+    pd.NumRenderTargets = m_shadowPass ? 0u : 1u;
+    pd.RTVFormats[0] = m_shadowPass ? DXGI_FORMAT_UNKNOWN
+                                    : (DXGI_FORMAT)D3D12Backend::BackBufferFormat();
     pd.SampleDesc.Count =
         (UINT)samples; // MSAA: match the currently-bound target
 

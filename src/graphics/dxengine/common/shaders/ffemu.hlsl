@@ -187,6 +187,19 @@ cbuffer cbLights : register(b4)
     GpuLight gLights[MAX_LIGHTS];
 };
 
+// Artscout - 2026: cockpit sun shadow map (FF_COCKPIT only -- see CockpitSunShadow below).
+// A depth-only replay of the 3D pit, fitted to the pit's own bounding box in the pit's MODEL space
+// (the engine owns the fit; this side just projects and compares). Model space is deliberate: the
+// world normal/position would have to be rotated back, and in VR the camera-relative world position
+// differs per eye, which would smear the map. Reversed-Z, like the rest of the renderer: a texel
+// NEARER the sun holds a LARGER depth, and 0 is the far plane (a cleared map = nothing lit it).
+cbuffer cbShadow : register(b6)
+{
+    float4x4 gShadowVP;      // row-vector: model-space position -> shadow clip
+    float4   gShadowParams;  // x = 1/resolution (PCF step), y = depth-compare bias,
+                             // z = occlusion strength (0 = no darkening), w = 1 when the map is bound
+};
+
 //============================ Resources ======================================
 
 Texture2D    gTex0 : register(t0);
@@ -212,6 +225,9 @@ Texture3D<float4>     gCloudDetail : register(t4);
 // is amortised over the cache's voxels; ours was re-run per sample per pixel, which is why our 12 steps cost
 // more than their 128, and why "we cannot afford 1 m" was wrong.
 Texture3D<float2>     gLightCache  : register(t5);
+// Artscout - 2026: the cockpit sun shadow map -- R32_FLOAT, reversed-Z depth from the sun. Bound for
+// every draw (a white stand-in when there is none), but only the FF_COCKPIT branch of PS_Main reads it.
+Texture2D<float>      gShadowMap  : register(t6);
 SamplerState          gSampNoise  : register(s2);
 SamplerState gSamp0 : register(s0);
 SamplerState gSamp1 : register(s1);
@@ -274,6 +290,12 @@ struct VSOut
     // Artscout - 2026: the vertex EMISSIVE colour, needed by the PS for FF_EMISSIVE surfaces once the
     // emissive is ADDED to the lit material (D3D7) instead of replacing it. See ObjectVSCore.
     float3 Emis   : TEXCOORD9;
+    // Artscout - 2026: the MODEL-LOCAL normal and position, for the cockpit sun shadow lookup. The pit's
+    // shadow map is fitted in the pit's model space, so the lookup must happen in that same frame -- the
+    // world normal/position would have to be rotated back, and in VR the camera-relative world position
+    // differs per eye. Filled by ObjectVSCore; VS_Screen writes 0 (no shadow in the 2D path).
+    float3 NrmL   : TEXCOORD10;
+    float3 PosL   : TEXCOORD11;
 };
 
 //============================ Helpers ========================================
@@ -292,8 +314,12 @@ float ComputeFog(float viewDepth)
 //   viewVec camera -> point vector (unnormalized is fine)
 //   lit     ambient + summed sun/point/spot contribution (saturate at the call site)
 //   spec    Blinn-Phong highlight from light 0 (the main source), already coloured
+//   sunShadow 1 = the sun reaches this point, 0 = fully occluded (cockpit only; callers that are not
+//             pit receivers pass 1.0). Multiplied into the DIRECTIONAL term alone -- ambient and
+//             lamps are not occluded by the pit's own geometry.
 // Everything here reads gFlags/gAmbient/gLights/gSpecular, so it behaves identically in both stages.
-void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, out float3 lit, out float3 spec)
+void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, float sunShadow,
+                      out float3 lit, out float3 spec)
 {
     // #72 cockpit: build depth by BRIGHTENING sun-lit faces; the ambient floor stays (uniform
     // darkening muddies an already dark pit) but its level follows the sun so the pit goes dark at night.
@@ -334,6 +360,10 @@ void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, out float3 lit, out
         // #72 boost only the directional (sun) term for the cockpit -- point lights (muzzle
         // flashes/explosions) keep their own intensity so a flash doesn't over-blow the pit.
         float lScale = (L.Params.y < 0.5f) ? sunScale : 1.0f;
+        // Artscout - 2026: the pit's own shadow darkens ONLY the sun term. A shadow is a question
+        // asked of one light; ambient sky light and the panel lamps keep lighting the shadowed side.
+        if (L.Params.y < 0.5f)
+            lScale *= sunShadow;
         lit += L.Color.rgb * max(dot(N, Ldir), 0.0f) * atten * lScale;
     }
     if (gFlags & FF_FULLBRIGHT) lit = float3(1.0f, 1.0f, 1.0f);   // #97 unlit: full material colour (exit menu)
@@ -359,6 +389,50 @@ void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, out float3 lit, out
         float  s  = pow(max(dot(N, H), 0.0f), specPow);
         spec = specCol * L0.Color.rgb * s;
     }
+}
+
+// Artscout - 2026: the cockpit's sun shadow term (FF_COCKPIT). 1 = the sun reaches the point,
+// gShadowParams.z-scaled toward 0 = the pit's own geometry occludes it. Takes the MODEL-SPACE normal
+// and position (VSOut.NrmL/PosL) because the map is fitted in the pit's model frame -- see cbShadow.
+//   3x3 PCF with a normal offset. The offset is what keeps a lit surface from shadowing itself
+// without a fat constant bias; the constant then only absorbs depth quantisation. The shadow texel's
+// world size is not a separate constant -- it falls out of the ortho's x scale: the matrix's first
+// ROW is the light-right axis times sx = 2/fittedWidth (the shader reads each CPU row as the output's
+// own row), so 2/|row0| is the fitted width and one texel is that divided by the resolution.
+float CockpitSunShadow(float3 Nl, float3 Pl)
+{
+    if (gShadowParams.w < 0.5f || gShadowParams.z <= 0.0f)
+        return 1.0f; // no map armed / shadows disabled this frame
+
+    const float  sx = length(gShadowVP[0].xyz);
+    const float  texelWorld = 2.0f * gShadowParams.x / max(sx, 1.0e-6f);
+    const float3 p = Pl + normalize(Nl) * (texelWorld * 1.5f);
+
+    const float4 sc = mul(float4(p, 1.0f), gShadowVP);
+    if (sc.w <= 1.0e-6f)
+        return 1.0f;
+    const float2 uv = float2(sc.x / sc.w * 0.5f + 0.5f, 0.5f - sc.y / sc.w * 0.5f);
+    const float  d  = sc.z / sc.w;
+    // Outside the fitted extent (the ortho covers the pit and a margin; the stores attached to the
+    // pit ride FF_COCKPIT too) there is no occluder information -> unshadowed, not wrapped.
+    if (uv.x < 0.0f || uv.x > 1.0f || uv.y < 0.0f || uv.y > 1.0f)
+        return 1.0f;
+
+    // Reversed-Z: a texel NEARER the sun stores a LARGER depth, so this pixel is occluded when the
+    // stored depth is greater than its own by more than the bias. saturate keeps the PCF offsets from
+    // wrapping at the edges (the fit leaves a margin, so the edge samples are not load-bearing).
+    const float step = gShadowParams.x;
+    float lit = 0.0f;
+    [unroll] for (int j = -1; j <= 1; ++j)
+    {
+        [unroll] for (int i = -1; i <= 1; ++i)
+        {
+            const float2 suv = saturate(uv + float2((float)i, (float)j) * step);
+            const float  od  = gShadowMap.SampleLevel(gSampNoise, suv, 0);
+            lit += (od <= d + gShadowParams.y) ? 1.0f : 0.0f;
+        }
+    }
+    return lerp(1.0f, lit * (1.0f / 9.0f), saturate(gShadowParams.z));
 }
 
 //============================ Vertex shaders =================================
@@ -392,6 +466,8 @@ VSOut VS_Screen(VSInScreen i)
     o.Nrm = float3(0, 0, 1);    // per-pixel lighting inputs: unused here
     o.View = float3(0, 0, 0);
     o.Emis = float3(0, 0, 0);
+    o.NrmL = float3(0, 0, 1);   // cockpit shadow inputs: unused in the 2D path
+    o.PosL = float3(0, 0, 0);
     o.ViewId = 0;
 #if FF_BINDLESS_OK
     o.TexIndex = 0xFFFFFFFFu;   // #107: the 2D path has no tile slot -- the PS falls back to t0
@@ -415,6 +491,11 @@ VSOut ObjectVSCore(VSInObject i, float4x4 wmat, float4x4 vmat, float4x4 pmat, fl
     // the PS, which normalizes both (interpolated normals are not unit length).
     o.Nrm  = mul(i.Normal, (float3x3)wmat);
     o.View = camWorld - worldPos.xyz;
+    // Artscout - 2026: the cockpit shadow lookup is in the pit's MODEL frame (see cbShadow), and the
+    // model-space normal/position are the only inputs it needs from here. Untransformed on purpose:
+    // wmat may carry a rotation (and, per eye, a translation) that the map knows nothing about.
+    o.NrmL = i.Normal;
+    o.PosL = i.Pos;
     o.ViewId = 0;            // #13 overridden by VS_ObjectVI; the flat path renders one view into slice 0
 #if FF_BINDLESS_OK
     o.TexIndex = i.TexIndex; // #107 tile slot, carried through untouched
@@ -451,7 +532,7 @@ VSOut ObjectVSCore(VSInObject i, float4x4 wmat, float4x4 vmat, float4x4 pmat, fl
         {
             float3 N = normalize(mul(i.Normal, (float3x3)wmat));
             float3 lit, spec;
-            FFObjectLighting(N, worldPos.xyz, camWorld - worldPos.xyz, lit, spec);
+            FFObjectLighting(N, worldPos.xyz, camWorld - worldPos.xyz, 1.0f, lit, spec);
             col.rgb = i.Color.rgb * saturate(lit) + i.Emissive.rgb;
         }
     }
@@ -471,7 +552,7 @@ VSOut ObjectVSCore(VSInObject i, float4x4 wmat, float4x4 vmat, float4x4 pmat, fl
         {
             float3 N = normalize(mul(i.Normal, (float3x3)wmat));
             float3 lit, spec;
-            FFObjectLighting(N, worldPos.xyz, camWorld - worldPos.xyz, lit, spec);
+            FFObjectLighting(N, worldPos.xyz, camWorld - worldPos.xyz, 1.0f, lit, spec);
             col.rgb *= saturate(lit);
             o.Spec = spec;
         }
@@ -1809,7 +1890,10 @@ float4 PS_Main(VSOut i) : SV_Target
     {
         float3 N = normalize(i.Nrm);
         float3 lit, spec;
-        FFObjectLighting(N, i.WPos, i.View, lit, spec);
+        // Artscout - 2026: the cockpit's sun shadow -- model-space lookup (see CockpitSunShadow).
+        // Only the pit sets FF_COCKPIT; every other surface passes 1.0 and is untouched.
+        const float sunShadow = (gFlags & FF_COCKPIT) ? CockpitSunShadow(i.NrmL, i.PosL) : 1.0f;
+        FFObjectLighting(N, i.WPos, i.View, sunShadow, lit, spec);
         c.rgb *= saturate(lit);
         if (gFlags & FF_EMISSIVE)
             c.rgb += i.Emis; // D3D7: emissive adds to the lit material, before the texture
@@ -2114,5 +2198,9 @@ float4 PS_PerSample(VSOutSample i, uint sIdx : SV_SampleIndex) : SV_Target
     o.Pos = i.Pos; o.Color = i.Color; o.Uv0 = i.Uv0; o.Uv1 = i.Uv1; o.FogF = i.FogF; o.Spec = i.Spec;
     o.WPos = float3(0, 0, 0); o.ViewId = 0;   // #13: unused here (FF_CLOUD never runs on the per-sample path),
                                               // but VSOut must be fully initialised before PS_Main reads it.
+    // Artscout - 2026: the per-pixel light/shadow inputs, same "unused, but defined" treatment (the
+    // RTT/2D passes never set FF_LIGHTING or FF_COCKPIT, so nothing here is ever sampled).
+    o.Nrm = float3(0, 0, 1); o.View = float3(0, 0, 0); o.Emis = float3(0, 0, 0);
+    o.NrmL = float3(0, 0, 1); o.PosL = float3(0, 0, 0);
     return PS_Main(o);
 }

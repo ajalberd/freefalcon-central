@@ -96,7 +96,9 @@ Covered in `RENDER-LIGHTING.md`; the cockpit-specific facts:
   399), which is why the pit reads matte and dead. This is a **data** problem as much as a
   shader one — a specular response needs per-surface material data the BSP does not currently
   carry.
-- There are no shadows of any kind in the cockpit. See `RENDER-LIGHTING.md`.
+- **Cockpit sun shadows have landed** (D3D12, 2026-09-20): the pit is replayed depth-only into a
+  model-space shadow map and the sun term is darkened where the pit occludes it. See
+  `RENDER-LIGHTING.md` for the fit, the knobs (`PitShadow`, `PitShadowStrength`) and the Vulkan gap.
 
 ## Suggested first step
 

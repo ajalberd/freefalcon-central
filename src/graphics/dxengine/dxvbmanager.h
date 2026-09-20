@@ -251,6 +251,12 @@ public:
     bool GetDrawItem(ObjectInstance **objInst, DWORD *ID,
                      D3DXMATRIX *Transformation, bool *Lited, DWORD *LightID,
                      float *FogLevel);
+    // Artscout - 2026: read-only view of the pit list for the cockpit sun-shadow replay. That pass
+    // runs BEFORE FlushObjects (which dispenses the list) and must not disturb it.
+    CDrawItem *GetPitListRoot(void)
+    {
+        return PitList.pDrawRoot;
+    }
     void ClearDrawList(void);
     void Encrypt(DWORD *);
     void Decrypt(DWORD *);
