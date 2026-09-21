@@ -99,6 +99,36 @@ private:
     // Internal worker functions for the text page
     void DrawMissionText(Render2D *renderer, SimVehicleClass *platform);
 
+    // Artscout - 2026 (NAVAIDS page): one airbase, flattened out of the campaign
+    // so that drawing it does no lookups at all.
+    struct NavaidEntry
+    {
+        char name[24];
+        int channel; // TACAN channel, 0 when the base has none
+        char band; // 'X' or 'Y'
+        float ils; // ILS localiser frequency in MHz, 0 when none
+        // The primary runway, both ends. The point data stores each end as its
+        // own header with the reciprocal heading, in whole degrees. Not `ltrt`:
+        // that is which side the traffic pattern is flown, not an L/R
+        // designator -- the painted number lives in texIdx and is a texture.
+        short runway; // heading of one end, -1 if the base has no runway data
+        short runwayOpp; // the other end, -1 if only one was found
+        int bullsBearing; // degrees from the theater bullseye
+        int bullsRange; // nautical miles from the bullseye
+        int ownRange; // nautical miles from the ownship, at build time
+        bool friendly;
+    };
+
+    // Walking the objective list is far too expensive to do per frame, and the
+    // answer only moves when the ownship does. Rebuilt on a slow tick while the
+    // page is up, and not at all while it is not.
+    NavaidEntry *mNavaids;
+    int mNavaidCount;
+    unsigned long mNavaidBuilt;
+
+    void BuildNavaidList(SimVehicleClass *platform);
+    void DrawNavaids(Render2D *renderer, SimVehicleClass *platform);
+
     // Internal worker funtions for the map page
     void RenderMap(SimVehicleClass *platform);
     void UpdateMapDimensions(SimVehicleClass *platform);

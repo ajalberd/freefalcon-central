@@ -70,6 +70,66 @@ the concrete evidence that the limit bites: 10×7 is the largest matched size th
 a 5.6 in page seen at an angle in a headset it is still only just adequate. That page renders
 708×942 actual pixels, so the shortfall is not resolution — it is the source bitmap.
 
+### The NAVAIDS page
+
+The kneeboard cycles four pages now, not three: MAP, BRIEF, STEERPOINT and
+**NAVAIDS**, an approach plate listing every airbase in the theater with its
+TACAN, its ILS, its runway pair and where it is. Same enum, same toggle key, and
+it draws through `DrawMissionText`'s ink, font and paper, so the 2D board and
+the 3D RTT board both get it with no extra plumbing.
+
+Where each column comes from, all of it already loaded by the time a flight
+starts:
+
+| Column | Source |
+| --- | --- |
+| Base | `Objective::GetName` |
+| TCN | `gTacanList->GetChannelFromVUID(o->Id(), ...)` — `stations.dat` |
+| ILS | the same call's `ilsfreq` |
+| RWY | the class's point-header chain, `PtHeaderDataTable[].data` |
+| BULLS | `TheCampaign.BearingToBullseyeDeg` / `RangeToBullseyeFt` |
+| NM | straight-line range from the ownship at build time |
+
+Four things worth not re-deriving:
+
+- **Only 18 of Korea's 85 TACAN stations carry an ILS frequency.** The other 67
+  have an explicit `0` in field 7 of `stations.dat`. A mostly empty ILS column is
+  the shipped data, not a bug — the TACAN column is the one that is always there.
+- **Runway headings live on the objective's CLASS, not the objective**, in the
+  `PtHeaderDataTable` chain reached through `ObjClassDataType::PtDataIndex`. That
+  is correct rather than a shortcut: `TranslatePointData` only ever offsets, never
+  rotates, and the comment there says so outright — objectives have no heading. So
+  the class heading is the heading on the map, and every base built from the same
+  template genuinely shares it. Spot-checked against reality: Kimpo 14/32, Osan
+  09/27, Seoul AB (K-16) 01/19 all match the real airfields.
+- **Each end of a runway is its own `RunwayPt` header** carrying the reciprocal in
+  `data`, grouped by `runwayNum`. Walking strip 0 gives both ends, hence `14/32`.
+- **`ltrt` is not an L/R designator.** It is which side the traffic pattern is
+  flown (−1, 0, +1). The painted number is `texIdx`, a texture id. Do not print
+  `ltrt` as a suffix — it was wrong in the first cut of this page.
+- **`BearingToBullseyeDeg` returns the reciprocal**, place-to-bullseye, as a raw
+  atan2 in −180..180. The radio convention is bullseye-to-place, so add 180 — which
+  is what the AWACS list in `urefresh.cpp` already does with the same call.
+
+**The font has to follow the content here.** This page is a table; the other two
+are prose. At the 3D board's default `g_nKnee3DFont` 2 (10x7) the row is about
+twice the page wide and everything past the ILS column runs off the edge — which
+is exactly what the first cut did. `DrawNavaids` now measures `NAVAID_HEADER`
+with `Render2D::TextWidth` at each of the three sizes and takes the largest that
+fits in the page's 1.90 units. `g_nKneeNavaidFont` overrides it: `-1` (default)
+fits automatically, `0`/`1`/`2` force a size. Column widths in the row `sprintf`
+match the header exactly — change one and change both, or the fitting measures
+the wrong string.
+
+Cost: enumerating objectives means a `VuGridIterator` over the whole theater,
+which visits every objective there is. That is nowhere near a per-frame budget, so
+the list is built into a cache and rebuilt every 5 s while the page is up, and not
+at all while it is not.
+
+`tools/../scratchpad/preview_navaids.py` renders the same page offline from the
+same files, which is how the columns above were checked before they reached a
+cockpit.
+
 ## Textures
 
 The 3D pit is **parent 2402, LOD `3DPIT_F16CJ_L1` (4105)**, selected by `cockpitmodel 2402`

@@ -215,6 +215,10 @@ void KneeboardTogglePage(unsigned long, int state, void*)
         {
             board->SetPage(KneeBoard::STEERPOINT);
         }
+        else if (board->GetPage() == KneeBoard::STEERPOINT)
+        {
+            board->SetPage(KneeBoard::NAVAIDS);
+        }
         else
         {
             board->SetPage(KneeBoard::MAP);

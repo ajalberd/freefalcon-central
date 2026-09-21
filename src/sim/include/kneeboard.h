@@ -33,7 +33,11 @@ public:
     {
         BRIEF,
         MAP,
-        STEERPOINT
+        STEERPOINT,
+        // Artscout - 2026: the approach plate. Every airbase in the theater with
+        // its TACAN, its ILS and where it is, so a divert does not mean guessing
+        // a channel. Built from the campaign, not from the flight's own plan.
+        NAVAIDS
     };
     void SetPage(Page p)
     {

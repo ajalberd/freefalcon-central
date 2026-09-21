@@ -11,6 +11,20 @@
 #include "brief.h"
 #include "flight.h"
 #include "aircrft.h"
+// Artscout - 2026 (NAVAIDS page): the campaign side of the kneeboard. The
+// objective list for the airbases, the TACAN list for their channels and ILS,
+// the point tables for their runway headings, and the campaign for bullseye.
+#include "campaign/include/camplist.h"
+#include "campaign/include/objectiv.h"
+#include "campaign/include/cmpclass.h"
+#include "campaign/include/find.h"
+#include "campaign/include/ptdata.h"
+#include "campaign/include/team.h"
+#include "falclib/include/classtbl.h"
+#include "falclib/include/entity.h"
+#include "tacan.h"
+#include "phyconst.h"
+#include "simlib.h"
 
 
 // sfr: moved the f***** globals from kneeboard to kneeview
@@ -36,6 +50,22 @@ static const float KNEEBOARD_SMALLEST_MAP_FRACTION =
 // atlas is cleared to black at the top of the pass, so without a page under it the text is invisible.
 // ABGR, like every other colour in this file (WP_COLOR 0xFF0000FF is red). Warm paper white.
 static const UInt32 KNEE_PAGE_COLOR = 0xFFD0E4E8;
+
+// Artscout - 2026 (NAVAIDS page): Korea ships 90 airbases and the page shows
+// the nearest screenful of them, so the cap is a safety net rather than a
+// budget. The rebuild interval is what keeps a whole-theater objective sweep
+// off the frame.
+static const int MAX_NAVAIDS = 256;
+static const unsigned long NAVAID_REBUILD_MS = 5000;
+
+// The page runs -0.95..0.95, so a row has 1.90 to live in. The header is the
+// widest line the page ever draws -- every data row is built to the same column
+// widths -- so fitting the header fits the page.
+static const float NAVAID_LEFT = -0.95f;
+static const float NAVAID_TOP = 0.95f;
+static const float NAVAID_WIDTH = 1.90f;
+static const char NAVAID_HEADER[] =
+    "BASE        TCN   ILS   RWY  BULLS  NM";
 
 // Artscout - 2026: a zeroed ObjectInitStr with the two fields CPObject actually scales by. Used by the
 // RTT constructor, which has no 2D cockpit dat block behind it. A base-class initialiser cannot take the
@@ -66,6 +96,9 @@ CPKneeView::CPKneeView(ObjectInitStr *pobjectInitStr, KneeBoard *pboard)
     mRttW = mRttH = 0;
     mRttMapV = mRttMapH = mRttMapVS = mRttMapHS = 0.0f;
     mRttTick = 0;
+    mNavaids = NULL;
+    mNavaidCount = 0;
+    mNavaidBuilt = 0;
     mpKneeBoard = pboard;
 
     Setup(&FalconDisplay.theDisplayDevice, mDestRect.top, mDestRect.left,
@@ -81,6 +114,9 @@ CPKneeView::CPKneeView(KneeBoard *board, int w, int h)
     mRttW = mRttH = 0;
     mRttMapV = mRttMapH = mRttMapVS = mRttMapHS = 0.0f;
     mRttTick = 0;
+    mNavaids = NULL;
+    mNavaidCount = 0;
+    mNavaidBuilt = 0;
     mpKneeBoard = board;
 
     SetupRtt(board, w, h);
@@ -89,6 +125,16 @@ CPKneeView::CPKneeView(KneeBoard *board, int w, int h)
 CPKneeView::~CPKneeView()
 {
     Cleanup();
+
+    // Artscout - 2026 (NAVAIDS page): allocated lazily on first use of the page,
+    // so most kneeviews never own one.
+    if (mNavaids)
+    {
+        delete[] mNavaids;
+        mNavaids = NULL;
+    }
+
+    mNavaidCount = 0;
 }
 
 void CPKneeView::Setup(DisplayDevice *device, int top, int left, int bottom,
@@ -341,6 +387,15 @@ void CPKneeView::DrawMissionText(Render2D *renderer, SimVehicleClass *platform)
     // Display the players call sign and assignment
     char string[1024];
 
+    if (mpKneeBoard->GetPage() == KneeBoard::NAVAIDS)
+    {
+        // Artscout - 2026: shares the ink, the font and the paper with the other
+        // text pages, and nothing else.
+        DrawNavaids(renderer, platform);
+        VirtualDisplay::SetFont(oldFont);
+        return;
+    }
+
     if (mpKneeBoard->GetPage() ==
         KneeBoard::STEERPOINT) // JPO new kneeboard page
     {
@@ -472,6 +527,299 @@ void CPKneeView::DrawMissionText(Render2D *renderer, SimVehicleClass *platform)
 
     VirtualDisplay::SetFont(oldFont);
 }
+
+// Artscout - 2026 (NAVAIDS page): flatten every airbase in the theater into a
+// list the draw can walk without touching the campaign.
+//
+// Why a cached list at all: the only way to enumerate objectives is a grid
+// iterator, and covering the whole 1024 km theater means visiting every
+// objective there is -- several thousand of them, most of them bridges. That is
+// nowhere near a per-frame cost, but the answer only changes when the ownship
+// moves or a base changes hands, so a slow rebuild is plenty.
+// Artscout - 2026: 270 becomes 27, and 0 reads as 36 the way the painted
+// number on a runway does.
+static int RunwayDesignator(int headingDeg)
+{
+    int designator = ((headingDeg % 360) + 5) / 10;
+
+    if (designator == 0 or designator > 36)
+    {
+        designator = 36;
+    }
+
+    return designator;
+}
+
+
+void CPKneeView::BuildNavaidList(SimVehicleClass *platform)
+{
+    if (not platform or not gTacanList)
+    {
+        mNavaidCount = 0;
+        return;
+    }
+
+    if (not mNavaids)
+    {
+        mNavaids = new NavaidEntry[MAX_NAVAIDS];
+    }
+
+    const float ownX = platform->XPos();
+    const float ownY = platform->YPos();
+    const Team ownTeam = platform->GetTeam();
+
+    mNavaidCount = 0;
+
+    // GridToSim(1024) is the whole theater: the grid iterator wants a radius in
+    // feet about a centre, and half the map from the middle reaches every
+    // corner. Centre on the ownship so that, if the list ever does overflow, what
+    // survives is what is nearest -- which is what a divert page is for.
+    VuGridIterator it(ObjProxList, ownX, ownY, (BIG_SCALAR)GridToSim(1024));
+
+    for (Objective o = (Objective)it.GetFirst();
+         o not_eq NULL and mNavaidCount < MAX_NAVAIDS;
+         o = (Objective)it.GetNext())
+    {
+        if (o->GetType() not_eq TYPE_AIRBASE and
+            o->GetType() not_eq TYPE_AIRSTRIP)
+        {
+            continue;
+        }
+
+        NavaidEntry *e = &mNavaids[mNavaidCount];
+        memset(e, 0, sizeof(*e));
+
+        o->GetName(e->name, sizeof(e->name) - 1, 0);
+        e->name[sizeof(e->name) - 1] = 0;
+
+        e->friendly = (GetTTRelations(o->GetTeam(), ownTeam) <= Neutral);
+
+        // TACAN and ILS. A base without a station simply has no row in
+        // stations.dat, and GetChannelFromVUID leaves the outputs alone -- hence
+        // the zeroed struct above rather than trusting it to write.
+        int channel = 0, range = 0, ttype = 0;
+        TacanList::StationSet set = TacanList::X;
+        TacanList::Domain domain = TacanList::AG;
+        float ils = 0.0f;
+
+        if (gTacanList->GetChannelFromVUID(o->Id(), &channel, &set, &domain,
+                                           &range, &ttype, &ils))
+        {
+            e->channel = channel;
+            e->band = (set == TacanList::Y) ? 'Y' : 'X';
+            e->ils = ils;
+        }
+
+        // The runway heading lives in the point-header chain hanging off the
+        // objective's CLASS, and objectives are never rotated -- TranslatePointData
+        // only offsets -- so the class heading is the heading on the map.
+        //
+        // Each end of a runway is its own RunwayPt header carrying the reciprocal
+        // in `data`, in whole degrees, and runwayNum says which physical strip it
+        // belongs to. Take both ends of strip 0.
+        e->runway = -1;
+        e->runwayOpp = -1;
+
+        ObjClassDataType *oc = o->GetObjectiveClassData();
+
+        if (oc)
+        {
+            for (int rw = oc->PtDataIndex; rw;
+                 rw = PtHeaderDataTable[rw].nextHeader)
+            {
+                if (PtHeaderDataTable[rw].type not_eq RunwayPt or
+                    PtHeaderDataTable[rw].runwayNum not_eq 0)
+                {
+                    continue;
+                }
+
+                const short hdg = PtHeaderDataTable[rw].data;
+
+                if (e->runway < 0)
+                {
+                    e->runway = hdg;
+                }
+                else if (hdg not_eq e->runway)
+                {
+                    e->runwayOpp = hdg;
+                    break;
+                }
+            }
+
+            // Keep the lower-numbered end first, the way a plate reads.
+            if (e->runwayOpp >= 0 and e->runwayOpp < e->runway)
+            {
+                const short t = e->runway;
+                e->runway = e->runwayOpp;
+                e->runwayOpp = t;
+            }
+        }
+
+        // Position, twice over. Bullseye is what gets read on the radio; range
+        // from the ownship is what decides whether a base is worth diverting to,
+        // and is the order the page is sorted in.
+        // BearingToBullseyeDeg returns the bearing FROM the place TO the
+        // bullseye, as a raw atan2 in -180..180. What gets read on the radio is
+        // the other way round -- bullseye to the place -- so flip it, which is
+        // exactly what the AWACS list in urefresh.cpp does with the same call.
+        int brg = 180 + TheCampaign.BearingToBullseyeDeg(o->XPos(), o->YPos());
+
+        while (brg < 0)
+        {
+            brg += 360;
+        }
+
+        e->bullsBearing = brg % 360;
+        e->bullsRange = FloatToInt32(
+            (float)TheCampaign.RangeToBullseyeFt(o->XPos(), o->YPos()) *
+            FT_TO_NM);
+
+        const float dx = o->XPos() - ownX;
+        const float dy = o->YPos() - ownY;
+        e->ownRange =
+            FloatToInt32((float)sqrt(dx * dx + dy * dy) * FT_TO_NM);
+
+        mNavaidCount++;
+    }
+
+    // Nearest first. An insertion sort looks lazy next to qsort, but the list is
+    // ~90 entries in Korea and this runs once every few seconds.
+    for (int i = 1; i < mNavaidCount; i++)
+    {
+        NavaidEntry tmp = mNavaids[i];
+        int j = i - 1;
+
+        while (j >= 0 and mNavaids[j].ownRange > tmp.ownRange)
+        {
+            mNavaids[j + 1] = mNavaids[j];
+            j--;
+        }
+
+        mNavaids[j + 1] = tmp;
+    }
+
+    mNavaidBuilt = SimLibElapsedTime;
+}
+
+
+// Artscout - 2026: the NAVAIDS page itself. Same ink, font and paper as the
+// other two text pages -- DrawMissionText has already set all three up.
+void CPKneeView::DrawNavaids(Render2D *renderer, SimVehicleClass *platform)
+{
+    char line[128];
+
+    // Artscout - 2026: this page is a TABLE, and the other two are prose, so it
+    // is the one page whose font has to follow the content rather than the
+    // cockpit's preference. There are exactly three sizes (6x4, 8x6, 10x7 --
+    // index 3 is a different typeface, not a fourth size), so measure the header
+    // at each and take the largest that fits. At 10x7 the row is about twice the
+    // page wide, which is why the first cut ran off the edge.
+    extern int g_nKneeNavaidFont;
+    int font = g_nKneeNavaidFont;
+
+    if (font < 0)
+    {
+        font = 0;
+
+        for (int f = 2; f >= 0; f--)
+        {
+            VirtualDisplay::SetFont(f);
+
+            if (renderer->TextWidth((char *)NAVAID_HEADER) <= NAVAID_WIDTH)
+            {
+                font = f;
+                break;
+            }
+        }
+    }
+
+    VirtualDisplay::SetFont(font);
+
+    // Only meaningful once the font is chosen.
+    const float LINE_HEIGHT = renderer->TextHeight();
+    float v = NAVAID_TOP - LINE_HEIGHT;
+
+    // Rebuild on a slow tick. SimLibElapsedTime is milliseconds.
+    if (not mNavaids or mNavaidCount == 0 or
+        (SimLibElapsedTime - mNavaidBuilt) > NAVAID_REBUILD_MS)
+    {
+        BuildNavaidList(platform);
+    }
+
+    if (mNavaidCount == 0)
+    {
+        renderer->TextLeft(NAVAID_LEFT, v, "NO NAVAID DATA");
+        return;
+    }
+
+    renderer->TextLeft(NAVAID_LEFT, v, (char *)NAVAID_HEADER);
+    v -= LINE_HEIGHT;
+
+    // How many rows fit. The page runs from just under the header down to the
+    // bottom margin; anything past that would draw off the board.
+    const int rows = FloatToInt32((v + 0.95f) / LINE_HEIGHT);
+
+    for (int i = 0; i < mNavaidCount and i < rows; i++)
+    {
+        const NavaidEntry *e = &mNavaids[i];
+
+        char tcn[8];
+
+        if (e->channel)
+        {
+            sprintf(tcn, "%03d%c", e->channel, e->band);
+        }
+        else
+        {
+            strcpy(tcn, "   -");
+        }
+
+        char ils[8];
+
+        if (e->ils > 0.0f)
+        {
+            sprintf(ils, "%6.2f", e->ils);
+        }
+        else
+        {
+            strcpy(ils, "     -");
+        }
+
+        char rwy[8];
+
+        if (e->runway >= 0 and e->runwayOpp >= 0)
+        {
+            sprintf(rwy, "%02d/%02d", RunwayDesignator(e->runway),
+                    RunwayDesignator(e->runwayOpp));
+        }
+        else if (e->runway >= 0)
+        {
+            sprintf(rwy, "   %02d", RunwayDesignator(e->runway));
+        }
+        else
+        {
+            strcpy(rwy, "    -");
+        }
+
+        // A hostile base is still worth knowing about -- it is where the SAMs
+        // and the MiGs live -- but it must not read as somewhere to land.
+        // Column widths match NAVAID_HEADER exactly; change one and change
+        // both, or the fitting above measures the wrong thing.
+        sprintf(line, "%-11.11s%c%4s %6s %5s %03d/%-3d%4d", e->name,
+                e->friendly ? ' ' : '*', tcn, ils, rwy, e->bullsBearing,
+                e->bullsRange, e->ownRange);
+
+        renderer->TextLeft(NAVAID_LEFT, v, line);
+        v -= LINE_HEIGHT;
+    }
+
+    if (v > -NAVAID_TOP + LINE_HEIGHT)
+    {
+        renderer->TextLeft(NAVAID_LEFT, v - LINE_HEIGHT * 0.5f,
+                           "* HOSTILE   BULLS = BRG/RNG FROM BULLSEYE");
+    }
+}
+
 
 void CPKneeView::UpdateMapDimensions(SimVehicleClass *platform)
 {
