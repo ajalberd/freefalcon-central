@@ -472,6 +472,7 @@ extern long *CampMapDetailCols();
 // The ColorTable index a whole ground tile averages to -- used to give a water post,
 // whose colour byte is 0, the colour of the sea it actually sits on.
 extern BYTE CampMapDetailTileAverageIndex(DWORD texID);
+extern bool g_bCampMapTileColors;
 
 // Whether the image the map control is showing is the terrain-derived one. The detail
 // layer's pixels are indices into the terrain colour table, so it is only meaningful
@@ -571,7 +572,16 @@ IMAGE_RSC *BuildTerrainMapImage(long ID, int lod)
             r = (r < 0) ? 0 : (r > 255) ? 255 : r;
             g = (g < 0) ? 0 : (g > 255) ? 255 : g;
             b = (b < 0) ? 0 : (b > 255) ? 255 : b;
-            pal[i] = UI95_RGB24Bit((r << 16) bitor (g << 8) bitor b);
+            // Artscout - 2026: RGB(), not (r << 16) | (g << 8) | b. UI95_RGB24Bit takes a
+            // Win32 COLORREF -- it reads red from bits 3-7, green from 11-15 and blue
+            // from 19-23, i.e. 0x00BBGGRR with red in the LOW byte -- and every other
+            // caller hands it one (PreparePalette gets RGB(255, 40, 40) and friends).
+            // This one packed 0xRRGGBB, so the whole map has been drawing with red and
+            // blue exchanged since it was first built from terrain: the sea came out
+            // brown because [16, 41, 49] was displayed as [49, 41, 16], and desert tan
+            // came out pale blue. Harmless-looking on a post-colour map, obvious the
+            // moment real ground imagery went through the same palette.
+            pal[i] = UI95_RGB24Bit(RGB(r, g, b));
         }
     }
 
@@ -632,15 +642,23 @@ IMAGE_RSC *BuildTerrainMapImage(long ID, int lod)
                                             (DWORD)((const TNewdiskPost *)p)->texID :
                                             (DWORD)((const TdiskPost *)p)->texID;
 
-                    // Artscout - 2026: a post over water has no colour byte -- it is 0 on
-                    // 99.9% of the posts whose tile is the sea tile, and ColorTable[0] is
-                    // pure WHITE, so this map has always painted roughly half of Korea as
-                    // a flat white field. The sim never needed the byte there because
-                    // water is drawn from its texture. That texture is populated, so take
-                    // the tile's average colour instead; it is also exactly what the
-                    // detail layer resolves to for the same ground, so the sea does not
-                    // change colour as you zoom across the detail threshold.
-                    if (not col)
+                    // Artscout - 2026: paint the post from the GROUND TILE it sits on,
+                    // not from its colour byte.
+                    //
+                    // The byte exists for untextured far terrain, and it describes the
+                    // theater poorly. Over water it is not populated at all -- 0 on 99.9%
+                    // of the posts whose tile is the sea tile, and ColorTable[0] is pure
+                    // WHITE, so this map painted roughly half of Korea as a flat white
+                    // field. Over land it is no better: Israel's desert carries bytes
+                    // that land on the temperate table's greens, so the Negev and the
+                    // Sinai came out grass-coloured.
+                    //
+                    // The tile is populated everywhere, and averaging it puts the base
+                    // map in exactly the colour the detail layer resolves to for the same
+                    // ground -- so nothing changes hue as you zoom across the detail
+                    // threshold, which is the whole point. Falls back to the colour byte
+                    // for any tile that cannot be read.
+                    if (g_bCampMapTileColors)
                     {
                         const uchar avg = CampMapDetailTileAverageIndex(texID);
 
@@ -682,6 +700,28 @@ IMAGE_RSC *BuildTerrainMapImage(long ID, int lod)
     delete[] blockBuf;
     delete[] offs;
     fclose(fl);
+
+    // Artscout - 2026: say whether the map actually got its colours from the ground.
+    // Two separate bugs have produced a theater-wide silent zero here -- a texID cap
+    // that excluded a whole theater's encoding, and a lookup ordered before the table
+    // it reads -- and both looked identical on screen: a map that was merely the wrong
+    // colour. One line says which, instead of leaving it to be argued from screenshots.
+    extern bool g_bLogCampMapDetail;
+
+    if (g_bLogCampMapDetail)
+    {
+        extern void CampMapDetailAverageStats(long *, long *, long *, long *);
+        long hits = 0, unkeyed = 0, unread = 0, tiles = 0;
+        CampMapDetailAverageStats(&hits, &unkeyed, &unread, &tiles);
+        _TCHAR ln[256];
+        _snprintf(ln, sizeof(ln) - 1,
+                  "[MAPBASE] %s lod=%d %ldx%ld tileColors=%d | posts=%ld "
+                  "fromTile=%ld noKey=%ld unread=%ld | distinctTiles=%ld\n",
+                  FalconTerrainDataDir, lod, w, h, (int)g_bCampMapTileColors,
+                  (long)(w * h), hits, unkeyed, unread, tiles);
+        ln[sizeof(ln) - 1] = 0;
+        FFDebugLog(ln);
+    }
 
     // The whole coordinate system keys off this. LEVEL_POST_TO_WORLD gives the feet
     // between posts at this LOD, and one post is now one pixel, so that IS the new
@@ -3535,15 +3575,36 @@ void C_Map::SetMapImage(long ID)
         Map_->Setup(5551200, 0, MapID);
     }
 
-    // Artscout - 2026: prefer a map built from the theater's terrain. Built once and kept
-    // -- it is the same picture for every map view -- and the painted resource is used
-    // unchanged if the terrain files cannot be read, so a missing or odd theater degrades
-    // to exactly the old behaviour rather than to a blank map.
+    // Artscout - 2026: prefer a map built from the theater's terrain. Built once per
+    // theater and kept -- it is the same picture for every map view -- and the painted
+    // resource is used unchanged if the terrain files cannot be read, so a missing or odd
+    // theater degrades to exactly the old behaviour rather than to a blank map.
     {
         extern bool g_bCampMapFromTerrain;
         extern int g_nCampMapTerrainLod;
         static IMAGE_RSC *s_terrainMap = NULL;
         static bool s_terrainMapTried = false;
+        static char s_terrainMapDir[_MAX_PATH] = "";
+
+        // "Built once" used to mean once per PROCESS, which was wrong the moment a
+        // second theater was installed: loading one swaps FalconTerrainDataDir
+        // underneath us (SetNewTheater, theaterdef.cpp) and nothing here noticed, so the
+        // campaign map went on showing the theater that happened to be opened first.
+        if (strncmp(s_terrainMapDir, FalconTerrainDataDir,
+                    sizeof(s_terrainMapDir) - 1))
+        {
+            // The old image is deliberately not freed. CreateOccupationMap hangs it off
+            // a C_Resmgr whose Cleanup also tears down the index the image is registered
+            // in, and guessing wrong about that ownership is a double free in resource
+            // code -- a poor trade for a few MB on an event that happens when a player
+            // picks a different theater. Reusing the buffer in place when the dimensions
+            // match is the tidy version, if it ever matters.
+            s_terrainMap = NULL;
+            s_terrainMapTried = false;
+            strncpy(s_terrainMapDir, FalconTerrainDataDir,
+                    sizeof(s_terrainMapDir) - 1);
+            s_terrainMapDir[sizeof(s_terrainMapDir) - 1] = 0;
+        }
 
         if (g_bCampMapFromTerrain and not s_terrainMapTried)
         {

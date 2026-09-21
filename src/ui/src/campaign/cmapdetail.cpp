@@ -75,6 +75,8 @@ BYTE *CampMapDetailOverlay();
 long *CampMapDetailRows();
 long *CampMapDetailCols();
 BYTE CampMapDetailTileAverageIndex(DWORD texID);
+void CampMapDetailAverageStats(long *hits, long *unkeyed, long *unread,
+                               long *distinctTiles);
 
 extern bool g_bCampMapDetail;
 extern int g_nCampMapDetailTiles;
@@ -198,6 +200,25 @@ long *s_setFirstTile = NULL;
 long *s_setTileCount = NULL;
 long s_numSets = 0;
 
+// Average ColorTable index per (set, tile); see CampMapDetailTileAverageIndex.
+BYTE *s_avg = NULL;          // 0 = not computed yet
+bool s_avgFailed = false;
+
+// Why a post did not get its tile's colour. Reported by CampMapDetailAverageStats, which
+// the base map build logs -- this went wrong twice in ways that looked identical on
+// screen (a theater-wide silent zero), so the counters say which it was rather than
+// leaving it to be reasoned out from a screenshot.
+long s_avgUnkeyed = 0;       // texID resolved to no (set, tile) in texture.bin
+long s_avgUnread = 0;        // named a tile whose .dds could not be read or was not DXT1
+long s_avgHits = 0;          // returned a real colour
+
+// The terrain directory everything above was read from. A theater change swaps
+// FalconTerrainDataDir under us (SetNewTheater, theaterdef.cpp) and none of these caches
+// would otherwise notice: the tile name table, the colour lookup and every decoded tile
+// belong to exactly one theater, and the (set, tile) keys collide across theaters rather
+// than missing, so the wrong ground would be drawn silently.
+char s_theaterDir[MAX_PATH] = "";
+
 bool LoadTileTable()
 {
     if (s_tileNames)
@@ -293,15 +314,79 @@ bool LoadTileTable()
 // texID layout is TextureDB's: tile in the low four bits, set in the next eight,
 // resolution above that. Only the set and tile pick the file -- the resolution selects
 // which of the H/M/L variants the sim streams, and the Korea data ships only H.
+//
+// Not every theater packs it the same way. Korea puts res at bits 12-15, so its texIDs
+// stay under 0x10000. Israel widens the set field and moves res to bits 16-19, so every
+// one of its texIDs is 0x20000 or more. Both still yield the right set through the
+// eight-bit mask TextureDB uses, because neither references a set above 255 -- a theater
+// that did would alias, in the stock engine as well as here.
+// Resolve a texID to the (set, tile) pair it names, validated against texture.bin.
+//
+// TextureDB extracts the set with EIGHT bits, and that is right for Korea. Israel
+// declares 259 sets and genuinely references set 257, so five of its texIDs fold onto
+// set 1 -- which exists, but carries fewer tiles than the index asks for, so the lookup
+// fails rather than quietly drawing set 1's ground somewhere it does not belong. (256
+// posts of 16.7 million, but the failure mode matters more than the count: on a theater
+// where the aliased set DID have enough tiles, the stock engine would draw the wrong
+// ground and say nothing.)
+//
+// Try the eight-bit reading first, so Korea -- whose twelve-bit reading is nonsense,
+// 0x2000 giving set 512 -- is unaffected, and fall back to twelve bits only when eight
+// does not validate. The data decides which encoding a theater uses, not a guess.
+inline bool ResolveTile(DWORD texID, long *setOut, long *tileOut)
+{
+    if (not s_tileNames)
+        return false;
+
+    const long tile = texID bitand 0xF;
+    const long set8 = (texID >> 4) bitand 0xFF;
+
+    if (set8 < s_numSets and tile < s_setTileCount[set8])
+    {
+        *setOut = set8;
+        *tileOut = tile;
+        return true;
+    }
+
+    const long set12 = (texID >> 4) bitand 0xFFF;
+
+    if (set12 not_eq set8 and set12 < s_numSets and
+        tile < s_setTileCount[set12])
+    {
+        *setOut = set12;
+        *tileOut = tile;
+        return true;
+    }
+
+    return false;
+}
+
 const char *TileFileName(DWORD texID)
 {
-    const long set = (texID >> 4) bitand 0xFF;
-    const long tile = texID bitand 0xF;
+    long set, tile;
 
-    if (not s_tileNames or set >= s_numSets or tile >= s_setTileCount[set])
+    if (not ResolveTile(texID, &set, &tile))
         return NULL;
 
     return s_tileNames[s_setFirstTile[set] + tile];
+}
+
+// A bounded cache key: the (set, tile) pair above, and nothing else. The raw texID is
+// not usable as an index -- its width varies by theater, as the comment on TileFileName
+// explains -- and two texIDs differing only in their resolution bits name the same file
+// anyway, so this is also the more accurate key.
+// Twelve bits of set plus four of tile. 64 KB, and it has to be the full range now that
+// a set index can exceed 255.
+#define TILE_KEY_COUNT 65536
+
+inline long TileKey(DWORD texID)
+{
+    long set, tile;
+
+    if (not ResolveTile(texID, &set, &tile))
+        return -1;
+
+    return (set << 4) bitor tile;
 }
 
 /*-------------------------------------------------------------------- DXT1 read --*/
@@ -535,6 +620,43 @@ long *s_rowCell = NULL;
 long *s_rowTexel = NULL;
 long s_axisAlloc = 0;
 
+// Drop everything that belongs to one theater. The window buffers (s_image, s_overlay,
+// the ramps) are sized from the map WINDOW, not the theater, so they stay -- but the
+// build state is invalidated so the next call refills them and rewrites the palette.
+void ReleaseTheaterCaches()
+{
+    if (s_tiles)
+    {
+        for (long i = 0; i < s_tileCount; i++)
+            delete[] s_tiles[i].pixels;
+
+        delete[] s_tiles;
+        s_tiles = NULL;
+        s_tileCount = 0;
+        s_tileClock = 0;
+    }
+
+    delete[] s_tileNames;
+    s_tileNames = NULL;
+    delete[] s_setFirstTile;
+    s_setFirstTile = NULL;
+    delete[] s_setTileCount;
+    s_setTileCount = NULL;
+    s_numSets = 0;
+
+    // The colour table is the theater's own, so the quantisation lookup built from it is
+    // as theater-specific as the tiles are.
+    delete[] s_lut;
+    s_lut = NULL;
+
+    delete[] s_avg;
+    s_avg = NULL;
+    s_avgFailed = false;
+
+    s_builtSubdiv = 0;
+    s_builtOverlayGen = 0xFFFFFFFF;
+}
+
 bool EnsureAxis(long n)
 {
     if (s_axisAlloc >= n)
@@ -670,6 +792,16 @@ bool EnsureRamps(long destW, long destH)
 bool CampMapDetailBeginGrid(long mapW, long mapH, int lod)
 {
     CampMapDetailReset();
+
+    // A new base map is being built, which is the only moment a theater change can
+    // reach us. Everything cached below is theater-specific, so drop it if the terrain
+    // directory has moved.
+    if (strncmp(s_theaterDir, FalconTerrainDataDir, sizeof(s_theaterDir) - 1))
+    {
+        ReleaseTheaterCaches();
+        strncpy(s_theaterDir, FalconTerrainDataDir, sizeof(s_theaterDir) - 1);
+        s_theaterDir[sizeof(s_theaterDir) - 1] = 0;
+    }
 
     if (not g_bCampMapDetail)
         return false;
@@ -960,38 +1092,68 @@ bool CampMapDetailBuild(const UI95_RECT *mapRect, long destW, long destH,
 \***************************************************************************/
 BYTE CampMapDetailTileAverageIndex(DWORD texID)
 {
-    static BYTE *s_avg = NULL;      // 0 = not computed yet
-    static bool s_failed = false;
-
-    if (texID > 0xFFFF or s_failed)
+    if (s_avgFailed)
+    {
+        s_avgUnread++;
         return 0;
+    }
 
+    // Load the tile table FIRST. TileKey reads it -- it returns -1 while s_tileNames is
+    // NULL -- so asking for the key before this block meant the very first call bailed
+    // out above the only code that loads the table, and every call after it did the
+    // same. Nothing was ever averaged, silently, for the whole of a map build.
     if (not s_avg)
     {
         if (not BuildColorLut() or not LoadTileTable())
         {
-            s_failed = true;
-            return 0;
+            s_avgFailed = true;
+        {
+        s_avgUnread++;
+        return 0;
+    }
         }
 
-        s_avg = new BYTE[0x10000];
+        s_avg = new BYTE[TILE_KEY_COUNT];
 
         if (not s_avg)
         {
-            s_failed = true;
-            return 0;
+            s_avgFailed = true;
+        {
+        s_avgUnread++;
+        return 0;
+    }
         }
 
-        memset(s_avg, 0, 0x10000);
+        memset(s_avg, 0, TILE_KEY_COUNT);
     }
 
-    if (s_avg[texID])
-        return s_avg[texID];
+    // Keyed by the (set, tile) pair TileFileName actually resolves, NOT by the raw
+    // texID. The raw value is not a bounded index: Korea encodes res at bits 12-15 and
+    // nothing above, so its texIDs fit in 16 bits, but Israel widens the set field and
+    // pushes res to bits 16-19, making every one of its texIDs 0x20000 or more. This
+    // used to cap at 0xFFFF and silently return 0 for an entire theater -- the sea
+    // stayed white on exactly the theaters that needed this most.
+    const long key = TileKey(texID);
+
+    if (key < 0)
+    {
+        s_avgUnkeyed++;
+        return 0;
+    }
+
+    if (s_avg[key])
+    {
+        s_avgHits++;
+        return s_avg[key];
+    }
 
     const char *name = TileFileName(texID);
 
     if (not name)
+    {
+        s_avgUnread++;
         return 0;
+    }
 
     // Average in RGB and quantise the result, rather than averaging palette indices,
     // which would be meaningless arithmetic on a lookup table.
@@ -1008,7 +1170,10 @@ BYTE CampMapDetailTileAverageIndex(DWORD texID)
     FILE *fp = fopen(fn, "rb");
 
     if (not fp)
+    {
+        s_avgUnread++;
         return 0;
+    }
 
     BYTE head[128];
 
@@ -1016,6 +1181,7 @@ BYTE CampMapDetailTileAverageIndex(DWORD texID)
         memcmp(head + 84, "DXT1", 4) not_eq 0)
     {
         fclose(fp);
+        s_avgUnread++;
         return 0;
     }
 
@@ -1025,25 +1191,41 @@ BYTE CampMapDetailTileAverageIndex(DWORD texID)
     if (w not_eq h or w < 4 or w > 2048)
     {
         fclose(fp);
+        s_avgUnread++;
         return 0;
     }
 
     // Only the two endpoint colours of each block are needed for an average this
     // coarse -- the four interpolants all lie between them -- so the index bits can
     // be skipped entirely and the whole tile costs one pass over its block headers.
+    //
+    // Read in one go rather than eight bytes at a time. A 512-square tile is 16,384
+    // blocks, and a theater references on the order of 1,500 distinct tiles, so the
+    // byte-at-a-time version was tens of millions of fread calls during the one pass
+    // that builds the map image -- a visible stall at first open for no reason.
     const long blocks = (long)(w / 4);
+    const size_t surface = (size_t)blocks * blocks * 8;
+    BYTE *raw = new BYTE[surface];
+
+    if (not raw)
+    {
+        fclose(fp);
+        s_avgUnread++;
+        return 0;
+    }
+
+    const size_t got = fread(raw, 1, surface, fp);
+    fclose(fp);
+
     double sr = 0, sg = 0, sb = 0;
     long n = 0;
-    BYTE blk[8];
 
-    for (long i = 0; i < blocks * blocks; i++)
+    for (size_t i = 0; i + 8 <= got; i += 8)
     {
-        if (fread(blk, 1, 8, fp) not_eq 8)
-            break;
-
         for (int e = 0; e < 2; e++)
         {
-            const WORD c = (WORD)(blk[e * 2] bitor (blk[e * 2 + 1] << 8));
+            const WORD c =
+                (WORD)(raw[i + e * 2] bitor (raw[i + e * 2 + 1] << 8));
             sr += (((c >> 11) bitand 0x1F) * 255 + 15) / 31;
             sg += (((c >> 5) bitand 0x3F) * 255 + 31) / 63;
             sb += ((c bitand 0x1F) * 255 + 15) / 31;
@@ -1051,10 +1233,13 @@ BYTE CampMapDetailTileAverageIndex(DWORD texID)
         }
     }
 
-    fclose(fp);
+    delete[] raw;
 
     if (not n)
+    {
+        s_avgUnread++;
         return 0;
+    }
 
     const long r = (long)(sr / n), g = (long)(sg / n), b = (long)(sb / n);
     BYTE idx = s_lut[((r >> 3) << 10) bitor ((g >> 3) << 5) bitor (b >> 3)];
@@ -1066,8 +1251,37 @@ BYTE CampMapDetailTileAverageIndex(DWORD texID)
     if (not idx)
         idx = 1;
 
-    s_avg[texID] = idx;
+    s_avg[key] = idx;
+    s_avgHits++;
     return idx;
+}
+
+// Why the base map did or did not get its colours from the ground. Two separate bugs
+// have now produced a theater-wide silent zero here, and both looked identical on
+// screen -- a map that was simply the wrong colour. Counters beat squinting at it.
+void CampMapDetailAverageStats(long *hits, long *unkeyed, long *unread,
+                               long *distinctTiles)
+{
+    if (hits)
+        *hits = s_avgHits;
+
+    if (unkeyed)
+        *unkeyed = s_avgUnkeyed;
+
+    if (unread)
+        *unread = s_avgUnread;
+
+    if (distinctTiles)
+    {
+        long n = 0;
+
+        if (s_avg)
+            for (long i = 0; i < TILE_KEY_COUNT; i++)
+                if (s_avg[i])
+                    n++;
+
+        *distinctTiles = n;
+    }
 }
 
 IMAGE_RSC *CampMapDetailImage()

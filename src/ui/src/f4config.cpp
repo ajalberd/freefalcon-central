@@ -877,6 +877,8 @@ bool g_bCampMapDetail =
     true; // Artscout - 2026: past a certain zoom, draw the visible patch of campaign map out of the GROUND TILES the sim flies over instead of magnifying the one-pixel-per-post base map. Every post names a texID, four posts across share one, and the tile behind it is 256x256 DXT1 -- 12.8 ft per pixel against the base map's 820, which is sixty-four times the linear detail and is already on disk. The tiles are quantised into the theater's own TMap::ColorTable (the same table the base map is painted with, so the cost is a mean RGB error of about 9.6 out of 441) which keeps the whole 8-bit overlay pipeline working: the Logistics layers and the FLOT line tint detail pixels exactly as they tint base ones. This is a stand-in for what gets blitted, NOT a different map -- MapRect_, the zoom clamps, FEET_PER_PIXEL and every icon position stay in whole-theater base-map pixels. Needs CampMapFromTerrain; over the painted map the indices would mean other colours. 0 = the old magnified-post behaviour. "CampMapDetail".
 int g_nCampMapDetailTiles =
     192; // Artscout - 2026: how many decoded ground tiles the detail layer keeps resident, at 64 KB each (192 = 12 MB). Tile reuse across a theater is extreme -- one tile is 49% of Korea's ground and the top two hundred cover 95% -- so a pool this size almost never evicts something about to be asked for again. Raise it if panning around a busy area stutters; lower it to save memory.
+bool g_bCampMapTileColors =
+    true; // Artscout - 2026: colour each pixel of the campaign map from the GROUND TILE that post sits on, instead of from the post's colour byte. That byte exists for untextured far terrain and describes a theater badly: over water it is not populated at all (0 on 99.9% of sea posts, and ColorTable[0] is pure white, so half of Korea was a flat white field), and over land it is no better -- Israel's desert carries bytes that land on the temperate colour table's greens, so the Negev and the Sinai came out grass-coloured. Averaging the tile puts the base map in exactly the colour the detail layer resolves to for the same ground, so nothing changes hue as you zoom across the detail threshold. Costs one pass over each referenced tile's block headers when the map is first built (about 1,500 tiles for Israel). 0 = paint the post colour byte, as before. "CampMapTileColors".
 bool g_bLogCampMapDetail =
     false; // Artscout - 2026: log one line per campaign map detail rebuild to FFDebug.log -- the source and destination rects, the subdivision chosen, the resulting feet per pixel, and how many tiles failed to load. tileMisses above zero means tiles are missing or are not DXT1, and those cells fall back to flat colour. "LogCampMapDetail".
 bool g_bLogJfs =
@@ -1682,6 +1684,8 @@ static ConfigOption<bool> BoolOpts[] = {
     {"CampMapFlipEW", &g_bCampMapFlipEW}, // Artscout - 2026: mirror it east-west
     {"CampMapDetail",
      &g_bCampMapDetail}, // Artscout - 2026: zoomed-in map drawn from the ground tiles, not magnified posts
+    {"CampMapTileColors",
+     &g_bCampMapTileColors}, // Artscout - 2026: base map coloured from the tiles, not the post colour byte
     {"LogCampMapDetail",
      &g_bLogCampMapDetail}, // Artscout - 2026: trace each detail rebuild to FFDebug.log
     {"LogJfs",
