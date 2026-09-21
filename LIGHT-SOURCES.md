@@ -185,6 +185,16 @@ search for is **`crgb == 0` with a bright emissive**. `--tree <lod> --switch N` 
 under one switch, but note it walks *DOF subtrees* only: a surface can also be gated by its own
 `SwitchNumber` field without living under a switch DOF.
 
+**Model surgery, as a diagnostic.** `tools/models/lodlens.py` writes lamp lens fans into a LOD of
+`KoreaObj.DXL` — append-only, the original record untouched, a JSON log beside the `.DXH`, a
+`--revert` that is one 8-byte write, and a `.DXH` backup. Use it to answer *"would geometry here fix
+this?"* in minutes before committing to engine work; `--dry-run` builds and verifies the record
+without writing. It is **not** a way to ship a fix: a patch needs both the repointed `.DXH` (2.1 MB,
+shippable) and an appended record inside the 219 MB `.DXL`, nobody has built that append-and-repoint
+step for the installer, and it would be Korea-specific and fragile against any modified object
+database. Anything fixed this way lives on one machine. Revert with
+`python tools/models/lodlens.py <basename> --lod <n> --revert`.
+
 **RenderDoc** (1.46, no standalone Python module — `qrenderdoc.exe --python <script.py>` runs one
 and the full replay API is available). Four traps, each of which cost a round here:
 
@@ -210,13 +220,11 @@ Captures under `C:\FreeFalcon6\rdoc_captures\`: `graybox.rdc` (the one that solv
 
 - **"The real fix is art."** It is not. The lens geometry is in the LODs; the engine was discarding
   it. Read a surface's vertex COLOR2 *and its diffuse* before concluding a model has no source.
-- **Authoring lenses into the model.** `tools/models/lodlens.py` writes lamp fans into a LOD of
-  `KoreaObj.DXL` (append-only, original record untouched, JSON log, `--revert`, `.DXH` backup). It
-  was used, then reverted: it supplied something the model already had, its opaque `--panel` cover
-  quads were a regression visible in daylight, and a `.DXL` patch lives in one install only —
-  219 MB of theater data that is not in the repo and cannot ship through the installer. Keep the
-  tool for genuine art gaps; revert with
-  `python tools/models/lodlens.py <basename> --lod <n> --revert`.
+- **Reaching for art before the engine is ruled out.** Lens geometry was authored into LOD 2719 to
+  give the wingtips a source they already had; the bug was `FF_TEXTURE0`. The tool itself is fine
+  (see above) — the mistake was using it as a *fix* while the symptom was still unexplained. Its
+  `--panel` cover quads, added to hide the grey box, were a straight regression: opaque `0xFF383838`
+  slabs on both wingtip faces, visible in daylight, and they did not hide it.
 - **Tuning the light sprites.** Three rounds of profile/size/nudge work all chased a black *housing*
   that was really a black *lens*. A pixel history proved the sprite drew and passed at the black
   pixels, which should have been the clue that the black came from a later, opaque draw.
