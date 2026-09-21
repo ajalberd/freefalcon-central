@@ -408,6 +408,8 @@ belong to.
   icon art, the terrain imagery and the trigger scripts offline, and writes
   the editable ones back.
   `ffcamp/terrain.py` is the one module that needs numpy; it renders the same
-  ground tiles `tools/terrain/tilesurvey.py` surveys. Use it rather than writing a fourth parser,
-  and run its `selftest.py` after touching any layout -- 1582 checks on a stock
-  install, all of them byte-equality against the shipped data.
+  ground tiles `tools/terrain/tilesurvey.py` surveys, threaded, with a
+  background decode pass so the first pan is not the slow one. Use it rather
+  than writing a fourth parser, and run its `selftest.py` after touching any
+  layout -- well over a thousand checks on a stock install, all of them
+  byte-equality against the shipped data.

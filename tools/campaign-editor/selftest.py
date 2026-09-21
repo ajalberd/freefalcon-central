@@ -14,6 +14,7 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -399,6 +400,43 @@ def test_terrain(gamedir):
 
     check(t.render(0, 1, 0) is None, "out-of-range tile was not rejected")
     check(t.render(3, 99, 0) is None, "out-of-range tile was not rejected")
+
+    # The server answers tile requests on several threads at once, so the same
+    # tile must come out byte for byte the same whichever thread asks for it,
+    # and concurrent misses must not corrupt the shared caches. The baseline
+    # comes from a second instance, leaving the tiles cold on `t`.
+    want = {}
+    probe = terrain.Terrain(root)
+    for z in (5, 6, 9):
+        span = 1 << z
+        want[(z, span // 3, span // 4)] = probe.render_png(z, span // 3, span // 4)
+    del probe
+
+    got, errs = {}, []
+    lock = threading.Lock()
+
+    def work():
+        for key in sorted(want):
+            try:
+                blob = t.render_png(*key)
+            except Exception as exc:               # noqa: BLE001
+                with lock:
+                    errs.append(repr(exc))
+            else:
+                with lock:
+                    got[key] = blob
+
+    threads = [threading.Thread(target=work) for _ in range(8)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    check(not errs, "concurrent terrain render failed: %s" % errs[:2])
+    mismatched = [k for k, v in got.items() if v != want.get(k)]
+    check(not mismatched,
+          "concurrent render changed tiles: %s" % mismatched[:4])
+    print("  ok    8 threads, %d tiles rendered identically"
+          % (len(want) * 8))
 
 
 def test_triggers(campaign_dir, campaign_file, class_rows, db, nametab):

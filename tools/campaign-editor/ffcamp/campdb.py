@@ -11,6 +11,7 @@ edit to one weapon rewrites FALCON4.WCD and nothing else.
 
 import os
 import struct
+import threading
 
 from . import records
 
@@ -112,6 +113,10 @@ class CampaignDB:
         self.dir = dirpath
         self._tables = {}
         self._missing = set()
+        # The server is threaded: two requests (map, table view) can touch a
+        # table for the first time at once, and both must get the same object
+        # or an edit made on one would never be seen by the other.
+        self._lock = threading.Lock()
 
     def path_for(self, spec):
         return _find(self.dir, spec.ext) or os.path.join(
@@ -119,18 +124,19 @@ class CampaignDB:
 
     def table(self, name):
         """Load a table on first use. Returns None if the file is absent."""
-        if name in self._tables:
-            return self._tables[name]
-        if name in self._missing:
-            return None
-        spec = records.BY_NAME[name]
-        path = _find(self.dir, spec.ext)
-        if path is None:
-            self._missing.add(name)
-            return None
-        tbl = Table.load(spec, path)
-        self._tables[name] = tbl
-        return tbl
+        with self._lock:
+            if name in self._tables:
+                return self._tables[name]
+            if name in self._missing:
+                return None
+            spec = records.BY_NAME[name]
+            path = _find(self.dir, spec.ext)
+            if path is None:
+                self._missing.add(name)
+                return None
+            tbl = Table.load(spec, path)
+            self._tables[name] = tbl
+            return tbl
 
     def present(self):
         """Table names whose file exists on disk, in UI order."""
@@ -141,8 +147,10 @@ class CampaignDB:
         return out
 
     def save_dirty(self):
+        with self._lock:
+            pending = list(self._tables.items())
         saved = []
-        for name, tbl in self._tables.items():
+        for name, tbl in pending:
             if tbl.dirty:
                 tbl.save()
                 saved.append(os.path.basename(tbl.path))

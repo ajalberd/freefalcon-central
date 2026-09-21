@@ -20,7 +20,7 @@ import posixpath
 import sys
 import threading
 import webbrowser
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1122,6 +1122,9 @@ ROUTES_POST = {
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "FFCampaignEditor/1.0"
+    # Keep-alive, so a screenful of tiles reuses one connection; every
+    # response here sets Content-Length, which 1.1 requires.
+    protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
         if "--verbose" in sys.argv:
@@ -1158,6 +1161,9 @@ class Handler(BaseHTTPRequestHandler):
         t = ws.terrain()
         if not t:
             return self._send_json({"error": "no terrain for this theater"}, 404)
+        # First tile of the session: start decoding the texture library in the
+        # background so later pans are cache hits.
+        t.warm()
         try:
             z = int((query.get("z") or ["0"])[0])
             x = int((query.get("x") or ["0"])[0])
@@ -1282,7 +1288,10 @@ def main():
         print("Warning: no %s under %s -- set the game directory in the UI."
               % (theater.THEATER_LIST, SESSION.gamedir))
 
-    server = HTTPServer(("127.0.0.1", args.port), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    # Tile requests render concurrently; keep-alive connections hold a thread
+    # each, so do not let them delay interpreter exit either way.
+    server.daemon_threads = True
     print("FreeFalcon campaign editor")
     print("  game directory : %s" % SESSION.gamedir)
     print("  listening on   : %s" % url)

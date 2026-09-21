@@ -48,6 +48,13 @@ Two base layers, switched in the toolbar:
   the ground the sim flies over, which is what you want when placing units.
 - **Kneeboard** — the campaign's own `Kneemap.gif`, the flat 1024x1024 picture.
 
+Serving those tiles is the one place numpy is needed. Opening the map starts a
+one-time parallel decode of the ~1500 ground textures the theater uses; after
+that a tile is a cache lookup and a PNG encode, a millisecond or two, and the
+browser caches what it fetched on top. The tile endpoints are served by a
+threaded server, so a screenful of tiles renders on several cores at once
+instead of queueing behind one another.
+
 And on top of either, the airbase **TACAN** overlay: the station name and its
 channel, drawn the way the game draws it.
 

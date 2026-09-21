@@ -8,6 +8,7 @@ and a bad write is a reinstall.
 
 import os
 import shutil
+import threading
 import time
 
 from . import (campdb, campfile, camptext, entities, names, objectives,
@@ -54,6 +55,9 @@ class TheaterWorkspace:
         self.campaign_dir = self.tdf.campaign_dir(gamedir)
         self.db = campdb.CampaignDB(theater.db_dir(gamedir, self.tdf))
         self._camps = {}
+        # The HTTP server answers on several threads at once, so the lazy
+        # caches below (and the edit buffers they hold) get one lock.
+        self._lock = threading.RLock()
 
     # -- campaign files -------------------------------------------------------
 
@@ -75,20 +79,21 @@ class TheaterWorkspace:
         return out
 
     def campaign(self, name):
-        if name not in self._camps:
-            path = os.path.join(self.campaign_dir, name)
-            if not os.path.isfile(path):
-                raise ValueError("no such campaign file: %s" % name)
-            cam = campfile.CampaignFile.load(path)
-            cam.units = None
-            cam.units_raw = b""
-            cam.units_error = ""
-            cam.objectives = None
-            cam.objectives_raw = b""
-            cam.objectives_error = ""
-            cam.objectives_from = name
-            self._camps[name] = cam
-        return self._camps[name]
+        with self._lock:
+            if name not in self._camps:
+                path = os.path.join(self.campaign_dir, name)
+                if not os.path.isfile(path):
+                    raise ValueError("no such campaign file: %s" % name)
+                cam = campfile.CampaignFile.load(path)
+                cam.units = None
+                cam.units_raw = b""
+                cam.units_error = ""
+                cam.objectives = None
+                cam.objectives_raw = b""
+                cam.objectives_error = ""
+                cam.objectives_from = name
+                self._camps[name] = cam
+            return self._camps[name]
 
     def _stream_error(self, exc):
         """Explain a decode failure when there is no CampaignDB at all.
@@ -105,19 +110,20 @@ class TheaterWorkspace:
 
     def units(self, name):
         """Decode the unit list on first use, and remember any desync."""
-        cam = self.campaign(name)
-        if cam.units is None and not cam.units_error:
-            section = cam.member("uni")
-            if section is None:
-                cam.units, cam.units_raw = [], b""
-            else:
-                try:
-                    cam.units, cam.units_raw = entities.decode_units(
-                        section, cam.version, self.db.class_rows())
-                except Exception as exc:
+        with self._lock:
+            cam = self.campaign(name)
+            if cam.units is None and not cam.units_error:
+                section = cam.member("uni")
+                if section is None:
                     cam.units, cam.units_raw = [], b""
-                    cam.units_error = self._stream_error(exc)
-        return cam
+                else:
+                    try:
+                        cam.units, cam.units_raw = entities.decode_units(
+                            section, cam.version, self.db.class_rows())
+                    except Exception as exc:
+                        cam.units, cam.units_raw = [], b""
+                        cam.units_error = self._stream_error(exc)
+            return cam
 
     def objectives(self, name):
         """Decode the objective list, falling back to the base scenario.
@@ -127,38 +133,39 @@ class TheaterWorkspace:
         The header names that scenario, so borrow its objective list rather
         than showing an empty map.
         """
-        cam = self.campaign(name)
-        if cam.objectives is not None or cam.objectives_error:
-            return cam
+        with self._lock:
+            cam = self.campaign(name)
+            if cam.objectives is not None or cam.objectives_error:
+                return cam
 
-        section = cam.member("obj")
-        source = name
-        if section is None and cam.header is not None:
-            base = (cam.header.fields.get("Scenario") or "").strip()
-            if base:
-                candidate = base
-                if not candidate.lower().endswith((".cam", ".tac")):
-                    candidate += ".cam"
-                path = os.path.join(self.campaign_dir, candidate)
-                if os.path.isfile(path) and candidate.lower() != name.lower():
-                    try:
-                        other = self.campaign(candidate)
-                        section = other.member("obj")
-                        source = candidate
-                    except ValueError:
-                        section = None
+            section = cam.member("obj")
+            source = name
+            if section is None and cam.header is not None:
+                base = (cam.header.fields.get("Scenario") or "").strip()
+                if base:
+                    candidate = base
+                    if not candidate.lower().endswith((".cam", ".tac")):
+                        candidate += ".cam"
+                    path = os.path.join(self.campaign_dir, candidate)
+                    if os.path.isfile(path) and candidate.lower() != name.lower():
+                        try:
+                            other = self.campaign(candidate)
+                            section = other.member("obj")
+                            source = candidate
+                        except ValueError:
+                            section = None
 
-        cam.objectives_from = source
-        if section is None:
-            cam.objectives, cam.objectives_raw = [], b""
+            cam.objectives_from = source
+            if section is None:
+                cam.objectives, cam.objectives_raw = [], b""
+                return cam
+            try:
+                cam.objectives, cam.objectives_raw = objectives.decode_objectives(
+                    section, cam.version, self.db.class_rows())
+            except Exception as exc:
+                cam.objectives, cam.objectives_raw = [], b""
+                cam.objectives_error = self._stream_error(exc)
             return cam
-        try:
-            cam.objectives, cam.objectives_raw = objectives.decode_objectives(
-                section, cam.version, self.db.class_rows())
-        except Exception as exc:
-            cam.objectives, cam.objectives_raw = [], b""
-            cam.objectives_error = self._stream_error(exc)
-        return cam
 
     def name_table(self):
         if not hasattr(self, "_names"):
@@ -167,19 +174,20 @@ class TheaterWorkspace:
 
     def script(self, campaign_file):
         """The .tri that decides how this campaign ends, open for editing."""
-        if not hasattr(self, "_scripts"):
-            self._scripts = {}
-        key = campaign_file.lower()
-        if key not in self._scripts:
-            path = triggers.script_path(self.campaign_dir, campaign_file)
-            if not path:
-                self._scripts[key] = None
-            else:
-                try:
-                    self._scripts[key] = triggers.Script(path)
-                except OSError:
+        with self._lock:
+            if not hasattr(self, "_scripts"):
+                self._scripts = {}
+            key = campaign_file.lower()
+            if key not in self._scripts:
+                path = triggers.script_path(self.campaign_dir, campaign_file)
+                if not path:
                     self._scripts[key] = None
-        return self._scripts[key]
+                else:
+                    try:
+                        self._scripts[key] = triggers.Script(path)
+                    except OSError:
+                        self._scripts[key] = None
+            return self._scripts[key]
 
     def triggers(self, campaign_file):
         """Back-compat shape: ((init, body, total), path)."""
@@ -190,13 +198,14 @@ class TheaterWorkspace:
 
     def campaign_text(self):
         """The theater's campaign-selection text, open for editing."""
-        if not hasattr(self, "_text"):
-            path = camptext.locate(self.gamedir, self.tdf.get("artdir"))
-            try:
-                self._text = camptext.TextFile(path) if path else None
-            except OSError:
-                self._text = None
-        return self._text
+        with self._lock:
+            if not hasattr(self, "_text"):
+                path = camptext.locate(self.gamedir, self.tdf.get("artdir"))
+                try:
+                    self._text = camptext.TextFile(path) if path else None
+                except OSError:
+                    self._text = None
+            return self._text
 
     def tacan(self):
         """Airbase TACAN stations, keyed by the objective's campaign id."""
@@ -211,19 +220,20 @@ class TheaterWorkspace:
         theaters usually resolve to the same directory -- and to the same
         cached overview.
         """
-        if hasattr(self, "_terrain"):
+        with self._lock:
+            if hasattr(self, "_terrain"):
+                return self._terrain
+            self._terrain = None
+            rel = self.tdf.get("terraindir")
+            if rel and terrain.available():
+                path = os.path.join(
+                    self.gamedir, *rel.replace("\\", "/").split("/"))
+                if os.path.isdir(path):
+                    try:
+                        self._terrain = terrain.Terrain(path)
+                    except Exception:
+                        self._terrain = None
             return self._terrain
-        self._terrain = None
-        rel = self.tdf.get("terraindir")
-        if rel and terrain.available():
-            path = os.path.join(
-                self.gamedir, *rel.replace("\\", "/").split("/"))
-            if os.path.isdir(path):
-                try:
-                    self._terrain = terrain.Terrain(path)
-                except Exception:
-                    self._terrain = None
-        return self._terrain
 
     def ui_art(self):
         """The game's UI art, for the campaign map's own icon set.
@@ -232,17 +242,18 @@ class TheaterWorkspace:
         .tdf), so look there before the game root -- that is the same order
         the engine's resource manager searches.
         """
-        if not hasattr(self, "_uiart"):
-            roots = []
-            art = self.tdf.get("artdir")
-            if art:
-                roots.append(os.path.join(
-                    self.gamedir, *art.replace("\\", "/").split("/")))
-            try:
-                self._uiart = uiart.UiArt(self.gamedir, roots)
-            except Exception:
-                self._uiart = None
-        return self._uiart
+        with self._lock:
+            if not hasattr(self, "_uiart"):
+                roots = []
+                art = self.tdf.get("artdir")
+                if art:
+                    roots.append(os.path.join(
+                        self.gamedir, *art.replace("\\", "/").split("/")))
+                try:
+                    self._uiart = uiart.UiArt(self.gamedir, roots)
+                except Exception:
+                    self._uiart = None
+            return self._uiart
 
     def icon_atlas(self, colour):
         """One team colour's icons -- ground set and air set in one sheet.
@@ -251,44 +262,46 @@ class TheaterWorkspace:
         silhouettes live in the directional `<colour>air_*` sets, and the two
         never share a name, so a single atlas can serve both.
         """
-        if not hasattr(self, "_atlases"):
-            self._atlases = {}
-        if colour in self._atlases:
-            return self._atlases[colour]
-
-        art = self.ui_art()
-        if not art:
-            self._atlases[colour] = None
-            return None
-
-        ground = art.icon_set(colour)
-        if not ground:
-            self._atlases[colour] = None
-            return None
-
-        merged = uiart.IconSet.__new__(uiart.IconSet)
-        merged.base = ground.base
-        merged.icons = dict(ground.icons)
-        merged._data = ground._data
-
-        air_name = {"white": "WHITE", "green": "GREEN", "blue": "BLUE",
-                    "brown": "BROWN", "orange": "ORANGE", "yellow": "YELLOW",
-                    "red": "RED", "grey": "GREY"}.get(colour)
-        rel = art.resources.get("%s_AIR_NORTH" % air_name) if air_name else None
-        base = art._resolve(rel) if rel else None
-        if base:
-            try:
-                air = uiart.IconSet(base)
-            except Exception:
-                air = None
-            if air:
-                # Two sets, two data buffers: pack the air icons separately and
-                # merge the frames, rather than pretending one buffer holds both.
-                self._atlases[colour] = _merge_atlas(ground, air)
+        with self._lock:
+            if not hasattr(self, "_atlases"):
+                self._atlases = {}
+            if colour in self._atlases:
                 return self._atlases[colour]
 
-        self._atlases[colour] = uiart.IconAtlas(ground)
-        return self._atlases[colour]
+            art = self.ui_art()
+            if not art:
+                self._atlases[colour] = None
+                return None
+
+            ground = art.icon_set(colour)
+            if not ground:
+                self._atlases[colour] = None
+                return None
+
+            merged = uiart.IconSet.__new__(uiart.IconSet)
+            merged.base = ground.base
+            merged.icons = dict(ground.icons)
+            merged._data = ground._data
+
+            air_name = {"white": "WHITE", "green": "GREEN", "blue": "BLUE",
+                        "brown": "BROWN", "orange": "ORANGE", "yellow": "YELLOW",
+                        "red": "RED", "grey": "GREY"}.get(colour)
+            rel = art.resources.get("%s_AIR_NORTH" % air_name) if air_name else None
+            base = art._resolve(rel) if rel else None
+            if base:
+                try:
+                    air = uiart.IconSet(base)
+                except Exception:
+                    air = None
+                if air:
+                    # Two sets, two data buffers: pack the air icons separately
+                    # and merge the frames, rather than pretending one buffer
+                    # holds both.
+                    self._atlases[colour] = _merge_atlas(ground, air)
+                    return self._atlases[colour]
+
+            self._atlases[colour] = uiart.IconAtlas(ground)
+            return self._atlases[colour]
 
     def map_image(self):
         """The kneeboard map for this campaign, used as the map background."""
@@ -316,7 +329,7 @@ class TheaterWorkspace:
         if text and text.dirty:
             out.append({"kind": "text", "name": "campaign text",
                         "file": os.path.basename(text.path)})
-        for tname, tbl in self.db._tables.items():
+        for tname, tbl in list(self.db._tables.items()):
             if tbl.dirty:
                 out.append({"kind": "table", "name": tname,
                             "file": os.path.basename(tbl.path)})
@@ -370,6 +383,10 @@ class Session:
         self.gamedir = os.path.abspath(gamedir)
         self.backup = Backup()
         self._theaters = {}
+        # Requests arrive on several threads: one thread per tile means the
+        # workspaces below must be created and iterated under a lock, or two
+        # requests can end up editing two copies of the same workspace.
+        self._lock = threading.Lock()
 
     def theaters(self):
         return [t.as_dict(self.gamedir)
@@ -377,19 +394,23 @@ class Session:
 
     def workspace(self, tdf_rel):
         key = tdf_rel.replace("/", "\\").lower()
-        if key not in self._theaters:
-            self._theaters[key] = TheaterWorkspace(self.gamedir, tdf_rel)
-        return self._theaters[key]
+        with self._lock:
+            if key not in self._theaters:
+                self._theaters[key] = TheaterWorkspace(self.gamedir, tdf_rel)
+            return self._theaters[key]
 
     def forget(self, tdf_rel=None):
-        if tdf_rel is None:
-            self._theaters.clear()
-        else:
-            self._theaters.pop(tdf_rel.replace("/", "\\").lower(), None)
+        with self._lock:
+            if tdf_rel is None:
+                self._theaters.clear()
+            else:
+                self._theaters.pop(tdf_rel.replace("/", "\\").lower(), None)
 
     def pending(self):
+        with self._lock:
+            workspaces = list(self._theaters.values())
         out = []
-        for key, ws in self._theaters.items():
+        for ws in workspaces:
             for item in ws.pending():
                 item = dict(item)
                 item["theater"] = ws.tdf.name
@@ -398,8 +419,10 @@ class Session:
         return out
 
     def save_all(self):
+        with self._lock:
+            workspaces = list(self._theaters.values())
         written = []
-        for ws in self._theaters.values():
+        for ws in workspaces:
             written.extend(ws.save(self.backup))
         return {"written": written, "backups": [
             os.path.relpath(p, self.gamedir) for p in self.backup.folders()]}
