@@ -29,6 +29,9 @@ here.**
 - `COCKPIT-OVERHAUL.md` — the cockpit displays use a **three-size GIF+`.rct` bitmap font
   set**, separate from the `.bft` menu fonts, and `g_rttFontScale` magnifies glyph geometry
   without touching UVs — the source bitmap is a hard ceiling on sharpness.
+- `CAMPAIGN-MAP-PALETTE.md` — **Israel ships Korea's colour table byte-identical**, so its
+  desert quantises into a temperate palette and the map reads washed pale green.
+  `TMap::ColorTable` cannot be assumed to describe the ground; the tiles can.
 
 ---
 
@@ -198,6 +201,20 @@ Measured against the shipped Korea data with `tilesurvey.py`. Re-run it for any 
   `SetupMap` — the floor never bites. Max zoom 8.6 nm.
 - Tile reuse is extreme: 1,071 distinct tiles theater-wide, one of them 49.4% of the ground,
   top 200 = 95.2%. A small decoded-tile cache goes a long way.
+
+**Other theaters are not Korea.** Both of these had already bitten by the time Israel was
+installed, and both are in `CAMPAIGN-MAP-PALETTE.md` in full:
+
+- **texID width varies.** Korea puts res at bits 12–15 and nothing above, so its texIDs fit
+  in 16 bits. Israel widens the set field and moves res to bits 16–19, so every one of its
+  texIDs is `0x20000` or more. Never treat a texID as a bounded index — key on the
+  `(set, tile)` pair. `TextureDB::ExtractSet` is `(texID >> 4) & 0xFF`, eight bits; Israel
+  declares 259 sets but references only up to 248, so it works by luck. A theater
+  referencing set ≥ 256 would alias, in the stock engine as much as anywhere.
+- **`ColorTable` need not belong to the theater.** Israel's is **byte-identical to Korea's**,
+  all 256 entries — a 2002 `.map` against 2011 terrain.
+- Theater-derived caches are keyed to `FalconTerrainDataDir` and dropped when it moves.
+  Before that, loading a second theater in one session kept showing the first one's map.
 
 ### The 3D pit object
 
