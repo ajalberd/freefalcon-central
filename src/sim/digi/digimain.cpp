@@ -33,6 +33,9 @@ extern MEM_POOL gReadInMemPool;
 extern float g_fAGSlowMoverSpeed; // Cobra
 extern bool g_bwoeir; // FRB
 
+#include <ctype.h>
+#include "graphics/include/fflog.h"
+
 #define MANEUVER_DATA_FILE "sim/acdata/brain/mnvrdata.dat"
 DigitalBrain::ManeuverChoiceTable
     DigitalBrain::maneuverData[DigitalBrain::NumMnvrClasses]
@@ -905,7 +908,24 @@ void DigitalBrain::ReadManeuverData(void)
     }
     // Allow binary, but otherwise throw a warning
     else if (fileType not_eq 'B')
+    {
+        // Artscout - 2026: this is not a cosmetic warning. Nothing below fills
+        // maneuverData, so the AI's whole dogfight decision table is whatever
+        // was left in it -- and ShiWarning is silent in Release, so the first
+        // sign of a rejected file was a crash in WvrEngage. Zero the table so a
+        // rejected file means "no maneuvers" rather than "the previous
+        // theater's counts over freed arrays", and say which byte was wrong.
+        FreeManeuverData();
+
+        char why[160];
+        sprintf(why,
+                "mnvrdata.dat rejected: first byte is 0x%02x ('%c'), expected "
+                "'#' or 'B'. The AI has no maneuver data for this theater.\n",
+                (unsigned char)fileType,
+                isprint((unsigned char)fileType) ? fileType : '?');
+        FFDebugLog(why);
         ShiWarning("Bad Maneuver Data File Format");
+    }
 
     mnvrFile->Close();
     delete mnvrFile;
@@ -920,12 +940,26 @@ void DigitalBrain::FreeManeuverData(void)
     {
         for (j = 0; j < DigitalBrain::NumMnvrClasses; j++)
         {
-            delete maneuverData[i][j].intercept;
-            delete maneuverData[i][j].merge;
-            delete maneuverData[i][j].spikeReact;
+            // Artscout - 2026: these are all `new T[n]`, so they need
+            // `delete[]`. Scalar delete on an array new is undefined, and it
+            // only ever seemed to work because every element type here is POD.
+            delete[] maneuverData[i][j].intercept;
+            delete[] maneuverData[i][j].merge;
+            delete[] maneuverData[i][j].spikeReact;
             maneuverData[i][j].intercept = NULL;
             maneuverData[i][j].merge = NULL;
             maneuverData[i][j].spikeReact = NULL;
+            // Artscout - 2026: the counts have to go with the pointers. Every
+            // reader gates on the count and then indexes the array with no null
+            // check -- WvrEngage's `if (numChoices) ... merge[myChoice]` is the
+            // pattern -- so a count that outlives its array is a guaranteed
+            // null dereference. Not hypothetical: on a theater switch
+            // ReadManeuverData silently declines to refill these when the new
+            // theater's mnvrdata.dat does not begin with '#', and the previous
+            // theater's counts then walk off a NULL. See THEATER-INSTALLS.md.
+            maneuverData[i][j].numIntercepts = 0;
+            maneuverData[i][j].numMerges = 0;
+            maneuverData[i][j].numReacts = 0;
         }
     }
 }
