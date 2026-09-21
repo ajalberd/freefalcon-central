@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreeFalcon Campaign Editor</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"></span>
+    <h1>Campaign Editor</h1>
+  </div>
+  <div class="topbar-actions">
+    <span id="pending" class="pill pill-quiet">no changes</span>
+    <button id="btn-discard" class="btn btn-ghost" disabled>Discard</button>
+    <button id="btn-save" class="btn btn-primary" disabled>Save to disk</button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <nav class="rail">
+    <div class="rail-head">
+      <h2>Theaters</h2>
+      <button id="btn-new-theater" class="btn btn-ghost btn-sm"
+              title="Create a new theater from an existing one">New</button>
+    </div>
+    <ul id="theater-list" class="theater-list"></ul>
+    <div class="rail-foot">
+      <label class="field">
+        <span>Game directory</span>
+        <input id="gamedir-input" type="text" spellcheck="false">
+      </label>
+      <p id="gamedir-note" class="note warn" hidden>No theater.lst in this folder.</p>
+      <button id="btn-gamedir" class="btn btn-ghost btn-sm">Use this folder</button>
+    </div>
+  </nav>
+
+  <main class="main">
+    <div id="filebar" class="filebar" hidden></div>
+    <div id="tabs" class="tabs" hidden></div>
+    <div id="view" class="view">
+      <div class="empty">
+        <h2>Pick a theater to begin</h2>
+        <p>Then open one of its campaign files. Every tab after that edits that
+           file; the Database tab edits the theater&rsquo;s shared tables.</p>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-card">
+    <h2 id="modal-title">New theater</h2>
+    <div id="modal-body"></div>
+    <div class="modal-actions">
+      <button id="modal-cancel" class="btn btn-ghost">Cancel</button>
+      <button id="modal-ok" class="btn btn-primary">Create</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<script src="map.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
