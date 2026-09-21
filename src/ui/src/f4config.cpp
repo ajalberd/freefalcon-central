@@ -420,6 +420,9 @@ bool g_bwoeir = false;
 // fourth size). -1 follows the 2D board. Glyphs scale with g_rttSS like everything else in the RTT pass,
 // so this changes apparent SIZE, not sharpness -- the source bitmap is the resolution ceiling.
 int g_nKnee3DFont = 2;
+// Artscout - 2026 (NAVAIDS page): -1 picks the largest of the three sizes whose
+// row still fits the page, which is what you want; 0/1/2 force one.
+int g_nKneeNavaidFont = -1;
 int g_nPadlockBoxSize = 2;
 int g_nDeagTimer = 0;
 int g_nReagTimer = 0;
@@ -805,12 +808,20 @@ float g_fPitFillScale =
     1.0f; // Artscout - 2026: scale on the 3D pit's flood/instrument fill (CockpitManager::GetCockpitFill). 1.0 = the same values the 2D pit art is tinted by; raise for a stronger knob effect, 0 to disable the fill and judge the model's own lamps alone.
 float g_fPitFillReach =
     10.0f; // Artscout - 2026: how far the pit fill reaches, in MODEL units, from the pilot's eye (the pit is drawn camera-relative, so that is the fill's distance). The fill is a lamp at the eye, not an ambient: too far and it lights the nose/wings the pit LOD carries for the view out of the canopy ("the cockpit lights light the whole plane"), too near and the panel misses it. The F-16 pit is ~22 units long with the panel a few units ahead.
+bool g_bObjEmissiveAll =
+    true; // Artscout - 2026: take the EMISSIVE material from the vertex COLOR2 (dwSpecular) on EVERY object surface, as D3D7 did (EMISSIVEMATERIALSOURCE = D3DMCS_COLOR2 for the whole object pass; only a SwEmissive surface whose switch is OFF fell back to D3DMCS_MATERIAL = no glow). The port had it inverted -- emissive ONLY on SwEmissive surfaces -- and the models put their lamp LENSES on plain surfaces: the F-16CJ's intake nav lamps are one untextured Alpha fan (node 55576) whose vertices are black diffuse + 0xFFFF0000/0xFF00FF00 emissive, fading to alpha 0 at the rim. With the emissive dropped that fan drew as an OPAQUE BLACK star in the middle of its own red glow -- the "black sprite"/"grey box" at the lights. The landing-light beam cone and the afterburner plume cones are authored the same way. 0 = the port's behaviour (emissive only on SwEmissive surfaces).
+bool g_bPitEmissive =
+    false; // Artscout - 2026: also apply the D3D7 blanket COLOR2 emissive to 3D COCKPIT surfaces. Off, because the pit's COLOR2 is not the same thing as the world's. On the external F-16 a bright COLOR2 always comes with a BLACK diffuse -- the lamp lens has nowhere else to keep its colour. The pit's main tub (LOD 4105 node@120) carries COLOR2 on nearly every vertex and only its 915 brightest are black-diffuse lamps (the caution panel and its red warnings); the 1345 just below them -- 0x9A9E9E, 0x7F7F7F, 0x656565, spread over the whole tub -- are painted structure carrying BAKED SHADING. Adding that unmodulated lights the cockpit with every lamp switched off. 1 = treat the pit like the world (the lit legends glow, and so does the structure).
 bool g_bLightSprites =
-    true; // Artscout - 2026: draw a small additive glow at every active dynamic light's position, so the lamp SOURCES are visible. The models carry no emissive geometry at most lamp positions (the F-16CJ's wingtip nav lights and intake strips are plain grey / very dim surfaces; the 3D pit model has none at all), so a working light node had no visible source -- a grey box outside, a black dot inside, with only the light's spill on the skin. 0 = no sprites (the old look).
+    false; // Artscout - 2026: draw a small additive glow at every active dynamic light's position, a SYNTHETIC lamp source for lights whose model carries no lens geometry (the F-16CJ's wingtip nav lights are a 1-pixel POINTLIST and nothing else). Off by default: with ObjEmissiveAll the models' own lens geometry is back, and a sprite on top of it double-lights the lamp. 1 = sprites on.
 float g_fLightSpriteSize =
     1.0f; // Artscout - 2026: light-sprite size multiplier. The sprite is 0.35 x the light's authored range x this, clamped to 0.15..4 world units. 0.5 = small bright points, 2.0 = big soft glows.
 float g_fLightSpriteGain =
     1.0f; // Artscout - 2026: light-sprite brightness multiplier on the light's diffuse colour (additive). Raise if the lamps should read brighter than their light does.
+float g_fLightAmbient =
+    1.0f; // Artscout - 2026: scale on each dynamic light's own AMBIENT term (D3DLIGHT7::dcvAmbient). D3D7 lit a vertex with matEmissive + matAmbient*lightAmbient + matDiffuse*sum(N.L); the port carried only the diffuse, so the ~1/3-strength ambient every shipped lamp is authored with (the F-16's nav lights are diffuse 0.51 / ambient 0.17) was dropped. That term has NO N.L, which is exactly what lifts a lamp's own housing and the skin it sits flush against -- geometry the diffuse term leaves black because the light is tangential to it (or, for a POINTLIST lamp, because the vertex normal is 0,0,0). 0 = the port's diffuse-only behaviour.
+float g_fLightFalloffReach =
+    8.0f; // Artscout - 2026: how far past its AUTHORED range a lamp with no falloff term in its data (a1 == 0: the F-16's nav lights and tail strobe) is allowed to reach, as a multiple of that range. LightFalloffD3D7 synthesises a1 = a0/range for these, so the lamp is about half strength at its authored range and this multiplier sets the shader's hard cutoff. 8 gives a wide, soft wash (a 3 ft nav lamp still lights skin 24 ft away, which is why the whole forward fuselage reddens); 1 is D3D7's literal behaviour (flat to the range, nothing past it); 2-3 is the middle. The per-object cull still uses the authored range, so this only widens the falloff within an object already picked as a receiver.
 int g_nObjZBiasStep =
     60; // Artscout - 2026: depth-bias units added per dwzBias bucket (reversed-Z, so this pulls toward the camera). Bigger = more separation but more risk of detail floating visibly off curved surfaces; the pass-wide object bias is 100 for scale.
 bool g_bAutoBuildVoiceBank =
@@ -1605,7 +1616,11 @@ static ConfigOption<bool> BoolOpts[] = {
     {"LightFalloffD3D7",
      &g_bLightFalloffD3D7}, // Artscout - 2026: authored D3D7 light attenuation, not the linear ramp
     {"LightSprites",
-     &g_bLightSprites}, // Artscout - 2026: visible glow at each dynamic light (lamp sources)
+     &g_bLightSprites}, // Artscout - 2026: synthetic glow at each dynamic light (for lamps with no lens geometry)
+    {"ObjEmissiveAll",
+     &g_bObjEmissiveAll}, // Artscout - 2026: D3D7 emissive-from-COLOR2 on every surface (lamp lenses, AB plume)
+    {"PitEmissive",
+     &g_bPitEmissive}, // Artscout - 2026: extend that blanket emissive to the 3D cockpit too (off: the pit's COLOR2 is baked shading)
     {"VrHandTracking", &g_bVrHandTracking}, // skeletal gloves from XR hand tracking (fallback: controller morph)
     {"VrSkinSwapHands", &g_bVrSkinSwapHands}, // swap which mesh each tracked hand wears
     {"VrHandDump", &g_bVrHandDump}, // dump raw XR joint geometry (diag: inferred clench vs skinning bug)
@@ -2030,6 +2045,7 @@ static ConfigOption<int> IntOpts[] = {
     {"FarLodExtra",
      &g_nFarLodExtra}, // Artscout - 2026 (#79): extra coarse terrain LOD rings (geomorph target for far tiles)
     {"Knee3DFont", &g_nKnee3DFont}, // Artscout - 2026 (3D kneeboard)
+    {"KneeNavaidFont", &g_nKneeNavaidFont}, // Artscout - 2026 (NAVAIDS)
     {"PadlockBoxSize", &g_nPadlockBoxSize},
     {"PadlockMode", &g_nPadlockMode},
     {"NumDefaultHatSwitches", &NumHats},
@@ -2187,6 +2203,10 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fLightSpriteSize}, // Artscout - 2026: dynamic light sprite size multiplier
     {"LightSpriteGain",
      &g_fLightSpriteGain}, // Artscout - 2026: dynamic light sprite brightness multiplier
+    {"LightAmbient",
+     &g_fLightAmbient}, // Artscout - 2026: scale on each dynamic light's own ambient term (D3D7 matAmbient*lightAmbient)
+    {"LightFalloffReach",
+     &g_fLightFalloffReach}, // Artscout - 2026: reach multiplier for lamps whose data has no falloff (a1 == 0)
     {"VrSubQuadX",
      &g_fVrSubQuadX}, // #59: subtitle quad horizontal offset (m, + = right)
     {"VrSubQuadY",

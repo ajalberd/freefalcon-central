@@ -899,15 +899,58 @@ void CDXEngine::DrawSurface()
             g_pRenderer->SetAlphaTestEnabled(
                 m_NODE.SURFACE->dwFlags.b.ChromaKey != 0);
 
-            // #49 self-illuminated surfaces (D3D7 SwEmissive: afterburner cone, nav/formation
-            // lights). D3D7 keeps the emissive (COLOR2) source on these UNLESS their switch is
-            // off (then EMISSIVEMATERIALSOURCE -> MATERIAL = no glow). The D3D11 object shader
-            // had dropped emissive entirely, so the afterburner plume went dark at dusk/night.
-            // Mirror the D3D7 rule and flag only SwEmissive surfaces (panels stay light-shaded).
+            // Self-illuminated surfaces (emissive material = vertex COLOR2 / dwSpecular).
+            // Artscout - 2026: this gate was INVERTED. D3D7 armed the emissive source for EVERY
+            // surface in the object pass and only DISARMED it for a SwEmissive surface whose
+            // switch is off:
+            //     SetRenderState(EMISSIVEMATERIALSOURCE, D3DMCS_COLOR2);          // always
+            //     if (SwitchValues && SwEmissive && !(SwitchValues[n] & mask))
+            //         SetRenderState(EMISSIVEMATERIALSOURCE, D3DMCS_MATERIAL);    // no glow
+            // (dxengine.cpp of the D3D7 tree, commit 35b1e813; the same COLOR2 default is in the
+            // pass state block and in ModelInit.) The port enabled it ONLY for SwEmissive
+            // surfaces -- so every lamp the models author on a PLAIN surface lost its glow.
+            // That is what the black lamps are: the F-16CJ's intake nav lamps are ONE untextured
+            // Alpha triangle-fan pair (node 55576) whose centre vertices are diffuse 0xFF000000
+            // with emissive 0xFFFF0000 / 0xFF00FF00 and whose rim fades to alpha 0. The colour is
+            // ENTIRELY in COLOR2; the diffuse is black on purpose. Drop the emissive and the fan
+            // draws as an opaque BLACK star in the middle of its own red glow. The landing-light
+            // beam cone (node 74864) and the whole afterburner plume (nodes 75776..91152) are
+            // authored the same way, and every one of the 3D pit's 396 surfaces carries a COLOR2.
+            // g_bObjEmissiveAll = 0 restores the port's behaviour.
             bool afterburner =
                 false; // #49 hoisted: also used to wrap the draw in additive blend
             {
-                bool emissive = false;
+                extern bool g_bObjEmissiveAll;
+                extern bool g_bPitEmissive;
+                // Artscout - 2026: the blanket COLOR2 emissive is right for the WORLD models and
+                // wrong for the 3D pit, and the model data says why. In the external F-16 a bright
+                // COLOR2 always comes with a BLACK diffuse -- the lamp-lens signature, the colour
+                // lives in COLOR2 because there is nowhere else for it to live. The pit's big
+                // untextured tub (LOD 4105 node@120, 9720 indices) carries COLOR2 on almost every
+                // vertex, and only the 915 brightest of them are black-diffuse lamps (the caution
+                // panel and its red warnings, in one 2.6 x 1.7 x 2.1 cluster). The 1345 in the band
+                // below -- 0x9A9E9E, 0x7F7F7F, 0x656565, spread over the WHOLE tub -- sit on
+                // ordinary painted structure: that is baked shading, not self-illumination, and
+                // adding 0.4-0.6 of it unmodulated lights the cockpit up with every lamp switched
+                // off. (An earlier session hit the same wall from the other side and concluded
+                // COLOR2 is "a subtle specular" in pit models; half right -- it is both, and the
+                // diffuse tells them apart.) Default off for the pit; PitEmissive 1 to see it.
+                // A SwEmissive pit surface is an explicit authoring signal and still obeys its
+                // switch below -- LOD 4105 has none, so this costs nothing today.
+                //   ...but "pit" is the whole PIT PATH, which carries the player's own wings and
+                // stores for the view out of the canopy, and their lamps must keep glowing. The
+                // pit LOD has its own: node@364640 is the wingtip pair (y +/-15.3) and node@364368
+                // the tail strobe, both Alpha|ChromaKey|**Textured**, dark-red diffuse with a white
+                // COLOR2 -- the colour is in the texture. The baked-shading band that caused the
+                // bright cockpit is all in the UNTEXTURED tub (node@120). So exempt textured
+                // surfaces: D3D7 modulates the emissive by the texture, which bounds it by the art,
+                // and it is only on an untextured pit surface that COLOR2 is both unbounded and
+                // not a lamp. Without this the wing lamps went black when seen from the cockpit.
+                const bool textured =
+                    NewFlags.b.Texture and m_NODE.SURFACE->TexID[0] not_eq 0xFFFFFFFFu;
+                bool emissive =
+                    g_bObjEmissiveAll and
+                    (g_bPitEmissive or not m_SurfacePit or textured);
 
                 if (NewFlags.b.SwEmissive)
                 {
@@ -932,8 +975,14 @@ void CDXEngine::DrawSurface()
                 // restoring BLEND_ALPHA is correct. Without this, an opaque emissive surface with
                 // switch 0 in the SOLID pass would leave alpha-blend + no-depth-write set for the
                 // rest of the pass -> the whole aircraft turned translucent (interior showed through).
+                //   Artscout - 2026: and require SwEmissive. SwitchNumber is only meaningful on a
+                // SwEmissive surface -- on every other one it is simply 0, so once the emissive
+                // gate above defaults to ON this test would have claimed every plain Alpha surface
+                // in the model as the afterburner cone. The F-16CJ alone has 44 of them (the
+                // exhaust glow shells, the landing-light beam), and each would have been recoloured
+                // by the flame gradient and drawn additive.
                 afterburner =
-                    emissive && NewFlags.b.Alpha &&
+                    emissive && NewFlags.b.SwEmissive && NewFlags.b.Alpha &&
                     (m_NODE.SURFACE->SwitchNumber == 0 // COMP_AB
                      || m_NODE.SURFACE->SwitchNumber == 30); // COMP_AB2
                 g_pRenderer->SetAfterburner(afterburner);
@@ -1924,7 +1973,25 @@ void CDXEngine::DrawSortedAlpha(DWORD Level, bool SetupMode)
     // base flags; DrawSurface still re-issues the per-surface caches (texture, specular, dwzBias,
     // emissive / afterburner). Called per item, because 2D items can run between 3D ones.
     if (g_pRenderer)
+    {
         g_pRenderer->BeginObjectPass();
+        // Artscout - 2026: ...but BeginObjectPass rebuilds the pass FLAG WORD from scratch
+        // (FF_VERTEXCOLOR | FF_LIGHTING | FF_ALPHATEST), and FF_TEXTURE0 is not in it -- that flag
+        // is only ever set as a side effect of SetTexture. DrawSurface re-issues SelectTexture
+        // ONLY when the surface's texture differs from LastTexID, so every sorted-alpha item that
+        // happens to reuse the previous item's texture drew with the flag cleared: the pixel
+        // shader then skips the texture stage entirely, keeping texA = 1, and an alpha-shaped
+        // sprite becomes an OPAQUE flat quad of its vertex colour times the light.
+        //   That is the wingtip "grey box". The F-16CJ's lamp glows are five camera-facing
+        // billboards under switch 8 (nodes 54524/54812/55036/55260/55484) sharing ONE texture --
+        // a white sheet whose corona lives entirely in the ALPHA channel (77% of the lamp's cell
+        // is alpha 0). With the flag lost, all of that is discarded and the quad paints its full
+        // 1.5 ft square over the scene. Measured in `graybox.rdc`: the wing skin draws with
+        // gFlags 0x10000D (FF_TEXTURE0 set), the two glow billboards over it with 0x10000C.
+        //   Invalidating the cache here costs one redundant SetTexture per alpha item and keeps
+        // the flag word and the bound texture in step.
+        LastTexID = 0xcccccccc;
+    }
 
     // Setup Alpha features
     if (g_pRenderer) // PHASE 5: sorted transparency (D3D7 removed #34)
@@ -2191,6 +2258,13 @@ bool CDXEngine::RenderPitShadowMap(void)
 //   Knobs: LightSprites, LightSpriteSize, LightSpriteGain.
 void CDXEngine::DrawLightSprites(void)
 {
+    // Artscout - 2026: OFF by default now. This was written on the premise that the models carry no
+    // lamp geometry -- they do: the lens is a plain (not SwEmissive) surface whose colour lives in
+    // the vertex COLOR2, and the port was dropping COLOR2 on exactly those surfaces (see the
+    // emissive gate in DrawSurface). With that fixed the models light themselves and a sprite on
+    // top double-lights them. What is left for this path is the handful of lamps whose model really
+    // has no lens -- the F-16CJ's wingtip nav lights are a 1-pixel POINTLIST and nothing else --
+    // so it stays as an opt-in knob (`set g_bLightSprites 1`), not a default.
     extern bool g_bLightSprites;
     extern float g_fLightSpriteSize;
     extern float g_fLightSpriteGain;

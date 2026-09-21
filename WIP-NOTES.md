@@ -96,6 +96,21 @@ fixes landed in one session; all the knobs below default to the new behaviour an
   whatever 2D state ran last (no `FF_LIGHTING`) — the glass never responded to outside light.
   `DrawSortedAlpha` now calls `BeginObjectPass()` per item.
 
+**Lamp sources — fixed (2026-09-21), accepted in flight.** Three port bugs, none of them art.
+(a) D3D7 armed `EMISSIVEMATERIALSOURCE = D3DMCS_COLOR2` on **every** surface and disarmed it only
+for a `SwEmissive` surface whose switch was off; the port had that inverted, so every lamp the
+models author on a plain surface lost its colour. (b) Each light's `dcvAmbient` was dropped — the
+term with no `N·L`, which is what lights a lamp's own housing and `POINTLIST` lamps (zero normal).
+(c) `DrawSortedAlpha` calls `BeginObjectPass()` per item, which rebuilds the shader flag word and
+drops `FF_TEXTURE0`; `DrawSurface` only re-binds a texture when it *changes*, so any sorted-alpha
+item reusing the previous texture drew untextured — alpha-shaped sprites became opaque flat quads.
+That was the wingtip "grey box", and it hit **every** textured surface on that path, not just
+lamps. Two traps worth carrying: the emissive must be added to the lit material **before** the
+texture stage (past it, a textured lamp saturates to white), and `m_SurfacePit` is the whole pit
+**path**, which carries the player's wings and stores — gate on *untextured* pit surfaces, not on
+"pit". Knobs `ObjEmissiveAll`, `PitEmissive`, `LightAmbient`, `LightFalloffReach`; `LightSprites`
+now defaults 0. Measured model data, the RenderDoc recipe and the dead ends: `LIGHT-SOURCES.md`.
+
 **Campaign planning.** The candidate filter must use `FalconLocalSession->GetTeam()`, never
 `gSelectedTeam` — that is the TE editor's variable and it holds a *country*. `PACKAGE_WIN`
 was always loaded by `CMN_SCF.LST`; do not "fix" it by loading it again. The campaign must

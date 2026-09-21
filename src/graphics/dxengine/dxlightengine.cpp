@@ -235,6 +235,33 @@ void CDXLight::UpdateDynamicLights(DWORD ID, D3DVECTOR *pos, float Radius)
             g.Color[0] = L.dcvDiffuse.r;
             g.Color[1] = L.dcvDiffuse.g;
             g.Color[2] = L.dcvDiffuse.b;
+            // Artscout - 2026: the light's OWN AMBIENT, which the port dropped. D3D7 lit a vertex
+            // with matEmissive + matAmbient*sum(lightAmbient*atten) + matDiffuse*sum(lightDiffuse*
+            // N.L*atten) -- three terms; only the diffuse one was carried over. Every shipped lamp
+            // is authored with an ambient (the F-16's nav lights: diffuse 0.51, ambient 0.17; the
+            // pit's flood: diffuse 0.98, ambient 0.41), and it is always the diffuse colour scaled,
+            // so one scalar carries it exactly: Color.w, read by the shaders as Color.rgb*Color.w.
+            // It matters because it has NO N.L. That is the term that lights a lamp's own housing
+            // and the skin the lamp sits flush against -- surfaces where the light is tangential
+            // (N.L -> 0) and the diffuse term leaves a black core in the middle of the lamp's own
+            // glow -- and the only term that can light a POINTLIST lamp at all, since those
+            // vertices carry a (0,0,0) normal. g_fLightAmbient = 0 restores diffuse-only.
+            {
+                extern float g_fLightAmbient;
+                float dif = L.dcvDiffuse.r;
+                if (L.dcvDiffuse.g > dif)
+                    dif = L.dcvDiffuse.g;
+                if (L.dcvDiffuse.b > dif)
+                    dif = L.dcvDiffuse.b;
+                float amb = L.dcvAmbient.r;
+                if (L.dcvAmbient.g > amb)
+                    amb = L.dcvAmbient.g;
+                if (L.dcvAmbient.b > amb)
+                    amb = L.dcvAmbient.b;
+                g.Color[3] = (dif > 1.0e-4f and amb > 0.0f) ?
+                                 (amb / dif) * g_fLightAmbient :
+                                 0.0f;
+            }
             g.Params[0] =
                 (L.dvRange > 1.0f) ? L.dvRange : 1.0f; // range (attenuation)
             g.Params[1] = 1.0f; // point
@@ -262,11 +289,22 @@ void CDXLight::UpdateDynamicLights(DWORD ID, D3DVECTOR *pos, float Radius)
                     }
                     else
                     {
+                        extern float g_fLightFalloffReach;
                         const float a0 = (L.dvAttenuation0 > 1.0e-4f) ? L.dvAttenuation0 : 1.0f;
                         const float rng = (L.dvRange > 1.0f) ? L.dvRange : 1.0f;
+                        float reach = g_fLightFalloffReach;
+                        if (reach < 1.0f)
+                            reach = 1.0f;
                         g.Params[2] = a0;
                         g.Params[3] = a0 / rng;
-                        g.Params[0] = rng * 8.0f; // shader cutoff; the CPU cull keeps the authored range
+                        // Artscout - 2026: LightFalloffReach (was hard-coded 8). The shader cutoff,
+                        // not the cull: the CPU cull above still uses the AUTHORED range, so this
+                        // only sets how far the falloff runs inside an object already picked as a
+                        // receiver. 8 is a wide soft wash -- a 3 ft nav lamp still puts ~11% of its
+                        // light on skin 24 ft away, which is why one wingtip reddens the whole
+                        // forward fuselage. 1 is D3D7's literal behaviour for this data (flat to
+                        // the range, nothing past it).
+                        g.Params[0] = rng * reach;
                     }
                 }
             }

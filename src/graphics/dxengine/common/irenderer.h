@@ -44,7 +44,8 @@ struct GpuLightCPU
 {
     float Position[4]; // xyz, w
     float Direction[4]; // xyz normalized
-    float Color[4]; // rgb
+    float Color[4]; // rgb = diffuse; w = the light's OWN AMBIENT as a scale on that
+        // colour (D3D7 matAmbient*lightAmbient, which has no N.L). 0 = none.
     float Params[4]; // x=range, y=type(0=dir,1=point)
 };
 

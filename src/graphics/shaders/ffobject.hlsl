@@ -125,6 +125,11 @@ void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, out float3 lit, out
         }
         const float lScale = (gLights[l].params.y < 0.5f) ? sunScale : 1.0f;
         lit += gLights[l].color.rgb * max(dot(N, Ldir), 0.0f) * atten * lScale;
+        // Artscout - 2026: the light's OWN AMBIENT (D3D7: matAmbient * lightAmbient * atten), as a
+        // scale on its colour in color.w -- see CDXLight::UpdateDynamicLights and the D3D12 twin.
+        // NO N.L on purpose: this lights a lamp's own housing, the skin it sits flush against, and
+        // POINTLIST lamps (zero vertex normal). The sun leaves color.w at 0, so light 0 is inert.
+        lit += gLights[l].color.rgb * gLights[l].color.w * atten;
     }
     if (Has(FF_FULLBRIGHT))
         lit = float3(1.0f, 1.0f, 1.0f);
@@ -186,8 +191,11 @@ VSOutVs VS_Object(VSIn i, uint viewId : SV_ViewID)
         else
         {
             const float3 N = normalize(mul(i.normal, (float3x3)gWorld));
-            float3 lit, specE; // specular stays 0 on emissive surfaces, as before
-            FFObjectLighting(N, wp.xyz, gCamPos.xyz - wp.xyz, lit, specE);
+            float3 lit;
+            // Artscout - 2026: carry the highlight, like the FF_LIGHTING branch. Dropping it was
+            // invisible while FF_EMISSIVE meant a handful of SwEmissive surfaces; with D3D7's
+            // emissive default restored this is the legacy path for nearly every surface.
+            FFObjectLighting(N, wp.xyz, gCamPos.xyz - wp.xyz, lit, spec);
             col.rgb = i.color.rgb * saturate(lit) + i.emissive.rgb;
         }
     }
@@ -241,8 +249,12 @@ float4 PS_Object(VSOut i) : SV_Target
         float3 lit, spec;
         FFObjectLighting(N, i.wpos, i.view, lit, spec);
         c.rgb *= saturate(lit);
-        // NOTE: the emissive is added AFTER the texture for this path -- see the block past the
-        // texture stage. Added here it was multiplied by the albedo and could extinguish a lamp.
+        // Artscout - 2026: D3D7 order -- texture * (matDiffuse*lit + matEmissive). Added to the LIT
+        // MATERIAL here (not multiplied by the vertex colour, which is black on a lamp lens), so the
+        // texture stage below modulates the pair. Past the texture it was a flat unmodulated term
+        // and washed textured lamps white. See the D3D12 twin's note.
+        if (Has(FF_EMISSIVE) && !Has(FF_AFTERBURNER))
+            c.rgb += i.emis;
         pixSpec = spec;
     }
 
@@ -294,11 +306,9 @@ float4 PS_Object(VSOut i) : SV_Target
             c.rgb *= 2.0f;
     }
 
-    // Artscout - 2026: the EMISSIVE term is added AFTER the texture for the per-pixel path (see the
-    // D3D12 twin's note): albedo*(lit+emissive) extinguished lamps whose texture is dark. Unmodulated,
-    // a lamp reads as a source (albedo*lit + emissive). The legacy per-vertex path keeps D3D7's order.
-    if (Has(FF_EMISSIVE) && Has(FF_PIXELLIGHT) && !Has(FF_AFTERBURNER))
-        c.rgb += i.emis;
+    // Artscout - 2026: the emissive is now folded into the lit material above (D3D7 order) so the
+    // texture modulates it; it used to be added here, past the texture. Both paths agree again --
+    // the legacy per-vertex branch in VS_Object has always done `color*lit + emissive` pre-texture.
 
     // #49 afterburner: scale colour BY texture brightness, with time-animated
     // turbulence and flicker so the plume licks instead of sitting frozen.

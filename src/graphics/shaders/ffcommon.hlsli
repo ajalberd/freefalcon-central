@@ -33,7 +33,7 @@ struct Light
 {
     float4 position;
     float4 direction;
-    float4 color;
+    float4 color;  // rgb = diffuse, w = ambient scale on it (D3D7 per-light ambient, no N.L)
     float4 params; // x = range, y = type (0 = directional, 1 = point)
 };
 

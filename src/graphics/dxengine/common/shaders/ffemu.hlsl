@@ -180,7 +180,7 @@ struct GpuLight
 {
     float4 Position;    // xyz, w=1 for point / 0 for directional
     float4 Direction;   // xyz normalized
-    float4 Color;       // rgb
+    float4 Color;       // rgb = diffuse, w = ambient scale on it (D3D7 per-light ambient, no N.L)
     float4 Params;      // x=range, y=type(0=dir,1=point), z,w=atten
 };
 
@@ -392,6 +392,13 @@ void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, float sunShadow,
         if (L.Params.y < 0.5f)
             lScale *= sunShadow;
         lit += L.Color.rgb * max(dot(N, Ldir), 0.0f) * atten * lScale;
+        // Artscout - 2026: the light's OWN AMBIENT (D3D7: matAmbient * lightAmbient * atten), as a
+        // scale on its colour in Color.w -- see CDXLight::UpdateDynamicLights. NO N.L on purpose:
+        // this is the term that lights a lamp's own housing, the skin the lamp sits flush against
+        // (where the light is tangential and the diffuse term dies, leaving a black core inside the
+        // lamp's own glow) and POINTLIST lamps, whose vertices carry a zero normal. The sun leaves
+        // Color.w at 0 -- the scene ambient is already gAmbient -- so this is inert for light 0.
+        lit += L.Color.rgb * L.Color.w * atten;
     }
     if (gFlags & FF_FULLBRIGHT) lit = float3(1.0f, 1.0f, 1.0f);   // #97 unlit: full material colour (exit menu)
 
@@ -561,6 +568,11 @@ VSOut ObjectVSCore(VSInObject i, float4x4 wmat, float4x4 vmat, float4x4 pmat, fl
             float3 lit, spec;
             FFObjectLighting(N, worldPos.xyz, camWorld - worldPos.xyz, 1.0f, lit, spec);
             col.rgb = i.Color.rgb * saturate(lit) + i.Emissive.rgb;
+            // Artscout - 2026: carry the highlight, same as the FF_LIGHTING branch below. It used
+            // to be dropped here, which was invisible while FF_EMISSIVE meant "one of a handful of
+            // SwEmissive surfaces"; with the D3D7 emissive default restored this branch is the
+            // legacy per-vertex path for almost every surface in the model.
+            o.Spec = spec;
         }
     }
     else if (gFlags & FF_LIGHTING)
@@ -1922,9 +1934,18 @@ float4 PS_Main(VSOut i) : SV_Target
         const float sunShadow = (gFlags & FF_COCKPIT) ? CockpitSunShadow(i.NrmL, i.PosL) : 1.0f;
         FFObjectLighting(N, i.WPos, i.View, sunShadow, lit, spec);
         c.rgb *= saturate(lit);
-        // NOTE: the emissive is added AFTER the texture for this path -- see the block past the
-        // texture stage. It used to be added here, which multiplied it by the albedo and could
-        // extinguish a lamp whose texture is dark.
+        // Artscout - 2026: D3D7's order is  texture * (matDiffuse*lit + matEmissive)  -- the
+        // emissive is added to the LIT MATERIAL here, before the texture stage modulates the
+        // pair. (It is NOT multiplied by the vertex colour: that is black on a lamp lens, which
+        // is what an even earlier version got wrong and why this was moved past the texture.)
+        // Adding it after the texture instead made the emissive a flat, unmodulated term, and on
+        // a textured lamp that washes the art's colour straight out: the F-16's wingtip coronas
+        // are a WHITE sheet whose red/green lives in each lamp's own cell, so `lit*tex + 1.0`
+        // saturated every one of them to white. Modulating keeps the cell's colour and its soft
+        // core. Untextured lamps (the intake fans, the AB shells, the landing-light cone) are
+        // unaffected either way -- there is no texture to modulate by.
+        if ((gFlags & FF_EMISSIVE) && !(gFlags & FF_AFTERBURNER))
+            c.rgb += i.Emis;
         pixSpec = spec;
     }
 
@@ -1987,14 +2008,11 @@ float4 PS_Main(VSOut i) : SV_Target
             c.rgb *= 2.0f;
     }
 
-    // Artscout - 2026: the EMISSIVE term is added AFTER the texture for the per-pixel path. D3D7
-    // multiplied it by the albedo like the lit material, and for the F-16's lamps that extinguished
-    // the SOURCE: the intake strip's albedo is dark and its authored emissive is a dim red (74,0,0),
-    // so albedo*(lit+emissive) showed only the light's spill on the skin, never the lamp itself.
-    // Unmodulated, a lamp reads as a source (albedo*lit + emissive). The legacy per-vertex path
-    // keeps the D3D7 order: there the VS already folded the emissive into the vertex colour.
-    if ((gFlags & FF_EMISSIVE) && (gFlags & FF_PIXELLIGHT) && !(gFlags & FF_AFTERBURNER))
-        c.rgb += i.Emis;
+    // Artscout - 2026: the emissive was added HERE, past the texture, and is now folded into the
+    // lit material above (D3D7 order) so the texture modulates it. See the note in the lighting
+    // block. The legacy per-vertex path has always done it that way -- ObjectVSCore's FF_EMISSIVE
+    // branch computes `i.Color.rgb * saturate(lit) + i.Emissive.rgb` and the texture stage below
+    // multiplies the result -- so both paths now agree.
 
     // #49 afterburner warm recolor (reference real_af.png): map the plume texture brightness to a
     // white-hot core -> orange/red body gradient. c.rgb is texture*white here (VS set col=white),
