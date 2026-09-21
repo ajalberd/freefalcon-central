@@ -244,16 +244,30 @@ void CDXLight::UpdateDynamicLights(DWORD ID, D3DVECTOR *pos, float Radius)
             // made the pit's own flood/instrument lamps read as dead: they are authored with a 2.2-unit
             // range inside a 22-unit pit. Params.z/w are free for POINT lights; spots use them for the
             // cone cosines.
-            //   ONLY when a1 > 0. A light with no falloff term (the F-16 tail strobe is authored
-            // a0=1.01, a1=0) degenerates under the curve to a FLAT ~0.99 blob out to its range -- it
-            // lit the whole tail as a hard-edged disc and read as "the light is under the plane".
-            // Those keep the ramp, which fades them the way they always did.
+            //   a1 == 0 (the F-16's nav lights and tail strobe): the data has NO falloff term, so the
+            // curve degenerates to a flat full-strength disc out to its range -- a hard-edged blob
+            // under the tail -- and the old ramp, which is what the first fix fell back to, killed the
+            // spill beyond a few feet ("it doesn't light the rest of the plane anymore"). Synthesize a
+            // gentle falloff instead: a1 = a0/range, so the lamp is bright near and about half at its
+            // authored range, and let the shader cutoff run well past that range -- the per-object
+            // cull (authored range + receiver radius) is what actually bounds these lights.
             {
                 extern bool g_bLightFalloffD3D7;
-                if (g_bLightFalloffD3D7 and L.dvAttenuation1 > 0.0f)
+                if (g_bLightFalloffD3D7)
                 {
-                    g.Params[2] = L.dvAttenuation0;
-                    g.Params[3] = L.dvAttenuation1;
+                    if (L.dvAttenuation1 > 0.0f)
+                    {
+                        g.Params[2] = L.dvAttenuation0;
+                        g.Params[3] = L.dvAttenuation1;
+                    }
+                    else
+                    {
+                        const float a0 = (L.dvAttenuation0 > 1.0e-4f) ? L.dvAttenuation0 : 1.0f;
+                        const float rng = (L.dvRange > 1.0f) ? L.dvRange : 1.0f;
+                        g.Params[2] = a0;
+                        g.Params[3] = a0 / rng;
+                        g.Params[0] = rng * 8.0f; // shader cutoff; the CPU cull keeps the authored range
+                    }
                 }
             }
 
