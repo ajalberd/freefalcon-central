@@ -231,10 +231,26 @@ enum SFX_TYPES
     SFX_BACKTRAP,
     SFX_MIKECLICK,//me123
     SFX_DRAGCHUTE,
+    // Artscout - 2026: the second internal engine layer. FF6 ships a file in this slot
+    // (engines\fighter\f-16\EngRumbleInt.wav) but never named it and never handed it to anything,
+    // so it has always been silent. Naming it does not move any other value -- 278 was already
+    // unused between SFX_DRAGCHUTE and SFX_MISSILE4.
+    SFX_ENG_RUMBLE_INT = 278, // engines\fighter\f-16\EngRumbleInt.wav
     SFX_MISSILE4 = 279, // RV - I-Hawk - Added a 4th missile launch sound
     // skip
     SFX_BB_ALLWORDS = 270, // MLR
     SFX_SONIC_BOOM = 282,
+    // Artscout - 2026: JFS (jet fuel starter) audio, from the BMS 4.38 F-16 set. The values are
+    // explicit because this enum is a direct index into f4sndtbl.txt: the shipped table ends at
+    // 282 (sonic boom) in the Israel theater and at 279 in the default one, so 283 is the first
+    // slot that is free everywhere. Every table that ships has to carry these six entries in this
+    // order or the JFS ids land on other sounds -- see AirframeClass::JfsSound.
+    SFX_JFS_START = 283,
+    SFX_JFS_START_INT = 284,
+    SFX_JFS_LOOP = 285,
+    SFX_JFS_LOOP_INT = 286,
+    SFX_JFS_END = 287,
+    SFX_JFS_END_INT = 288,
     SFX_LAST // must be the last entry
 };
 

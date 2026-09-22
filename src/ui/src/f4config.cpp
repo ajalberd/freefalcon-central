@@ -423,6 +423,28 @@ int g_nKnee3DFont = 2;
 // Artscout - 2026 (NAVAIDS page): -1 picks the largest of the three sizes whose
 // row still fits the page, which is what you want; 0/1/2 force one.
 int g_nKneeNavaidFont = -1;
+// Artscout - 2026 (RWR): which bitmap font the RWR scope draws its symbols with. -1 (default) = the
+// MFD font, which is what the scope has always used. 0/1/2 force one of the three matched sizes and 3
+// is warn_font, a different typeface (bold, caps and digits only) rather than a fourth size. The font
+// set is resolution-relative under g_bAutoScaleFonts -- at 1920 the three are 10x7, 12x9 and 16x12 --
+// so a given number is not a given size. BMS draws its RWR with its rwr_font, which is the 10x7
+// bitmap byte for byte, so 0 is the BMS size at widescreen resolutions.
+int g_nRwrFont = -1;
+// Artscout - 2026: extra muffling applied to sounds from outside the jet when the canopy is shut,
+// on top of the aircraft's own sndExternalVol (every shipped aircraft uses -2000). Same units as
+// the sound setup's "external attenuation" slider, so -1000 is about 10 dB more than the canopy
+// used to add. It scales with how far the canopy is closed, and 0 turns it off.
+int g_nCanopyAttenuation = -600;
+// Artscout - 2026: size of the radio/comms (AWACS/Tower/wingman) popup menu, on a flat screen. VR
+// uses its own g_fVrMenuScale. The menu's font is already the largest the pit data can name (index 2
+// of the three matched sizes), so the box and the glyphs are scaled together rather than the font
+// being stepped up. 1.0 = the stock size.
+float g_fMenuScale = 1.4f;
+// Artscout - 2026: level of the second internal engine layer (the rumble -- EngRumbleInt.wav, wired
+// up in readin.cpp). It is authored about 20 dB hotter than the main internal loop, which is what a
+// low-frequency layer needs to be felt and is the same relationship BMS uses for its own. This
+// scales its rpm curve: 1.0 is the authored balance, 0 is off, 0.5 is half.
+float g_fEngineRumbleLevel = 1.0f;
 int g_nPadlockBoxSize = 2;
 int g_nDeagTimer = 0;
 int g_nReagTimer = 0;
@@ -2054,6 +2076,8 @@ static ConfigOption<int> IntOpts[] = {
      &g_nFarLodExtra}, // Artscout - 2026 (#79): extra coarse terrain LOD rings (geomorph target for far tiles)
     {"Knee3DFont", &g_nKnee3DFont}, // Artscout - 2026 (3D kneeboard)
     {"KneeNavaidFont", &g_nKneeNavaidFont}, // Artscout - 2026 (NAVAIDS)
+    {"RwrFont", &g_nRwrFont}, // Artscout - 2026 (RWR): -1 = one size below the MFD font, else 0..3
+    {"CanopyAttenuation", &g_nCanopyAttenuation}, // Artscout - 2026: extra dB of canopy muffling, 0 = off
     {"PadlockBoxSize", &g_nPadlockBoxSize},
     {"PadlockMode", &g_nPadlockMode},
     {"NumDefaultHatSwitches", &NumHats},
@@ -2240,6 +2264,10 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fVrTracerBright}, // Artscout - 2026 (VR): tracer brightness multiplier in headset (0..1)
     {"VrMenuScale",
      &g_fVrMenuScale}, // Artscout - 2026 (VR): center + scale the radio/comms/exit menu in the headset
+    {"MenuScale",
+     &g_fMenuScale}, // Artscout - 2026: radio/comms popup menu size on a flat screen, 1.0 = stock
+    {"EngineRumbleLevel",
+     &g_fEngineRumbleLevel}, // Artscout - 2026: second internal engine layer (rumble) level, 1.0 = authored
     {"VrMenuDist",
      &g_fVrMenuDist}, // Artscout - 2026 (#59 VR menu): head-locked menu quad distance forward (m)
     {"VrMenuHeight",

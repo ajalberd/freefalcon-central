@@ -1480,6 +1480,20 @@ public:
     float jfsaccumulator;
     float JFSSpinTime; //MI
     void JfsEngineStart(void);
+
+    // Artscout - 2026: JFS starter audio. The starter's state machine is in this class -- the
+    // flag is set by JfsEngineStart and cleared by the engine models on light-up or spin-down --
+    // so the sound is triggered from those same points. Each phase is a pair of recordings, an
+    // external one and an in-cockpit one; which of the two is heard is decided by the sound
+    // system's own flags, not here.
+    enum JfsSoundPhase
+    {
+        JfsSoundStart,
+        JfsSoundLoop,
+        JfsSoundEnd
+    };
+    void JfsSound(JfsSoundPhase phase);
+
     void QuickEngineStart();
     float curMaxStoreSpeed; //me123
     bool /*LLON,*/

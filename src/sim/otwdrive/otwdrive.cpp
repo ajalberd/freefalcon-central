@@ -344,6 +344,13 @@ OTWDriverClass::OTWDriverClass(void)
     pVColors[0][7] = 0xFF009CFF; // vcock DED color
     pVColors[1][7] = CalculateNVGColor(pVColors[0][7]);
 
+    // Artscout - 2026 (RWR): index 8 is the RWR colour and it was the one entry this list never
+    // initialised. OTWDriver is a global, so a pit whose 3dckpit.dat has no rwrcolor line got a
+    // zeroed colour -- black symbology on a black scope. This is the same yellow-green the shipped
+    // pits carry, so nothing changes for a pit that does set it.
+    pVColors[0][8] = 0xFF00FFBB; // vcock RWR color, yellow-green
+    pVColors[1][8] = CalculateNVGColor(pVColors[0][8]);
+
     // Cobra
 
     p3DpitHilite = 0xFF0000FF; // Cobra - 3D pit high night lighting color

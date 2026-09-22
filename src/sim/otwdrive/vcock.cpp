@@ -4828,7 +4828,16 @@ void OTWDriverClass::VCock_Exec(void)
             vRWRrenderer->SetColor(
                 pVColors[OTWDriver.renderer->GetGreenMode() not_eq 0][8]);
             rwr->SetGridVisible(FALSE);
-            vHUDrenderer->SetFont(pCockpitManager->MFDFont());
+            // Artscout - 2026 (RWR): the scope's font is selectable -- see g_nRwrFont. -1 is what it
+            // has always used (the MFD font); 0..3 force one of the four cockpit fonts, which is how
+            // you reach the 10x7 BMS draws its RWR with (RwrFont 0) or the bold warn typeface (3).
+            // SetFont is static (it sets the shared pFontSet), so the receiver on this line was
+            // always decorative: it said vHUDrenderer while the call after it draws the RWR.
+            {
+                extern int g_nRwrFont;
+                VirtualDisplay::SetFont(g_nRwrFont >= 0 ? g_nRwrFont
+                                                        : pCockpitManager->MFDFont());
+            }
             rwr->Display(vRWRrenderer);
             VirtualDisplay::SetFont(oldFont);
         }

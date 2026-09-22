@@ -27,6 +27,10 @@ extern bool g_bRealisticAvionics;
 extern const char *FALCONSNDTABLETXT;
 extern int g_nSoundUpdateMS;
 extern bool g_bSoundHearVMSExternal;
+// Artscout - 2026: declared here, at file scope, and NOT inside F4SoundFXSetCamPosAndOrient --
+// that function is extern "C", so an extern declared in its body would be given C linkage and
+// would not match the C++ definition in F4Config.cpp.
+extern int g_nCanopyAttenuation;
 extern bool g_bEnableDopplerSound, g_bSoundDistanceEffect, g_bNewEngineSounds;
 extern bool g_bSoundSonicBoom;
 bool g_bNoSound = false;
@@ -1429,8 +1433,12 @@ extern "C" void F4SoundFXSetCamPosAndOrient(Tpoint *campos, Trotation *camrot,
         {
             float v;
             AircraftClass *playerAC = SimDriver.GetPlayerAircraft();
+            // Artscout - 2026: g_nCanopyAttenuation (file scope above) is the extra muffling a
+            // closed canopy adds on top of the aircraft's own sndExternalVol. Every shipped
+            // aircraft uses -2000 there, so this is the one knob that moves the closed-canopy
+            // level for all of them; it scales with the canopy position like the rest of the term.
             v = playerAC->af->GetSoundExternalVol() +
-                PlayerOptions.SoundExtAttenuation;
+                PlayerOptions.SoundExtAttenuation + g_nCanopyAttenuation;
 
             if (playerAC->GetNumDOFs() > COMP_CANOPY_DOF and
                 playerAC->IsComplex() and playerAC->af->GetCanopyMaxAngle())

@@ -161,6 +161,53 @@ The long‑term goal of the render work, now shipped.
   speed/altitude inside, BMS‑style).
 * **Differential braking** (per‑wheel brakes + steering).
 * **Audio**: restored radio chatter / ST80 voice codec.
+* **Engine sound curves.** Every shipped aircraft carries a one‑point volume chart
+  (`sndIntChart 1 0 1`) — full volume at every rpm — and a pitch chart that runs the loop at about a
+  third of its speed while the starter cranks the engine over. That is why a cold start grinds and
+  why the in‑cockpit engine sits so loud. Wherever a chart is still that placeholder, the reference
+  curves BMS uses for its own F‑16 are substituted (`readin.cpp`), and the second internal layer FF6
+  already ships for the job (`EngRumbleInt.wav`, slot 278) is finally handed to the aircraft — it
+  was named by nothing and set by no aircraft's data, so it had never played. Knob:
+  `EngineRumbleLevel`.
+* **JFS starter audio.** The jet fuel starter has start and loop recordings now — an external and an
+  in‑cockpit pair per phase, selected by the sound system's own flags rather than by view code, and
+  driven from the airframe's JFS state machine (set, cranking, and the four ways it stops). Voiced
+  for the player's jet only: the AI run the same preflight, and a ramp of them lighting their
+  starters together was a chorus of identical motors, not ambience.
+* **Canopy muffling.** The extra attenuation a closed canopy applies — previously fixed at the
+  aircraft's own `sndExternalVol`, which every aircraft sets to the same value — can be dialled.
+  Knob: `CanopyAttenuation`.
+* **RWR.** The scope's font is selectable (`RwrFont`); BMS draws its RWR with the 10x7 bitmap, which
+  is now one knob away. The scope colour has a default at last, so a pit whose data carries no
+  `rwrcolor` line no longer draws black symbology on a black scope.
+* **Radio/comms menu size.** The popup menu scales as a whole — box, glyphs and line spacing
+  together, because the box and the spacing both fall out of the viewport while a glyph is drawn at
+  its font's pixel size. Knob: `MenuScale`; VR keeps its own `VrMenuScale`.
+
+### Sounds these features expect
+
+The source tree cannot carry the audio: the sound data lives in the install. A stock data set still
+runs — a sound id past the end of the table is ignored rather than fatal — but these slots stay
+silent until files are added:
+
+| id | file, relative to the sound directory | used for |
+|---|---|---|
+| 283 / 284 | `jfsstart.wav` / `jfsstartint.wav` | JFS crank, external / in‑cockpit |
+| 285 / 286 | `jfsloop.wav` / `jfsloopint.wav` | JFS running, external / in‑cockpit |
+| 287 / 288 | `jfsend.wav` / `jfsendint.wav` | JFS spool‑down (ids reserved; nothing plays them yet) |
+| 278 | `engines\fighter\f-16\EngRumbleInt.wav` | second internal engine layer (ships with the data) |
+
+Table entries use the same twelve tab‑separated columns as every other line of
+`<sound dir>\f4sndtbl.txt`, with the flag letters documented at the top of that file (`E` external,
+`I` internal, `L` looped, `H` high priority):
+
+    <file> <offset> <length> <maxDist> <minDist> <maxVol> <minVol> <flags> <pitchScale> <soundGroup> <linkedSound> <unused>
+
+The id **is** the table index, so the JFS lines append at 283..288. The default table's 280..282 were
+unused; they are padded so that the default table and the Israel theater's — which is three entries
+longer — agree, because the same enum indexes both. The wav files themselves are not in this
+repository and are not produced by the installer; the ones used here were decoded from a BMS install
+and level‑matched to the files they replaced.
 
 ## 6b. Campaign — planning and the map
 

@@ -28,6 +28,7 @@
 /******************************************************************************/
 #include "stdhdr.h"
 #include "airframe.h"
+#include "soundfx.h" // Artscout - 2026: SFX_ENG_RUMBLE_INT, for the second internal engine layer
 #include "arfrmdat.h"
 #include "simfile.h"
 #include "limiters.h"
@@ -1407,6 +1408,87 @@ static const InputDataDesc AuxAeroDataDesc[] = {
 //extern float g_fA2GCameraAlt; //TJL 10/27/03 Sets AI BDA/Recon altitude
 //extern float g_fBombMissileAltitude;
 
+// Artscout - 2026: engine sound volume reference curves.
+//
+// Every shipped ACDATA carries a one-point volume chart -- "sndIntChart 1 0 1" and friends -- which
+// is a constant 1.0: full volume at every rpm, including while the starter is cranking the engine
+// over at 25%, where the pitch chart has the loop running at about a third speed. That is what
+// makes a cold start grind, and it is why the in-cockpit engine loop is so loud. The data lives
+// inside Zips\Simdata.zip, and the archive is searched before the loose Zips\sim\ACDATA copies, so
+// rather than rewrite the archive these reference curves -- the ones BMS ships in its own F-16
+// data -- are substituted wherever a chart is still that placeholder. An aircraft carrying a real
+// curve of its own is left alone.
+static void SetSoundChart(LookupTable &chart, const float *pairs, int count)
+{
+    chart.pairs = count;
+
+    for (int i = 0; i < count; i++)
+    {
+        chart.table[i].input = pairs[i * 2];
+        chart.table[i].output = pairs[i * 2 + 1];
+    }
+}
+
+// "1 0 1": one point, value 1.0. A real curve always has at least two.
+static bool IsPlaceholderSoundChart(const LookupTable &chart)
+{
+    return chart.pairs <= 1 and chart.table[0].output >= 0.999f;
+}
+
+static void ApplyEngineSoundReferenceCharts(AuxAeroData *aux)
+{
+    static const float intVol[] = {0.0f, 0.0f, 0.6f, 1.0f, 0.7f, 1.0f,
+                                   0.94f, 1.0f, 0.97f, 0.8f};
+    static const float int2Vol[] = {0.0f, 0.0f, 0.4f, 0.6f, 0.7f, 0.8f, 0.77f, 1.0f};
+    static const float abIntVol[] = {0.0f, 0.0f, 0.98f, 0.2f, 1.0f, 1.0f};
+    static const float abExtVol[] = {0.0f, 0.0f, 0.7f, 0.75f, 0.96f, 0.97f,
+                                     0.98f, 1.0f};
+
+    if (IsPlaceholderSoundChart(aux->sndIntChart))
+        SetSoundChart(aux->sndIntChart, intVol, 5);
+
+    // The external charts get the internal curve's shape rather than BMS's. BMS starts its
+    // external curve at 0.8 because its F-16 points sndExt at its own clean external sample;
+    // FF6's F-16 points sndExt at the generic fighter loop (table 220) and that entry links the
+    // near-turbine whine (276) on top, so at cranking rpm the low-pitched turbine is fully
+    // audible and reads as a grind. Ramping from zero silences it while the engine spools and
+    // brings it in with rpm, exactly as the internal curve now does.
+    if (IsPlaceholderSoundChart(aux->sndExtChart))
+        SetSoundChart(aux->sndExtChart, intVol, 5);
+
+    if (IsPlaceholderSoundChart(aux->sndInt2Chart))
+        SetSoundChart(aux->sndInt2Chart, int2Vol, 4);
+
+    // Artscout - 2026: and give the layer itself to the aircraft. FF6 ships
+    // engines\fighter\f-16\EngRumbleInt.wav in the second internal slot (see SFX_ENG_RUMBLE_INT in
+    // soundfx.h) but no aircraft's data ever sets sndInt2, so the file has never played. It is the
+    // same recording and the same level as BMS's own engrumbleint, and its curve above fades it in
+    // from nothing at idle to full by rpm 0.77 -- exactly how BMS layers its second internal sound.
+    // Aircraft that carry a second layer of their own are left alone.
+    if (aux->sndInt2 == 0)
+        aux->sndInt2 = SFX_ENG_RUMBLE_INT;
+
+    // A low-frequency layer has to be authored hot to be felt -- this one is about 20 dB above the
+    // main internal loop, which is the same relationship BMS uses -- so the curve gets a scale knob
+    // rather than the file being trimmed. 1.0 is the authored balance.
+    extern float g_fEngineRumbleLevel;
+
+    if (g_fEngineRumbleLevel != 1.0f)
+    {
+        for (int i = 0; i < aux->sndInt2Chart.pairs; i++)
+            aux->sndInt2Chart.table[i].output *= g_fEngineRumbleLevel;
+    }
+
+    if (IsPlaceholderSoundChart(aux->sndExt2Chart))
+        SetSoundChart(aux->sndExt2Chart, intVol, 5);
+
+    if (IsPlaceholderSoundChart(aux->sndAbIntChart))
+        SetSoundChart(aux->sndAbIntChart, abIntVol, 3);
+
+    if (IsPlaceholderSoundChart(aux->sndAbExtChart))
+        SetSoundChart(aux->sndAbExtChart, abExtVol, 4);
+}
+
 AuxAeroData *AirframeAuxAeroRead(SimlibFileClass *inputFile)
 {
     AuxAeroData *auxaeroData;
@@ -1417,6 +1499,8 @@ AuxAeroData *AirframeAuxAeroRead(SimlibFileClass *inputFile)
     {
         //     F4Assert( not "Bad parsing of aux aero data");
     }
+
+    ApplyEngineSoundReferenceCharts(auxaeroData);
 
     // RV - Biker - That does not work so remove it
     // MLR 2/5/2004 - Load defaults as needed

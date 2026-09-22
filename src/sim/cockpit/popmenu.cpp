@@ -650,17 +650,29 @@ void MenuManager::DisplayDraw(void)
         // flat path (and the cockpit cursor hit-test that follows).
         extern bool g_bVrFrameActive;
         extern float g_fVrMenuScale;
+        // Artscout - 2026: one scale for both paths. VR keeps g_fVrMenuScale; the flat path gets
+        // g_fMenuScale so the radio/comms menu can be enlarged on a screen too -- its font is already
+        // the largest of the three the pit data can name, so scaling is the only way to grow it.
+        // The glyphs need the matching text scale as well: the box and the line spacing both fall out
+        // of the viewport below, but a glyph is drawn at its font's pixel size, so without this the
+        // box would grow around text that stayed the same size.
+        extern float g_fMenuScale;
+        extern float g_fTextScaleOverride;
+
+        const float menuScale =
+            (g_bVrFrameActive and g_fVrMenuScale > 0.0f) ? g_fVrMenuScale : g_fMenuScale;
+
         float drL = (float)mDestRect.left, drT = (float)mDestRect.top;
         float drR = (float)mDestRect.right, drB = (float)mDestRect.bottom;
         float vpL = mLeft, vpT = mTop, vpR = mRight, vpB = mBottom;
-        if (g_bVrFrameActive)
+        if (menuScale > 0.0f and menuScale != 1.0f)
         {
             float cx = (float)DisplayOptions.DispWidth * 0.5F;
             float cy = (float)DisplayOptions.DispHeight * 0.5F;
             float hw = ((float)mDestRect.right - (float)mDestRect.left) * 0.5F *
-                       g_fVrMenuScale;
+                       menuScale;
             float hh = ((float)mDestRect.bottom - (float)mDestRect.top) * 0.5F *
-                       g_fVrMenuScale;
+                       menuScale;
             drL = cx - hw;
             drR = cx + hw;
             drT = cy - hh;
@@ -670,6 +682,13 @@ void MenuManager::DisplayDraw(void)
             vpT = -(drT - cy) / cy;
             vpB = -(drB - cy) / cy;
         }
+
+        // Only touch the override when it is actually doing something: setting it to 1.0 would
+        // cancel the RTT pass's own text scale for the span of the menu draws.
+        const float savedTextScale = g_fTextScaleOverride;
+
+        if (menuScale > 0.0f and menuScale != 1.0f)
+            g_fTextScaleOverride = menuScale;
 
         // ASSO: disable the radio comms menu border //Cobra 10/31/04 TJL
         if (not g_bDisableCommsBorder)
@@ -766,6 +785,7 @@ void MenuManager::DisplayDraw(void)
         // restore the old viewport
         OTWDriver.renderer->SetViewport(left, top, right, bottom);
         VirtualDisplay::SetFont(oldFont);
+        g_fTextScaleOverride = savedTextScale;
     }
 }
 

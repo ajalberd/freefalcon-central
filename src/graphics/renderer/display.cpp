@@ -958,10 +958,18 @@ int VirtualDisplay::ScreenTextWidth(const char* string)
     // #7: during the RTT pass text is scaled for the enlarged atlas (see vcock g_rttFontScale)
     extern bool g_rttBatchActive;
     extern float g_rttFontScale;
-    if (g_rttBatchActive)
-        width = (int)(width * g_rttFontScale);
+    // Artscout - 2026: a caller can also ask for an arbitrary size for its own draws -- see
+    // g_fTextScaleOverride in render2d.cpp. ScreenText scales the glyph geometry by it, so the
+    // measured width has to follow the same rule or centred text lands off-centre. Mirrors the fS
+    // computation in ScreenText exactly: the override REPLACES the RTT scale rather than stacking.
+    extern float g_fTextScaleOverride;
 
-    return width;
+    float fS = g_rttBatchActive ? g_rttFontScale : 1.0f;
+
+    if (g_fTextScaleOverride > 0.0f)
+        fS = g_fTextScaleOverride;
+
+    return (int)(width * fS);
 #endif
 }
 

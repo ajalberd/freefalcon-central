@@ -38,6 +38,7 @@
 #include "pilotinputs.h"
 #include "sms.h" // MD
 #include "otwdrive.h" //Cobra
+#include "simdrive.h" // Artscout - 2026 (JFS audio): SimDriver, to voice the starter for the player only
 #include "graphics/include/renderow.h"
 
 extern OTWDriverClass OTWDriver; //Cobra
@@ -236,11 +237,15 @@ void AirframeClass::EngineModel(float dt)
         {
             rpmCmd = 0.25f; // JFS should take us up to 25%
             spoolrate = 15.0f;
+            JfsSound(JfsSoundLoop); // Artscout - 2026: re-armed every frame, stops with the flag
             //decrease spin time
             JFSSpinTime -= SimLibMajorFrameTime;
 
             if (JFSSpinTime <= 0)
+            {
                 ClearFlag(JfsStart);
+                JfsSound(JfsSoundEnd); // Artscout - 2026: out of spin time, the starter gives up
+            }
         }
         //TJL 01/18/04 Added parens to correct operator precedence error
         else // engine windmill (compl 12% at 450 knts) (me123 - this works on mine)
@@ -356,7 +361,10 @@ void AirframeClass::EngineModel(float dt)
             thrtb1 = 0.0f;
 
             if (rpm > 0.5f)
+            {
                 ClearFlag(JfsStart);
+                JfsSound(JfsSoundEnd); // Artscout - 2026: the engine lit, the starter drops out
+            }
 
             ftit = Math.FLTust(5.1F * (rpm / 0.7f), ftitrate, dt, oldFtit);
             // sfr: added rampstart fix
@@ -1040,11 +1048,15 @@ void AirframeClass::MultiEngineModel(float dt)
         {
             rpmCmd = 0.25f; // JFS should take us up to 25%
             spoolrate = 15.0f;
+            JfsSound(JfsSoundLoop); // Artscout - 2026: re-armed every frame, stops with the flag
             //decrease spin time
             JFSSpinTime -= SimLibMajorFrameTime;
 
             if (JFSSpinTime <= 0)
+            {
                 ClearFlag(JfsStart);
+                JfsSound(JfsSoundEnd); // Artscout - 2026: out of spin time, the starter gives up
+            }
         }
         else // engine windmill (compl 12% at 450 knts) (me123 - this works on mine)
         {
@@ -1168,7 +1180,10 @@ void AirframeClass::MultiEngineModel(float dt)
             thrtb1 = 0.0f;
 
             if (rpm > 0.5f)
+            {
                 ClearFlag(JfsStart);
+                JfsSound(JfsSoundEnd); // Artscout - 2026: the engine lit, the starter drops out
+            }
 
             ftit = Math.FLTust(5.1F * (rpm / 0.7f), ftitrate, dt, oldFtit);
 
@@ -2247,7 +2262,10 @@ void AirframeClass::JfsEngineStart()
     }
 
     //F4SoundFXSetPos( SFX_VULEND, 0, x, y, z, 1.0f );
-    platform->SoundPos.Sfx(SFX_VULEND); // MLR 5/16/2004 -
+    //platform->SoundPos.Sfx(SFX_VULEND); // MLR 5/16/2004 - replaced by the JFS recordings
+    // Artscout - 2026: this used to play SFX_VULEND -- a Vulcan gun sound -- as the only audible
+    // feedback that the starter had been engaged. It is a real starter recording now.
+    JfsSound(JfsSoundStart);
     jfsaccumulator = 0.0f; // all used up
 
     if (fuel <= 0.0f)
@@ -2273,6 +2291,86 @@ void AirframeClass::JfsEngineStart()
     SetFlag(AirframeClass::JfsStart);
     //MI add in JFS spin time
     JFSSpinTime = 240; //4 minutes available
+}
+
+// Artscout - 2026: JFS starter audio.
+//
+// The starter's whole state machine is in this file -- JfsEngineStart() sets the flag, the two
+// engine models drive rpmCmd to 25% while it is set, and they clear it again on light-up or when
+// the spin time runs out -- so the sound is driven from those same points rather than from a
+// frame-by-frame watcher somewhere else. Three phases, each a pair of recordings: an external
+// one and an in-cockpit one. Which of the pair is heard is decided by the sound system and not
+// here: the "I" entry is stopped whenever the view is outside the pit, and the "E" entry is
+// attenuated while it is inside, so both can be handed over unconditionally. See mlrVoice::Play.
+void AirframeClass::JfsSound(JfsSoundPhase phase)
+{
+    if (not platform)
+        return;
+
+    // Artscout - 2026 (JFS audio): the starter is voiced for the player's own jet only.
+    //
+    // Every AI aircraft on the ramp runs the same preflight (DigitalBrain::PreFlight ->
+    // EngineStart -> JfsEngineStart), and EngineStart sits fifth in the preflight table behind four
+    // one-second steps, so every neighbour lights its starter about five seconds in. The start
+    // recording is ten seconds long, so what arrives in the player's cockpit is a chorus of
+    // identical starter motors -- a hum, not ambience. Neighbours are still carried by their engine
+    // sounds, which is what a ramp is supposed to sound like.
+    if (platform not_eq SimDriver.GetPlayerEntity())
+        return;
+
+    int extID = 0;
+    int intID = 0;
+
+    switch (phase)
+    {
+    case JfsSoundStart:
+        extID = SFX_JFS_START;
+        intID = SFX_JFS_START_INT;
+        break;
+
+    case JfsSoundLoop:
+        // Hold the loop back until the crank recording has finished. The start file is ten
+        // seconds long and both are the same motor, so arming the loop from the switch press just
+        // plays it twice over; if the engine lights before the crank file ends the loop never
+        // plays at all, which is what should happen.
+        if (platform->SoundPos.IsPlaying(SFX_JFS_START) or
+                platform->SoundPos.IsPlaying(SFX_JFS_START_INT))
+            return;
+
+        extID = SFX_JFS_LOOP;
+        intID = SFX_JFS_LOOP_INT;
+        break;
+
+    case JfsSoundEnd:
+        // The starter has stopped, so everything the starter was making has to come down with it.
+        // The loop is re-armed every frame while the flag is set and so never stops on its own, and
+        // the crank recording is ten seconds long while the engine usually lights in two, so it is
+        // still running too. Sfx() on an id that is already playing updates that voice, and -10000
+        // is the table's own "silent" volume.
+        if (platform->SoundPos.IsPlaying(SFX_JFS_START))
+            platform->SoundPos.Sfx(SFX_JFS_START, 0, 1.0f, -10000.0f);
+
+        if (platform->SoundPos.IsPlaying(SFX_JFS_START_INT))
+            platform->SoundPos.Sfx(SFX_JFS_START_INT, 0, 1.0f, -10000.0f);
+
+        if (platform->SoundPos.IsPlaying(SFX_JFS_LOOP))
+            platform->SoundPos.Sfx(SFX_JFS_LOOP, 0, 1.0f, -10000.0f);
+
+        if (platform->SoundPos.IsPlaying(SFX_JFS_LOOP_INT))
+            platform->SoundPos.Sfx(SFX_JFS_LOOP_INT, 0, 1.0f, -10000.0f);
+
+        // Artscout - 2026: and the end recordings are not played at all. This fires at exactly the
+        // moment the starter drops out -- the JfsStart flag is cleared when rpm passes 0.5 -- which
+        // is the one instant the ear is on the engine, and 4.38's F16JfsEnd reads there as a grind
+        // rather than as a starter disengaging. 4.32's is a ten second wind-down, so swapping it in
+        // would make the noise longer rather than better, and at -6 dB it was still the thing you
+        // noticed. The engine's own sound covers the hand-over, which is what the real jet does.
+        // The ids and table entries are left in place in case a better recording turns up.
+        return;
+    }
+
+    platform->SoundPos.Sfx(intID, 0, 1.0f, 0.0f);
+    platform->SoundPos.Sfx(extID, 0, 1.0f, 0.0f);
 }
 
 // JPO start the engine quickly - for deaggregation purposes.
