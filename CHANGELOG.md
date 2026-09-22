@@ -183,6 +183,16 @@ The long‑term goal of the render work, now shipped.
 * **Radio/comms menu size.** The popup menu scales as a whole — box, glyphs and line spacing
   together, because the box and the spacing both fall out of the viewport while a glyph is drawn at
   its font's pixel size. Knob: `MenuScale`; VR keeps its own `VrMenuScale`.
+* **Cockpit switch sounds.** The clickable 3D pit is data-driven — every hotspot names its own sound
+  in `art\ckptart\3dbuttons.dat` — and the F-16's file spread all 282 hotspots over just **five**
+  recordings, so every console switch clicked with the same file. Controls that shared a click now
+  have their own: trim wheel, RWR buttons, seat arming, the guarded switches, the rotary knobs, the
+  battery, alternate gear, IFF, the jettison switch, the push buttons and the ECS. The ids are
+  referenced by number from the `.dat` (289 and up), so no enum name is needed — see the table below.
+* **Canopy loop per direction.** FF6 had a single canopy loop for both opening and closing; BMS ships
+  separate ones. `sndCanopyOpenLoop` / `sndCanopyCloseLoop` default to the two new table entries, so
+  no aircraft file has to change, and `AircraftClass::MoveDof` picks by `canopyState`. The old
+  `sndCanopyLoop` field is kept for compatibility.
 
 ### Sounds these features expect
 
@@ -196,6 +206,8 @@ silent until files are added:
 | 285 / 286 | `jfsloop.wav` / `jfsloopint.wav` | JFS running, external / in‑cockpit |
 | 287 / 288 | `jfsend.wav` / `jfsendint.wav` | JFS spool‑down (ids reserved; nothing plays them yet) |
 | 278 | `engines\fighter\f-16\EngRumbleInt.wav` | second internal engine layer (ships with the data) |
+| 289–302 | `cockpit\*.wav` | cockpit switches, one per control: `altgeardown`, `bat`, `iffmode4monitor`, `jettisonswitch`, `pushbutton`, `rtryknob`, `rwrbutton`, `seatarm`, `toggsafe1`, `toggsafe2`, `trimwheel`, `ecsstart`, `ecsloop`, `ecsend` |
+| 303 / 304 | `canopyopenloop.wav` / `canopycloseloop.wav` | canopy loop while opening / closing |
 
 Table entries use the same twelve tab‑separated columns as every other line of
 `<sound dir>\f4sndtbl.txt`, with the flag letters documented at the top of that file (`E` external,

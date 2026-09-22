@@ -251,6 +251,12 @@ enum SFX_TYPES
     SFX_JFS_LOOP_INT = 286,
     SFX_JFS_END = 287,
     SFX_JFS_END_INT = 288,
+    // Artscout - 2026: canopy loop split. FF6 had one loop for both directions (the ACDATA's
+    // sndCanopyLoop, id 275); BMS 4.38 ships separate open and close loops. Explicit values for
+    // the same reason as the JFS block: they index f4sndtbl.txt directly, and every shipped
+    // table has to carry these two entries in this order.
+    SFX_CANOPY_OPEN_LOOP = 303,
+    SFX_CANOPY_CLOSE_LOOP = 304,
     SFX_LAST // must be the last entry
 };
 

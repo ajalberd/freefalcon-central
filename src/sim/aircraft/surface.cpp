@@ -1252,7 +1252,7 @@ void AircraftClass::MoveSurfaces(void)
                 MoveDof(COMP_CANOPY_DOF, af->auxaeroData->canopyMaxAngle * DTR,
                         af->auxaeroData->canopyRate,
                         af->auxaeroData->sndCanopyOpenStart,
-                        af->auxaeroData->sndCanopyLoop,
+                        af->auxaeroData->sndCanopyOpenLoop,
                         af->auxaeroData->sndCanopyOpenEnd);
                 SetAcStatusBits(ACSTATUS_CANOPY); //2004-03-23 Booster
             }
@@ -1261,7 +1261,7 @@ void AircraftClass::MoveSurfaces(void)
                 // canopy shut
                 MoveDof(COMP_CANOPY_DOF, 0, af->auxaeroData->canopyRate,
                         af->auxaeroData->sndCanopyCloseStart,
-                        af->auxaeroData->sndCanopyLoop,
+                        af->auxaeroData->sndCanopyCloseLoop,
                         af->auxaeroData->sndCanopyCloseEnd);
                 ClearAcStatusBits(ACSTATUS_CANOPY); //2004-03-23 Booster
             }

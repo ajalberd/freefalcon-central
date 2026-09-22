@@ -864,7 +864,7 @@ static const InputDataDesc AuxAeroDataDesc[] = {
     {"sndBBLock", InputDataDesc::ID_INT, OFFSET(sndBBLock), "67"},
     {"sndTouchDown", InputDataDesc::ID_INT, OFFSET(sndTouchDown), "42"},
     {"sndWheelBrakes", InputDataDesc::ID_INT, OFFSET(sndWheelBrakes), "132"},
-    {"sndDragChute", InputDataDesc::ID_INT, OFFSET(sndDragChute), "217"},
+    {"sndDragChute", InputDataDesc::ID_INT, OFFSET(sndDragChute), "218"},
     {"sndLowSpeed", InputDataDesc::ID_INT, OFFSET(sndLowSpeed), "167"},
     {"sndFlapStart", InputDataDesc::ID_INT, OFFSET(sndFlapStart), "145"},
     {"sndFlapLoop", InputDataDesc::ID_INT, OFFSET(sndFlapLoop), "144"},
@@ -889,6 +889,11 @@ static const InputDataDesc AuxAeroDataDesc[] = {
     {"sndCanopyCloseEnd", InputDataDesc::ID_INT, OFFSET(sndCanopyCloseEnd),
      "274"},
     {"sndCanopyLoop", InputDataDesc::ID_INT, OFFSET(sndCanopyLoop), "275"},
+    // Artscout - 2026: loop per direction. The defaults point at the two new table entries, so
+    // existing aircraft files keep working unchanged and either can still be overridden.
+    {"sndCanopyOpenLoop", InputDataDesc::ID_INT, OFFSET(sndCanopyOpenLoop), "303"},
+    {"sndCanopyCloseLoop", InputDataDesc::ID_INT, OFFSET(sndCanopyCloseLoop),
+     "304"},
 
     {"rollLimitForAiInWP", InputDataDesc::ID_FLOAT, OFFSET(rollLimitForAiInWP),
      "180.0"}, // 2002-01-31 ADDED BY S.G. AI limition on roll when in waypoint (or similar) mode
@@ -1408,16 +1413,12 @@ static const InputDataDesc AuxAeroDataDesc[] = {
 //extern float g_fA2GCameraAlt; //TJL 10/27/03 Sets AI BDA/Recon altitude
 //extern float g_fBombMissileAltitude;
 
-// Artscout - 2026: engine sound volume reference curves.
+// Artscout - 2026: repairs to the shipping sound data.
 //
-// Every shipped ACDATA carries a one-point volume chart -- "sndIntChart 1 0 1" and friends -- which
-// is a constant 1.0: full volume at every rpm, including while the starter is cranking the engine
-// over at 25%, where the pitch chart has the loop running at about a third speed. That is what
-// makes a cold start grind, and it is why the in-cockpit engine loop is so loud. The data lives
-// inside Zips\Simdata.zip, and the archive is searched before the loose Zips\sim\ACDATA copies, so
-// rather than rewrite the archive these reference curves -- the ones BMS ships in its own F-16
-// data -- are substituted wherever a chart is still that placeholder. An aircraft carrying a real
-// curve of its own is left alone.
+// The aircraft data lives inside Zips\Simdata.zip and cannot be edited from here, so the two known
+// defects in it are corrected where it is read instead. Both are unconditional data bugs, not
+// tuning: every shipped aircraft carries the flat placeholder volume chart, and 174 of the 181 set
+// the drag chute to the wrong id.
 static void SetSoundChart(LookupTable &chart, const float *pairs, int count)
 {
     chart.pairs = count;
@@ -1435,7 +1436,7 @@ static bool IsPlaceholderSoundChart(const LookupTable &chart)
     return chart.pairs <= 1 and chart.table[0].output >= 0.999f;
 }
 
-static void ApplyEngineSoundReferenceCharts(AuxAeroData *aux)
+static void ApplySoundDataFixes(AuxAeroData *aux)
 {
     static const float intVol[] = {0.0f, 0.0f, 0.6f, 1.0f, 0.7f, 1.0f,
                                    0.94f, 1.0f, 0.97f, 0.8f};
@@ -1487,6 +1488,14 @@ static void ApplyEngineSoundReferenceCharts(AuxAeroData *aux)
 
     if (IsPlaceholderSoundChart(aux->sndAbExtChart))
         SetSoundChart(aux->sndAbExtChart, abExtVol, 4);
+
+    // The drag chute: 174 of the 181 shipped aircraft ask for id 217, which is mikeclick.wav -- the
+    // enum says SFX_DRAGCHUTE = 218 and the table has dragchute.wav there, airframe.h even comments
+    // the field "// SFX_DRAGCHUTE", and BMS's own F-16 data uses 218. So dragging the chute out
+    // plays a microphone click. A mic click is never a legitimate chute sound, so the wrong value is
+    // unambiguous and can simply be redirected.
+    if (aux->sndDragChute == SFX_MIKECLICK)
+        aux->sndDragChute = SFX_DRAGCHUTE;
 }
 
 AuxAeroData *AirframeAuxAeroRead(SimlibFileClass *inputFile)
@@ -1500,7 +1509,7 @@ AuxAeroData *AirframeAuxAeroRead(SimlibFileClass *inputFile)
         //     F4Assert( not "Bad parsing of aux aero data");
     }
 
-    ApplyEngineSoundReferenceCharts(auxaeroData);
+    ApplySoundDataFixes(auxaeroData);
 
     // RV - Biker - That does not work so remove it
     // MLR 2/5/2004 - Load defaults as needed

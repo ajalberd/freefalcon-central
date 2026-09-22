@@ -269,6 +269,11 @@ public:
     int sndCanopyCloseStart;
     int sndCanopyCloseEnd;
     int sndCanopyLoop;
+    // Artscout - 2026: the canopy loop is per direction now. These default to the two new table
+    // entries (SFX_CANOPY_OPEN_LOOP / _CLOSE_LOOP) so no aircraft file has to change, and a
+    // modder can still override either one per aircraft. sndCanopyLoop is kept for compatibility.
+    int sndCanopyOpenLoop;
+    int sndCanopyCloseLoop;
 
 
     float
