@@ -28,6 +28,7 @@
 #include "textids.h"
 #include "teamdata.h"
 #include "classtbl.h"
+#include "graphics/include/fflog.h" // Artscout - 2026: menu viewer camera diagnostic
 // 3D stuff in the UI? No Way
 
 
@@ -167,6 +168,23 @@ void PositionCamera(OBJECTINFO *Info, C_Window *win, long client)
     SetHeading(win);
     gUIViewer->SetCamera(Info->DeltaX, Info->DeltaY, Info->DeltaZ,
                          Info->Heading, -Info->Pitch, 0.0f);
+
+    {
+        extern bool g_bLogMenuViewer;
+
+        if (g_bLogMenuViewer)
+        {
+            char b2[224];
+            sprintf(b2,
+                    "[MENUVIEW] PositionCamera client=%ld Dist=%.1f Head=%.1f Pitch=%.1f "
+                    "MinD=%.1f MaxD=%.1f Delta=(%.1f,%.1f,%.1f)\n",
+                    client, Info->Distance, Info->Heading, Info->Pitch,
+                    Info->MinDistance, Info->MaxDistance, Info->DeltaX,
+                    Info->DeltaY, Info->DeltaZ);
+            FFDebugLog(b2);
+        }
+    }
+
     win->RefreshClient(client);
 }
 

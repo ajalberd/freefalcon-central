@@ -17,6 +17,7 @@
 #include "tacref.h"
 #include "userids.h"
 #include "textids.h"
+#include "graphics/include/fflog.h" // Artscout - 2026: menu viewer camera diagnostic
 //TJL 12/27/03
 #include "sim/include/otwdrive.h"
 //#include "simbase.h"
@@ -160,6 +161,23 @@ void TACREF_PositionCamera(OBJECTINFO *Info, C_Window *win, long client)
 
     TAC_Viewer->SetCamera(Info->DeltaX, Info->DeltaY, Info->DeltaZ,
                           Info->Heading, -Info->Pitch, 0.0f);
+
+    {
+        extern bool g_bLogMenuViewer;
+
+        if (g_bLogMenuViewer)
+        {
+            char b2[224];
+            sprintf(b2,
+                    "[MENUVIEW] TACREF_PositionCamera client=%ld Dist=%.1f Head=%.1f Pitch=%.1f "
+                    "MinD=%.1f MaxD=%.1f Delta=(%.1f,%.1f,%.1f)\n",
+                    client, Info->Distance, Info->Heading, Info->Pitch,
+                    Info->MinDistance, Info->MaxDistance, Info->DeltaX,
+                    Info->DeltaY, Info->DeltaZ);
+            FFDebugLog(b2);
+        }
+    }
+
     win->RefreshClient(client);
 }
 
@@ -684,6 +702,25 @@ static void CustomPosStuff(long GroupID, long SubGroupID, long ModelID,
         TACREF_Object.MinDistance = 20.0f;
         TACREF_Object.MaxDistance = 50.f;
         break;
+    }
+
+    {
+        extern bool g_bLogMenuViewer;
+
+        if (g_bLogMenuViewer)
+        {
+            char b2[224];
+            sprintf(b2,
+                    "[MENUVIEW] CustomPosStuff group=%ld sub=%ld Radius=%.1f "
+                    "Dist=%.1f MinD=%.1f MaxD=%.1f Head=%.1f Pitch=%.1f PosXYZ=(%.1f,%.1f,%.1f)\n",
+                    GroupID, SubGroupID,
+                    Vehicle ? ((DrawableBSP *)Vehicle->object)->Radius() : -1.0f,
+                    TACREF_Object.Distance, TACREF_Object.MinDistance,
+                    TACREF_Object.MaxDistance, TACREF_Object.Heading,
+                    TACREF_Object.Pitch, TACREF_Object.PosX, TACREF_Object.PosY,
+                    TACREF_Object.PosZ);
+            FFDebugLog(b2);
+        }
     }
 }
 

@@ -22,6 +22,7 @@
 extern C_Handler *gMainHandler;
 
 #include "graphics/dxengine/dxvbmanager.h"
+#include "graphics/dxengine/irenderbackend.h" // Artscout - 2026: device viewport for the 3D viewers
 #include "graphics/include/fflog.h" // Artscout - 2026: menu texture diagnostic
 extern bool g_bUse_DX_Engine;
 
@@ -114,6 +115,19 @@ BOOL C_3dViewer::Init3d(float ViewAngle)
     // Need to setup nearest Z up to 10.0 feet to compensate tight FOV angle
     rend3d_->SetFOV(ViewAngle * DTR, 10.0f);
     rend3d_->SetCamera(&currentPos_, &currentRot_);
+
+    {
+        extern bool g_bLogMenuViewer;
+
+        if (g_bLogMenuViewer)
+        {
+            char b2[192];
+            sprintf(b2,
+                    "[MENUVIEW] Init3d ViewAngle=%.2f ltrb=(%.4f,%.4f,%.4f,%.4f)\n",
+                    ViewAngle, l, t, r, b);
+            FFDebugLog(b2);
+        }
+    }
     // rend3d_->SetTerrainTextureLevel( PlayerOptions.TextureLevel() );
     // rend3d_->SetSmoothShadingMode( PlayerOptions.ObjectShadingOn() );
 
@@ -298,6 +312,25 @@ void C_3dViewer::Viewport(C_Window *win, long client)
     t = static_cast<float>(1.0f - ((float)(viewport.top) / (sh * .5)));
     r = static_cast<float>(1.0f - ((float)(sw - viewport.right) / (sw * .5)));
     b = static_cast<float>(-1.0f + ((float)(sh - viewport.bottom) / (sh * .5)));
+
+    // Artscout - 2026: menu viewer camera-framing diagnostic. See g_bLogMenuViewer.
+    {
+        extern bool g_bLogMenuViewer;
+
+        if (g_bLogMenuViewer)
+        {
+            char b2[256];
+            const float pw = (float)(viewport.right - viewport.left);
+            const float ph = (float)(viewport.bottom - viewport.top);
+            sprintf(b2,
+                    "[MENUVIEW] Viewport client=%ld winXY=(%ld,%ld) rect=(%ld,%ld,%ld,%ld) "
+                    "wh=(%.0f,%.0f) aspect=%.3f sw,sh=(%.0f,%.0f) ltrb=(%.4f,%.4f,%.4f,%.4f)\n",
+                    client, win->GetX(), win->GetY(), viewport.left, viewport.top,
+                    viewport.right, viewport.bottom, pw, ph, (ph != 0.0f ? pw / ph : 0.0f),
+                    sw, sh, l, t, r, b);
+            FFDebugLog(b2);
+        }
+    }
 
     if (rend3d_)
         rend3d_->SetViewport(l, t, r, b);
@@ -534,6 +567,85 @@ static void EnsureMenuGpuFrame()
 #endif // _WIN32
 }
 
+// Artscout - 2026: a menu viewer's 3D draw is placed by the DEVICE VIEWPORT, not by the pane pixels
+// the viewer computes -- and that viewport has to be narrowed to the pane by hand.
+//
+// In D3D7 it was narrowed for free: Render2D::SetViewport feeds the pane rect into the MPR scissor
+// state and ContextMPR::UpdateViewport() pushed that into the D3D7 device viewport. The GPU port
+// made UpdateViewport() a no-op, which is correct for the 2D screen path (its vertices are already
+// in target pixels and are mapped by gScreenSize) but NOT for the object path: VS_Object emits
+// centred clip-NDC and is placed by the viewport alone. So with the full-target viewport the model
+// is rendered at the centre of the TARGET -- the middle of the screen, at screen scale -- and the
+// pane stamp then copies the pane rect out of that. What reaches the menu is a cropped slice of a
+// model parked where the camera is not aimed, which is the symptom LogMenuViewer was added to
+// chase. It is also why widening the FOV made things WORSE instead of better: the model shrinks
+// toward the screen centre, away from a pane that is not centred on it.
+//
+// The sensor displays hit the same wall; their answer is VirtualDisplay::
+// ConfineObjectViewportToZone. This is that narrowing for C_3dViewer, whose pane is a UI95 rect.
+// D3D12 applies the rect immediately (viewport + scissor); Vulkan registers it as the RTT zone and
+// its renderer then applies it to the object path while leaving the 2D screen path on the full
+// extent. Either way the object draws land in the pane.
+static void ConfineGpuViewportToPane(const UI95_RECT *vp)
+{
+    extern bool g_bUseGpu;
+    extern IRenderBackend *g_pRenderBackend;
+
+    if (not g_bUseGpu or not g_pRenderBackend or not vp)
+        return;
+
+    const int w = static_cast<int>(vp->right - vp->left);
+    const int h = static_cast<int>(vp->bottom - vp->top);
+
+    if (w < 1 or h < 1)
+        return;
+
+    g_pRenderBackend->SetViewportRect(static_cast<int>(vp->left),
+                                      static_cast<int>(vp->top), w, h);
+
+    // Artscout - 2026: the companion datum to the [MENUVIEW] Viewport line -- that one prints the
+    // pane the viewer COMPUTED, this one the rect the GPU was actually narrowed to for the draw.
+    {
+        extern bool g_bLogMenuViewer;
+
+        if (g_bLogMenuViewer)
+        {
+            char b2[160];
+            sprintf(b2, "[MENUVIEW] pane viewport -> (%d,%d %dx%d) scene=%dx%d\n",
+                    (int)vp->left, (int)vp->top, w, h,
+                    g_pRenderBackend->SceneW(), g_pRenderBackend->SceneH());
+            FFDebugLog(b2);
+        }
+    }
+}
+
+// Undo the above once the 3D draw is recorded: the 2D blit that ends a menu frame draws a
+// fullscreen quad and must not inherit the pane rect. The off-screen route also restores it in
+// FinishFrame's unbind; the back-buffer recon route has nothing to unbind, so do it here for both.
+static void RestoreFullGpuViewport()
+{
+    extern bool g_bUseGpu;
+    extern IRenderBackend *g_pRenderBackend;
+
+    if (not g_bUseGpu or not g_pRenderBackend)
+        return;
+
+    g_pRenderBackend->SetViewportRect(0, 0, g_pRenderBackend->SceneW(),
+                                      g_pRenderBackend->SceneH());
+}
+
+// Artscout - 2026: the recon viewers draw a whole RenderOTW scene, and whether the pane rect may be
+// used for it depends on how the ground is drawn. With the GPU terrain (g_bGpuTerrain, the default)
+// the ground, sky and objects are all object-path, so one pane viewport is right for the lot. With
+// the CPU screen-path rings the ground is already in pane pixels and a pane viewport would move it a
+// second time -- leave the full extent alone there (D3D12; under Vulkan the renderer separates the
+// two paths by itself, the rect is only registered).
+static bool ViewerSceneIsObjectPath()
+{
+    extern bool g_bGpuTerrain;
+    return g_bGpuTerrain;
+}
+
 // Artscout - 2026: pull the viewer's off-screen RTT into the menu's 2D surface. Shared by the model
 // viewer and both recon views -- they used to differ here, which is how recon ended up on a path of
 // its own. 1-frame latent by design (ReadbackRttTo565 converts the PREVIOUS frame's copy and records
@@ -622,6 +734,10 @@ BOOL C_3dViewer::View3d(long ID)
 
             // Initalize the Frame
             rend3d_->context.StartFrame();
+            // Artscout - 2026: StartFrame just bound the RTT, and that bind widens the device
+            // viewport back to the whole target. The model is placed by that viewport, so narrow it
+            // to the viewer's pane again before the draw. See ConfineGpuViewportToPane.
+            ConfineGpuViewportToPane(&viewport);
             // and the 3D display
             rend3d_->StartDraw();
 
@@ -637,6 +753,7 @@ BOOL C_3dViewer::View3d(long ID)
             rend3d_->EndDraw();
             // CLose the Frame
             rend3d_->context.FinishFrame(NULL);
+            RestoreFullGpuViewport();
 
             {
                 extern bool g_bMenuViewerDrawing;
@@ -682,6 +799,12 @@ BOOL C_3dViewer::ViewOTW()
             rendOTW_->context.SetZBuffering(TRUE);
 
         rendOTW_->context.StartFrame();
+        // Artscout - 2026: StartFrame bound the RTT and widened the device viewport to it. The
+        // scene's sky, GPU terrain and objects are all object-path and are placed by that viewport,
+        // so narrow it to the pane. Left alone when the ground is the CPU screen-path rings, which
+        // are already in pane pixels. See ConfineGpuViewportToPane / ViewerSceneIsObjectPath.
+        if (ViewerSceneIsObjectPath())
+            ConfineGpuViewportToPane(&viewport);
         rendOTW_->StartDraw();
         rendOTW_->DrawScene(&zeroPos_, &currentRot_);
 
@@ -690,6 +813,7 @@ BOOL C_3dViewer::ViewOTW()
 
         rendOTW_->EndDraw();
         rendOTW_->context.FinishFrame(NULL);
+        RestoreFullGpuViewport();
         StampRttIntoMenu();
         //JAM
 
@@ -724,12 +848,17 @@ BOOL C_3dViewer::ViewGreyOTW()
         // The loader is loading models
         /* do{*/
         rendOTW_->context.StartFrame();
+        // Artscout - 2026: as in ViewOTW -- the scene is placed by the device viewport, which
+        // StartFrame's RTT bind widened to the whole target. See ConfineGpuViewportToPane.
+        if (ViewerSceneIsObjectPath())
+            ConfineGpuViewportToPane(&viewport);
         rendOTW_->StartDraw();
         rendOTW_->PreLoadScene(&zeroPos_, &currentRot_);
         rendOTW_->DrawScene(&zeroPos_, &currentRot_);
         rendOTW_->context.FlushPolyLists();
         rendOTW_->EndDraw();
         rendOTW_->context.FinishFrame(NULL);
+        RestoreFullGpuViewport();
         // Artscout - 2026: recon's view goes through here, not ViewOTW -- it needs the same
         // read-back into the menu surface or the RTT is rendered and then thrown away.
         StampRttIntoMenu();

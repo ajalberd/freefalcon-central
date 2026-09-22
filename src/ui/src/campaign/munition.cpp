@@ -34,6 +34,7 @@
 #include "railinfo.h"
 #include "sim/include/airframe.h"
 #include "sim/include/simweapn.h"
+#include "graphics/include/fflog.h" // Artscout - 2026: menu viewer camera diagnostic
 
 #pragma warning(disable : 4244)  // for +=
 
@@ -1112,6 +1113,22 @@ void LoadFlight(VU_ID flightID)
 
             Object.PosX = 0;
             Object.PosY = 0;
+
+            {
+                extern bool g_bLogMenuViewer;
+
+                if (g_bLogMenuViewer)
+                {
+                    char b2[192];
+                    sprintf(b2,
+                            "[MENUVIEW] SetupLoadoutDisplay Radius=%.1f Dist=%.1f "
+                            "MinD=%.1f MaxD=%.1f Head=%.1f Pitch=%.1f\n",
+                            ((DrawableBSP *)obj->object)->Radius(),
+                            Object.Distance, Object.MinDistance,
+                            Object.MaxDistance, Object.Heading, Object.Pitch);
+                    FFDebugLog(b2);
+                }
+            }
         }
 
         PositandOrientSetData(Object.PosX, Object.PosY, Object.PosZ, 0.0f, 0.0f,
