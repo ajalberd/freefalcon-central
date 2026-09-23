@@ -2359,32 +2359,15 @@ void AirframeClass::JfsSound(JfsSoundPhase phase)
         break;
 
     case JfsSoundEnd:
-        // The starter has stopped, so everything the starter was making has to come down with it.
-        // The loop is re-armed every frame while the flag is set and so never stops on its own, and
-        // the crank recording is ten seconds long while the engine usually lights in two, so it is
-        // still running too. Sfx() on an id that is already playing updates that voice, and -10000
-        // is the table's own "silent" volume.
-        if (platform->SoundPos.IsPlaying(SFX_JFS_START))
-            platform->SoundPos.Sfx(SFX_JFS_START, 0, 1.0f, -10000.0f);
-
-        if (platform->SoundPos.IsPlaying(SFX_JFS_START_INT))
-            platform->SoundPos.Sfx(SFX_JFS_START_INT, 0, 1.0f, -10000.0f);
-
-        if (platform->SoundPos.IsPlaying(SFX_JFS_LOOP))
-            platform->SoundPos.Sfx(SFX_JFS_LOOP, 0, 1.0f, -10000.0f);
-
-        if (platform->SoundPos.IsPlaying(SFX_JFS_LOOP_INT))
-            platform->SoundPos.Sfx(SFX_JFS_LOOP_INT, 0, 1.0f, -10000.0f);
-
-        // Artscout - 2026: and the end recordings stay silent, which is where they started. They
-        // were switched on to fill the hand-over, but 4.38's F16JfsEnd reads there as a grind rather
-        // than as a starter disengaging -- the same conclusion the original notes reached, and the
-        // ear confirms it. The hand-over is better filled by the loop still running and the engine
-        // arriving on top of it.
+        // The starter has stopped. Nothing is silenced here on purpose.
         //
-        // Note the external half of each pair never mattered: sndExternalVol is -2000, so only the
-        // cockpit take is audible in the pit. That also means the "collision" of the two takes
-        // cannot be what the starter sounds like.
+        // The crank is a one-shot and plays out on its own; the loop is a looped sound, so the sound
+        // system stops it as soon as this phase stops re-arming it. Silencing them explicitly was
+        // what cut the starter off part way through the crank -- and it also masked the fact that
+        // the loop was never armed at all, because the silence looked like the hand-over.
+        //
+        // The end recordings stay unused: 4.38's F16JfsEnd reads as a grind at this instant, which
+        // is what the original notes said and what the ear confirmed.
         return;
     }
 
