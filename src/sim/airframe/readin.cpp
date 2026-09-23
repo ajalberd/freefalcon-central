@@ -1436,6 +1436,25 @@ static bool IsPlaceholderSoundChart(const LookupTable &chart)
     return chart.pairs <= 1 and chart.table[0].output >= 0.999f;
 }
 
+// The shipped pitch chart is a straight line from 0 at rpm 0 to 1.47 at full, so the engine loop
+// runs at a third of its speed while the starter cranks. A turbine loop dragged down that far is a
+// grind, which is what a cold start sounds like.
+static bool IsPlaceholderPitchChart(const LookupTable &chart)
+{
+    if (chart.pairs not_eq 2)
+        return false;
+
+    return chart.table[0].input < 0.01f and chart.table[0].output < 0.01f and
+           chart.table[1].input > 1.02f and chart.table[1].input < 1.04f;
+}
+
+// The same line floored at 0.6: the top end is exactly what it was, the crank no longer rumbles.
+static void FloorPitchChart(LookupTable &chart)
+{
+    static const float pitch[] = {0.0f, 0.6f, 1.03f, 1.47f};
+    SetSoundChart(chart, pitch, 2);
+}
+
 static void ApplySoundDataFixes(AuxAeroData *aux)
 {
     static const float intVol[] = {0.0f, 0.0f, 0.6f, 1.0f, 0.7f, 1.0f,
@@ -1488,6 +1507,31 @@ static void ApplySoundDataFixes(AuxAeroData *aux)
 
     if (IsPlaceholderSoundChart(aux->sndAbExtChart))
         SetSoundChart(aux->sndAbExtChart, abExtVol, 4);
+
+    // Artscout - 2026: the pitch charts are still FF6's placeholder, and nothing had ever replaced
+    // them because the volume charts were the obvious problem. A straight line from 0 at rpm 0 to
+    // 1.47 at full plays the engine loop at a third of its speed while the starter cranks, and that
+    // is the "cold start grinds" this file's notes already describe -- worst just as the volume
+    // curve brings the engine up, which is the hand-over. Flooring the line at 0.6 keeps the top end
+    // exactly as it was and takes the rumble out of the crank. Aircraft with a pitch chart of their
+    // own are left alone, the same rule the volume charts follow.
+    if (IsPlaceholderPitchChart(aux->sndIntPitchChart))
+        FloorPitchChart(aux->sndIntPitchChart);
+
+    if (IsPlaceholderPitchChart(aux->sndAbIntPitchChart))
+        FloorPitchChart(aux->sndAbIntPitchChart);
+
+    if (IsPlaceholderPitchChart(aux->sndInt2PitchChart))
+        FloorPitchChart(aux->sndInt2PitchChart);
+
+    if (IsPlaceholderPitchChart(aux->sndExtPitchChart))
+        FloorPitchChart(aux->sndExtPitchChart);
+
+    if (IsPlaceholderPitchChart(aux->sndAbExtPitchChart))
+        FloorPitchChart(aux->sndAbExtPitchChart);
+
+    if (IsPlaceholderPitchChart(aux->sndExt2PitchChart))
+        FloorPitchChart(aux->sndExt2PitchChart);
 
     // The drag chute: 174 of the 181 shipped aircraft ask for id 217, which is mikeclick.wav -- the
     // enum says SFX_DRAGCHUTE = 218 and the table has dragchute.wav there, airframe.h even comments
