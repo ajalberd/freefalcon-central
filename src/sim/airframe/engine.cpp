@@ -363,7 +363,10 @@ void AirframeClass::EngineModel(float dt)
             // Artscout - 2026: hold the starter in to 60% rather than 50%. At the light-up spool
             // rate that is roughly a second more of cranking before the engine takes over, which is
             // also what keeps the starter recording going instead of cutting out early.
-            if (rpm > 0.6f)
+            //
+            // The flag test matters: this branch stays true for the whole spool from 60% up to idle,
+            // so without it the end phase is called on every frame.
+            if (rpm > 0.6f and IsSet(JfsStart))
             {
                 ClearFlag(JfsStart);
                 JfsSound(JfsSoundEnd); // Artscout - 2026: the engine lit, the starter drops out
@@ -1185,7 +1188,10 @@ void AirframeClass::MultiEngineModel(float dt)
             // Artscout - 2026: hold the starter in to 60% rather than 50%. At the light-up spool
             // rate that is roughly a second more of cranking before the engine takes over, which is
             // also what keeps the starter recording going instead of cutting out early.
-            if (rpm > 0.6f)
+            //
+            // The flag test matters: this branch stays true for the whole spool from 60% up to idle,
+            // so without it the end phase is called on every frame.
+            if (rpm > 0.6f and IsSet(JfsStart))
             {
                 ClearFlag(JfsStart);
                 JfsSound(JfsSoundEnd); // Artscout - 2026: the engine lit, the starter drops out
@@ -1722,7 +1728,7 @@ void AirframeClass::MultiEngineModel(float dt)
             spoolrate2 = auxaeroData->lightupSpoolRate;
             thrtb2 = 0.0f;
 
-            if (rpm2 > 0.6f) // Artscout - 2026: same 60% hand-over as the first engine
+            if (rpm2 > 0.6f and IsSet(JfsStart)) // Artscout - 2026: same 60% hand-over as the first engine
                 ClearFlag(JfsStart);
 
             ftit2 = Math.FLTust(5.1F * (rpm2 / 0.7f), ftitrate, dt, oldFtit2);
@@ -2365,13 +2371,15 @@ void AirframeClass::JfsSound(JfsSoundPhase phase)
         if (platform->SoundPos.IsPlaying(SFX_JFS_LOOP_INT))
             platform->SoundPos.Sfx(SFX_JFS_LOOP_INT, 0, 1.0f, -10000.0f);
 
-        // Artscout - 2026: and play the end recordings -- the starter disengaging. They were left
-        // silent at first, because 4.38's F16JfsEnd read as a grind at the one instant the ear is on
-        // the engine. But with nothing there the hand-over to the engine was a hole in the sound, so
-        // it is worth hearing again now that the whole JFS set sits 6 dB lower. The crank and loop
-        // have been silenced just above, so this is the only starter noise left.
-        platform->SoundPos.Sfx(SFX_JFS_END_INT, 0, 1.0f, 0.0f);
-        platform->SoundPos.Sfx(SFX_JFS_END, 0, 1.0f, 0.0f);
+        // Artscout - 2026: and the end recordings stay silent, which is where they started. They
+        // were switched on to fill the hand-over, but 4.38's F16JfsEnd reads there as a grind rather
+        // than as a starter disengaging -- the same conclusion the original notes reached, and the
+        // ear confirms it. The hand-over is better filled by the loop still running and the engine
+        // arriving on top of it.
+        //
+        // Note the external half of each pair never mattered: sndExternalVol is -2000, so only the
+        // cockpit take is audible in the pit. That also means the "collision" of the two takes
+        // cannot be what the starter sounds like.
         return;
     }
 
