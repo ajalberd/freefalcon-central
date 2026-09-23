@@ -2338,15 +2338,20 @@ void AirframeClass::JfsSound(JfsSoundPhase phase)
     case JfsSoundStart:
         extID = SFX_JFS_START;
         intID = SFX_JFS_START_INT;
+        JfsSoundElapsed = 0.0f; // Artscout - 2026: the crank recording starts now
         break;
 
     case JfsSoundLoop:
-        // Hold the loop back until the crank recording has finished. The start file is ten
-        // seconds long and both are the same motor, so arming the loop from the switch press just
-        // plays it twice over; if the engine lights before the crank file ends the loop never
-        // plays at all, which is what should happen.
-        if (platform->SoundPos.IsPlaying(SFX_JFS_START) or
-                platform->SoundPos.IsPlaying(SFX_JFS_START_INT))
+        // Hold the loop back until the crank recording has finished. The start file is ten seconds
+        // long and both are the same motor, so arming the loop from the switch press just plays it
+        // twice over.
+        //
+        // By time, not by IsPlaying() on the crank. That test never went false for this sound, so
+        // the loop was never armed at all -- which is the dead air between the end of the crank
+        // recording and the hand-over. The recording is 10 s, so give it 9.5.
+        JfsSoundElapsed += SimLibMajorFrameTime;
+
+        if (JfsSoundElapsed < 9.5f)
             return;
 
         extID = SFX_JFS_LOOP;

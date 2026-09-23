@@ -253,6 +253,7 @@ AirframeClass::AirframeClass(AircraftClass* self)
     HomeFuel = 0;
     //MI JFS spin time
     JFSSpinTime = 240; //4 minutes available
+    JfsSoundElapsed = 0.0f; // Artscout - 2026: starter sound clock
     dragChute = DRAGC_STOWED;
     canopyState = false;
     nozzlePos = 0;

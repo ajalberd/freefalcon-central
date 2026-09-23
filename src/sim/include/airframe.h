@@ -1484,6 +1484,10 @@ public:
 
     float jfsaccumulator;
     float JFSSpinTime; //MI
+    // Artscout - 2026: how long the starter has been sounding. The loop cannot be gated on
+    // IsPlaying() of the crank recording -- that never reports as finished for this sound, which
+    // left the loop permanently unarmed and the whole middle of the start silent.
+    float JfsSoundElapsed;
     void JfsEngineStart(void);
 
     // Artscout - 2026: JFS starter audio. The starter's state machine is in this class -- the
