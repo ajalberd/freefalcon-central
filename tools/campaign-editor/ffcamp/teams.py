@@ -46,6 +46,9 @@ def _head(b, off):
     return {
         "who": who, "cteam": cteam,
         "flags": struct.unpack_from("<h", b, off + 12)[0],
+        # RelType (campaign/include/cmpglobl.h): 0 none, 1 allied,
+        # 2 friendly, 3 neutral, 4 hostile, 5 war.
+        "stance": list(struct.unpack_from("<8h", b, off + 22)),
         "experience": {"air": exp[0], "airDefense": exp[1], "ground": exp[2],
                        "naval": exp[3]},
         "initiative": initiative,

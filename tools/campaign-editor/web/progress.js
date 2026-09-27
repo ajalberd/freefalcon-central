@@ -176,10 +176,42 @@ async function progressPanel(file) {
     return wrap;
   }
 
-  wrap.appendChild(el('div', {class: 'pg-teams'},
-                      d.teams.map(t => teamCard(t, d.labels))));
+  // Enemies side by side: each warring team, then whoever it is at war with,
+  // so Korea reads ROK | DPRK. Teams at war with nobody are hidden unless
+  // asked for -- China and the CIS are in the file, neutral, untouched.
+  const byTeam = new Map(d.teams.map(t => [t.team, t]));
+  const ordered = [];
+  for (const t of d.teams) {
+    if (!t.atWarWith.length || ordered.includes(t)) continue;
+    ordered.push(t);
+    for (const e of t.atWarWith) {
+      const o = byTeam.get(e);
+      if (o && !ordered.includes(o)) ordered.push(o);
+    }
+  }
+  const idle = d.teams.filter(t => !t.atWarWith.length);
+  let showIdle = false;
+  try { showIdle = localStorage.getItem('ffcamp.progress.idle') === '1'; }
+  catch (e) { /* no storage: default off */ }
+  const visible = showIdle ? ordered.concat(idle) : ordered;
 
-  const teams = d.teams.map(t => ({team: t.team, name: t.name}));
+  if (idle.length) {
+    wrap.appendChild(el('label', {class: 'chk pg-idle'}, [
+      el('input', {type: 'checkbox', checked: showIdle, onchange: e => {
+        try { localStorage.setItem('ffcamp.progress.idle',
+                                   e.target.checked ? '1' : '0'); }
+        catch (err) { /* ignore */ }
+        drawView();
+      }}),
+      el('span', {text: 'Show teams not at war (' +
+                        idle.map(t => t.name).join(', ') + ')'}),
+    ]));
+  }
+
+  wrap.appendChild(el('div', {class: 'pg-teams'},
+                      visible.map(t => teamCard(t, d.labels))));
+
+  const teams = visible.map(t => ({team: t.team, name: t.name}));
   wrap.appendChild(el('div', {class: 'panel'}, [
     el('header', {}, [el('h3', {text: 'Over the campaign'}),
       el('span', {class: 'legend-inline'}, teams.map(t =>

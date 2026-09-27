@@ -618,6 +618,136 @@ def api_weather_edit(_q, body):
     return {"ok": True}
 
 
+# --- what fits on which aircraft ----------------------------------------------
+#
+# The loadout screen offers, per hardpoint, what the aircraft's vehicle class
+# lists (FALCON4.VCD Weapon/Weapons): either one weapon and how many, or -- when
+# the count is 255 -- a row of the weapon-list table naming several, each with
+# its own quantity. That is per jet. It has nothing to do with the squadron
+# stores maximum, which is how much of a weapon a squadron keeps on the shelf.
+
+def _aircraft_rows(ws):
+    """Every vehicle class that a squadron class flies, once each."""
+    rows = ws.db.class_rows()
+    utbl = ws.db.table("unit")
+    names = ws.db.name_index()
+    seen = {}
+    for ci, ent in enumerate(rows):
+        info = ent["classInfo_"]
+        entry = entities.DISPATCH.get(info[entities.VU_DOMAIN], {}).get(
+            info[entities.VU_TYPE])
+        if not entry or entry[0] != "squadron" or not utbl:
+            continue
+        ptr = ent["dataPtr"]
+        if not (0 <= ptr < len(utbl.rows)):
+            continue
+        vci = utbl.rows[ptr]["VehicleType"][0]
+        if not vci or vci in seen or not (0 <= vci < len(rows)):
+            continue
+        # Some squadron classes point at ground vehicles (a 2S6, an AK47):
+        # placeholders, not aircraft. DOMAIN_AIR is 2.
+        if rows[vci]["classInfo_"][entities.VU_DOMAIN] != 2:
+            continue
+        _t, vrow = ws.db.data_row(vci)
+        if vrow and "Weapon" in vrow:
+            seen[vci] = (vrow, names.get(vci, "") or vrow.get("Name", "").strip())
+    return seen
+
+
+def aircraft_hardpoints(ws, vrow):
+    wl = ws.db.table("weaponlist")
+    wcd = ws.db.table("weapon")
+    wname = lambda i: ((wcd.rows[i].get("Name") or "").strip()
+                       if wcd and 0 <= i < len(wcd.rows) else "weapon %d" % i)
+    out = []
+    for hp in range(len(vrow["Weapon"])):
+        w, n = vrow["Weapon"][hp], vrow["Weapons"][hp]
+        if not w or not n:
+            continue
+        options = []
+        if n == 255:
+            if wl is not None and 0 <= w < len(wl.rows):
+                lr = wl.rows[w]
+                for wid, qty in zip(lr["WeaponID"], lr["Quantity"]):
+                    if wid and wname(wid).upper() != "NO WEAPON":
+                        options.append({"index": wid, "name": wname(wid),
+                                        "qty": qty})
+        elif wname(w).upper() != "NO WEAPON":
+            options.append({"index": w, "name": wname(w), "qty": n})
+        if not options:
+            continue
+        out.append({"hardpoint": hp, "gun": hp == 0, "options": options})
+    return out
+
+
+def _aircraft_in_campaign(ws, name):
+    """Squadrons and airframes per aircraft class in one campaign file.
+
+    A squadron's aircraft class is its unit class's first vehicle type; its
+    airframes are what its roster still holds (two bits a slot, as for any
+    unit -- what GetTotalVehicles counts).
+    """
+    out = {}
+    if not name:
+        return out
+    cam = ws.units(name)
+    rows = ws.db.class_rows()
+    utbl = ws.db.table("unit")
+    teams = [t["name"] for t in (cam.header.teams if cam.header else [])]
+    for u in cam.units:
+        if u["kind"] != "squadron" or not utbl:
+            continue
+        ptr = rows[u["classIndex"]]["dataPtr"]
+        if not (0 <= ptr < len(utbl.rows)):
+            continue
+        vci = utbl.rows[ptr]["VehicleType"][0]
+        r = u.get("roster", 0)
+        have = sum((r >> (2 * i)) & 3 for i in range(16))
+        rec = out.setdefault(vci, {"squadrons": 0, "aircraft": 0, "teams": {}})
+        rec["squadrons"] += 1
+        rec["aircraft"] += have
+        tname = teams[u["owner"]] if u["owner"] < len(teams) else             "team %d" % u["owner"]
+        t = rec["teams"].setdefault(tname, {"squadrons": 0, "aircraft": 0})
+        t["squadrons"] += 1
+        t["aircraft"] += have
+    return out
+
+
+def api_aircraft(q, _body):
+    ws = _ws(q)
+    name = (q.get("file") or [""])[0]
+    try:
+        flying = _aircraft_in_campaign(ws, name)
+        flying_error = None
+    except Exception as exc:          # a broken unit stream: list still useful
+        flying, flying_error = {}, str(exc)
+    out = []
+    for vci, (vrow, acname) in sorted(_aircraft_rows(ws).items(),
+                                      key=lambda kv: kv[1][1].lower()):
+        hps = aircraft_hardpoints(ws, vrow)
+        weapons = {}
+        for h in hps:
+            for o in h["options"]:
+                w = weapons.setdefault(o["index"], {"index": o["index"],
+                                                    "name": o["name"],
+                                                    "hardpoints": [], "max": 0})
+                w["hardpoints"].append(h["hardpoint"])
+        # How many one jet can take in total: each hardpoint's best quantity.
+        for w in weapons.values():
+            w["max"] = sum(max((o["qty"] for o in h["options"]
+                                if o["index"] == w["index"]), default=0)
+                           for h in hps)
+        inuse = flying.get(vci, {"squadrons": 0, "aircraft": 0, "teams": {}})
+        out.append({"vehicle": vci, "name": acname,
+                    "squadrons": inuse["squadrons"],
+                    "inService": inuse["aircraft"],
+                    "teams": inuse["teams"],
+                    "hardpoints": hps,
+                    "weapons": sorted(weapons.values(),
+                                      key=lambda w: w["name"].lower())})
+    return {"aircraft": out, "file": name, "flyingError": flying_error}
+
+
 # --- campaign progress ------------------------------------------------------
 #
 # Each team's own war statistics, from the .tea member (ffcamp/teams.py):
@@ -650,6 +780,7 @@ def _team_rows(cam):
             "supplyAvail": t["supplyAvail"], "fuelAvail": t["fuelAvail"],
             "replacementsAvail": t["replacementsAvail"],
             "experience": t["experience"],
+            "stance": t["stance"],
         })
     return out
 
@@ -710,6 +841,12 @@ def api_progress(q, _body):
         units_error = None
     except Exception as exc:          # a broken unit stream still has stats
         units, held, units_error = {}, {}, str(exc)
+    # Who is actually fighting: a team at war (stance 5) with another team in
+    # this war. The rest -- China and the CIS in Korea -- are here but neutral.
+    present = {t["team"] for t in snap}
+    for t in snap:
+        t["atWarWith"] = [o for o in present if o != t["team"] and
+                          o < len(t["stance"]) and t["stance"][o] == 5]
     for t in snap:
         t["units"] = units.get(t["team"])
         t["held"] = held.get(t["team"], {})
@@ -832,6 +969,34 @@ def unit_health(u, drow):
     return min(100, round(100 * have / full))
 
 
+def naval_state(u, objs, nametab, names):
+    """What a task force is doing, the way TaskForceClass::MoveUnit decides.
+
+    In port means the nearest objective within 1 km is a port, and then with
+    no waypoints it stays put. At sea with no waypoints it patrols 20 km
+    north and back for ever. With waypoints it follows them. The campaign AI
+    never gives a ship waypoints (NavalTaskingManagerClass::Task is empty).
+    """
+    best, bd = None, 1.0001
+    for o in objs:
+        d = ((o["x"] - u["x"]) ** 2 + (o["y"] - u["y"]) ** 2) ** 0.5
+        if d <= bd:
+            best, bd = o, d
+    wp = u.get("waypoints", [])
+    # MoveUnit's own patrol is three waypoints all flagged WPF_REPEAT (0x40):
+    # that is "patrolling", not a route anyone gave it.
+    patrol = bool(wp) and all(w["flags"] & 0x40 for w in wp)
+    in_port = bool(best and best["typeName"] == "Port")
+    if in_port and not wp:
+        state = "In port at " + (place_name(nametab, names, best) or "a port")
+    elif not wp or patrol:
+        state = "At sea, patrolling"
+    else:
+        state = "Sailing: %d waypoint%s" % (len(wp), "" if len(wp) == 1 else "s")
+    return {"inPort": in_port, "patrol": patrol, "waypoints": len(wp),
+            "state": state}
+
+
 def api_map(q, _body):
     ws = _ws(q)
     name = (q.get("file") or [""])[0]
@@ -902,6 +1067,9 @@ def api_map(q, _body):
         health = unit_health(u, drow)
         if health is not None:
             entry["health"] = health
+
+        if kind == "taskforce":
+            entry["naval"] = naval_state(u, cam.objectives, nametab, names)
 
         if kind == "squadron":
             srec = header_by_vuid.get(tuple(u.get("id") or (0, 0)))
@@ -1394,7 +1562,11 @@ def squadron_stores(ws, unit, drow, show_all=False):
             # On the aircraft's hardpoints: the loadout screen lists it.
             "loadable": i in loadable,
             # Listed there, and OUT for good until the maximum is raised.
-            "locked": i in loadable and not cap and not forever,
+            "locked": i in loadable and not cap and not forever and not count,
+            # Max 0 but stock on the shelf: GetAvailableStores returns the raw
+            # stock then, so it can be loaded until it runs out -- and never
+            # comes back, because resupply skips a 0 maximum.
+            "stockOnly": i in loadable and not cap and not forever and bool(count),
             # The engine's own 0..4, so the editor colours the way the game does.
             "avail": 4 if forever else ((count * 4) // cap if cap else 0),
         })
@@ -1571,6 +1743,11 @@ def api_unit_stores(_q, body):
         # down with the ceiling rather than leaving the file inconsistent.
         if cap and u["stores"][index] > cap:
             raw = entities.patch_stores(raw, u, index, cap)
+        elif not cap and u["stores"][index]:
+            # With a maximum of 0 the engine reports the raw stock as the
+            # availability, so stock left behind would still arm the jet;
+            # switching a weapon off has to take the stock away too.
+            raw = entities.patch_stores(raw, u, index, 0)
         elif cap and body.get("fill"):
             # Enabling a weapon: stock it now rather than waiting for the
             # next supply run, or it still reads OUT on the loadout screen.
@@ -2481,6 +2658,7 @@ ROUTES_GET = {
     "/api/triggers": api_triggers,
     "/api/weather": api_weather,
     "/api/progress": api_progress,
+    "/api/aircraft": api_aircraft,
 }
 
 ROUTES_POST = {

@@ -1807,8 +1807,12 @@ function storesPanel(file, info) {
 
   box.appendChild(el('h4', {text: 'Stores'}));
   box.appendChild(el('p', {class: 'note', text:
-    st.shown + ' of ' + st.length + ' weapon slots. Count is this squadron; '
-    + 'max comes from stores row ' + st.specialIndex + ', shared by '
+    'These are the squadron\u2019s shelves, not one jet\u2019s pylons: Stock '
+    + 'is how much of each weapon it holds (in supply units), and resupply '
+    + 'tops it up to the second number. What one aircraft can carry is on the '
+    + 'Aircraft tab. ' + st.shown + ' of ' + st.length + ' weapon slots '
+    + 'shown; the resupply level comes from stores row ' + st.specialIndex
+    + ', shared by '
     + st.sharedWith + ' squadron ' + (st.sharedWith === 1 ? 'class' : 'classes')
     + ' in every campaign of this theater.'}));
 
@@ -1926,7 +1930,10 @@ function storesPanel(file, info) {
                                 : '')}, [
           r.name,
           r.locked ? el('span', {class: 'st-tag', text: 'OUT \u00b7 locked'})
-                   : null]),
+          : r.stockOnly ? el('span', {class: 'st-tag warn', title:
+              'Resupply level is 0, so none is ever added, but the stock '
+              + 'still on the shelf can be loaded until it runs out.',
+              text: 'no resupply'}) : null]),
         el('td', {}, cnt),
         el('td', {}, r.infinite ? el('span', {class: 'hint', text: 'inf'}) : cap),
         el('td', {}, el('span', {class: 'st-bar av' + r.avail,
@@ -1937,7 +1944,7 @@ function storesPanel(file, info) {
   refill();
 
   box.appendChild(el('table', {class: 'data stores'}, [
-    el('thead', {}, el('tr', {}, ['', 'Weapon', 'Count', 'Max', ''].map(
+    el('thead', {}, el('tr', {}, ['', 'Weapon', 'Stock', 'Resupply to', ''].map(
       h => el('th', {text: h})))),
     body,
   ]));

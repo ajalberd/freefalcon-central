@@ -1338,3 +1338,23 @@ tr.mine .tag { margin-left: 8px; }
 .pg-grid { stroke: var(--line); stroke-width: 1; }
 .pg-axis { fill: var(--ink-faint); font-size: 10px; }
 .legend-inline { font-size: 12px; color: var(--ink-dim); }
+
+.st-tag.warn { color: var(--warn); border-color: #5a4320; }
+.pg-idle { margin: 0 0 12px; }
+/* --- aircraft ------------------------------------------------------------ */
+.ac-wrap { display: grid; grid-template-columns: 260px 1fr; gap: 14px; }
+.ac-list { max-height: calc(100vh - 290px); overflow: auto; border: 1px solid var(--line);
+  border-radius: var(--radius-sm); }
+.ac-item { padding: 5px 10px; cursor: pointer; font-size: 13px; display: flex;
+  justify-content: space-between; gap: 8px; }
+.ac-item:hover { background: rgba(77,163,255,.08); }
+.ac-item.on { background: rgba(77,163,255,.16); box-shadow: inset 3px 0 0 var(--accent); }
+.ac-item .hint { font-size: 11px; }
+.ac-hp td { vertical-align: top; }
+.ac-opts { display: flex; flex-wrap: wrap; gap: 4px; }
+.ac-opt { font-size: 12px; border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
+.ac-opt.hit { border-color: var(--accent); background: rgba(77,163,255,.14); }
+.ac-search { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.ac-idle { color: var(--ink-faint); }
+.ac-bar { display: flex; align-items: baseline; gap: 16px; margin: -2px 0 12px; flex-wrap: wrap; }
+.ac-service { font-weight: 600; margin: 0 0 10px; }

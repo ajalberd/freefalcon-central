@@ -192,6 +192,7 @@ const FILE_TABS = [
   {id: 'victory', label: 'Victory'},
   {id: 'weather', label: 'Weather'},
   {id: 'progress', label: 'Progress'},
+  {id: 'aircraft', label: 'Aircraft'},
   {id: 'members', label: 'File contents'},
 ];
 
@@ -336,6 +337,7 @@ async function drawView() {
   else if (S.tab === 'victory') node = await victoryPanel(S.file);
   else if (S.tab === 'weather') node = await weatherPanel(S.file);
   else if (S.tab === 'progress') node = await progressPanel(S.file);
+  else if (S.tab === 'aircraft') node = await aircraftPanel();
   else if (S.tab === 'members') node = await membersPanel(S.file);
 
   if (!node) return;
@@ -1117,6 +1119,7 @@ async function unitsPanel(file) {
       filter: 'number', cell: u => el('td', {}, meter(u.morale))},
     {key: 'fatigue', label: 'Fatigue', value: u => orNone(u.fatigue),
       filter: 'number', cell: u => el('td', {}, meter(u.fatigue, true))},
+    {key: 'status', label: 'Status', value: u => (u.naval ? u.naval.state : '')},
     {key: 'elements', label: 'Elements', value: u => makeupText(u.makeup),
       cell: u => el('td', {class: 'makeup', text: makeupText(u.makeup)})},
     {key: 'patch', label: 'Patch', filter: false, sort: false,

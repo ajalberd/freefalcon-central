@@ -44,6 +44,37 @@ here.**
   on every replay. One save held 3 battalions about 43,000 times each and wrapped the 16-bit
   unit count (131,595 → 523), so it would not load. `EncodeUnitData` now also writes each
   unit once. `tools/campaign-editor/repair_units.py` fixes a save written before the fix.
+- **Ships have no AI -- next candidate.** Written from the code, not flown:
+  - *Movement* (`TaskForceClass::MoveUnit`, `campaign/camptask/navunit.cpp:476`): in port
+    (the nearest objective within 1 km is a `Port`) with no waypoints, a ship sits still for
+    ever. At sea with no waypoints, it makes itself three `WPF_REPEAT` waypoints, 20 km north
+    and back (if that point is water), and patrols them for ever. With waypoints, it follows
+    them, turning 45 degrees at most per step. **Nothing gives ships waypoints**:
+    `NavalTaskingManagerClass::Task` (`ntm.cpp:111`) is an empty `return 0`, and the campaign
+    UI has no route editing (clicking a task force opens its target list). So no ship ever
+    enters or leaves port.
+  - *Combat*: aggregated, the same dice combat as the ground war. `ChooseTarget` takes any
+    enemy (ROE ground fire) within detection range, ship or ground unit, plus aircraft in the
+    air. So ships fight each other only if a scenario starts them within range. Ship-vs-ship
+    in the 3D world is unchecked.
+  - *What the scenarios hold* (the editor's Units tab now has a Status column): Tiger Spirit
+    (`save0`) has 15 in port (13 DPRK at their naval bases, 2 ROK) and 43 at sea. Rolling Fire
+    (`save1`) has 1 in port (PRC, Namp'o) and 51 at sea. Iron Fortress is unchecked.
+  - *A rudimentary AI, in `NavalTaskingManagerClass::Task`*, roughly in order of payoff:
+    1. Return to the nearest friendly port when damaged or low on supply; sortie when repaired.
+       First check whether being in port repairs or resupplies anything at all.
+    2. Patrol boxes between friendly ports and the front's coastline instead of 20 km north.
+    3. Engage: route toward a detected enemy task force within some range, then home again.
+    4. Carrier groups hold a station off a friendly coast.
+    5. Later: shore bombardment for a coastal ground offensive, and supply convoys between
+       friendly ports.
+    Precondition for all of it: a water-only route. MoveUnit heads straight for the next
+    waypoint one grid square at a time. Each step is timed by `GetUnitMovementCost` (via
+    `TimeToMove`, `campupd/update.cpp:678`), which should price land out for a ship, so a
+    straight line that meets the coast stalls there rather than crossing it (unverified in
+    game). Routes therefore need an A* over water squares. The cheap first experiment:
+    let the editor write task force waypoints (it already decodes them) and watch how a ship
+    follows a hand-made route.
 - **TODO: build the JSOW the way BMS 4.32/4.38 has it.** The data rows exist in Korea's
   `FALCON4.WCD` -- 298 `AGM-154A JSOW` (BLU-97 cluster payload, kinetic, 1250 ft blast)
   and 313 `AGM-154C JSOW` (unitary penetrator, `SimDataIdx` 99) -- both with a 90 km
