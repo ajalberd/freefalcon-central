@@ -50,18 +50,18 @@ NEW IN THIS RELEASE
      AIM-9 seeker and replaces the fixed ACM bore line, so you lock what you
      look at -- HMD, TrackIR and mouse look alike. An HMCS brightness knob
      sits below the CMDS panel. g_nHmcs 0 restores the old behaviour.
+     New and not yet tested in the air.
    - More of the F-16 pit is clickable: FLCS reset, digital backup, FLT BIT,
      overheat test, ground jettison, and more.
    - Engine sound curves: the placeholder volume/pitch charts every aircraft
      shipped with are replaced by proper curves, and the second in-cockpit
      engine layer finally plays. Canopy muffling (CanopyAttenuation), RWR
      font and a default RWR colour, radio menu size (MenuScale).
-   - Nosewheel steering has its own toggle binding.
 
 6. Destruction
    A jet that is shot down breaks up again: four pieces fly off, spinning
    and trailing smoke, and burn or explode where they land, as in Falcon
-   4.0. F-16s use the generic pieces.
+   4.0. F-16s use the generic pieces. New and not yet seen in game.
 
 7. Campaign
    Objective icons on the campaign map darken as they are damaged, and the
