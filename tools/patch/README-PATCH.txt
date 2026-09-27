@@ -1,5 +1,44 @@
-FreeFalcon / FFViper -- campaign mission planning + front line patch
-====================================================================
+FreeFalcon / FFViper -- weather fronts + campaign fixes patch
+=============================================================
+
+Cumulative: everything from the earlier campaign-planning and night-lighting
+patches is included (described further down).
+
+
+NEW IN THIS RELEASE
+-------------------
+1. Weather that varies across the theater
+   Cold and warm fronts, squall lines, storm cells and clearings move across
+   the map with the wind, over drifting patches of better and worse weather.
+   The condition picked in Setup -> Graphics is now the PREVAILING weather;
+   fronts vary it. What you fly in is the weather where you are: the sky
+   darkens as a front comes on, the overcast thins in at a front's edge, and
+   from clear air you see a front ahead as a bank of dark cumulus. Satellites
+   no longer spot through Poor or worse, briefings give the weather at the
+   target, and fronts bring gusts and temperature changes the flight model
+   and bombs feel. A campaign save now keeps its weather.
+   Settings in FFViper.cfg (defaults shown):
+      set g_nWeatherFronts 1          (0 = one condition everywhere, as before)
+      set g_fWeatherFrontsPerDay 3.0
+      set g_fWeatherNoise 0.8
+
+2. Fixed: campaign saves that would not load
+   Helicopter-carried infantry was added to the unit list again every time
+   the campaign map replayed a helicopter's pickup and drop. One save held
+   three battalions ~43,000 times each; the unit count wrapped and the save
+   loaded as 523 units. Fixed at the cause, and a save now writes each unit
+   once regardless. A save broken before this patch can be repaired with the
+   campaign editor's repair_units.py.
+
+3. The campaign map remembers its filters
+   Installations, units, names, bullseye, threat circles, the logistics layer
+   and the FLOT line are kept per pilot in config\profiles\<pilot>\campmap.ini
+   and come back the next time you run the game.
+
+4. Smaller fixes
+   The rain sound never played. The flight model asked for the wind at the
+   wrong place. FRONTS: lines in FFDebug.log say what the weather is doing.
+
 
 WHAT THIS IS
 ------------
