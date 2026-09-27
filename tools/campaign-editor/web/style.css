@@ -388,6 +388,33 @@ table.data td.num { text-align: right; font-family: ui-monospace, Consolas, mono
 table.data td.idx { color: var(--ink-faint); font-family: ui-monospace, Consolas, monospace; }
 table.data tr.edited td:first-child { box-shadow: inset 2px 0 0 var(--warn); }
 
+/* --- sortable, filterable headers ------------------------------------------
+   The filter input sits in the same sticky cell as the label, so the header
+   stays one row and the sticky offset does not have to be guessed. */
+
+table.data th .col-label { display: flex; align-items: center; gap: 3px; }
+table.data th.sortable .col-label { cursor: pointer; user-select: none; }
+table.data th.sortable .col-label:hover { color: var(--ink); }
+table.data th .col-label.sorted { color: var(--accent); }
+table.data th .arrow { font-size: 10px; }
+
+table.data th input.col-filter {
+  display: block;
+  width: 100%;
+  min-width: 54px;
+  margin-top: 4px;
+  padding: 2px 5px;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink);
+  background: var(--bg-sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+table.data th input.col-filter::placeholder { color: var(--ink-faint); opacity: .65; }
+
 .detail {
   border-left: 1px solid var(--line);
   background: var(--bg-sunk);
@@ -448,7 +475,92 @@ table.data tr.edited td:first-child { box-shadow: inset 2px 0 0 var(--warn); }
 }
 .hpoint input { padding: 4px 6px; font-size: 12px; }
 
+/* --- condition bars and feature damage --------------------------------- */
+
+.cond-bar {
+  height: 4px;
+  margin-top: 4px;
+  border-radius: 3px;
+  background: var(--bg-sunk);
+  overflow: hidden;
+}
+.cond-fill { height: 100%; }
+.cond-fill.good { background: var(--good); }
+.cond-fill.bad { background: var(--danger); }
+
+.feat-list { display: flex; flex-direction: column; gap: 3px; }
+.feat {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px 116px;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.feat .feat-name {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.feat .feat-val {
+  color: var(--ink-faint);
+  text-align: right;
+  font-family: ui-monospace, Consolas, monospace;
+}
+.feat select { padding: 3px 4px; font-size: 12px; }
+.feat.dead .feat-name { color: var(--danger); }
+
+.menu-field {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 10px; font-size: 12px; color: var(--ink-dim);
+}
+.menu-field select { flex: 1; min-width: 0; }
+.menu-select { padding: 3px 4px; font-size: 12px; }
+
+table.data td.makeup {
+  color: var(--ink-dim);
+  font-size: 12px;
+  max-width: 260px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 .field-doc { font-size: 11px; color: var(--ink-faint); margin-top: 2px; }
+
+/* --- script objectives on the map --------------------------------------
+   The canvas draws the rings; these are the legend and sidebar controls and
+   the list of places each condition names. */
+
+.script-toggles {
+  display: flex; flex-direction: column; gap: 4px;
+  margin: 6px 0 8px;
+}
+.script-toggles .chk {
+  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--ink-dim); font-size: 12px; cursor: pointer;
+}
+.script-toggles .chk input { width: auto; margin: 0; }
+
+.script-cond { margin-bottom: 9px; }
+.script-head {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 12px; margin-bottom: 4px;
+}
+.script-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.script-chip {
+  font: inherit; font-size: 11px;
+  color: var(--ink); background: var(--bg-sunk);
+  border: 1px solid var(--line); border-radius: 9px;
+  padding: 1px 8px; cursor: pointer;
+}
+.script-chip:hover { background: var(--bg-raise); border-color: var(--accent); }
+.legend-script { display: flex; flex-direction: column; gap: 3px; margin: 2px 0 4px; }
+
+/* What an outline row does not say for itself: the movie behind an id, an
+   action this build ignores, an event nothing tests. */
+.sl-flag { color: var(--warn); font-size: 11px; margin-left: 8px; }
+
+.bullseye-key {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--ink-dim);
+}
+.bullseye-mark { color: #f0dc78; font-size: 13px; line-height: 1; }
 
 /* --- modal / toasts -------------------------------------------------- */
 
@@ -555,6 +667,7 @@ table.data tr.edited td:first-child { box-shadow: inset 2px 0 0 var(--warn); }
 .map-legend label {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
   padding: 2px 0;
   cursor: pointer;
@@ -565,6 +678,14 @@ table.data tr.edited td:first-child { box-shadow: inset 2px 0 0 var(--warn); }
   box-shadow: inset 0 0 0 1px rgba(0,0,0,.5);
 }
 .map-legend .n { margin-left: auto; color: var(--ink-faint); font-size: 11px; }
+/* What a team holds: the objective and airbase counts under its name, so
+   "who is the enemy here" is answerable without clicking anything. */
+.map-legend .sub {
+  flex-basis: 100%;
+  margin-left: 24px;
+  font-size: 10px;
+  color: var(--ink-faint);
+}
 .map-legend input { width: auto; }
 
 .map-hud {
@@ -1038,3 +1159,182 @@ textarea.wide { min-height: 62px; }
   text-transform: uppercase;
 }
 .suggest-text { margin: 7px 0 10px; line-height: 1.5; }
+
+/* --- squadron stores -------------------------------------------------------
+   The availability bar uses the engine's own 0..4 from GetAvailableStores, so
+   the colours mean the same thing they do on the loadout screen. */
+
+.stores-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0 10px;
+}
+.stores-tools .chk {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+.stores-tools .chk input { width: auto; }
+
+.st-filter {
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+table.stores { width: 100%; }
+table.stores th:first-child,
+table.stores td:first-child { width: 22px; padding-right: 0; }
+table.stores td { vertical-align: middle; }
+table.stores input[type=checkbox] { width: auto; margin: 0; }
+
+.st-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-n {
+  width: 58px;
+  padding: 2px 5px;
+  text-align: right;
+}
+
+/* A weapon the class cannot arm at all. Still listed under Show all, because
+   "why is this missing" is the question the list has to answer. */
+tr.st-off .st-name { color: var(--ink-faint); }
+tr.st-off .st-n { opacity: .55; }
+
+.st-bar {
+  display: block;
+  width: 34px;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--bg-sunk);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.st-bar.av0 { background: var(--danger); }
+.st-bar.av1 { background: #b4632a; }
+.st-bar.av2 { background: var(--warn); }
+.st-bar.av3 { background: #8aa83c; }
+.st-bar.av4 { background: var(--good); }
+
+/* --- the squadron header ---------------------------------------------------
+   The patch is the game's own 96x96 art, served straight out of
+   art/resource/patches. */
+
+.sq-top { display: flex; gap: 12px; align-items: flex-start; }
+.sq-patch { flex: 0 0 auto; }
+.sq-patch img {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  image-rendering: auto;
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunk);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.sq-id { flex: 1; min-width: 0; }
+.sq-id h4 { margin: 0 0 4px; }
+
+.tag {
+  display: inline-block;
+  font-size: 11px;
+  letter-spacing: .03em;
+  padding: 1px 7px;
+  border-radius: 9px;
+  color: var(--good);
+  background: rgba(63, 185, 80, .12);
+  box-shadow: inset 0 0 0 1px rgba(63, 185, 80, .35);
+}
+
+.sq-thumb {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  vertical-align: middle;
+}
+
+tr.clickable { cursor: pointer; }
+tr.clickable:hover { background: var(--bg-raise); }
+
+.pilots-wrap { max-height: 260px; overflow: auto; margin-top: 8px; }
+table.pilots th, table.pilots td { padding: 2px 6px; }
+
+/* The squadron the player last flew (PlayerSquadronID). */
+tr.mine { background: rgba(77,163,255,.14); box-shadow: inset 3px 0 0 var(--accent); }
+tr.mine .tag { margin-left: 8px; }
+
+.mine-banner {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; margin-bottom: 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(77,163,255,.10);
+  box-shadow: inset 3px 0 0 var(--accent), inset 0 0 0 1px var(--line);
+}
+.mine-banner .sq-thumb { width: 40px; height: 40px; }
+.mine-banner .lab { color: var(--ink-dim); font-size: 11px;
+  letter-spacing: .04em; text-transform: uppercase; }
+.mine-banner .who { font-weight: 600; }
+
+/* --- weather ---------------------------------------------------------- */
+
+.wx-body { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr); gap: 16px; }
+@media (max-width: 1100px) { .wx-body { grid-template-columns: 1fr; } }
+.wx-canvas-box { width: 100%; }
+.wx-canvas { width: 100%; height: auto; display: block; border-radius: var(--radius-sm);
+  border: 1px solid var(--line); cursor: crosshair; }
+.wx-time { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.wx-slider { flex: 1; }
+.wx-clock { font-size: 12px; color: var(--ink-dim); white-space: nowrap; min-width: 190px; }
+.wx-legend { font-size: 12px; color: var(--ink-dim); margin-top: 6px; display: flex;
+  flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.wx-swatch { display: inline-block; width: 14px; height: 10px; border: 1px solid var(--line); }
+.wx-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.wx-cold { background: #4da3ff; } .wx-warm { background: #ff6b5e; }
+.wx-squall { background: #c77dff; } .wx-cell { background: #f2a33c; }
+.wx-high { background: #3fb950; }
+.wx-front { border: 1px solid var(--line); border-radius: var(--radius-sm);
+  margin: 8px 0; padding: 6px 10px; }
+.wx-front.on { border-color: var(--accent-dim); background: rgba(77,163,255,.06); }
+.wx-front-head { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.wx-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.wx-actions select { width: auto; }
+.hint.warn { color: var(--warn); }
+.wx .spacer { flex: 1; }
+
+.st-tag { margin-left: 6px; font-size: 10px; color: var(--danger);
+  border: 1px solid #5a2326; border-radius: 4px; padding: 0 4px; }
+.stores-locked { display: grid; gap: 6px; margin: 8px 0; }
+
+/* --- unit condition columns ------------------------------------------ */
+.meter { display: inline-flex; align-items: center; gap: 6px; min-width: 86px; }
+.meter-bar { display: inline-block; height: 6px; border-radius: 3px; max-width: 48px; }
+.meter-num { font-variant-numeric: tabular-nums; color: var(--ink-dim); font-size: 12px; }
+.col-picker { position: relative; }
+.col-picker > summary { list-style: none; cursor: pointer; }
+.col-picker > summary::-webkit-details-marker { display: none; }
+.col-picker-list { position: absolute; right: 0; top: 110%; z-index: 20;
+  background: var(--bg-raise); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 8px 12px; min-width: 150px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4); display: grid; gap: 4px; }
+
+/* --- progress ------------------------------------------------------------ */
+.pg-teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+.pg-team { margin-bottom: 0; }
+.pg-stat { display: grid; grid-template-columns: 120px 1fr auto; gap: 10px; align-items: center; margin: 4px 0; font-size: 13px; }
+.pg-stat-lab { color: var(--ink-dim); font-size: 12px; }
+.pg-stat-track { height: 8px; background: var(--bg-sunk); border-radius: 4px; overflow: hidden; }
+.pg-stat-fill { height: 100%; border-radius: 4px; }
+.pg-stat-val { font-variant-numeric: tabular-nums; font-size: 12px; white-space: nowrap; }
+.pg-kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin-top: 10px; font-size: 12px; }
+.pg-kv span { color: var(--ink-dim); }
+.pg-kv b { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.pg-held { margin-top: 10px; }
+.pg-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.pg-charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; }
+.pg-chart h4 { margin: 0 0 4px; font-size: 12px; color: var(--ink-dim); text-transform: uppercase; letter-spacing: .05em; }
+.pg-svg { width: 100%; height: auto; display: block; }
+.pg-grid { stroke: var(--line); stroke-width: 1; }
+.pg-axis { fill: var(--ink-faint); font-size: 10px; }
+.legend-inline { font-size: 12px; color: var(--ink-dim); }

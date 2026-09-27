@@ -15,6 +15,9 @@
 #include "campterr.h"
 #include "realweather.h"
 
+// Falcon 4.0's cloud-cover scale, 0 clear .. 8 solid. GetCloudCover returns it.
+#define MAX_CLOUD_TYPE 8
+
 class WeatherClass : public RealWeather
 {
 public:
@@ -33,6 +36,14 @@ public:
     int GetCloudLevel(GridIndex x, GridIndex y);
     void SetCloudCover(GridIndex x, GridIndex y, int cov);
     void SetCloudLevel(GridIndex x, GridIndex y, int lev);
+
+    // Artscout - 2026 (FRONTS)
+    int ConditionAtGrid(GridIndex x, GridIndex y);
+    int CloudBaseAtGrid(GridIndex x, GridIndex y); // feet
+    virtual void OnLocalCondition(int condition);
+    void SeedFronts(bool inProgress);
+    void EvolveFronts(CampaignTime dt);
+    bool SpawnFront(bool inProgress);
     float WindSpeedInFeetPerSecond(const Tpoint *pos);
     float WindHeadingAt(const Tpoint *pos);
     virtual float TemperatureAt(const Tpoint *pos);
@@ -44,6 +55,10 @@ public:
     BOOL lockedCondition, needsWeatherRefresh, unlockableCondition;
 
 protected:
+    void ApplyCondition(int condition, bool bForce, bool bRefresh);
+    void FillMessage(FalconWeatherMessage *message);
+    void ReadFronts(char *data, long size, int type);
+
     BOOL sendClouds;
     SLONG contrailBase;
     int tempMin, tempMed, tempMax, windMin, windMed, windMax, wHdgThresh,

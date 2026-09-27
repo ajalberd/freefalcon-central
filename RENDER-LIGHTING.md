@@ -2,8 +2,8 @@
 
 **Status: item 3 (the "missile shading issue") is resolved — and it was never lighting. Per-pixel
 object lighting has landed as the first piece of item 1. Item 2 (cockpit shadows) has landed for
-D3D12 — see below. Item 4 (HDR + GT7 tone mapping) is still not started, and it is the last step of
-the lighting redo, not a feature that can land first. Reconnaissance below; append findings here
+D3D12 — see below. Item 4 (HDR + GT7 tone mapping) has landed as a STAGED first cut on D3D12
+(2026-09-27, "HDR + GT7" below): FP16 scene + the GT7 operator, lighting units unchanged. Reconnaissance below; append findings here
 rather than growing `WIP-NOTES.md`. The object-pass work has its own doc — read
 `OBJECT-RENDERING.md` before touching the object light path, the light CB, or the shaders.
 
@@ -14,7 +14,8 @@ Four things, and they are not one project:
 1. Redo the lighting system. — **started**: per-pixel object lighting landed (see below).
 2. Real shadows in the cockpit. — **landed on D3D12** (2026-09-20, below); Vulkan pending.
 3. Fix the missile shading issue. — **done**, and it was the fin z-fight, not lighting (below).
-4. Integrate Gran Turismo 7 tone mapping. — not started; needs the HDR project (below).
+4. Integrate Gran Turismo 7 tone mapping. — **staged cut landed on D3D12** (2026-09-27, below);
+   the lighting-units half of the HDR project and Vulkan are still open.
 
 References for (4):
 - <https://s3.amazonaws.com/gran-turismo.com/pdi_publications/s2025_PBS_Physically_Based_Tone_Mapping_GT7.pdf>
@@ -49,7 +50,80 @@ shader can evaluate it per pixel instead of per vertex (legacy Gouraud) — the 
 used to wash whole low-poly panels. Watch the cockpit (now per-pixel too) and VR frame cost;
 `g_bObjPixelLight 0` restores the legacy path.
 
-## The thing to settle first: this renderer is LDR
+## HDR + GT7 (2026-09-27) — D3D12 staged cut
+
+Knobs: `ToneMapGT7` (default 1; 0 = the old 8-bit scene, bit for bit) and `ToneMapExposure`
+(default 1.0). Log proof of life in **FFDebug.log** (`[HDR]` lines — `D12Log` is OutputDebugString
+only, which is why the first in-game test saw nothing): `FP16 scene engaged (flat|eye WxH xN)` once
+per path, then every 10 s `frames/10s=N GT7 tone-mapped=M` — N > 0 with M == 0 means the otwloop
+hook is not being reached. The mesh-terrain PSO line now prints `fmt=` (10 = FP16, 28 = 8-bit).
+
+- **The scene is R16G16B16A16_FLOAT, owned by the backend.** A frame opened by the renderer
+  (`EnsureFrameStarted` -> `BeginFrame`) or a per-eye VR frame (`BeginEyeFrame`) binds an FP16 target
+  instead of the back buffer / XR image (`BeginHdrScene`). Menu frames (explicit `BeginFrame` +
+  `BlitBitmap565`) and view instancing stay 8-bit. Flat MSAA gets an FP16 MSAA target.
+- **PSOs follow the bound target's format.** `D3D12Backend::CurrentRtvFormat()` is FP16 only while the
+  HDR scene RTV is current, else the back-buffer format (RTT atlases, menu RTTs, back buffer after
+  output). `GetPSO` (key bit 22), the particle PSO (bit 12) and the mesh-terrain cache key on it — the
+  same pattern as the sample count. Any NEW PSO must do the same or it trips #613 on the HDR scene.
+- **One tone-map point:** `IRenderer::ToneMapScene()` in otwloop. In the 3D pit it runs right after
+  the FIRST `FlushPolyLists` (world + pit flushed) and BEFORE `VCock_Exec` — the instruments (HUD
+  combiner, MFD/DED/RWR/kneeboard RTT composites, cursor) are display-referred and must not be
+  curved; the first cut ran after them and turned the HUD green yellowish (2026-09-27). The second
+  call after `FlushNearList()` is a no-op there and covers the views with no cockpit branch. It snapshots
+  the scene (copy, or resolve under MSAA), draws GT7 back into the scene, and rebinds it. The overlays
+  then draw on display-referred values and are never curved.
+- **Output:** `OutputHdrScene` (from `ResolveMsaaToBackBuffer`, `Present` and `EndEyeFrame`) clamps the
+  FP16 image into the back buffer / eye image, which then becomes the scene target for the UI
+  composite and screenshots. A frame that never reaches the hook gets a plain clamp = the old look.
+- **Units:** the engine shades in sRGB-ENCODED space, so the pass decodes, lifts Rec.709 into
+  Rec.2020, runs Polyphony's reference operator (SDR mode, ICtCp, reference parameters — MIT, source
+  and notice in `dxengine/gt7tonemap_hlsl.h`), and re-encodes. Exposure puts scene 1.0 on GT7's SDR
+  paper white (250 nits = 2.5 fb units), so the curve's linear section keeps mid-tones unchanged
+  (0.5 -> 0.5). White 1.0 -> 0.924; everything clips at ~1.47x scene white; over-bright colours roll
+  toward white (the afterburner/lamp look). Checked offline: the ICtCp round trip is exact to 1e-5.
+
+### Sun colour from the time of day (2026-09-27) — `SunTodTint`, `SunTodDimRef`
+
+`CDXEngine::TheSunColour` was white forever, so the object sun (and its specular glint) stayed white
+at sunset while the terrain's TOD `TextureLighting` went orange — and the TOD table keeps Diffuse
+0.45 / Specular 1.3 until 18:45. `SetSunLight` now tints `TheSun.dcvDiffuse/dcvSpecular` (what
+`FlushBuffers`, per-object lights and the mesh terrain all read) with `TextureLighting`'s hue, and
+dims it once `TextureLighting`'s brightest channel falls below `SunTodDimRef` (0.6; daytime sits
+above it, so the noon LEVEL is unchanged — the table is slightly cool at noon, 0.88/0.98/1). Ambient
+is untouched. NVG/TV lights are separate structs and unaffected.
+
+### MFD sun glare (2026-09-27) — `MfdGlare` (0.25)
+
+The MFDs composite as additive self-lit RTT quads and never saw the pit shadow. `VCock_Exec` arms
+`g_bRttGlare` around the two MFD composites; `DrawRttQuad` hands the shader (cbRender `gGlare0..4`)
+the MFD glass in the pit's MODEL frame (`canvas / RTT_POSITION_SCALING`, the world-cam mapping before
+`ownshipRot`), and the FF_RTTSOFT branch adds `sunColour x MfdGlare x N.L x CockpitSunShadow(pos)` as
+a veil — washed out in sun, crisp in the canopy-bow shadow. Verified in game 2026-09-27: at sunset the
+sunlit right MFD took an orange veil while the rail-shaded left one stayed black (both face the same
+way, so the difference can only come from the shadow lookup). The mapping holds: `[GLARE] mfd` logged
+UL (2.06, -0.71, 0.91), 0.35 ft wide, centred on y — the pit model origin is the pilot's eye.
+
+### The cockpit shadow fit used a STALE box (fixed 2026-09-27) — `PitShadowFitReach` (7)
+
+`RenderPitShadowMap` fitted the map to the pit's PARENT-RECORD bbox, which claims x -21.1..1.1,
+y +-9.3, z -7.3..3.2. LOD 4105's own vertices span x -52.3..14.3, y +-15.5, z -8.2..3.9
+(`tools/models/lodbounds.py`, which warns about exactly this). So the glare shield, instrument
+panel and MFDs, all ahead of x = 1.1, were outside the fitted box: they could fall off the map as
+casters and as receivers. The real bounds are the whole jet (wings/tail ride the pit LOD), too big
+for one 1024 map, so the fit is now a +-7 ft box around the model origin (= the eye): it covers the
+canopy bow/frame, glare shield and seat and is tighter than the old 22 ft box. 0 = the old bbox.
+Never trust a ParentObject min/max as geometry again — measure the LOD.
+- **Known limits of the staged cut:** lighting is still LDR-authored, so most of the frame never
+  exceeds 1 and the curve mainly shows as a slightly softer top end. The 3D-cockpit RTT panels (HUD
+  combiner, MFDs) are drawn BEFORE the hook, so they are curved too (pure green shifts slightly
+  toward yellow-green). Clouds still self-tonemap (`CloudTonemap`) and are curved a second time at
+  their top end. Vulkan and view instancing inherit the no-op.
+- **Next:** feed radiance instead of LDR (sun/sky intensities, emissive in nits), make the clouds
+  hand radiance to the global pass, then auto-exposure; Vulkan parity (`sceneFormat` FP16 + the same
+  pass before the 2D).
+
+## The thing to settle first: this renderer is LDR (pre-2026-09-27; see above)
 
 The swapchain is `DXGI_FORMAT_R8G8B8A8_UNORM` (`d3d12backend.cpp:287`, and
 `d3d12backend.cpp:479` returns the same as the backbuffer format). There is **no HDR render
@@ -261,9 +335,9 @@ These are listed in the order they were asked, which is not the order to do them
 
 ## Do not re-derive
 
-- Swapchain `R8G8B8A8_UNORM`; depth `D32_FLOAT_S8X24_UINT`. LDR, no tone-map pass.
-- `CloudTonemap`/`CloudTonemapInv` are the *only* tone mapping in the engine and they are
-  cloud-local.
+- Swapchain `R8G8B8A8_UNORM`; depth `D32_FLOAT_S8X24_UINT`. With `ToneMapGT7` on, the D3D12 SCENE
+  is `R16G16B16A16_FLOAT` and GT7 runs once at the 3D->2D boundary; everything else stays 8-bit.
+- `CloudTonemap`/`CloudTonemapInv` are cloud-local and still run; GT7 curves their output again.
 - No world shadow-map machinery exists. The cockpit shadow map (2026-09-20) is a *separate*,
   pit-only depth target and shares nothing with a world scheme: 1024² `R32G8X24_TYPELESS`
   (DSV `D32_FLOAT_S8X24`, SRV `R32_FLOAT`), t6 + cbShadow(b6), fitted to the pit's model bbox,

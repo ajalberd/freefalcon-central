@@ -621,7 +621,8 @@ int GroundClass::Exec(void)
             {
                 isNight = (TimeOfDayGeneral(TheCampaign.CurrentTime) <=
                                TOD_DAWNDUSK or
-                           realWeather->weatherCondition == INCLEMENT) ?
+                           realWeather->ConditionAt(XPos(), YPos()) ==
+                               INCLEMENT) ?
                               true :
                               false;
 
@@ -1172,7 +1173,7 @@ int GroundClass::Exec(void)
                 vec.z = -20.0f;
 
                 //JAM 24Oct03 - No dust trails when it's raining.
-                if (realWeather->weatherCondition < INCLEMENT)
+                if (realWeather->ConditionAt(XPos(), YPos()) < INCLEMENT)
                 {
                     /*
                     OTWDriver.AddSfxRequest(

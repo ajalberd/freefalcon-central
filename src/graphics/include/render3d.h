@@ -18,7 +18,9 @@
 #define CULL_ALLOW_CW 1
 #define CULL_ALLOW_CCW 2
 
-static const float NEAR_CLIP = 1.0f;
+// Artscout - 2026: was a hard 1.0f; now the shared CPU near clip (nearclip.h, default 0.2 = ZNEAR).
+#include "nearclip.h"
+#define NEAR_CLIP (CpuNearClip())
 //static const float Q_SCALE = 0.001f; // Use to keep Q in 16.16 range for MPR
 // COBRA - DX - fits more this value
 static const float Q_SCALE = 0.0008f; // Use to keep Q in 16.16 range for MPR

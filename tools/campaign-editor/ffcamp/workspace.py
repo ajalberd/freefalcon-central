@@ -168,33 +168,85 @@ class TheaterWorkspace:
             return cam
 
     def name_table(self):
+        """The place names the engine shows here -- see names.theater_stem."""
         if not hasattr(self, "_names"):
-            self._names = names.load(self.campaign_dir)
+            stem = self._names_stem()
+            self._names = names.load(self.campaign_dir, stem)
+            self._names_from = stem
         return self._names
 
+    def _names_stem(self):
+        def theater_name_of(f):
+            cam = self.campaign(f)
+            return (cam.header.fields if cam.header else {}).get("TheaterName")
+        return names.theater_stem(self.campaign_dir, theater_name_of)
+
     def script(self, campaign_file):
-        """The .tri that decides how this campaign ends, open for editing."""
+        """The .tri that decides how this campaign ends, open for editing.
+
+        Returns (Script or None, scenario the script came from). The engine
+        reads `CheckTriggers(TheCampaign.Scenario)` -- `<Scenario>.tri`, always,
+        never a script named after the campaign file that was loaded. For a
+        scenario the two are the same name; for a save the Scenario is what it
+        was started from. Israel Classic shows why the header has to win: its
+        `save0.cam` names `save2` and its `save2.cam` names `save0`, so each
+        file plays the other's ending.
+
+        Two saves from one scenario share a single Script object, because they
+        share one file.
+        """
         with self._lock:
             if not hasattr(self, "_scripts"):
-                self._scripts = {}
+                self._scripts = {}          # campaign file -> (script, from)
+                self._script_by_path = {}   # resolved path -> script
             key = campaign_file.lower()
-            if key not in self._scripts:
+            if key in self._scripts:
+                return self._scripts[key]
+
+            stem = os.path.splitext(campaign_file)[0]
+            scenario = ""
+            try:
+                cam = self.campaign(campaign_file)
+                if cam.header:
+                    scenario = (cam.header.fields.get("Scenario") or "").strip()
+            except ValueError:
+                scenario = ""
+
+            from_file = ""
+            if scenario:
+                path = triggers.script_path(self.campaign_dir, scenario)
+                if path is not None and scenario.lower() != stem.lower():
+                    from_file = scenario
+            else:
+                # No scenario named at all; the file's own name is the only
+                # guess left, and a file with no script cannot end anyway.
                 path = triggers.script_path(self.campaign_dir, campaign_file)
-                if not path:
-                    self._scripts[key] = None
-                else:
+
+            script = None
+            if path:
+                pkey = os.path.normcase(os.path.abspath(path))
+                script = self._script_by_path.get(pkey)
+                if script is None:
                     try:
-                        self._scripts[key] = triggers.Script(path)
+                        script = triggers.Script(path)
                     except OSError:
-                        self._scripts[key] = None
+                        script = None
+                    if script is not None:
+                        self._script_by_path[pkey] = script
+            self._scripts[key] = (script, from_file)
             return self._scripts[key]
 
     def triggers(self, campaign_file):
         """Back-compat shape: ((init, body, total), path)."""
-        sc = self.script(campaign_file)
+        sc, _from = self.script(campaign_file)
         if not sc:
             return None
         return (sc.init, sc.body, sc.total), sc.path
+
+    def forget_script(self, campaign_file):
+        """Drop a campaign file's cached script, after its Scenario changed."""
+        with self._lock:
+            self._scripts.pop(campaign_file.lower(), None)
 
     def campaign_text(self):
         """The theater's campaign-selection text, open for editing."""
@@ -321,8 +373,11 @@ class TheaterWorkspace:
 
     def pending(self):
         out = []
-        for name, sc in getattr(self, "_scripts", {}).items():
-            if sc and sc.dirty:
+        seen = set()
+        for name, (sc, _from) in getattr(self, "_scripts", {}).items():
+            # Two saves from one scenario share a script; report the file once.
+            if sc and sc.dirty and sc.path not in seen:
+                seen.add(sc.path)
                 out.append({"kind": "script", "name": name,
                             "file": os.path.basename(sc.path)})
         text = getattr(self, "_text", None)
@@ -340,9 +395,11 @@ class TheaterWorkspace:
 
     def save(self, backup):
         written = []
-        for _name, sc in getattr(self, "_scripts", {}).items():
-            if not sc or not sc.dirty:
+        seen = set()
+        for _name, (sc, _from) in getattr(self, "_scripts", {}).items():
+            if not sc or not sc.dirty or sc.path in seen:
                 continue
+            seen.add(sc.path)
             backup.keep(sc.path)
             sc.save()
             written.append(os.path.relpath(sc.path, self.gamedir))
@@ -426,6 +483,81 @@ class Session:
             written.extend(ws.save(self.backup))
         return {"written": written, "backups": [
             os.path.relpath(p, self.gamedir) for p in self.backup.folders()]}
+
+
+def copy_campaign(ws, source, stem, ui_name=""):
+    """Copy a campaign file into a new scenario, with what lives beside it.
+
+    The .cam carries the objective list, the units and the deltas. Two things
+    do not: the ending is `<scenario>.tri` next to the campaign, and a
+    mid-campaign save's *base* objective list is a member of the scenario its
+    header names. Both have to come across, or the copy is a campaign that
+    cannot end, or one with no map.
+
+    Returns the names written, for the caller to report.
+    """
+    src = ws.campaign(source)
+    old_stem = src.stem
+    ext = ".tac" if source.lower().endswith(".tac") else ".cam"
+    target = stem + ext
+    path = os.path.join(ws.campaign_dir, target)
+    if os.path.exists(path):
+        raise FileExistsError("%s already exists" % target)
+
+    members, order = {}, []
+    for name in src.order:
+        suffix = name.rsplit(".", 1)[-1]
+        renamed = stem + "." + suffix
+        members[renamed] = src.members[name]
+        order.append(renamed)
+
+    # A save has deltas, not an objective list; the engine reads that from
+    # `<Scenario>.cam`. Bring the base list across so the copy stands alone,
+    # with the deltas applied on top of it.
+    suffixes = {n.rsplit(".", 1)[-1].lower() for n in members}
+    base_name = ""
+    if src.header:
+        base_name = (src.header.fields.get("Scenario") or "").strip()
+    base_copied = False
+    if "obj" not in suffixes and base_name and \
+            base_name.lower() != old_stem.lower():
+        candidate = base_name
+        if not candidate.lower().endswith((".cam", ".tac")):
+            candidate += ".cam"
+        try:
+            base_cam = ws.campaign(candidate)
+        except ValueError:
+            base_cam = None
+        if base_cam is not None and base_cam.member("obj") is not None:
+            members[stem + ".obj"] = base_cam.member("obj")
+            order.append(stem + ".obj")
+            base_copied = True
+
+    fresh = campfile.CampaignFile(path, members, order, stem)
+    fresh.version = src.version
+    cmp_name = fresh._member_name("cmp")
+    if cmp_name:
+        fresh.header = campfile.decode_header(members[cmp_name], src.version)
+        fresh.header.fields["Scenario"] = stem
+        fresh.header.fields["SaveFile"] = stem
+        if ui_name:
+            fresh.header.fields["UIName"] = str(ui_name)[:39]
+        fresh.header_dirty = True
+    fresh.save(path)
+
+    # The ending. The source may be a save, whose script belongs to the
+    # scenario it was started from.
+    script, _from = ws.script(source)
+    script_name = ""
+    if script is not None and os.path.isfile(script.path):
+        dest = os.path.join(ws.campaign_dir, stem + ".tri")
+        if not os.path.exists(dest):
+            shutil.copy2(script.path, dest)
+            script_name = os.path.basename(dest)
+
+    return {"file": target, "stem": stem, "from": source,
+            "renamedFrom": old_stem, "script": script_name,
+            "baseObjectives": base_copied}
 
 
 def _merge_atlas(*sets):

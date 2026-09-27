@@ -794,6 +794,31 @@ costtype GetObjectiveMovementCost(Objective o, Objective t, int neighbor,
                 if (opt < cost)
                     cost = opt;
             }
+
+            // Artscout - 2026: damage feeds the route cost. Link costs are baked from the terrain at
+            // campaign build and nothing rewrites them, so a half-dropped bridge or a cratered road
+            // junction cost exactly what an intact one did -- the planner kept routing columns (and
+            // supply, see NodeSupplyLoss in supply.cpp) through it. Only a 0% bridge was special-cased
+            // above. Scale the ground cost of ENTERING a damaged road/junction/rail/bridge node by its
+            // damage, with the same bridge-vs-road weighting as NodeSupplyLoss: a bridge at 0% status
+            // would be x4 (it is blocked above instead), any other node x2. g_nPathDamageCost scales it
+            // (100 = as described, 0 = stock). Air and marine options below are untouched.
+            extern int g_nPathDamageCost;
+            const int ntype = n->GetType();
+            const int status = n->GetObjectiveStatus();
+
+            if (g_nPathDamageCost > 0 and cost < 255.0F and status < 100 and
+                (MOVE_GROUND(type) or type == NoMove or type == Rail) and
+                (ntype == TYPE_ROAD or ntype == TYPE_INTERSECT or
+                 ntype == TYPE_RAILROAD or ntype == TYPE_BRIDGE))
+            {
+                const float worst = (ntype == TYPE_BRIDGE) ? 3.0F : 1.0F;
+                const float dmg = (float)(100 - (status > 0 ? status : 0)) * 0.01F;
+                cost *= 1.0F + worst * dmg * (float)g_nPathDamageCost * 0.01F;
+
+                if (cost > 254.0F)
+                    cost = 254.0F; // 255 means impassable; damage makes it dear, not closed
+            }
         }
 
         if (flags bitand PATH_AIRBORNE)

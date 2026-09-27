@@ -258,11 +258,13 @@ front rather than erasing a convoy outright.
 
 Link **costs** remain static. `LinkCampaignObjectives`
 (`campupd/campaign.cpp:261`) computes them once at campaign build from terrain and
-nothing rewrites them. So a dropped bridge makes a route expensive to **use**, not
-expensive to **plan** — `GetObjectivePath` will still route the convoy over it
-rather than going round. Making damage feed link cost would be the complete
-version, and is a bigger change: it touches pathfinding for everything that walks
-the objective graph, not just supply.
+nothing rewrites them. Rather than rewrite them, damage is applied at SEARCH time
+(2026-09-27, `PathDamageCost`, default 100): `GetObjectiveMovementCost` (`camplib/path.cpp`)
+scales the ground cost of ENTERING a damaged road/junction/rail node by up to x2 and a
+damaged bridge by up to x4, linear in objective status, capped at 254 (dear, never closed —
+a 0% bridge is still blocked by the older engineer check). It applies to everything that
+walks the objective graph (supply, ground units), ground move types only. Not flown yet: watch
+whether columns now detour around a half-dropped bridge, and whether any front starves.
 
 #### Why you never see a road on the map
 
@@ -343,5 +345,5 @@ at all — stock 5 hides almost everything, default here 0), `LogCampProducers`
   covered above.
 - Whether `TYPE_ROAD` objectives carry any bombable features — see Roads and
   bridges. Decides whether damage-scaled interdiction is a bridges-only mechanic.
-- Damage does not feed **link cost**, so pathfinding still routes convoys over
-  dropped bridges. See Roads and bridges, "the half that is still missing".
+- Damage now feeds **route cost** at search time (`PathDamageCost`, 2026-09-27) — compiles,
+  not flown. See Roads and bridges.

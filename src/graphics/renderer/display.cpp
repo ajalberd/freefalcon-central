@@ -15,6 +15,7 @@
 #include "graphics/dxengine/dxvbmanager.h"
 #include "graphics/dxengine/dxengine.h"
 #include "graphics/dxengine/common/irenderer.h" // PHASE 5 (RTT)
+#include "graphics/include/fflog.h" // Artscout - 2026: [GLARE] one-shot frame check
 #include "graphics/dxengine/d3d12backend.h" // #DX12 п.3 (RTT)
 #include "graphics/vulkan/vulkanbackend.h" // Artscout - 2026 (#104): g_pVulkanBackend RTT peer
 #include "graphics/dxengine/d3d12/d3d12renderer.h" // Artscout - 2026 (panel-drift DIAG): D3D12 gScreenSize getter
@@ -1899,6 +1900,17 @@ float g_rttCanvasFwd = 0.0f;
 // so the collimated HUD is clipped to the combiner aperture by the cockpit structure. Set by VCock_Exec
 // for the HUD only; cleared for the panels.
 bool g_bRttHudClip = false;
+// Artscout - 2026: the light each RTT canvas composites at (see DrawRttQuad). Set once per frame by the
+// 3D pit (VCock_Exec); the defaults are the old behaviour, so any path that never sets them is unchanged.
+float g_rttEmissiveLight = 1.0f;
+float g_rttSurfaceLight[3] = {1.0f, 1.0f, 1.0f};
+bool g_bRttLightExempt = false;
+// Artscout - 2026: MFD sun glare -- armed by VCock_Exec around the MFD composites (see DrawRttQuad).
+// g_rttGlareScale maps canvas units to the pit model frame (1 / RTT_POSITION_SCALING); g_rttGlareRot
+// is the pit's body->world rotation (ownshipRot).
+bool g_bRttGlare = false;
+float g_rttGlareScale = 1.0f;
+Trotation g_rttGlareRot = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
 
 static void RttWorldXform(Tpoint* os)
 {
@@ -2030,9 +2042,27 @@ void VirtualDisplay::DrawRttQuad()
     v3.v = (float)tBottom / (float)renderTexture->m_nActualHeight;
     v3.q = v3.csZ * Q_SCALE;
 
-    v0.r = v1.r = v2.r = v3.r = 1.0f;
-    v0.g = v1.g = v2.g = v3.g = 1.0f;
-    v0.b = v1.b = v2.b = v3.b = 1.0f;
+    // Artscout - 2026: how the world's light reaches the canvas. This was a flat 1.0, so every canvas
+    // drew at the same brightness at noon and at midnight. The shader multiplies the atlas by the vertex
+    // colour on every composite state, so the light is simply handed in here. Self-lit displays ('c')
+    // take g_rttEmissiveLight -- dimmed at night, never darkened by shade. Everything else is a surface
+    // (the kneeboard is paper) and takes the pit's own light, flood knob included. The HUD sets its own
+    // brightness from the ambient (HudClass::SetLightLevel), so it is exempted around its draw.
+    extern float g_rttEmissiveLight, g_rttSurfaceLight[3];
+    extern bool g_bRttLightExempt;
+    float lr = 1.0f, lg = 1.0f, lb = 1.0f;
+
+    if (not g_bRttLightExempt)
+    {
+        if (rttBlendMode == STATE_CHROMA_TEXTURE_GOURAUD2)
+            lr = lg = lb = g_rttEmissiveLight;
+        else
+            lr = g_rttSurfaceLight[0], lg = g_rttSurfaceLight[1], lb = g_rttSurfaceLight[2];
+    }
+
+    v0.r = v1.r = v2.r = v3.r = lr;
+    v0.g = v1.g = v2.g = v3.g = lg;
+    v0.b = v1.b = v2.b = v3.b = lb;
     v0.a = v1.a = v2.a = v3.a = rttAlpha;
 
     // Artscout - 2026 (HUD occlusion): swap the depth for the PHYSICAL glass while the screen positions
@@ -2107,6 +2137,75 @@ void VirtualDisplay::DrawRttQuad()
     if (depthFromQ)
         g_bScreenPrimDepthFromQ = true;
 
+    // Artscout - 2026: MFD sun glare (armed by VCock_Exec around the MFD composites only). The glass is
+    // handed to the shader in the PIT'S MODEL frame -- canvas / RTT_POSITION_SCALING, the same mapping the
+    // world-cam path uses before it rotates by ownshipRot -- so the composite can ask the pit shadow map
+    // whether the sun reaches each pixel. N.L and the sun colour are folded in here.
+    extern bool g_bRttGlare;
+    extern float g_rttGlareScale, g_fMfdGlare;
+    extern Trotation g_rttGlareRot;
+    bool glareArmed = false;
+    if (g_bRttGlare && g_fMfdGlare > 0.0f && g_pRenderer && renderTexture &&
+        tRight != tLeft && tBottom != tTop)
+    {
+        float sunDir[3], sunCol[3], sunAmb[3];
+        if (g_pRenderer->GetSunLight(sunDir, sunCol, sunAmb))
+        {
+            const float k = g_rttGlareScale;
+            const float O[3] = {(canUL.x + g_rttCanvasFwd) * k, canUL.y * k, canUL.z * k};
+            const float R[3] = {(canUR.x + g_rttCanvasFwd) * k, canUR.y * k, canUR.z * k};
+            const float L[3] = {(canLL.x + g_rttCanvasFwd) * k, canLL.y * k, canLL.z * k};
+            const float U[3] = {R[0] - O[0], R[1] - O[1], R[2] - O[2]};
+            const float V[3] = {L[0] - O[0], L[1] - O[1], L[2] - O[2]};
+            // Glass normal: across the two edges, turned to face AFT (x is forward in the pit frame).
+            float N[3] = {U[1] * V[2] - U[2] * V[1], U[2] * V[0] - U[0] * V[2],
+                          U[0] * V[1] - U[1] * V[0]};
+            const float nl = sqrtf(N[0] * N[0] + N[1] * N[1] + N[2] * N[2]);
+            if (nl > 1.0e-6f)
+            {
+                const float sgn = (N[0] > 0.0f) ? -1.0f : 1.0f;
+                for (int c = 0; c < 3; ++c)
+                    N[c] *= sgn / nl;
+                // Body -> world, exactly as RttWorldXform rotates the canvas.
+                const Trotation& M = g_rttGlareRot;
+                const float Nw[3] = {M.M11 * N[0] + M.M12 * N[1] + M.M13 * N[2],
+                                     M.M21 * N[0] + M.M22 * N[1] + M.M23 * N[2],
+                                     M.M31 * N[0] + M.M32 * N[1] + M.M33 * N[2]};
+                // sunDir is the RAY direction (away from the sun).
+                float ndl = -(Nw[0] * sunDir[0] + Nw[1] * sunDir[1] + Nw[2] * sunDir[2]);
+                ndl = (ndl > 0.0f) ? ndl : 0.0f;
+                const float aw = (float)renderTexture->m_nActualWidth;
+                const float ah = (float)renderTexture->m_nActualHeight;
+                const float u0 = (float)tLeft / aw, u1 = (float)tRight / aw;
+                const float v0t = (float)tTop / ah, v1b = (float)tBottom / ah;
+                const float g = g_fMfdGlare * ndl;
+                const float glare[20] = {
+                    O[0], O[1], O[2], 1.0f,
+                    U[0], U[1], U[2], u0,
+                    V[0], V[1], V[2], v0t,
+                    N[0], N[1], N[2], 1.0f / (u1 - u0),
+                    sunCol[0] * g, sunCol[1] * g, sunCol[2] * g, 1.0f / (v1b - v0t)};
+                g_pRenderer->SetRttGlare(glare);
+                glareArmed = true;
+
+                // Once per session: these corners should sit inside "[GLARE] pit bbox" (dxengine.cpp).
+                static bool s_said = false;
+                if (!s_said)
+                {
+                    char ln[240];
+                    _snprintf(ln, sizeof(ln),
+                              "[GLARE] mfd UL %.2f %.2f %.2f UR %.2f %.2f %.2f LL %.2f %.2f %.2f "
+                              "N %.2f %.2f %.2f ndl %.2f\n",
+                              O[0], O[1], O[2], R[0], R[1], R[2], L[0], L[1], L[2], N[0], N[1],
+                              N[2], ndl);
+                    ln[sizeof(ln) - 1] = 0;
+                    FFDebugLog(ln);
+                    s_said = true;
+                }
+            }
+        }
+    }
+
     r3d->DrawSquare(&v0, &v1, &v2, &v3, CULL_ALLOW_ALL, false);
 
     // #7 SSAA: flush the panel quad in THIS draw (while per-sample is on), then turn it off so
@@ -2123,6 +2222,8 @@ void VirtualDisplay::DrawRttQuad()
     // Disarm AFTER the flush -- the emit happens inside DrawSquare, but nothing downstream of
     // here should inherit q-derived depth.
     g_bScreenPrimDepthFromQ = false;
+    if (glareArmed)
+        g_pRenderer->SetRttGlare(NULL); // the glare belongs to this one composite
 
     if (hudClip)
         g_pRenderer->SetHudStencil(HUD_STENCIL_OFF); // done clipping the HUD

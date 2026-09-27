@@ -378,6 +378,10 @@ public:
     //MI to get ILS stuff
     void GetILSData(float* LocDev, float* finalHeading, float* finalGS,
                     float* DistToSta);
+    // Artscout - 2026: which ILS marker beacon the player is over -- 0 none, 1 outer, 2 middle. FF has
+    // no marker transmitters, so they are placed on the tuned ILS: the outer 4.5 nm and the middle
+    // 3,500 ft before the threshold, on the approach course.
+    int GetMarkerBeacon(void);
     int GetCurTCNRange()
     {
         return mpCurrentTCN[mCurrentTCNSrc].range;

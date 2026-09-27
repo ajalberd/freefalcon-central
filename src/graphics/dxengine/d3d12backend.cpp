@@ -23,6 +23,7 @@
 #include "d3d12backend.h"
 #include "d3d12/d3d12texturemanager.h" // #DX12 п.3 RTT: D3D12Texture (external RT bind)
 #include "d3d12/d3d12renderer.h" // #DX12 п.5: SetGScreenSize forwards to the renderer's cbViewport
+#include "gt7tonemap_hlsl.h" // Artscout - 2026: HDR scene + GT7 tone mapping
 
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -123,6 +124,24 @@ D3D12Backend::D3D12Backend()
         m_viColor[i].w = m_viColor[i].h = m_viColor[i].fmt = 0;
         m_viColor[i].lru = 0;
     }
+    // Artscout - 2026: HDR scene + GT7 (all POD -> zero them in one go)
+    ZeroMemory(&m_hdrFlat, sizeof(m_hdrFlat));
+    ZeroMemory(m_hdrEye, sizeof(m_hdrEye));
+    m_hdrEyeLru = 0;
+    m_pHdrCur = 0;
+    m_hdrSceneRtvPtr = m_hdrOutRtvPtr = 0;
+    m_hdrSceneSamples = 1;
+    m_hdrToneMapped = false;
+    m_hdrBeginAllowed = false;
+    m_pHdrRS = 0;
+    m_pHdrVS = m_pHdrPS = 0;
+    for (int i = 0; i < 4; ++i)
+    {
+        m_pHdrPso[i] = 0;
+        m_hdrPsoFmt[i] = m_hdrPsoSamples[i] = 0;
+    }
+    m_hdrPipelineFailed = false;
+    m_hdrStatFrames = m_hdrStatToneMapped = m_hdrStatTick = 0;
 }
 
 D3D12Backend::~D3D12Backend()
@@ -491,6 +510,7 @@ void D3D12Backend::BeginFrame(unsigned long argb)
         return;
 
     BeginCommandList();
+    m_pHdrCur = 0; // Artscout - 2026: HDR is re-decided per frame (below)
     m_renderEpoch++; // #DX12 п.5: new render epoch -> the renderer resets its per-frame rings
     // Artscout - 2026 (#65 perf): advance the texture pool's frame clock so freed placed-resource regions become
     // reusable only after the GPU is guaranteed done with the texture that held them.
@@ -507,6 +527,37 @@ void D3D12Backend::BeginFrame(unsigned long argb)
     b.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
     b.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
     m_pList->ResourceBarrier(1, &b);
+
+    // Artscout - 2026: HDR scene + GT7 -- a renderer-opened frame draws into the FP16 scene (MSAA or not);
+    // the back buffer receives it in OutputHdrScene (from ResolveMsaaToBackBuffer / Present). Any failure
+    // falls through to the unchanged 8-bit paths below.
+    extern bool g_bToneMapGT7;
+    if (g_bToneMapGT7 && m_hdrBeginAllowed)
+    {
+        const bool msaa = CreateMsaaTargets(m_nWidth, m_nHeight);
+        D3D12_CPU_DESCRIPTOR_HANDLE bbRtv =
+            m_pRtvHeap->GetCPUDescriptorHandleForHeapStart();
+        bbRtv.ptr += (SIZE_T)m_frameIndex * m_rtvDescSize;
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv;
+        dsv.ptr = 0;
+        if (msaa)
+            dsv = m_pMsaaDsvHeap->GetCPUDescriptorHandleForHeapStart();
+        else if (m_pDsvHeap)
+            dsv = m_pDsvHeap->GetCPUDescriptorHandleForHeapStart();
+        if (BeginHdrScene(m_hdrFlat, m_nWidth, m_nHeight,
+                          msaa ? m_msaaSamples : 1,
+                          (unsigned __int64)bbRtv.ptr, argb,
+                          (unsigned __int64)dsv.ptr))
+        {
+            // Same depth bookkeeping as BindMsaaScene / the single-sample path below.
+            m_pSceneDepthRes = msaa ? m_pMsaaDepthTex : m_pDepthTex;
+            m_sceneDepthSlices = 1;
+            m_sceneDepthMs = msaa;
+            m_sceneDepthReadable = false;
+            m_bRecording = true;
+            return;
+        }
+    }
 
     // Artscout - 2026: MSAA -- render the scene into the MSAA target instead of the backbuffer; the backbuffer
     // (already PRESENT->RENDER_TARGET above) receives the resolved image later in ResolveMsaaToBackBuffer,
@@ -979,6 +1030,9 @@ void D3D12Backend::Present(bool bVSync)
 
     if (m_bRecording)
     {
+        // Artscout - 2026: an HDR frame nobody resolved (no UI composite this frame) still has to reach
+        // the back buffer. No-op otherwise.
+        OutputHdrScene();
         // back buffer: RENDER_TARGET -> PRESENT
         D3D12_RESOURCE_BARRIER b;
         ZeroMemory(&b, sizeof(b));
@@ -1623,6 +1677,13 @@ void D3D12Backend::BindMsaaScene(unsigned long argb, int w, int h)
 // so the UI composites over the resolved image. Flat path -- called before CompositeUISurface. No-op if MSAA off.
 void D3D12Backend::ResolveMsaaToBackBuffer()
 {
+    // Artscout - 2026: an HDR frame's scene is FP16 (MSAA or not) -- OutputHdrScene resolves it, writes the
+    // back buffer and leaves it bound with no depth, exactly the state the MSAA resolve below leaves.
+    if (m_pHdrCur)
+    {
+        OutputHdrScene();
+        return;
+    }
     if (!m_pList || !m_bRecording || !MsaaActive())
         return;
     ID3D12Resource* bb = m_pBackBuffer[m_frameIndex];
@@ -1668,6 +1729,474 @@ void D3D12Backend::ResolveMsaaToBackBuffer()
     m_pList->RSSetViewports(1, &vp);
     m_pList->RSSetScissorRects(1, &sc);
 }
+//============================ HDR scene + GT7 tone mapping ===================
+// Artscout - 2026: see the header comment at CurrentRtvFormat and RENDER-LIGHTING.md ("HDR + GT7").
+// The whole pipeline in one place:
+//   BeginFrame (renderer-opened) / BeginEyeFrame -> BeginHdrScene: bind + clear the FP16 scene.
+//   otwloop, 3D -> 2D boundary        -> ToneMapSceneGT7: snapshot, GT7 back into the scene, rebind.
+//   ResolveMsaaToBackBuffer / Present / EndEyeFrame -> OutputHdrScene: snapshot, clamp into the 8-bit
+//                                        target, which then becomes the scene for whatever follows.
+static const DXGI_FORMAT kHdrSceneFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
+
+// Everything the HDR path says goes to FFDebug.log as well: D12Log is OutputDebugString only, which is
+// invisible without a debugger -- the first in-game test found no "HDR frames" line for exactly that reason.
+static void HdrLog(const char* fmt, ...)
+{
+    char body[400];
+    va_list ap;
+    va_start(ap, fmt);
+    _vsnprintf(body, sizeof(body), fmt, ap);
+    va_end(ap);
+    body[sizeof(body) - 1] = '\0';
+    char ln[512];
+    _snprintf(ln, sizeof(ln), "[HDR] %s\n", body);
+    ln[sizeof(ln) - 1] = '\0';
+    OutputDebugStringA(ln);
+    FFDebugLog(ln);
+}
+
+int D3D12Backend::CurrentRtvFormat() const
+{
+    if (m_pHdrCur && m_curRtvPtr && m_curRtvPtr == m_hdrSceneRtvPtr)
+        return (int)kHdrSceneFormat;
+    return BackBufferFormat();
+}
+
+void D3D12Backend::ReleaseHdrTargets(HdrTargets& t)
+{
+    D12_RELEASE(t.color);
+    D12_RELEASE(t.msaa);
+    D12_RELEASE(t.copy);
+    D12_RELEASE(t.rtvHeap);
+    D12_RELEASE(t.srvHeap);
+    t.w = t.h = t.samples = 0;
+}
+
+D3D12Backend::HdrTargets& D3D12Backend::HdrEyeSlot(int w, int h)
+{
+    int pick = -1;
+    for (int i = 0; i < 2 && pick < 0; ++i)
+        if (m_hdrEye[i].color && m_hdrEye[i].w == w && m_hdrEye[i].h == h)
+            pick = i;
+    if (pick < 0) // replace the empty / least recently used slot
+        pick = (!m_hdrEye[0].color || (m_hdrEye[1].color &&
+                                       m_hdrEye[0].lru <= m_hdrEye[1].lru)) ?
+                   0 :
+                   1;
+    m_hdrEye[pick].lru = ++m_hdrEyeLru;
+    return m_hdrEye[pick];
+}
+
+bool D3D12Backend::EnsureHdrTargets(HdrTargets& t, int w, int h, int samples)
+{
+    if (!m_pDevice || w < 1 || h < 1)
+        return false;
+    if (samples < 1)
+        samples = 1;
+    if (t.color && t.samples == samples && t.w == w && t.h == h)
+        return true;
+
+    if (samples > 1)
+    {
+        D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS ql;
+        ZeroMemory(&ql, sizeof(ql));
+        ql.Format = kHdrSceneFormat;
+        ql.SampleCount = (UINT)samples;
+        if (FAILED(m_pDevice->CheckFeatureSupport(
+                D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &ql, sizeof(ql))) ||
+            ql.NumQualityLevels == 0)
+        {
+            static bool s_logged = false;
+            if (!s_logged)
+                HdrLog("FP16 x%d MSAA unsupported -> 8-bit scene",
+                       samples);
+            s_logged = true;
+            return false;
+        }
+    }
+
+    if (t.color)
+        WaitForGpu(); // the old set may still be referenced by frames in flight
+    ReleaseHdrTargets(t);
+
+    D3D12_HEAP_PROPERTIES hp;
+    ZeroMemory(&hp, sizeof(hp));
+    hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC rd;
+    ZeroMemory(&rd, sizeof(rd));
+    rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    rd.Width = (UINT64)w;
+    rd.Height = (UINT)h;
+    rd.DepthOrArraySize = 1;
+    rd.MipLevels = 1;
+    rd.Format = kHdrSceneFormat;
+    rd.SampleDesc.Count = 1;
+    rd.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+    // No optimized clear value: the scene clears to the sky/fog colour, which changes every frame.
+    rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    bool ok = SUCCEEDED(m_pDevice->CreateCommittedResource(
+        &hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_RENDER_TARGET,
+        NULL, IID_PPV_ARGS(&t.color)));
+    if (ok && samples > 1)
+    {
+        D3D12_RESOURCE_DESC md = rd;
+        md.SampleDesc.Count = (UINT)samples;
+        ok = SUCCEEDED(m_pDevice->CreateCommittedResource(
+            &hp, D3D12_HEAP_FLAG_NONE, &md, D3D12_RESOURCE_STATE_RENDER_TARGET,
+            NULL, IID_PPV_ARGS(&t.msaa)));
+    }
+    if (ok)
+    {
+        D3D12_RESOURCE_DESC cd = rd;
+        cd.Flags = D3D12_RESOURCE_FLAG_NONE;
+        ok = SUCCEEDED(m_pDevice->CreateCommittedResource(
+            &hp, D3D12_HEAP_FLAG_NONE, &cd,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, NULL,
+            IID_PPV_ARGS(&t.copy)));
+    }
+    if (ok)
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC hd;
+        ZeroMemory(&hd, sizeof(hd));
+        hd.NumDescriptors = 2;
+        hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        ok = SUCCEEDED(
+            m_pDevice->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&t.rtvHeap)));
+    }
+    if (ok)
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC hd;
+        ZeroMemory(&hd, sizeof(hd));
+        hd.NumDescriptors = 1;
+        hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        ok = SUCCEEDED(
+            m_pDevice->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&t.srvHeap)));
+    }
+    if (!ok)
+    {
+        HdrLog("target create failed (%dx%d x%d) -> 8-bit scene",
+               w, h, samples);
+        ReleaseHdrTargets(t);
+        return false;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv =
+        t.rtvHeap->GetCPUDescriptorHandleForHeapStart();
+    D3D12_RENDER_TARGET_VIEW_DESC rv;
+    ZeroMemory(&rv, sizeof(rv));
+    rv.Format = kHdrSceneFormat;
+    rv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+    m_pDevice->CreateRenderTargetView(t.color, &rv, rtv);
+    if (t.msaa)
+    {
+        rtv.ptr += m_rtvDescSize;
+        rv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS;
+        m_pDevice->CreateRenderTargetView(t.msaa, &rv, rtv);
+    }
+    D3D12_SHADER_RESOURCE_VIEW_DESC sv;
+    ZeroMemory(&sv, sizeof(sv));
+    sv.Format = kHdrSceneFormat;
+    sv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    sv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    sv.Texture2D.MipLevels = 1;
+    m_pDevice->CreateShaderResourceView(
+        t.copy, &sv, t.srvHeap->GetCPUDescriptorHandleForHeapStart());
+
+    t.w = w;
+    t.h = h;
+    t.samples = samples;
+    HdrLog("scene targets %dx%d x%d (%s)", w, h, samples,
+           (&t == &m_hdrFlat) ? "flat" : "eye");
+    return true;
+}
+
+bool D3D12Backend::EnsureHdrPipeline()
+{
+    if (m_pHdrRS && m_pHdrVS && m_pHdrPS)
+        return true;
+    if (m_hdrPipelineFailed || !m_pDevice)
+        return false;
+    m_hdrPipelineFailed = true; // cleared at the end; any early return leaves HDR off for the session
+
+    // Root signature: t0 (the scene copy) as a PS table + 4 PS root constants (b0).
+    D3D12_DESCRIPTOR_RANGE range;
+    ZeroMemory(&range, sizeof(range));
+    range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    range.NumDescriptors = 1;
+    range.OffsetInDescriptorsFromTableStart =
+        D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    D3D12_ROOT_PARAMETER params[2];
+    ZeroMemory(params, sizeof(params));
+    params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[0].DescriptorTable.NumDescriptorRanges = 1;
+    params[0].DescriptorTable.pDescriptorRanges = &range;
+    params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    params[1].Constants.ShaderRegister = 0;
+    params[1].Constants.Num32BitValues = 4;
+    params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    D3D12_ROOT_SIGNATURE_DESC rsd;
+    ZeroMemory(&rsd, sizeof(rsd));
+    rsd.NumParameters = 2;
+    rsd.pParameters = params;
+
+    ID3DBlob* rsBlob = 0;
+    ID3DBlob* rsErr = 0;
+    if (FAILED(D3D12SerializeRootSignature(&rsd, D3D_ROOT_SIGNATURE_VERSION_1,
+                                           &rsBlob, &rsErr)))
+    {
+        HdrLog("SerializeRootSignature failed");
+        if (rsErr)
+            rsErr->Release();
+        return false;
+    }
+    HRESULT hr = m_pDevice->CreateRootSignature(0, rsBlob->GetBufferPointer(),
+                                                rsBlob->GetBufferSize(),
+                                                IID_PPV_ARGS(&m_pHdrRS));
+    rsBlob->Release();
+    if (rsErr)
+        rsErr->Release();
+    if (FAILED(hr))
+    {
+        HdrLog("CreateRootSignature failed 0x%08X", (unsigned)hr);
+        return false;
+    }
+
+    const char* entries[2] = {"VSMain", "PSMain"};
+    const char* profiles[2] = {"vs_5_0", "ps_5_0"};
+    ID3DBlob** outs[2] = {&m_pHdrVS, &m_pHdrPS};
+    for (int i = 0; i < 2; ++i)
+    {
+        ID3DBlob* err = 0;
+        hr = D3DCompile(kGT7ToneMapHlsl, strlen(kGT7ToneMapHlsl), "gt7tonemap",
+                        0, 0, entries[i], profiles[i],
+                        D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, outs[i], &err);
+        if (FAILED(hr))
+            HdrLog("GT7 %s compile failed: %s", entries[i],
+                   err ? (const char*)err->GetBufferPointer() : "?");
+        if (err)
+            err->Release();
+        if (FAILED(hr))
+        {
+            D12_RELEASE(m_pHdrVS);
+            D12_RELEASE(m_pHdrPS);
+            return false;
+        }
+    }
+    m_hdrPipelineFailed = false;
+    HdrLog("GT7 tone-map pipeline up");
+    return true;
+}
+
+ID3D12PipelineState* D3D12Backend::HdrPso(int fmt, int samples)
+{
+    int freeSlot = -1;
+    for (int i = 0; i < 4; ++i)
+    {
+        if (m_pHdrPso[i] && m_hdrPsoFmt[i] == fmt &&
+            m_hdrPsoSamples[i] == samples)
+            return m_pHdrPso[i];
+        if (!m_pHdrPso[i] && freeSlot < 0)
+            freeSlot = i;
+    }
+    if (freeSlot < 0) // four variants cover flat/eye x in-place/output; never expected to spill
+        return 0;
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pd;
+    ZeroMemory(&pd, sizeof(pd));
+    pd.pRootSignature = m_pHdrRS;
+    pd.VS.pShaderBytecode = m_pHdrVS->GetBufferPointer();
+    pd.VS.BytecodeLength = m_pHdrVS->GetBufferSize();
+    pd.PS.pShaderBytecode = m_pHdrPS->GetBufferPointer();
+    pd.PS.BytecodeLength = m_pHdrPS->GetBufferSize();
+    pd.BlendState.RenderTarget[0].RenderTargetWriteMask =
+        D3D12_COLOR_WRITE_ENABLE_ALL;
+    pd.SampleMask = 0xFFFFFFFFu;
+    pd.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    pd.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pd.RasterizerState.DepthClipEnable = TRUE;
+    pd.DepthStencilState.DepthEnable = FALSE;
+    pd.DepthStencilState.StencilEnable = FALSE;
+    pd.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pd.NumRenderTargets = 1;
+    pd.RTVFormats[0] = (DXGI_FORMAT)fmt;
+    pd.SampleDesc.Count = (UINT)samples;
+    ID3D12PipelineState* pso = 0;
+    if (FAILED(m_pDevice->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&pso))))
+    {
+        HdrLog("PSO create failed (fmt %d x%d)", fmt, samples);
+        return 0;
+    }
+    m_pHdrPso[freeSlot] = pso;
+    m_hdrPsoFmt[freeSlot] = fmt;
+    m_hdrPsoSamples[freeSlot] = samples;
+    return pso;
+}
+
+bool D3D12Backend::BeginHdrScene(HdrTargets& t, int w, int h, int samples,
+                                 unsigned __int64 outRtvPtr, unsigned long argb,
+                                 unsigned __int64 dsvPtr)
+{
+    D3D12_CPU_DESCRIPTOR_HANDLE dsvH;
+    dsvH.ptr = (SIZE_T)dsvPtr;
+    D3D12_CPU_DESCRIPTOR_HANDLE* dsv = dsvPtr ? &dsvH : NULL;
+    m_pHdrCur = 0;
+    if (!EnsureHdrPipeline())
+        return false;
+    // Both output variants up front: a frame that could begin but not end would leave the target black.
+    if (!HdrPso((int)kHdrSceneFormat, samples) || !HdrPso(BackBufferFormat(), 1))
+        return false;
+    if (!EnsureHdrTargets(t, w, h, samples))
+        return false;
+
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv =
+        t.rtvHeap->GetCPUDescriptorHandleForHeapStart();
+    if (samples > 1)
+        rtv.ptr += m_rtvDescSize;
+    m_pList->OMSetRenderTargets(1, &rtv, FALSE, dsv);
+    if (g_pD3D12Renderer)
+        g_pD3D12Renderer->SetDepthTargetBound(dsv != NULL);
+    const float clr[4] = {((argb >> 16) & 0xFF) / 255.0f,
+                          ((argb >> 8) & 0xFF) / 255.0f, (argb & 0xFF) / 255.0f,
+                          ((argb >> 24) & 0xFF) / 255.0f};
+    m_pList->ClearRenderTargetView(rtv, clr, 0, NULL);
+    if (dsv)
+        m_pList->ClearDepthStencilView(
+            *dsv, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.0f, 0, 0,
+            NULL);
+    // Not SetViewportRect: the Begin*Frame callers set m_bRecording only after this returns.
+    D3D12_VIEWPORT vp = {0.0f, 0.0f, (FLOAT)w, (FLOAT)h, 0.0f, 1.0f};
+    D3D12_RECT sc = {0, 0, w, h};
+    m_pList->RSSetViewports(1, &vp);
+    m_pList->RSSetScissorRects(1, &sc);
+
+    m_curRtvPtr = m_sceneRtvPtr = m_hdrSceneRtvPtr = (unsigned __int64)rtv.ptr;
+    m_sceneDsvPtr = dsv ? (unsigned __int64)dsv->ptr : 0;
+    m_sceneW = w;
+    m_sceneH = h;
+    m_curSampleCount = samples;
+    m_hdrSceneSamples = samples;
+    m_hdrOutRtvPtr = outRtvPtr;
+    m_hdrToneMapped = false;
+    m_pHdrCur = &t;
+    ++m_hdrStatFrames;
+    {
+        static bool s_flatSaid = false, s_eyeSaid = false;
+        bool& said = (&t == &m_hdrFlat) ? s_flatSaid : s_eyeSaid;
+        if (!said)
+            HdrLog("FP16 scene engaged (%s %dx%d x%d)",
+                   (&t == &m_hdrFlat) ? "flat" : "eye", w, h, samples);
+        said = true;
+    }
+    return true;
+}
+
+// Scene -> copy. Leaves the scene in RENDER_TARGET and the copy in PIXEL_SHADER_RESOURCE (their rest states).
+void D3D12Backend::HdrSnapshotScene()
+{
+    HdrTargets& t = *m_pHdrCur;
+    const bool ms = m_hdrSceneSamples > 1;
+    ID3D12Resource* src = ms ? t.msaa : t.color;
+    D3D12_RESOURCE_BARRIER b[2];
+    ZeroMemory(b, sizeof(b));
+    b[0].Type = b[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    b[0].Transition.pResource = src;
+    b[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    b[0].Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    b[0].Transition.StateAfter = ms ? D3D12_RESOURCE_STATE_RESOLVE_SOURCE :
+                                      D3D12_RESOURCE_STATE_COPY_SOURCE;
+    b[1].Transition.pResource = t.copy;
+    b[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    b[1].Transition.StateAfter = ms ? D3D12_RESOURCE_STATE_RESOLVE_DEST :
+                                      D3D12_RESOURCE_STATE_COPY_DEST;
+    m_pList->ResourceBarrier(2, b);
+    if (ms)
+        m_pList->ResolveSubresource(t.copy, 0, src, 0, kHdrSceneFormat);
+    else
+        m_pList->CopyResource(t.copy, src);
+    for (int i = 0; i < 2; ++i)
+    {
+        D3D12_RESOURCE_STATES s = b[i].Transition.StateBefore;
+        b[i].Transition.StateBefore = b[i].Transition.StateAfter;
+        b[i].Transition.StateAfter = s;
+    }
+    m_pList->ResourceBarrier(2, b);
+}
+
+void D3D12Backend::HdrDraw(unsigned __int64 rtvPtr, int fmt, int samples,
+                           int w, int h, float mode)
+{
+    ID3D12PipelineState* pso = HdrPso(fmt, samples);
+    if (!pso)
+        return;
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv;
+    rtv.ptr = (SIZE_T)rtvPtr;
+    m_pList->OMSetRenderTargets(1, &rtv, FALSE, NULL);
+    SetViewportRect(0, 0, w, h);
+
+    extern float g_fToneMapExposure;
+    // GT7 frame-buffer units are 100 cd/m^2; scene 1.0 is placed on its SDR paper white (250 cd/m^2).
+    const float consts[4] = {g_fToneMapExposure * 2.5f, mode, 0.0f, 0.0f};
+    ID3D12DescriptorHeap* heaps[] = {m_pHdrCur->srvHeap};
+    m_pList->SetGraphicsRootSignature(m_pHdrRS);
+    m_pList->SetDescriptorHeaps(1, heaps);
+    m_pList->SetGraphicsRootDescriptorTable(
+        0, m_pHdrCur->srvHeap->GetGPUDescriptorHandleForHeapStart());
+    m_pList->SetGraphicsRoot32BitConstants(1, 4, consts, 0);
+    m_pList->SetPipelineState(pso);
+    m_pList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_pList->DrawInstanced(3, 1, 0, 0);
+    // Our root signature + heap replaced the renderer's; its next draw must re-set them.
+    if (g_pD3D12Renderer)
+        g_pD3D12Renderer->RequestRebind();
+}
+
+bool D3D12Backend::ToneMapSceneGT7()
+{
+    if (!m_pList || !m_bRecording || !m_pHdrCur || m_hdrToneMapped)
+        return false;
+    HdrSnapshotScene();
+    HdrDraw(m_hdrSceneRtvPtr, (int)kHdrSceneFormat, m_hdrSceneSamples, m_sceneW,
+            m_sceneH, 1.0f);
+    m_hdrToneMapped = true;
+    ++m_hdrStatToneMapped;
+    BindBackBufferRTV(); // the scene again, with its depth and full viewport, for the 2D overlays
+    return true;
+}
+
+void D3D12Backend::OutputHdrScene()
+{
+    if (!m_pList || !m_bRecording || !m_pHdrCur)
+        return;
+    HdrSnapshotScene();
+    HdrDraw(m_hdrOutRtvPtr, BackBufferFormat(), 1, m_sceneW, m_sceneH, 0.0f);
+    m_pHdrCur = 0;
+
+    // The 8-bit target is the scene from here on (UI composite, screenshots, BindBackBufferRTV). No depth:
+    // the scene depth may be multisampled, and nothing after the output draws 3D.
+    m_curRtvPtr = m_sceneRtvPtr = m_hdrOutRtvPtr;
+    m_sceneDsvPtr = 0;
+    m_curSampleCount = 1;
+    if (g_pD3D12Renderer)
+        g_pD3D12Renderer->SetDepthTargetBound(false);
+
+    // Proof of life in the log: how many frames took the FP16 path, and how many of them reached the
+    // GT7 hook. frames > 0 with tonemapped == 0 means the otwloop hook is not being hit.
+    const unsigned now = GetTickCount();
+    if (!m_hdrStatTick)
+        m_hdrStatTick = now;
+    if (now - m_hdrStatTick >= 10000)
+    {
+        HdrLog("frames/10s=%u GT7 tone-mapped=%u", m_hdrStatFrames,
+               m_hdrStatToneMapped);
+        m_hdrStatFrames = m_hdrStatToneMapped = 0;
+        m_hdrStatTick = now;
+    }
+}
+
 // --- Phase 2: present the RGB565 UI surface as a fullscreen textured quad -----
 bool D3D12Backend::EnsureQuadPipeline()
 {
@@ -2319,6 +2848,7 @@ void D3D12Backend::BeginStereoInstancedFrame(void* arrayImg,
     if (nViews > 4)
         nViews = 4;
     BeginCommandList();
+    m_pHdrCur = 0; // Artscout - 2026: view instancing stays on the 8-bit path (no HDR/GT7)
     m_renderEpoch++;
     extern void D3D12TexMgr_TickFrame(unsigned renderEpoch);
     D3D12TexMgr_TickFrame(m_renderEpoch);
@@ -3004,12 +3534,32 @@ void D3D12Backend::BeginEyeFrame(void* eyeImg, unsigned __int64 eyeRtvPtr,
     if (!m_pDevice || !m_pList || !eyeImg || !eyeRtvPtr)
         return;
     BeginCommandList();
+    m_pHdrCur = 0; // Artscout - 2026: HDR is re-decided per eye (below)
     m_renderEpoch++;
     // Artscout - 2026 (#65 perf): also tick the texture pool in the VR eye path (it may not run BeginFrame), else
     // deferred placed-resource frees never reclaim in VR.
     extern void D3D12TexMgr_TickFrame(unsigned renderEpoch);
     D3D12TexMgr_TickFrame(m_renderEpoch);
     EnsureEyeDepth(w, h);
+
+    // Artscout - 2026: HDR scene + GT7 -- the eye renders into the FP16 eye set (single-sample, like the eye
+    // path always has been) and EndEyeFrame writes the result into the XR image. The XR image itself is
+    // untouched until then, so the runtime-owned state rule below still holds.
+    extern bool g_bToneMapGT7;
+    if (g_bToneMapGT7 &&
+        BeginHdrScene(HdrEyeSlot(w, h), w, h, 1, eyeRtvPtr, 0xFF000000,
+                      m_pEyeDsvHeap ? (unsigned __int64)m_pEyeDsvHeap
+                                          ->GetCPUDescriptorHandleForHeapStart()
+                                          .ptr :
+                                      0))
+    {
+        m_pSceneDepthRes = m_pEyeDepthTex;
+        m_sceneDepthSlices = 1;
+        m_sceneDepthMs = false;
+        m_sceneDepthReadable = false;
+        m_bRecording = true;
+        return;
+    }
 
     // #DX12 п.5: do NOT transition the XR swapchain image. This runtime (PICO/PVR via d3d11on12) hands the
     // color swapchain images to the app already in D3D12_RESOURCE_STATE_RENDER_TARGET -- a COMMON->RT barrier
@@ -3068,6 +3618,7 @@ void D3D12Backend::EndEyeFrame(void* eyeImg)
     // #DX12 п.5: no RT->COMMON transition (see BeginEyeFrame) -- the runtime owns the swapchain image state and
     // composites it directly from RENDER_TARGET. Just close + execute + fence so the image is filled on release.
     (void)eyeImg;
+    OutputHdrScene(); // Artscout - 2026: HDR eye -> the XR image (no-op on an 8-bit eye)
     m_pList->Close();
     ID3D12CommandList* lists[] = {(ID3D12CommandList*)m_pList};
     // Artscout - 2026 (#65 perf): GPU-side wait so async texture/VB uploads submitted this eye frame are
@@ -3297,6 +3848,9 @@ void D3D12Backend::BindBackBufferRTV()
     }
     // MSAA: the scene target is the MSAA color (flat) -> PSOs must be multisample; VR eye / fallback = 1.
     m_curSampleCount = MsaaActive() ? m_msaaSamples : 1;
+    // Artscout - 2026: the HDR scene knows its own sample count (the FP16 eye is 1x even with MSAA up).
+    if (m_pHdrCur && rtvPtr == m_hdrSceneRtvPtr)
+        m_curSampleCount = m_hdrSceneSamples;
     m_curRtvPtr = rtvPtr;
     D3D12_CPU_DESCRIPTOR_HANDLE rtv;
     rtv.ptr = (SIZE_T)rtvPtr;
@@ -3602,6 +4156,15 @@ void D3D12Backend::Release()
     ReleaseBackBufferViews();
     ReleaseDepthBuffer();
     ReleaseMsaaTargets(); // Artscout - 2026: free MSAA color/depth targets + their descriptor heaps
+    ReleaseHdrTargets(m_hdrFlat); // Artscout - 2026: HDR scene + GT7
+    ReleaseHdrTargets(m_hdrEye[0]);
+    ReleaseHdrTargets(m_hdrEye[1]);
+    m_pHdrCur = 0;
+    for (int i = 0; i < 4; ++i)
+        D12_RELEASE(m_pHdrPso[i]);
+    D12_RELEASE(m_pHdrRS);
+    D12_RELEASE(m_pHdrVS);
+    D12_RELEASE(m_pHdrPS);
     D12_RELEASE(m_pEyeDepthTex);
     D12_RELEASE(m_pEyeDsvHeap);
     for (int i = 0; i < 2; ++i)

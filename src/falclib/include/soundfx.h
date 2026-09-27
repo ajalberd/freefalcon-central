@@ -255,8 +255,41 @@ enum SFX_TYPES
     // sndCanopyLoop, id 275); BMS 4.38 ships separate open and close loops. Explicit values for
     // the same reason as the JFS block: they index f4sndtbl.txt directly, and every shipped
     // table has to carry these two entries in this order.
+    // Artscout - 2026: the ECS trio of the switch-sound port (289..302 are otherwise referenced only
+    // by number from 3dbuttons.dat). Named because CockpitSounds now drives them.
+    SFX_ECS_START = 300,
+    SFX_ECS_LOOP = 301,
+    SFX_ECS_END = 302,
     SFX_CANOPY_OPEN_LOOP = 303,
     SFX_CANOPY_CLOSE_LOOP = 304,
+    // Artscout - 2026: cockpit sounds from BMS 4.38 -- marker beacons, pilot breathing, buffet, the
+    // wheel brakes, and the switch/canopy-latch clicks. Explicit for the same reason as above; the
+    // loops are driven by AirframeClass::CockpitSounds, the clicks by 3dbuttons.dat and MoveDof.
+    SFX_OUTER_MARKER = 305,
+    SFX_MIDDLE_MARKER = 306,
+    SFX_BREATH_CALM = 307,
+    SFX_BREATH_FAST = 308,
+    SFX_BREATH_STRAIN = 309,
+    SFX_BUFFET = 310,
+    SFX_WHEEL_BRAKE = 311,
+    SFX_TOGGLE_GUARD_IN = 312,
+    SFX_TOGGLE_GUARD_OUT = 313,
+    SFX_MAG_SWITCH_IN = 314,
+    SFX_MAG_SWITCH_OUT = 315,
+    SFX_CANOPY_SWITCH = 316,
+    SFX_CANOPY_LOCK = 317,
+    SFX_CANOPY_UNLOCK = 318,
+    SFX_SEAT_UP = 319, // the seat-height motor, while SimSeatUp/SimSeatDown hold it moving
+    SFX_SEAT_DOWN = 320,
+    // Artscout - 2026: BMS 4.38 airflow layers, driven by AirframeClass::CockpitSounds.
+    SFX_AIRFLOW_CANOPY = 321, // dynamic pressure on the canopy -- "we're flying now"
+    SFX_AOA_LOWSPEED = 322, // low speed, high AoA
+    SFX_AOA_HIGHSPEED = 323, // high speed, low AoA
+    SFX_GEAR_WIND = 324, // air over the lowered gear
+    SFX_WIND_CANOPY_OPEN = 325, // wind in the pit with the canopy up
+    // BMS 4.32 calibre guns: six groups of four -- external loop, external end (each linked to its
+    // internal take), internal loop, internal end. See GunCalibreSfx (guns.cpp).
+    SFX_GUN_CALIBRE_BASE = 326,
     SFX_LAST // must be the last entry
 };
 

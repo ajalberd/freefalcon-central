@@ -317,6 +317,7 @@
     <ClCompile Include="Atmos.cpp" />
     <ClCompile Include="Axial.cpp" />
     <ClCompile Include="Cruise.cpp" />
+    <ClCompile Include="cockpitsnd.cpp" />
     <ClCompile Include="Engine.cpp" />
     <ClCompile Include="Eom.cpp" />
     <ClCompile Include="Fcs.cpp" />

@@ -326,6 +326,19 @@ public:
     {
         return false;
     }
+    // Artscout - 2026: HDR scene + GT7 tone mapping. The sim calls this ONCE per view, at the 3D -> 2D
+    // boundary (after the world and the 3D pit are flushed, before the HUD / 2D pit / text), so the tone
+    // curve shapes the scene and never the overlays. False = this backend has no HDR scene (a no-op).
+    virtual bool ToneMapScene()
+    {
+        return false;
+    }
+    // Artscout - 2026: MFD sun glare for the NEXT RTT composite (FF_RTTSOFT). 20 floats = gGlare0..4 in
+    // ffemu.hlsl's cbRender (the display glass in the pit's model frame + the sun veil colour); NULL
+    // disarms. Default no-op (Vulkan has no pit shadow map to test against).
+    virtual void SetRttGlare(const float* /*glare20*/)
+    {
+    }
 };
 
 // The active renderer (D3D11Renderer or, later, D3D12Renderer). Set in DXContext::Init.

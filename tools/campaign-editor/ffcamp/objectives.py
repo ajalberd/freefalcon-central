@@ -164,8 +164,10 @@ def _decode_one(s, version, class_rows):
 
 # CampBaseClass is fixed-size and comes first, so these offsets from the start
 # of a record are constant for a given version -- the same trick the unit
-# stream uses.
-PATCHABLE = {"x": "<h", "y": "<h", "owner": "<B", "priority": "<B"}
+# stream uses. supply/fuel/losses sit after the variable-length objFlags field
+# but before the feature-status block, so they are still fixed.
+PATCHABLE = {"x": "<h", "y": "<h", "owner": "<B", "priority": "<B",
+             "supply": "<B", "fuel": "<B", "losses": "<B"}
 
 
 def _offsets(version):
@@ -174,7 +176,78 @@ def _offsets(version):
     after = base + 4 + (4 if version >= 70 else 0)
     off["owner"] = after + 8              # spotTime, spotted, baseFlags
     off["campId"] = after + 9
+    # past campId: last_repair (u32), obj_flags (u32, or i16 before v2)
+    p = off["campId"] + 2 + 4 + (4 if version > 1 else 2)
+    off["supply"] = p
+    off["fuel"] = p + 1
+    off["losses"] = p + 2
     return off
+
+
+def feature_block_offset(version):
+    """Offset of the per-feature status block from the start of a record.
+
+    The block is preceded by a `size` byte, and the reader takes the smaller of
+    that size and what the class table says -- so the stream always advances by
+    exactly `size`. Statuses are two bits per feature, four features a byte
+    (`ObjectiveClass::GetFeatureStatus`).
+    """
+    # supply, fuel, losses, then the size byte, then the block.
+    return _offsets(version)["losses"] + 2
+
+
+def feature_status(obj, feature):
+    """One feature's 2-bit status, or None when the feature is outside it."""
+    block = obj.get("featureStatus") or b""
+    if feature < 0 or feature // 4 >= len(block):
+        return None
+    return (block[feature // 4] >> ((feature % 4) * 2)) & 3
+
+
+def patch_feature_bits(raw, obj, version, feature, status):
+    """Set one feature's 2 bits in the decompressed stream.
+
+    VIS_* from falclib/include/f4vu.h: 0 normal, 1 repaired, 2 damaged,
+    3 destroyed. Only 0..3 fit in two bits, which is why the engine's 4..6
+    (left/right/both destroyed) never reach the save file.
+    """
+    block = obj.get("featureStatus") or b""
+    if not 0 <= feature < len(block) * 4:
+        raise ValueError("feature %d is outside this objective's %d features"
+                         % (feature, len(block) * 4))
+    status = int(status)
+    if not 0 <= status <= 3:
+        raise ValueError("feature status must be 0..3 (normal, repaired, "
+                         "damaged, destroyed), not %d" % status)
+
+    at = obj["_span"][0] + feature_block_offset(version) + feature // 4
+    shift = (feature % 4) * 2
+    out = bytearray(raw)
+    out[at] = (out[at] & ~(3 << shift)) | (status << shift)
+    return bytes(out)
+
+
+def refresh_feature_status(raw, obj, version):
+    """Re-read an objective's feature-status block out of a patched stream."""
+    n = len(obj.get("featureStatus") or b"")
+    at = obj["_span"][0] + feature_block_offset(version)
+    obj["featureStatus"] = bytes(raw[at:at + n])
+    return obj["featureStatus"]
+
+
+# supply/fuel/losses are percentages, priority is a 0..255 byte.
+_PATCH_RANGE = {"supply": (0, 100), "fuel": (0, 100), "losses": (0, 100),
+                "priority": (0, 255)}
+
+
+def clamp_value(field, value):
+    lo, hi = _PATCH_RANGE.get(field, (None, None))
+    value = int(value)
+    if lo is not None:
+        value = max(lo, value)
+    if hi is not None:
+        value = min(hi, value)
+    return value
 
 
 def patch_objective(raw, obj, version, field, value):
@@ -187,7 +260,7 @@ def patch_objective(raw, obj, version, field, value):
     else:
         at = obj["_span"][0] + _offsets(version)[field]
     out = bytearray(raw)
-    struct.pack_into(PATCHABLE[field], out, at, int(value))
+    struct.pack_into(PATCHABLE[field], out, at, clamp_value(field, value))
     return bytes(out)
 
 

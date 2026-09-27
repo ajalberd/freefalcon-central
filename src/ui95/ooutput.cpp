@@ -1040,10 +1040,13 @@ void O_Output::Draw(SCREEN *surface, UI95_RECT *cliprect)
         dest.left += Owner_->Parent_->GetX();
         dest.top += Owner_->Parent_->GetY();
 
+        // Artscout - 2026: a NEGATIVE back percent means "darken, don't mix": back = 0 gives
+        // image * (fperc/100)^2 (UIColorTable applied twice). bperc_ was never read here and
+        // defaults to 0, so every existing translucent element keeps 100 - fperc as before.
         if (flags_ bitand C_BIT_TRANSLUCENT and fperc_ < 100)
             Image_->Blend(surface, src.left, src.top, src.right - src.left,
                           src.bottom - src.top, dest.left, dest.top, fperc_,
-                          100 - fperc_);
+                          (bperc_ < 0) ? 0 : 100 - fperc_);
         else
             Image_->Blit(surface, src.left, src.top, src.right - src.left,
                          src.bottom - src.top, dest.left, dest.top);

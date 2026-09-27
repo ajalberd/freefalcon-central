@@ -316,11 +316,13 @@
     <ClCompile Include="realWeather.cpp" />
     <ClCompile Include="Star.cpp" />
     <ClCompile Include="Tod.cpp" />
+    <ClCompile Include="weatherfronts.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\Include\real2DCloud.h" />
     <ClInclude Include="..\Include\real3DCloud.h" />
     <ClInclude Include="..\Include\realweather.h" />
+    <ClInclude Include="..\Include\weatherfronts.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -67,3 +67,41 @@ def load(campaign_dir, stem="DEFAULT"):
     offsets = [v & 0xFFFF
                for v in struct.unpack_from("<%dh" % count, idx, 2)]
     return NameTable(offsets, wch)
+
+
+SCENARIOS = ("save0.cam", "save1.cam", "save2.cam")
+
+
+def theater_stem(campaign_dir, theater_name_of):
+    """Which name table the engine loads for this campaign directory.
+
+    `LoadTheater(theater)` calls `LoadNames(theater)` with the campaign
+    header's TheaterName, so Korea reads `korea.idx`/`.wch` and the Israel
+    theaters `Israel.idx`. DEFAULT is only what is left when that name has no
+    files. They are not interchangeable: Korea's DEFAULT.idx is from 2010 and
+    its korea.idx from 2011, and id 295 is "8th February Vinalon Complex" in
+    one and "Choongwon Airbase" in the other.
+
+    `theater_name_of(filename)` returns a campaign file's TheaterName, so the
+    caller decides how headers are read (the editor reuses its cache). Every
+    shipped theater agrees with itself -- only the case varies, KOREA vs
+    korea -- so the first campaign whose name has files decides; the three
+    scenarios are asked first because they are what a player starts from.
+    """
+    try:
+        files = sorted(os.listdir(campaign_dir),
+                       key=lambda f: (f.lower() not in SCENARIOS, f.lower()))
+    except OSError:
+        return "DEFAULT"
+
+    for f in files:
+        if not f.lower().endswith(".cam"):
+            continue
+        try:
+            stem = (theater_name_of(f) or "").strip()
+        except Exception:
+            continue
+        if (stem and _find(campaign_dir, stem + ".idx")
+                and _find(campaign_dir, stem + ".wch")):
+            return stem
+    return "DEFAULT"

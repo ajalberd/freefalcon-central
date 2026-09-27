@@ -30,9 +30,9 @@ question ever comes up that the loaders do not answer.
 transcribed from the headers and the (de)serializers, and
 `tools/campaign-editor/selftest.py` checks those transcriptions against the
 shipped data: read every table and every campaign file, write it back in
-memory, require identical bytes. 1582 checks on a stock install. This is the
-whole safety story — a layout that is one byte off still parses, it just
-shifts every field silently.
+memory, require identical bytes. Over eight thousand checks on a stock
+install. This is the whole safety story — a layout that is one byte off still
+parses, it just shifts every field silently.
 
 ## The data
 
@@ -230,6 +230,21 @@ actions run when the enclosing conditions hold. `#TOTAL_EVENTS` declares the
 event count, everything before `#ENDINIT` is start-up state, `#ENDSCRIPT`
 terminates.
 
+The script is named by the header's `Scenario` field, not by the campaign file:
+`CheckTriggers(TheCampaign.Scenario)` in `campaign/campupd/campaign.cpp`. A
+mid-campaign save keeps the `Scenario` it was started from, so it plays that
+scenario's ending and cannot carry one of its own -- and the same field is
+where `LoadBaseObjectives(Scenario)` reads the base objective list from, so
+pointing it elsewhere is not free.
+
+It is still possible to give a save its own ending: repoint its `Scenario` at
+a copy of the scenario that carries the same objective list. `LoadBaseObjectives`
+then reads the copy's `.obj`, `LoadObjectiveDeltas(savefile)` still applies the
+save's `.obd` on top (the deltas were made against those same objectives), and
+`CheckTriggers` reads the copy's `.tri`. The editor's Victory tab does the whole
+thing in one step, and refuses a `Scenario` value whose campaign file carries no
+objective list.
+
 All twelve shipped campaigns have exactly four endgames: an allied win, an
 OPFOR win, a stalemate timer (`#IF_BORDOM_HOURS`) and a day limit
 (`#IF_CAMPAIGN_DAY`). korea2012's `save0.tri`, for example:
@@ -250,6 +265,25 @@ The ids are campaign ids. The evaluator guards each lookup with
 `A` list (reads as satisfied), fatal inside an `O` list (can never fire). Four
 of the shipped scripts name five such ids each, all in the front-line events
 rather than the endgames.
+
+Three more things the evaluator does that a reader of the file cannot see:
+
+- `#SET_TEMPO` and `#CHANGE_PRIORITIES` have their handlers commented out in
+  `ReadScriptedTriggerFile`, so they are no-ops in this build even though every
+  Korea-family script uses them. `#SET_PAK_PRIORITY`, `#SHIFT_INITIATIVE`,
+  `#CHANGE_RELATIONS`, `#SET_MINIMUM_SUPPLIES`, `#RESET_BORDOM_TIMEOUT` and
+  `#END_GAME` are all real.
+- A `#PLAY_MOVIE` id is only a number. `art/main/MOVIES.ID` maps the `MV_*`
+  names to ids 100..116 and `art/main/movies.irc` maps each name to a file and
+  a title, both under the theater's art directory — every Israel theater
+  overrides all seventeen with its own avi files. The UI *queues* the movie
+  (`UI_AddMovieToList` → the movie queue and the news window), so it plays when
+  the UI is ready rather than on the tick the condition fired.
+- `#IF_EVENT_PLAYED` is the only reader of an event flag in the whole engine;
+  `#DO_EVENT`, `#RESET_EVENT` and `#SET_EVENT` only write it. An event that is
+  written but never tested therefore does nothing but play its movie — Korea's
+  `save0` events 6 and 8 are like that, and they exist as latches whose real
+  work is clearing the event that blocks the other side's advance.
 
 ### The briefing text, and where it drifts
 
@@ -399,6 +433,11 @@ Flights and packages are deliberately not creatable: the campaign AI creates
 and destroys them while planning, and a hand-authored one has no package to
 belong to.
 
+Squadrons belong here too, not in the game's campaign screen (decided 2026-09-27). The
+in-game **Add Squadron** item is Tactical-Engagement-only by design: `ObjMenuOpenCB`
+disables it when `GameType == 1`, and `tactical_add_squadron` needs `NEW_SQUAD_WIN`, which
+only `TE_SCF.LST` loads (`art\taceng\newsquad.scf`). Do not re-enable it in campaign.
+
 ## Do not re-derive
 
 - `tools/terrain/tilesurvey.py` and `tools/models/objsurvey.py` read terrain and
@@ -413,3 +452,31 @@ belong to.
   than writing a fourth parser, and run its `selftest.py` after touching any
   layout -- well over a thousand checks on a stock install, all of them
   byte-equality against the shipped data.
+- `ffcamp/entities.py` records each editable field's stream offset while it
+  decodes a unit (`_at`), because everything after `CampBaseClass` sits behind
+  variable-length waypoints and parent ids. The same trick `_storesAt` uses for
+  the squadron stores array. Patching by a version-constant offset only works
+  for the base fields.
+- `ffcamp/objectives.py` has the matching fact for objectives: the feature
+  status block is two bits per feature, four features a byte, and it follows a
+  `size` byte at `losses + 2`. The block on disk is not always the size the
+  class table predicts (Israel Classic ships both larger and smaller), and the
+  reader takes the smaller of the two, so the editor only offers the features
+  both agree exist.
+- A squadron's name is not a field: `UnitClass::GetName` composes
+  `<ordinal(nameId)> <unit class name> <size>`, and the unit class name is the
+  role ("Fighter") every squadron of that type shares. The campaign header's
+  flyable roster joins to the unit stream only by VU_ID, and its `dIndex` is
+  the unit's class-table row — which is where the aircraft comes from. A `.tac`
+  template's roster does not all exist in its own unit stream.
+- `#IF_CONTROLLED` is the only trigger condition that names a place; events,
+  ratios, initiative and timers have no location, which is the whole of what a
+  map can and cannot draw. `triggers.controlled_targets` walks the tree and
+  marks each id with its team, its `A`/`O` mode, whether it sits in an `#ELSE`
+  branch (the team must *not* hold it — half the shipped conditions do) and
+  whether it is on the path to an `#END_GAME` rather than an event.
+- The script is `<Scenario>.tri`, always, never the loaded file's own name:
+  `CheckTriggers(TheCampaign.Scenario)`. Israel Classic ships a `save0.cam`
+  that names `save2` and a `save2.cam` that names `save0`, so those two play
+  each other's ending, and a `Scenario` change has to be checked against the
+  base objective list the same field also selects.

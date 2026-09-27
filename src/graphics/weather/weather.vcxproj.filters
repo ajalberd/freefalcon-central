@@ -26,6 +26,9 @@
     <ClCompile Include="Tod.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="weatherfronts.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\Include\real2DCloud.h">
@@ -35,6 +38,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\Include\realweather.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Include\weatherfronts.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

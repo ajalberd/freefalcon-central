@@ -101,6 +101,7 @@ private:
     MAPICONLIST *Last_;
     MAPICONLIST *OverLast_;
     C_Resmgr *Icons_[NUM_DIRECTIONS][2];
+    bool ShadeByStatus_; // Artscout - 2026: darken each icon by its Status (objective health)
 
 public:
     enum
@@ -133,6 +134,11 @@ public:
     void SetDefaultFlags()
     {
         SetFlags(DefaultFlags_);
+    }
+    // Artscout - 2026: objective icon sets darken with damage (Status = objective status 0..100).
+    void SetShadeByStatus(bool on)
+    {
+        ShadeByStatus_ = on;
     }
     long GetDefaultFlags()
     {

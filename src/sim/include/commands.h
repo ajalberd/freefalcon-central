@@ -138,6 +138,12 @@ void SimTMSDown(unsigned long val, int state, void *);
 void SimTMSRight(unsigned long val, int state, void *);
 void SimSeatArm(unsigned long val, int state, void *);
 void SimSeatOn(unsigned long val, int state, void *);  // MD
+void SimSeatUp(unsigned long val, int state, void *);   // Artscout - 2026: seat height, held
+void SimSeatDown(unsigned long val, int state, void *); // Artscout - 2026: seat height, held
+void SimLogPitPoint(unsigned long val, int state, void *); // Artscout - 2026: TEMPORARY, log the aim ray
+void SimHmcsToggle(unsigned long val, int state, void *); // Artscout - 2026: JHMCS symbology + cueing on/off
+void SimHmcsKnobUp(unsigned long val, int state, void *);   // Artscout - 2026: HMCS knob clockwise
+void SimHmcsKnobDown(unsigned long val, int state, void *); // Artscout - 2026: HMCS knob anticlockwise
 void SimSeatOff(unsigned long val, int state, void *);  // MD
 void SimEWSRWRPower(unsigned long val, int state, void *);
 void SimEWSRWROn(unsigned long val, int state, void *);  // MD

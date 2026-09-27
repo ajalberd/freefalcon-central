@@ -29,12 +29,12 @@ every campaign in the theater, and the UI says so on each row.
 | Tab | What it edits |
 | --- | --- |
 | Theater | The `.tdf`, and cloning it into a new theater |
-| Map | Units and objectives on the kneeboard map |
+| Map | Units and objectives on the kneeboard map — the main editing surface |
 | Campaign | Scenario and UI names, clock, day, tempo, starting ratios |
 | Teams | The eight teams' names, flags, colours and mottos |
-| Units | The same units as the map, as a filterable list |
-| Objectives | Airbases, cities, bridges, factories, SAM sites … |
-| Squadrons | The selectable squadron list (read-only) |
+| Units | The same units as a filterable list, with squadron names, aircraft, patches, home bases and composition |
+| Objectives | Airbases, cities, bridges, factories, SAM sites …, with supply and per-feature damage |
+| Squadrons | The selectable squadron list, with names and aircraft (read-only) |
 | Victory | How the campaign ends: its trigger script, plus the TE clock |
 | File contents | The `.cam`'s members, and duplicate/delete for the file |
 | Database | The nineteen `CampaignDB` tables, grouped |
@@ -71,8 +71,17 @@ hand cursor covers the pixel you are aiming at. It turns blue with a centre pip
 when you are armed to place a unit.
 
 - **Shift-drag** a unit to move it.
-- **Right-click** anywhere for a menu: place a unit here, or — over a unit —
-  inspect, move, duplicate or delete it.
+- **Right-click** anywhere for a menu. Over a unit: inspect, move, duplicate,
+  delete, plus the commands the campaign screen puts there — orders, supply,
+  morale and losses, resupply or empty a squadron's racks, and a team change.
+  Over an objective: inspect, repair or destroy every feature, resupply it, or
+  re-side it.
+- **Click** anything to edit it in the sidebar. A unit gets its condition
+  (supply, morale, fatigue, losses, fuel), orders, composition, and — for a
+  squadron — the pilot roster, the stores table and the aircraft's hardpoints.
+  An objective gets supply, fuel, losses, priority, owner and a damage control
+  per feature. Rings on the map mark the places the trigger script watches;
+  the sidebar's idle state lists them (see below).
 - **Place unit…** opens a picker filtered by kind, with a search that matches
   the vehicles a unit is made of. That matters because the class table has five
   different rows all called "AAA"; the picker tells them apart by showing
@@ -80,7 +89,91 @@ when you are armed to place a unit.
 
 Dense layers (terrain, infrastructure) fade out when zoomed out so the map
 stays readable; they come back as you zoom in. The layer list folds away into
-a corner chip.
+a corner chip. Its **Teams** section counts what each side holds — units,
+objectives and airbases, biggest holder first — which is the quickest way to
+see who the enemy in a scenario actually is; Saudi Arabia owning objectives
+with no units on the map, or the U.S. owning none at all, both show up there.
+The yellow cross with a circle is the campaign's **bullseye**, the reference
+point for relative bearings; it is `BullseyeX`/`BullseyeY` in the campaign
+header, which the Campaign tab edits.
+
+### Objectives the script watches
+
+A campaign's victory conditions are the trigger script, and the only thing in
+it that names a place is `#IF_CONTROLLED` — "team 2 controls any of 680, 260,
+404". The map draws a ring around every place such a condition names:
+
+- **solid ring** — the team must hold it;
+- **dashed ring** — the team must *not* hold it, from a condition in an `#ELSE`
+  branch, which is how half of the shipped conditions are written;
+- **double ring** — the condition is on the path to an `#END_GAME`, so it ends
+  the campaign rather than firing a front-line event.
+
+The ring's colour is the team the condition names. Conditions that only feed
+events are off by default — `include event conditions` in the legend or the
+sidebar turns them on — and in a campaign whose endgames name no place at all
+(Israeli `save0` and Israel Classic `save0` end on events and a timer) every
+control condition is shown instead, because otherwise the layer would be empty.
+
+The sidebar's idle state lists the conditions themselves, grouped by team and
+polarity, with the places as buttons that centre the map. `A` means the team
+must hold **all** of the list and `O` means **any one** of it; that letter is
+the difference between an easy campaign and a nearly impossible one, and it is
+in the list rather than the ring because it is a property of the set, not of
+the place. Ids the script names that no objective carries are reported at the
+bottom of the list — harmless inside an `A` list, fatal inside an `O` one.
+
+### Squadrons, and what the lists show
+
+A squadron's unit table row is named for its *role* — "Fighter", "Bomber" —
+which is the same for all of them, so the editor composes the real name the
+way `UnitClass::GetName` does: `<ordinal> <class name> Squadron`, from the
+unit's `nameId` (a number: 120 is the 120th) and its class-table row. The
+Units tab shows that name, the aircraft, the patch, the home airbase (the
+objective its `airbase_id` points at, or the header record's airbase label),
+and what the unit is made of, so a squadron can be told from its neighbours
+without opening it.
+
+The **Squadrons** tab is the campaign header's roster of flyable squadrons —
+a different list, joined to the units by VU_ID. Its rows carry the same name
+and aircraft, and clicking one opens the matching unit.
+
+### Sorting and filtering
+
+Every list — Units, Objectives, Squadrons, and each Database table — sorts by
+clicking a column header, and has a filter box under each header. A text
+filter is a substring; a numeric one also takes a comparison, so `> 40`,
+`<= 10` and `= 3` work in the Range or Strength columns. The Database tables
+sort and filter on the server rather than in the browser, because they page:
+a client-side sort would only reorder the 400 rows that happen to be loaded.
+Sorting and filtering do not disturb edits — an edited row keeps its marker.
+
+### Repair and destroy
+
+An objective's damage is two bits per feature in the `.obj` record, four
+features to a byte (`ObjectiveClass::GetFeatureStatus`): 0 normal, 1 repaired,
+2 damaged, 3 destroyed. The engine recomputes the objective's condition from
+those bits when it loads the campaign, so they are the real repair/destroy
+switch, and the sidebar edits them directly. Destroying or repairing a feature
+also walks its `FEAT_PREV_CRIT` / `FEAT_NEXT_CRIT` neighbours, the way
+`SetFeatureStatus` does, so a runway and the taxiway it depends on never
+disagree. Supply, fuel and losses are plain bytes in the same record and are
+editable next to them.
+
+The block on disk is not always the size the class table predicts — the reader
+takes the smaller of the two, and Israel Classic ships both kinds — so the
+editor only offers the features that both agree exist.
+
+### Aircraft loadouts
+
+A hardpoint's `Weapon` is a **row** in `FALCON4.WCD`, or in `FALCON4.WLD` when
+`Weapons[hp]` is 255 — the marker `LoadoutWeapons` checks. The two arrays are
+therefore one edit, and the editor's hardpoint control writes them together: a
+searchable picker of every weapon and weapon list, and the count. Picking a
+list sets the 255 for you, because writing the row without it would make the
+engine look the same number up in the other table. It is available in
+**Database → Vehicles** and on a squadron's page, where it says how many unit
+types share the aeroplane before you change them.
 
 ### How a campaign actually ends
 
@@ -98,6 +191,31 @@ allied win, an OPFOR win, a stalemate timer and a day limit. The Victory tab
 renders them in English with the objective ids resolved to real places, lists
 every objective the script watches (click one to jump the map to it), and
 shows the whole script.
+
+A save has no script of its own, and the engine never looks for one named
+after the file it loaded: `CheckTriggers(TheCampaign.Scenario)` reads
+`<Scenario>.tri`, and the `Scenario` field in a save's header is the scenario
+it was started from. So an autosave or a user save plays the ending of its
+scenario, and editing that script changes it for every save started from it.
+The Victory tab names the file it opened and says when it was borrowed. The
+same field is where the save's base objective list comes from — the save
+itself carries only deltas — so it is not a free choice.
+
+The header wins even when the file ships its own script: Israel Classic's
+`save0.cam` names `save2`, and its `save2.cam` names `save0`, so each plays the
+other's ending and the `save0.tri`/`save2.tri` beside them are read by the
+*other* file. The Victory tab says which file it actually opened, and the
+Campaign tab validates a `Scenario` change against the objective list it has to
+come from.
+
+To change a save's ending **without** touching its scenario, the Victory tab
+offers **Give this save its own ending**: it copies the scenario (objective
+list included), writes a script for the copy, and points the save's `Scenario`
+field at it. Units, teams, pilots and the objective deltas still come from the
+save; only the base list and the script move, and the deltas still apply
+because the copy's objectives are the ones they were made against. The field
+is validated on the Campaign tab too: a save cannot be pointed at a scenario
+that carries no objective list.
 
 Two details that are easy to invert:
 
@@ -199,7 +317,12 @@ shortcut — a campaign is only partly authored data. The objective graph, the
 terrain links, the team records and the weather all have to agree with each
 other, and the engine will not rebuild them from nothing. Starting from one
 that already works and changing it is the only honest way to get a new
-campaign, and everything in it is then editable here.
+campaign, and everything in it is then editable here. Two things outside the
+`.cam` come across as well: the trigger script is copied to `<name>.tri`, so
+the copy has an ending you can then edit on the Victory tab, and starting from
+a save also copies the scenario's objective list into the copy — the engine
+reads a save's base objectives from its header's `Scenario`, which the copy no
+longer points at.
 
 ## Editing safely
 
@@ -263,17 +386,24 @@ python tools/campaign-editor/selftest.py
 Reads every CampaignDB table and every `.cam`/`.tac` in the install, writes
 each back in memory, and requires the bytes to be identical. It decodes every
 unit and objective stream, re-encodes it, and checks that patching one record's
-position changes two bytes and disturbs no other record. It also builds a
-battalion from scratch, appends it, reads it back, and removes it again —
-requiring the stream to come back byte-identical. It decodes icons out of the
-UI art and checks they have both transparent and coloured pixels, that the
-atlas packs every frame inside the sheet, and that 95%+ of the unit and
-objective rows resolve to an icon that exists. It checks the terrain geometry,
-renders a tile at five zoom levels and times them, and confirms every TACAN
-station lands on an airbase. It parses every trigger script and checks each
-campaign has a reachable way to end. A layout that is one byte off still
-"parses"; it just shifts every field silently. On a stock install it is
-1582 checks.
+position changes two bytes and disturbs no other record. It patches every
+editable condition field — a unit's supply, morale, fatigue, losses, orders and
+fuel, an objective's supply, fuel, losses and priority, and the two-bit feature
+damage states — and requires each to move only the bytes it owns and survive a
+re-encode. It checks that every flyable squadron record joins to a unit and a
+class row. It also builds a battalion from scratch, appends it, reads it back,
+and removes it again — requiring the stream to come back byte-identical. It
+decodes icons out of the UI art and checks they have both transparent and
+coloured pixels, that the atlas packs every frame inside the sheet, and that
+95%+ of the unit and objective rows resolve to an icon that exists. It resolves
+every theater's movie table — all seventeen ids, and that the Israel theaters
+really do point at their own avi files — and checks the script annotations:
+which actions this build ignores, and which events are written but never
+tested. It checks the terrain geometry, renders a tile at five zoom levels and
+times them, and confirms every TACAN station lands on an airbase. It parses
+every trigger script and checks each campaign has a reachable way to end. A
+layout that is one byte off still "parses"; it just shifts every field
+silently. On a stock install it is well over eight thousand checks.
 
 ## Formats, and where they came from
 
@@ -313,12 +443,17 @@ Three details that cost time and are easy to get wrong again:
 - An objective's feature-status block always advances the stream by the `size`
   byte that precedes it, even when the class table now says it should be a
   different length — the reader takes the smaller of the two and skips the rest.
+- `#SET_TEMPO` and `#CHANGE_PRIORITIES` are **dead in this build**: their
+  handlers in `ReadScriptedTriggerFile` are commented out, so the shipped
+  scripts' `SET_TEMPO 255` and four `CHANGE_PRIORITIES` lines do nothing. The
+  listing says so on the line.
 
 ## Not covered
 
-- Objectives can be moved, re-sided and re-prioritised, but not created or
-  deleted. A new objective needs entries in the feature tables and a place in
-  the neighbour-link graph, which is a different and much larger problem.
+- Objectives can be moved, re-sided, re-prioritised, resupplied and have their
+  features damaged or repaired, but not created or deleted. A new objective
+  needs entries in the feature tables and a place in the neighbour-link graph,
+  which is a different and much larger problem.
 - Campaign data versions below 52. Every shipped campaign is 73 or 99.
 - Squadron rosters and pilot records are decoded but not exposed for editing.
 - Adding a brand new entity to the class table. You can duplicate and retune
@@ -346,6 +481,22 @@ guards each lookup with `if (o and ...)`, so a missing id is skipped: harmless
 inside an `A` list, where it reads as satisfied, and fatal inside an `O` list,
 where the condition can never fire.
 
+The full listing under the endgame cards says what the tokens do not:
+
+- **Movies by name.** `#PLAY_MOVIE 104` is a number until `MOVIES.ID` (name →
+  id) and `movies.irc` (name → file and title) name it, so the line reads
+  *"DPRK PUSHED BACK TO DMZ · movies/E3.avi"*. Both files sit under the
+  theater's art directory, and every Israel theater overrides them with its own
+  avi files, so the path shown is the one that theater would play.
+- **Actions this build ignores.** `#SET_TEMPO` and `#CHANGE_PRIORITIES` have
+  their handlers commented out in `cmpevent.cpp`; the shipped Korea scripts use
+  both, and the line says "no effect in this build".
+- **Events nothing tests.** `#IF_EVENT_PLAYED` is the only reader of an event
+  flag, so an event that is set and cleared but never tested is a latch with no
+  reader — its only effect is the movie beside it. Korea's `save0` events 6 and
+  8 are exactly that, and the listing flags them. Events fired immediately
+  before an `#END_GAME` are exempt, since nothing is meant to test those.
+
 Underneath is the text the campaign-select page actually shows, read from
 `<artdir>/art/Main/lcktxtrc.irc`. Nothing in the game checks it against the
 script, and three of the twelve shipped campaigns disagree with their own
@@ -356,3 +507,132 @@ one set of three blurbs; the tab says so when that is the case.
 
 Both writers go through the same backup-then-write path as every other edit,
 so the originals are kept alongside the rest of the session's changes.
+
+## Weather
+
+The Weather tab edits the `.wth` member: the prevailing condition, wind, temperature
+and cloud bases, and the **fronts** the game moves across the theater. Since 2026 the
+game has had cold and warm fronts, squall lines, storm cells, clearings, and drifting
+random patches. The tab draws them over the map and previews up to 48 h ahead with the
+same model the game runs (`ffcamp/weather.py`, a port of
+`src/graphics/weather/weatherfronts.cpp`; selftest pins the two together). Pick a front
+and click the map to move it; at a previewed hour, the click says where it should be
+*then*.
+
+A campaign (`.cam`) reads only the fronts block from this member, and with it the
+prevailing condition, wind and temperature. Its cloud bases come from the condition. A
+file with no fronts block leaves the game to seed its own. See `WEATHER-FRONTS.md` at
+the repo root for the model and the format.
+
+## Squadron stores
+
+**Why the loadout screen says OUT.** The loadout screen lists every weapon on the
+aircraft's hardpoints, then colours each one by the squadron's stock over the stores
+maximum in `FALCON4.SSD`. A weapon with a maximum of 0 is never issued (resupply skips
+it), so it reads OUT for the whole war. The Stores panel now lists those weapons,
+tagged **OUT · locked**, and **Unlock N locked weapons** gives each one a maximum and
+fills this squadron. The maximum is class data: it changes every squadron class that
+shares the stores row, in every campaign of the theater.
+
+Select a squadron on the map and its detail panel gets a **Stores** table: the
+weapons it can arm with, how many supply points it holds, and the ceiling.
+
+Two different tables meet here, and conflating them is the easy mistake:
+
+| | Lives in | Scope |
+| --- | --- | --- |
+| **Count** | the squadron entity in the `.cam` | this squadron only |
+| **Max** | one row of `FALCON4.SSD`, picked by the unit class's `SpecialIndex` | every squadron class sharing that row |
+
+`SquadronClass::GetAvailableStores` divides one by the other:
+
+```c
+if (i == infiniteAA || i == infiniteAG || i == infiniteGun) return 4;
+return (GetUnitStores(i) * 4) / SquadronStoresDataTable[SpecialIndex].Stores[i];
+```
+
+so availability is 0..4 and that is exactly what the bar in the table shows —
+the same number the loadout screen colours by.
+
+**A max of 0 is the real enable/disable.** The weapon cannot be armed whatever
+the count says, which is why the checkbox writes the maximum rather than the
+count. The panel names how many squadron classes share the row before you touch
+it. Emptying the rack instead (count 0) leaves the weapon selectable but
+unavailable until resupply.
+
+Rows whose maximum is 0 are hidden unless **Show all** is ticked. There are a
+lot of them: a squadron's 600-slot array is not cleared when it is created, so
+most slots hold leftover stock for weapons the class could never carry. That
+stock is inert — the engine only ever reads slots that a loadout names.
+
+Two details worth not re-deriving:
+
+- The stores index is a **row in `FALCON4.WCD`**, not a class-table index.
+  `SetUnitStores` is called with the weapon id straight out of a loadout and
+  `WeaponDataTable` is loaded row-for-row from that file.
+- The array is 600 entries (`MAXIMUM_WEAPTYPES`) while Korea's `.WCD` has 797
+  rows, and neither `GetUnitStores` nor `SetUnitStores` bounds-checks. The
+  editor refuses an index past the end of the array rather than writing a file
+  that would corrupt the squadron's neighbours in memory. `camplib.h` has a
+  commented-out `#define MAXIMUM_WEAPTYPES 1200` right below it, so this was
+  known about.
+
+Edits are patched a byte at a time into the decompressed unit stream, the same
+discipline as every other unit edit; the self-test asserts that changing one
+weapon moves exactly one byte and that it survives a re-encode.
+
+## Squadrons: two lists, not one
+
+There are two squadron lists in a campaign and they answer different questions.
+
+**The Squadrons tab** is the campaign header's roster of *flyable* squadrons --
+one 68-byte record each, carrying the patch, the airbase label and the strength
+the campaign-select screen shows. It decides which squadrons the player may
+fly. In Korea's `save0` there are 112 of them.
+
+**The squadron units** are the entities in the unit stream: 158 of them in the
+same campaign, with the stores, pilots, kills and airbase assignment. Every
+flyable record matches a unit; not every unit is flyable.
+
+The only key the two share is the VU_ID, and it matches cleanly -- all 112 of
+Korea's flyable records resolve to a unit -- so the Squadrons tab links each row
+through to its unit.
+
+### The squadron page
+
+Selecting a squadron unit (Units tab, or the map) gives the page Mission
+Commander shows: patch, name, aircraft, airbase, specialty, kill tallies,
+missions, losses, the pilot roster and the stores table.
+
+Three of those are joins rather than fields:
+
+- **Name.** `UnitClass::GetName` composes `"<ordinal> <class name> <size>"`, so
+  a unit's `nameId` is a **number** -- 120 is "120th" -- and not an index into
+  the place names. Resolving it the way an objective's `nameId` resolves gives a
+  town in Korea instead of a squadron, which is exactly the wrong turn to take.
+- **Aircraft** is the unit class's first `VehicleType`, the same join the
+  composition list does.
+- **Patch** is an index into `art/resource/patches`. Its file order is the order
+  of that directory's `imageids.id` *and* of the engine's `SquadronMatchIDs`
+  table -- all three agree, so the index resolves directly. The 35th Fighter
+  Squadron carrying patch 10, `_35TH_FS_`, is the check that it is right.
+
+Pilot **names** are not here: `PilotInfoClass` holds only usage, voice and
+photo ids, and the names come from the callsign table, which the editor does not
+read yet. The roster shows the ids the game looks them up by, with skill,
+rating, status, kills and missions.
+
+### The .idx files have two pixel formats
+
+Worth knowing before reading any other UI95 resource. The low two bits of an
+entry's `flags` select the format:
+
+| `flags & 3` | Layout |
+| --- | --- |
+| 1 | 8-bit indices into a per-entry RGB555 palette at `pal`, `palN` entries |
+| 2 | RGB555 direct, two bytes a pixel; `palN` is 0 and `pal` is just the end of the image |
+
+Reading a format-2 entry as paletted gives an empty palette and a **fully
+transparent** image rather than an error. About a third of the squadron patches
+are direct colour, so a third of them silently came out blank. The unit icons
+are all paletted, which is why this never showed up until the patches were read.

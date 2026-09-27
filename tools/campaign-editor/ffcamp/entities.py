@@ -127,6 +127,11 @@ def _waypoint_list(s, version, count):
 
 def _camp_base(s, version):
     r = {}
+    # Stream position of every field the map view may edit, filled in by the
+    # decoders below. Everything after the fixed-size CampBaseClass sits behind
+    # variable-length fields (waypoints, parent ids), so a field's offset is a
+    # property of the record, not of the version -- exactly like _storesAt.
+    r["_at"] = {}
     r["id"] = s.vuid()
     r["entityType"] = s.u16()
     r["x"] = s.i16()
@@ -150,6 +155,7 @@ def _unit(s, version, r):
     if version > 1:
         r["cargoId"] = s.vuid()
     r["moved"] = s.u8()
+    r["_at"]["losses"] = s.pos
     r["losses"] = s.u8()
     r["tactic"] = s.u8()
     r["currentWp"] = s.u16() if version >= 71 else s.u8()
@@ -161,6 +167,7 @@ def _unit(s, version, r):
 
 
 def _ground_unit(s, version, r):
+    r["_at"]["orders"] = s.pos
     r["orders"] = s.u8()
     r["division"] = s.i16()
     r["aobj"] = s.vuid()
@@ -174,8 +181,11 @@ def _battalion(s, version, r):
     r["lastObj"] = s.vuid()
     # USE_FLANKS is not defined in this tree, so the four flank grid indices
     # are absent from the stream.
+    r["_at"]["supply"] = s.pos
     r["supply"] = s.u8()
+    r["_at"]["fatigue"] = s.pos
     r["fatigue"] = s.u8()
+    r["_at"]["morale"] = s.pos
     r["morale"] = s.u8()
     r["heading"] = s.u8()
     r["finalHeading"] = s.u8()
@@ -193,20 +203,28 @@ def _brigade(s, version, r):
 
 
 def _taskforce(s, version, r):
+    r["_at"]["orders"] = s.pos
     r["orders"] = s.u8()
+    r["_at"]["supply"] = s.pos
     r["supply"] = s.u8()
     return r
 
 
 def _squadron(s, version, r):
+    r["_at"]["fuel"] = s.pos
     r["fuel"] = s.i32()
     r["specialty"] = s.u8()
+    # The array grew twice. Record where it starts and how long it is, because
+    # everything before it is variable and a stores edit has to land on exactly
+    # one byte -- see patch_stores.
+    r["_storesAt"] = s.pos
     if version < 69:
-        r["stores"] = s.bytes_(200)
+        r["_storesLen"] = 200
     elif version < 72:
-        r["stores"] = s.bytes_(220)
+        r["_storesLen"] = 220
     else:
-        r["stores"] = s.bytes_(MAXIMUM_WEAPTYPES)
+        r["_storesLen"] = MAXIMUM_WEAPTYPES
+    r["stores"] = s.bytes_(r["_storesLen"])
 
     if version < 47:
         s.take(8 * (PILOTS_PER_SQUADRON if version >= 29 else 36))
@@ -469,17 +487,77 @@ def base_offsets(version):
 
 PATCHABLE = {
     "x": "<h", "y": "<h", "owner": "<B", "campId": "<h", "baseFlags": "<h",
+    "supply": "<B", "morale": "<B", "fatigue": "<B", "losses": "<B",
+    "orders": "<B", "fuel": "<i",
 }
+
+# The range each editable field is clamped to. Supply, morale, fatigue and
+# losses are percentages; orders is a GORD_* index; fuel is a count of pounds.
+# (Defined next to GROUND_ORDERS below.)
+
+
+def clamp_value(field, value):
+    """Clamp an edit to the range the engine expects for that field."""
+    lo, hi = _PATCH_RANGE.get(field, (None, None))
+    value = int(value)
+    if lo is not None:
+        value = max(lo, value)
+    if hi is not None:
+        value = min(hi, value)
+    return value
 
 
 def patch_unit(raw, unit, version, field, value):
-    """Write one CampBaseClass field back into the decompressed stream."""
+    """Write one editable field back into the decompressed stream.
+
+    The base CampBaseClass fields have version-constant offsets; everything
+    after it is found through `_at`, which the decoder recorded while walking
+    the record -- the same discipline as patch_stores, and the only one that
+    works for a format with no length prefixes.
+    """
     if field not in PATCHABLE:
         raise ValueError("%s is not patchable" % field)
-    off = base_offsets(version)[field]
-    at = unit["_span"][0] + off
+
+    at = (unit.get("_at") or {}).get(field)
+    if at is None:
+        base = base_offsets(version)
+        if field not in base:
+            raise ValueError("%s units have no %s field"
+                             % (unit.get("kind", "unit"), field))
+        at = unit["_span"][0] + base[field]
+
     out = bytearray(raw)
-    struct.pack_into(PATCHABLE[field], out, at, int(value))
+    struct.pack_into(PATCHABLE[field], out, at, clamp_value(field, value))
+    return bytes(out)
+
+
+def patch_stores(raw, unit, index, value):
+    """Set one weapon's stock on one squadron, in the decompressed stream.
+
+    `index` is a row in FALCON4.WCD: `SquadronClass::SetUnitStores` is called
+    with the weapon id straight out of a loadout, and `WeaponDataTable` is
+    loaded row-for-row from that file. The count is what
+    `GetAvailableStores` divides by the class maximum to get the 0..4
+    availability the loadout screen colours by, so 0 really does mean "this
+    squadron cannot arm with it".
+    """
+    length = unit.get("_storesLen")
+    at = unit.get("_storesAt")
+
+    if at is None or length is None:
+        raise ValueError("%s has no stores array" % unit.get("kind", "unit"))
+
+    if not 0 <= index < length:
+        # Not pedantry: the engine indexes stores[] with an unchecked weapon
+        # id, so writing past it here would produce a file that corrupts the
+        # squadron's neighbours in memory rather than one that just looks odd.
+        raise ValueError("weapon %d is outside this squadron's %d-entry "
+                         "stores array" % (index, length))
+
+    value = max(0, min(255, int(value)))
+    out = bytearray(raw)
+    out[at + index] = value
+    unit["stores"][index] = value
     return bytes(out)
 
 
@@ -514,6 +592,15 @@ GROUND_ORDERS = [
     "Reserve", "Capture", "Secure", "Assault", "Airborne", "Commando",
     "Defend", "Support", "Repair", "Air defence", "Recon", "Radar",
 ]
+
+# The range each editable field is clamped to. Supply, morale, fatigue and
+# losses are percentages; orders is a GORD_* index; fuel is a count of pounds
+# (squadron `fuel` is stored in 100s of lbs but edited here in raw units).
+_PATCH_RANGE = {
+    "supply": (0, 100), "morale": (0, 100), "fatigue": (0, 100),
+    "losses": (0, 100), "orders": (0, len(GROUND_ORDERS) - 1),
+    "fuel": (0, None),
+}
 
 # Only these can be placed by hand. Flights and packages are transient objects
 # the campaign AI creates and destroys as it plans; authoring one makes no

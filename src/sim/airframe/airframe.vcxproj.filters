@@ -29,6 +29,9 @@
     <ClCompile Include="Cruise.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="cockpitsnd.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Engine.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

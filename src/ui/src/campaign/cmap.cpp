@@ -1005,13 +1005,17 @@ MAPICONLIST *C_Map::AddObjective(Objective Obj)
                         detect->LowRadar = NULL;
                 }
 
+                // Artscout - 2026: seed the icon with the objective's real status (it was 0) --
+                // the icon set darkens by it (C_MapIcon::SetShadeByStatus).
+                long objStatus = Obj->GetObjectiveStatus();
+                objStatus = (objStatus < 0) ? 0 : (objStatus > 100) ? 100 : objStatus;
                 return (Team_[Obj->GetTeam()]
                             .Objectives->Type[TypeID]
                             ->AddIconToList(Obj->GetCampID(),
                                             static_cast<short>(ObjType),
                                             ObjPtr->IconIndex, Obj->YPos(),
                                             maxy - Obj->XPos(), FALSE, Buffer,
-                                            0, 0, 0, 0, 0, detect));
+                                            0, 0, 0, objStatus, 0, detect));
             }
         }
     }
@@ -4061,6 +4065,7 @@ void C_Map::AddListsToWindow()
             {
                 Team_[i].Objectives->Type[j] = new C_MapIcon;
                 Team_[i].Objectives->Type[j]->Setup(5551000 + i + j * 10, j);
+                Team_[i].Objectives->Type[j]->SetShadeByStatus(true); // Artscout - 2026
                 Team_[i].Objectives->Type[j]->SetFont(Font);
                 Team_[i].Objectives->Type[j]->SetTeam(i);
                 Team_[i].Objectives->Type[j]->SetMainImage(ObjIconIDs_[i][0],

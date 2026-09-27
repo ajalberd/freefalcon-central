@@ -86,6 +86,26 @@ interface, and the renderer is picked in the graphics options.
 * **NVG** greens the world through the object, terrain and screen shaders alike, with tube gain,
   scanlines, grain and vignette, and a night ground level lifted so the goggles show a lit scene.
 
+### Lighting, HDR and tone mapping (D3D12)
+
+* **FP16 scene + Gran Turismo 7 tone mapping** — the 3D scene renders into an
+  R16G16B16A16_FLOAT target and Polyphony's GT7 operator (MIT reference, ICtCp) runs once at
+  the 3D→2D boundary, before the HUD and cockpit instruments, so glows, lamps, specular and the
+  afterburner roll off instead of clipping while the overlays stay untouched. Pipelines follow
+  the bound target's format. Knobs: `ToneMapGT7`, `ToneMapExposure`. Staged: lighting is still
+  LDR‑authored, Vulkan and view instancing keep the 8‑bit path.
+* **Sun colour from the time of day** — the object/terrain sun takes the TOD table's hue (orange
+  at sunset) and fades as the sun sets; it used to be white at every hour. Knobs: `SunTodTint`,
+  `SunTodDimRef`.
+* **MFD sun glare** — sunlight on the MFD glass washes the display out in direct sun and not
+  inside the cockpit shadow, per pixel via the pit shadow map. Knob: `MfdGlare`.
+* **Cockpit shadow fit** — the shadow map was fitted to a stale model bounding box that left the
+  glare shield, panel and MFDs outside it; it now fits a box around the pilot's eye (sharper, too).
+  Knob: `PitShadowFitReach`.
+* **CPU near clip 1.0 → 0.2 ft** — matches the GPU near plane, so CPU‑drawn 3D primitives
+  (display quads, cursors, trails) within a foot of the eye are no longer pushed out and folded.
+  Knob: `CpuNearClip`.
+
 ## 2. VR (OpenXR)
 
 The long‑term goal of the render work, now shipped.
@@ -249,6 +269,13 @@ and level‑matched to the files they replaced.
 * **Campaign map built from terrain**, with zoom detail.
 * **Supply interdiction** — a damaged bridge or road costs the supply run crossing it,
   scaled by objective status so repair re‑opens the route. Knob: `SupplyInterdiction`.
+* **Damage feeds route cost** — pathfinding charges more to enter a damaged road, junction, rail
+  node (up to ×2) or bridge (up to ×4), scaled by objective status, so columns and supply route
+  around wrecked crossings instead of only paying for them. Knob: `PathDamageCost`.
+* **Objective icons darken with damage** — a flattened target reads at a glance without the
+  damage overlay (and objective icons now actually track their status). Knobs:
+  `CampMapIconHealth`, `CampMapIconMin`.
+* **Add Squadron hidden in campaigns** — it is Tactical Engagement / campaign-editor work.
 
 ## 7. Stability (corruption / hangs / crashes)
 

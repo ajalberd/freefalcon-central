@@ -199,6 +199,15 @@ int SfxClass::TryParticleEffect(void)
         return 0;
     }
 
+    // Artscout - 2026: a wreck part that carries a model (RunExplosion / the F-16 crash pieces) stays a
+    // moving part -- converting it here dropped the model, which is why aircraft stopped breaking apart.
+    // The explosion that spawns the parts fires the particle puffs itself; the part adds its own smoke
+    // trail in Exec.
+    if (baseObj and (type == SFX_SMOKING_PART or type == SFX_FLAMING_PART))
+    {
+        return 0;
+    }
+
     if (DrawableParticleSys::IsValidPSId(type + 1))
     {
         // Cobra - Kludge to fix no PS effects above overcast layer
@@ -2171,6 +2180,12 @@ SfxClass::SfxClass(int typeSfx, int flagsSfx, SimBaseClass *baseobjSfx,
 */
 SfxClass::~SfxClass(void)
 {
+    if (TrailNew and (type == SFX_FLAMING_PART or type == SFX_SMOKING_PART))
+    {
+        DrawableParticleSys::PS_KillTrail(TrailNew);
+        TrailNew = 0;
+    }
+
     if (inACMI == FALSE)
     {
         if (objParticleSys)
@@ -3170,6 +3185,12 @@ BOOL SfxClass::Exec()
     // do we need to move it?
     if (not(flags bitand SFX_MOVES) or (flags bitand SFX_TIMER_FLAG))
     {
+        if (TrailNew)
+        {
+            DrawableParticleSys::PS_KillTrail(TrailNew); // the part has come to rest
+            TrailNew = 0;
+        }
+
         Draw();
         return TRUE;
     }
@@ -3209,6 +3230,16 @@ BOOL SfxClass::Exec()
                         baseObj->Pitch() + baseObj->PitchDelta() * sfxFrameTime,
                         baseObj->Roll() + baseObj->RollDelta() * sfxFrameTime);
         CalcTransformMatrix(baseObj.get());
+
+        // Artscout - 2026: a falling wreck part trails smoke -- heavy for the burning piece, lighter for the
+        // rest. (The old DrawableTrail/secondary-puff trail is gone; these are the RV trails the damaged
+        // aircraft itself uses.)
+        if (type == SFX_FLAMING_PART or type == SFX_SMOKING_PART)
+        {
+            TrailNew = DrawableParticleSys::PS_EmitTrail(
+                TrailNew, (type == SFX_FLAMING_PART) ? TRAIL_BURNING_SMOKE2 : TRAIL_BURNING_SMOKE,
+                pos.x, pos.y, pos.z);
+        }
     }
 
     Draw();

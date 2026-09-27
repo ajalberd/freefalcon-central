@@ -297,10 +297,10 @@ void AddSupply(Objective o, int supply, int fuel)
 //
 // A bridge bites harder than a road because that is what a bridge is: there is no going round one,
 // where a cratered road is a detour. The link costs themselves are still static -- LinkCampaignObjectives
-// computes them once at campaign build from the terrain and nothing rewrites them -- so a wrecked
-// bridge makes a route expensive to USE, not expensive to PLAN. Pathfinding will still choose it.
-// That is the remaining half of this feature and it is a bigger change; noted in
-// CAMPAIGN-SUPPLY-ENGINE.md rather than guessed at here.
+// computes them once at campaign build from the terrain and nothing rewrites them. The PLANNING
+// half is applied at search time instead (2026-09-27): GetObjectiveMovementCost (path.cpp) scales
+// the ground cost of entering a damaged node with the same bridge-vs-road weighting, so the planner
+// now routes around what this function makes expensive to use. Knob: PathDamageCost.
 static int NodeSupplyLoss(Objective c, int type)
 {
     extern int g_nSupplyInterdiction;

@@ -1,6 +1,7 @@
 #pragma warning(disable : 4786) // debug info truncation
 
 #include <stdio.h>
+#include <set>
 #include <conio.h>
 #include <stddef.h>
 #include <fcntl.h>
@@ -3087,15 +3088,26 @@ void UnitClass::SetInactive(int f)
             unit_flags and_eq compl U_INACTIVE;
             MakeUnitDirty(DIRTY_UNIT_FLAGS, SEND_SOON);
 
-            InactiveList->Remove(this);
-
-            AllUnitList->Insert(this);
-            AllParentList->Insert(this);
-
-            if (Real())
+            // Artscout - 2026: inactivating only sets the flag; the move to
+            // InactiveList waits for the next UpdateParentUnits/UpdateRealUnits
+            // scan. Reactivated before that scan, the unit never left the
+            // active lists, and inserting it again duplicated it. The campaign
+            // UI replays a helicopter's past PICKUP and AIRDROP back to back
+            // (ui/src/common/units.cpp), so airmobile infantry gained a copy
+            // every time: one save held three battalions ~43,000 times each,
+            // wrapped the 16-bit unit count, and would not load.
+            if (InactiveList->Find(this))
             {
-                AllRealList->Insert(this);
-                RealUnitProxList->Insert(this);
+                InactiveList->Remove(this);
+
+                AllUnitList->Insert(this);
+                AllParentList->Insert(this);
+
+                if (Real())
+                {
+                    AllRealList->Insert(this);
+                    RealUnitProxList->Insert(this);
+                }
             }
         }
     }
@@ -6113,6 +6125,11 @@ int EncodeUnitData(VU_BYTE** stream, FalconSessionEntity* owner)
 
     CampEnterCriticalSection();
 
+    // Artscout - 2026: write each unit once, even if a list holds it twice
+    // (see UnitClass::SetInactive). Both passes must agree, or the buffer
+    // sized by the first overflows in the second.
+    std::set<Unit> counted, written;
+
     // Count # of units and calculate size
     {
         VuListIterator myit(AllUnitList);
@@ -6120,7 +6137,8 @@ int EncodeUnitData(VU_BYTE** stream, FalconSessionEntity* owner)
 
         while (cur)
         {
-            if ((not owner or cur->OwnerId() == ownerid) and not cur->IsDead())
+            if ((not owner or cur->OwnerId() == ownerid) and not cur->IsDead() and
+                counted.insert(cur).second)
             {
                 size += cur->SaveSize() + sizeof(short);
                 count++;
@@ -6137,7 +6155,8 @@ int EncodeUnitData(VU_BYTE** stream, FalconSessionEntity* owner)
 
         while (cur)
         {
-            if ((not owner or cur->OwnerId() == ownerid) and not cur->IsDead())
+            if ((not owner or cur->OwnerId() == ownerid) and not cur->IsDead() and
+                counted.insert(cur).second)
             {
                 size += cur->SaveSize() + sizeof(short);
                 count++;
@@ -6160,7 +6179,8 @@ int EncodeUnitData(VU_BYTE** stream, FalconSessionEntity* owner)
 
         while (cur)
         {
-            if ((not owner or cur->OwnerId() == ownerid) and not cur->IsDead())
+            if ((not owner or cur->OwnerId() == ownerid) and not cur->IsDead() and
+                written.insert(cur).second)
             {
                 type = cur->Type();
                 memcpy(buf, &type, sizeof(short));
@@ -6185,7 +6205,8 @@ int EncodeUnitData(VU_BYTE** stream, FalconSessionEntity* owner)
 
         while (cur)
         {
-            if ((not owner or cur->OwnerId() == ownerid) and not cur->IsDead())
+            if ((not owner or cur->OwnerId() == ownerid) and not cur->IsDead() and
+                written.insert(cur).second)
             {
                 type = cur->Type();
                 newsize = cur->SaveSize();

@@ -86,6 +86,11 @@ static long EditMode;
 // the state is saved in the 'toggle' routine for objectives, units, labels, bullseye and threats
 // everything here is initialized to 'OFF' so that on first entering nothing appears
 // this stuff has to be outside the campaign-map-screen scope so that it isn�t destroyed on entering the 3d.. so I made it global..
+// Artscout - 2026: declared out here -- a block-scope extern inside the
+// namespace would name FilterSaveStuff::g_bCampFlotLine, which does not exist.
+extern bool g_bCampFlotLine;
+extern bool ControlsXml_ActiveProfilePath(char *out, int outSize);
+
 namespace FilterSaveStuff
 {
 
@@ -154,6 +159,99 @@ bool filterState[END_OF_ENUM__USED_FOR_SIZE] = // Legend stuff
 // flag in the array above because these four are one radio group, not four checkboxes --
 // see ShowCampaignOverlay for why only one of them can hold the map's palette.
 long campLayer = 0;
+
+// Artscout - 2026: the filters outlive the game, not just the map screen. They
+// are kept per pilot, beside options.pop, as name=value lines -- by name so a
+// filter added or reordered later reads the rest correctly, and so the file can
+// be read or edited by hand.
+static const char *filterNames[END_OF_ENUM__USED_FOR_SIZE] = {
+    "bullseye", "names",
+    "airfields", "airdefense", "army", "ccc", "political", "infrastructure",
+    "logistics", "warproduction", "navigation", "other", "naval",
+    "victoryconditions",
+    "divisions", "brigades", "battalions", "combat", "unitairdefense",
+    "support", "squadrons", "packages", "fighters", "attack", "bombers",
+    "airsupport", "helicopters", "unknown", "navycombat", "navysupport",
+    "samlow", "samhigh", "radarlow", "radarhigh"};
+
+static bool loaded = false; // read the file once per run
+static bool restoring = false; // SetMapSettings replays the callbacks
+
+static bool FilterFilePath(char *out, int size)
+{
+    char prof[_MAX_PATH];
+
+    if (not ControlsXml_ActiveProfilePath(prof, sizeof(prof)))
+        return false;
+
+    _snprintf_s(out, size, _TRUNCATE, "%s/campmap.ini", prof);
+    return true;
+}
+
+static void LoadFilters()
+{
+    char path[_MAX_PATH], line[128];
+
+    loaded = true;
+
+    if (not FilterFilePath(path, sizeof(path)))
+        return;
+
+    FILE *fp = fopen(path, "r");
+
+    if (not fp)
+        return; // first run: keep the built-in defaults
+
+    while (fgets(line, sizeof(line), fp))
+    {
+        char *eq = strchr(line, '=');
+
+        if (not eq)
+            continue;
+
+        *eq = 0;
+        int v = atoi(eq + 1);
+
+        if (strcmp(line, "layer") == 0)
+            campLayer = v;
+        else if (strcmp(line, "flot") == 0)
+            g_bCampFlotLine = v not_eq 0;
+        else
+        {
+            for (int i = 0; i < END_OF_ENUM__USED_FOR_SIZE; i++)
+            {
+                if (strcmp(line, filterNames[i]) == 0)
+                {
+                    filterState[i] = v not_eq 0;
+                    break;
+                }
+            }
+        }
+    }
+
+    fclose(fp);
+}
+
+void SaveFilters()
+{
+    char path[_MAX_PATH];
+
+    if (restoring or not loaded or not FilterFilePath(path, sizeof(path)))
+        return;
+
+    FILE *fp = fopen(path, "w");
+
+    if (not fp)
+        return;
+
+    fprintf(fp, "; campaign map filters -- saved by the game, safe to edit\n");
+
+    for (int i = 0; i < END_OF_ENUM__USED_FOR_SIZE; i++)
+        fprintf(fp, "%s=%d\n", filterNames[i], filterState[i] ? 1 : 0);
+
+    fprintf(fp, "layer=%ld\nflot=%d\n", campLayer, g_bCampFlotLine ? 1 : 0);
+    fclose(fp);
+}
 } // namespace FilterSaveStuff, end Retro 26/10/03
 
 void MenuToggleObjectiveCB(long ID, short, C_Base *control)
@@ -332,6 +430,7 @@ void MenuToggleObjectiveCB(long ID, short, C_Base *control)
     }
 
     gMapMgr->DrawMap();
+    FilterSaveStuff::SaveFilters();
 }
 
 void MenuToggleUnitCB(long ID, short, C_Base *control)
@@ -547,6 +646,7 @@ void MenuToggleUnitCB(long ID, short, C_Base *control)
     }
 
     gMapMgr->DrawMap();
+    FilterSaveStuff::SaveFilters();
 }
 
 void MenuToggleNamesCB(long ID, short, C_Base *control)
@@ -565,6 +665,7 @@ void MenuToggleNamesCB(long ID, short, C_Base *control)
     }
 
     gMapMgr->DrawMap();
+    FilterSaveStuff::SaveFilters();
 }
 
 void MenuToggleBullseyeCB(long ID, short, C_Base *control)
@@ -583,6 +684,7 @@ void MenuToggleBullseyeCB(long ID, short, C_Base *control)
     }
 
     gMapMgr->DrawMap();
+    FilterSaveStuff::SaveFilters();
 }
 /************************************************************************/
 // Artscout - 2026: the Logistics submenu -- the campaign's supply model on the map.
@@ -638,6 +740,7 @@ void MenuSetCampLayerCB(long ID, short, C_Base *)
 
     gMapMgr->ShowCampaignOverlay(campLayer);
     gMapMgr->DrawMap();
+    FilterSaveStuff::SaveFilters();
 }
 
 // Artscout - 2026: the FLOT toggle. Outside the layer radio group on purpose -- the front is a
@@ -658,6 +761,7 @@ void MenuToggleFlotCB(long, short, C_Base *)
 
     gMapMgr->ShowCampaignOverlay(campLayer);
     gMapMgr->DrawMap();
+    FilterSaveStuff::SaveFilters();
 }
 
 void MenuSetCirclesCB(long, short, C_Base *)
@@ -721,6 +825,7 @@ void MenuSetCirclesCB(long, short, C_Base *)
         }
 
         gMapMgr->DrawMap();
+        FilterSaveStuff::SaveFilters();
     }
 }
 
@@ -1792,12 +1897,19 @@ void SetMapSettings()
         // the normal, original UI init code follows after this block.
         using namespace FilterSaveStuff;
 
-        // Legend stuff
-        if (filterState[LE_BULLSEYE])
-            menu->SetItemState(MID_LEG_BULLSEYE, 1);
+        if (not menu)
+            return;
 
-        if (filterState[LE_LABELS])
-            menu->SetItemState(MID_LEG_NAMES, 1);
+        // Artscout - 2026: what was left set last time the game ran
+        if (not loaded)
+            LoadFilters();
+
+        restoring = true;
+
+        // Legend stuff
+        menu->SetItemState(MID_LEG_BULLSEYE, filterState[LE_BULLSEYE] ? 1 : 0);
+
+        menu->SetItemState(MID_LEG_NAMES, filterState[LE_LABELS] ? 1 : 0);
 
         // Artscout - 2026: put the Logistics layer back the way it was left. The overlay
         // itself is rebuilt from live objective data, not restored, so what comes back is
@@ -1815,41 +1927,29 @@ void SetMapSettings()
         }
 
         // Objectives
-        if (filterState[OBJ_AIRFIELDS])
-            menu->SetItemState(MID_INST_AF, 1);
+        menu->SetItemState(MID_INST_AF, filterState[OBJ_AIRFIELDS] ? 1 : 0);
 
-        if (filterState[OBJ_AIRDEFENSE])
-            menu->SetItemState(MID_INST_AD, 1);
+        menu->SetItemState(MID_INST_AD, filterState[OBJ_AIRDEFENSE] ? 1 : 0);
 
-        if (filterState[OBJ_ARMY])
-            menu->SetItemState(MID_INST_ARMY, 1);
+        menu->SetItemState(MID_INST_ARMY, filterState[OBJ_ARMY] ? 1 : 0);
 
-        if (filterState[OBJ_CCC])
-            menu->SetItemState(MID_INST_CCC, 1);
+        menu->SetItemState(MID_INST_CCC, filterState[OBJ_CCC] ? 1 : 0);
 
-        if (filterState[OBJ_POLITICAL])
-            menu->SetItemState(MID_INST_POLITICAL, 1);
+        menu->SetItemState(MID_INST_POLITICAL, filterState[OBJ_POLITICAL] ? 1 : 0);
 
-        if (filterState[OBJ_INFRA])
-            menu->SetItemState(MID_INST_INFRA, 1);
+        menu->SetItemState(MID_INST_INFRA, filterState[OBJ_INFRA] ? 1 : 0);
 
-        if (filterState[OBJ_LOGISTICS])
-            menu->SetItemState(MID_INST_LOG, 1);
+        menu->SetItemState(MID_INST_LOG, filterState[OBJ_LOGISTICS] ? 1 : 0);
 
-        if (filterState[OBJ_WARPRODUCTION])
-            menu->SetItemState(MID_INST_WARPROD, 1);
+        menu->SetItemState(MID_INST_WARPROD, filterState[OBJ_WARPRODUCTION] ? 1 : 0);
 
-        if (filterState[OBJ_NAVIGATION])
-            menu->SetItemState(MID_INST_NAV, 1);
+        menu->SetItemState(MID_INST_NAV, filterState[OBJ_NAVIGATION] ? 1 : 0);
 
-        if (filterState[OBJ_OTHER])
-            menu->SetItemState(MID_INST_OTHER, 1);
+        menu->SetItemState(MID_INST_OTHER, filterState[OBJ_OTHER] ? 1 : 0);
 
-        if (filterState[OBJ_NAVAL])
-            menu->SetItemState(MID_INST_NAVAL, 1);
+        menu->SetItemState(MID_INST_NAVAL, filterState[OBJ_NAVAL] ? 1 : 0);
 
-        if (filterState[OBJ_VICTORYCOND])
-            menu->SetItemState(MID_SHOW_VC, 1);
+        menu->SetItemState(MID_SHOW_VC, filterState[OBJ_VICTORYCOND] ? 1 : 0);
 
         // Units
 
@@ -1865,41 +1965,29 @@ void SetMapSettings()
 
 #endif
 
-        if (filterState[UNITS_COMBAT])
-            menu->SetItemState(MID_UNITS_COMBAT, 1);
+        menu->SetItemState(MID_UNITS_COMBAT, filterState[UNITS_COMBAT] ? 1 : 0);
 
-        if (filterState[UNITS_AIR_DEFENSE])
-            menu->SetItemState(MID_UNITS_AD, 1);
+        menu->SetItemState(MID_UNITS_AD, filterState[UNITS_AIR_DEFENSE] ? 1 : 0);
 
-        if (filterState[UNITS_SUPPORT])
-            menu->SetItemState(MID_UNITS_SUPPORT, 1);
+        menu->SetItemState(MID_UNITS_SUPPORT, filterState[UNITS_SUPPORT] ? 1 : 0);
 
-        if (filterState[UNITS_SQUAD_SQUADRON])
-            menu->SetItemState(MID_UNITS_SQUAD_SQUADRON, 1);
+        menu->SetItemState(MID_UNITS_SQUAD_SQUADRON, filterState[UNITS_SQUAD_SQUADRON] ? 1 : 0);
 
-        if (filterState[UNITS_SQUAD_PACKAGE])
-            menu->SetItemState(MID_UNITS_SQUAD_PACKAGE, 1);
+        menu->SetItemState(MID_UNITS_SQUAD_PACKAGE, filterState[UNITS_SQUAD_PACKAGE] ? 1 : 0);
 
-        if (filterState[UNITS_SQUAD_FIGHTER])
-            menu->SetItemState(MID_UNITS_SQUAD_FIGHTER, 1);
+        menu->SetItemState(MID_UNITS_SQUAD_FIGHTER, filterState[UNITS_SQUAD_FIGHTER] ? 1 : 0);
 
-        if (filterState[UNITS_SQUAD_ATTACK])
-            menu->SetItemState(MID_UNITS_SQUAD_ATTACK, 1);
+        menu->SetItemState(MID_UNITS_SQUAD_ATTACK, filterState[UNITS_SQUAD_ATTACK] ? 1 : 0);
 
-        if (filterState[UNITS_SQUAD_BOMBER])
-            menu->SetItemState(MID_UNITS_SQUAD_BOMBER, 1);
+        menu->SetItemState(MID_UNITS_SQUAD_BOMBER, filterState[UNITS_SQUAD_BOMBER] ? 1 : 0);
 
-        if (filterState[UNITS_SQUAD_SUPPORT])
-            menu->SetItemState(MID_UNITS_SQUAD_SUPPORT, 1);
+        menu->SetItemState(MID_UNITS_SQUAD_SUPPORT, filterState[UNITS_SQUAD_SUPPORT] ? 1 : 0);
 
-        if (filterState[UNITS_HELICOPTER])
-            menu->SetItemState(MID_UNITS_SQUAD_HELI, 1);
+        menu->SetItemState(MID_UNITS_SQUAD_HELI, filterState[UNITS_HELICOPTER] ? 1 : 0);
 
-        if (filterState[UNITS_NAVY_COMBAT])
-            menu->SetItemState(MID_UNITS_NAVY_COMBAT, 1);
+        menu->SetItemState(MID_UNITS_NAVY_COMBAT, filterState[UNITS_NAVY_COMBAT] ? 1 : 0);
 
-        if (filterState[UNITS_NAVY_SUPPORT])
-            menu->SetItemState(MID_UNITS_NAVY_SUPPLY, 1);
+        menu->SetItemState(MID_UNITS_NAVY_SUPPLY, filterState[UNITS_NAVY_SUPPORT] ? 1 : 0);
 
         /* not saved yet - WTF is this anyway ? */
         // if (filterState[UNITS_SQUAD_FIGHTBOMB])
@@ -1919,6 +2007,15 @@ void SetMapSettings()
         else if (filterState[CIRCLE_RADAR_HIGH])
             menu->SetItemState(MID_CIRCLE_RADAR_HIGH, 1);
 
+        // Artscout - 2026: the FLOT is a cfg default the file can override, and
+        // the overlay is what draws it, so raise the overlay even with no layer.
+        {
+            extern bool g_bCampFlotLine;
+            menu->SetItemState(MID_CAMP_FLOT, g_bCampFlotLine ? 1 : 0);
+
+            if (gMapMgr)
+                gMapMgr->ShowCampaignOverlay(campLayer);
+        }
     } // namespace-scope ends here, Retro 26/10/03 ends here
 
     if (menu)
@@ -1968,6 +2065,8 @@ void SetMapSettings()
         // Sams/Radar
         MenuSetCirclesCB(MID_OFF, C_TYPE_LMOUSEUP, menu);
     }
+
+    FilterSaveStuff::restoring = false;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -3118,6 +3217,14 @@ void ObjMenuOpenCB(C_Base *themenu, C_Base *caller)
         menu->SetItemFlagBitOn(MID_SQUADRONS, C_BIT_INVISIBLE);
         menu->SetItemFlagBitOff(MID_ADD_SQUADRON, C_BIT_ENABLED);
     }
+
+    // Artscout - 2026: in a campaign Add Squadron is hidden, not just greyed. Adding squadrons is
+    // Tactical-Engagement / campaign-editor work (CAMPAIGN-EDITOR.md, "Creating units"), and its
+    // dialog (NEW_SQUAD_WIN) is not even loaded on the campaign screen. TE keeps it as before.
+    if (GameType == 1)
+        menu->SetItemFlagBitOn(MID_ADD_SQUADRON, C_BIT_INVISIBLE);
+    else
+        menu->SetItemFlagBitOff(MID_ADD_SQUADRON, C_BIT_INVISIBLE);
 
     if (TeamInfo[1])
     {

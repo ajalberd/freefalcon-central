@@ -223,6 +223,12 @@ public:
     // Select the amount of terrain texturing employed
     void SetTerrainTextureLevel(int level);
     // int  GetTerrainTextureLevel( void ) { return textureLevel; };
+    // Artscout - 2026 (FRONTS): the haze is set from the weather condition only
+    // here, so when the condition changes under the viewer, redo it.
+    void RefreshWeatherHaze(void)
+    {
+        SetTerrainTextureLevel(textureLevel);
+    }
 
     // Set/get rendering settings
     void SetHazeMode(BOOL state);

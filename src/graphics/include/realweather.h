@@ -102,6 +102,7 @@
 #include "renderow.h"
 #include "real3dcloud.h"
 #include "real2dcloud.h"
+#include "weatherfronts.h"
 
 typedef signed long SLONG;
 
@@ -152,6 +153,16 @@ public:
     void Cleanup();
     void UpdateCondition(void);
 
+    // Artscout - 2026 (FRONTS): weather that varies across the theater.
+    // weatherCondition is then the condition where the viewer is; these say
+    // what it is anywhere else. With fronts off they return the global value.
+    float SeverityAt(float x, float y);
+    int ConditionAt(float x, float y);
+    bool FrontsActive() const
+    {
+        return frontMap.active;
+    }
+
 protected:
     void GenerateClouds(bool bRandom = TRUE);
     void UpdateCells();
@@ -159,6 +170,13 @@ protected:
     void DrawRain();
     void DoLightning();
     void GenerateCloud(DWORD row, DWORD col);
+
+    // Artscout - 2026 (FRONTS): pick the condition at the viewer, and shade
+    // toward the next one so crossing a front is not a single step.
+    void SampleLocal();
+    // The condition where the viewer is has changed. WeatherClass refits
+    // cloud heights and the like for it.
+    virtual void OnLocalCondition(int condition);
 
 public:
     BOOL isLightning;
@@ -267,6 +285,11 @@ protected:
     } METAR; //End Cobra
 public:
     METAR *metar;
+
+    // Artscout - 2026 (FRONTS)
+    WeatherFrontMap frontMap;
+    float localSeverity; // severity where the viewer is
+    float overcastFade; // 0..1 thins the overcast just past a front's edge
 };
 
 extern RealWeather *realWeather;

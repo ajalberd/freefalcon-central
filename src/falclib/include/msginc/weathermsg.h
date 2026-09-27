@@ -41,6 +41,11 @@ public:
         float contrailHigh;
         float ShadingFactor;
         float weatherQuality;
+        // Artscout - 2026 (FRONTS): the whole front field. Clients grow the
+        // same weather from it; weatherCondition above is then the
+        // prevailing condition, not the host's local one.
+        unsigned char frontsActive;
+        WeatherFrontState fronts;
     } dataBlock;
 
 protected:

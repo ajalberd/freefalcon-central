@@ -98,15 +98,18 @@ void AirframeClass::EquationsOfMotion(float dt)
 
     if (stallMode not_eq Crashing and stallMode < Spinning)
     {
+        // Artscout - 2026 (FRONTS): the wind is asked for by position, and
+        // with fronts it depends on it; this passed the ground normal.
+        Tpoint windPos = {platform->XPos(), platform->YPos(), platform->ZPos()};
         mlSinCos(&trigWind,
-                 ((WeatherClass*)realWeather)->WindHeadingAt(&gndNormal));
+                 ((WeatherClass*)realWeather)->WindHeadingAt(&windPos));
         windfraction = 1.0f; //me123max(0.0F, min(nzcgs, 1.0F));
 
         if (platform->IsSetFlag(ON_GROUND))
             windfraction = 0.0f;
 
         wind =
-            ((WeatherClass*)realWeather)->WindSpeedInFeetPerSecond(&gndNormal) *
+            ((WeatherClass*)realWeather)->WindSpeedInFeetPerSecond(&windPos) *
             windfraction;
         xdot = gSpeedyGonzales * vt * platform->platformAngles.cosgam *
                    platform->platformAngles.cossig +

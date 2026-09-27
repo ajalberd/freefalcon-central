@@ -1398,3 +1398,71 @@ float BulletSphereHit(vector* sp, vector* ep, vector* tc, float r,
 **  TRUE or FALSE if hit .
 ** The formula was gotten from Graphics Gems Vol1 - ray-box interset
 */
+
+// Artscout - 2026: see guns.h. Cached per weapon type: the name never changes, and this is asked every
+// frame a gun fires.
+#include "soundfx.h"
+#include <unordered_map>
+#include <cstdlib>
+#include <cstring>
+
+int GunCalibreSfx(SimWeaponClass *gun, bool end)
+{
+    if (not gun)
+        return 0;
+
+    static std::unordered_map<int, int> cache; // weapon type -> calibre group (-1 = stock sound)
+    const int key = gun->Type();
+    auto it = cache.find(key);
+    int group;
+
+    if (it not_eq cache.end())
+        group = it->second;
+    else
+    {
+        group = -1;
+        WeaponClassDataType *wc = gun->GetWCD();
+        char name[24] = {0};
+
+        if (wc)
+        {
+            strncpy(name, wc->Name, sizeof(name) - 1);
+            for (char *c = name; *c; ++c)
+                *c = (char)toupper((unsigned char)*c);
+        }
+
+        static const char *rotary[] = {"M61", "GAU8", "GAU-8", "GAU12", "GAU-12", "GSH-N-30", "GSH-6",
+                                       "PHALANX", "M134", "VULCAN"};
+        bool isRotary = false;
+
+        for (const char *r : rotary)
+            if (strstr(name, r))
+                isRotary = true;
+
+        const char *mm = strstr(name, "MM");
+        const float cal = (mm and name[0] >= '0' and name[0] <= '9') ? (float)atof(name) : 0.0f;
+
+        if (not isRotary and cal > 0.0f)
+        {
+            if (cal < 9.0f)
+                group = 0; // 7.62 / 7.92 mm
+            else if (cal < 13.5f)
+                group = 1; // 12.7 mm (.50)
+            else if (cal < 16.0f)
+                group = 2; // 14.5 mm
+            else if (cal < 24.0f)
+                group = 3; // 20 / 23 mm
+            else if (cal < 33.0f)
+                group = 4; // 25 / 27 / 30 mm
+            else if (cal < 45.0f)
+                group = 5; // 35 / 37 / 40 mm
+        }
+
+        cache[key] = group;
+    }
+
+    if (group < 0)
+        return 0;
+
+    return SFX_GUN_CALIBRE_BASE + 4 * group + (end ? 1 : 0);
+}

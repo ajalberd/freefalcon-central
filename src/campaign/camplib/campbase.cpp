@@ -414,12 +414,14 @@ int CampBaseClass::GetSpotted(Team t)
             GridIndex x, y;
             GetLocation(&x, &y);
 
-            //JAM 20Nov03 - FIXME
-            // if (((WeatherClass*)TheWeather)->GetCloudCover(x,y) < (MAX_CLOUD_TYPE-(MAX_CLOUD_TYPE/4)))
-            // {
-            SetSpotted(t, Camp_GetCurrentTime());
-            return 1;
-            // }
+            // Artscout - 2026 (FRONTS): restored. Satellites see nothing through
+            // Poor or worse; GetCloudCover was a stub returning 0 since 2003.
+            if (((WeatherClass *)realWeather)->GetCloudCover(x, y) <
+                (MAX_CLOUD_TYPE - (MAX_CLOUD_TYPE / 4)))
+            {
+                SetSpotted(t, Camp_GetCurrentTime());
+                return 1;
+            }
         }
 
         break;
@@ -436,12 +438,14 @@ int CampBaseClass::GetSpotted(Team t)
             GridIndex x, y;
             GetLocation(&x, &y);
 
-            //JAM 20Nov03 - FIXME
-            // if (((WeatherClass*)TheWeather)->GetCloudCover(x,y) < (MAX_CLOUD_TYPE-(MAX_CLOUD_TYPE/4)))
-            // {
-            SetSpotted(t, Camp_GetCurrentTime());
-            return 1;
-            // }
+            // Artscout - 2026 (FRONTS): restored. Satellites see nothing through
+            // Poor or worse; GetCloudCover was a stub returning 0 since 2003.
+            if (((WeatherClass *)realWeather)->GetCloudCover(x, y) <
+                (MAX_CLOUD_TYPE - (MAX_CLOUD_TYPE / 4)))
+            {
+                SetSpotted(t, Camp_GetCurrentTime());
+                return 1;
+            }
         }
 
         break;

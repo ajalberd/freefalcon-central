@@ -266,8 +266,8 @@ protected:
 
     //RV - I-Hawk
     // ********** NEW TRAIL STUFF *************
-    DWORD TrailNew;
-    DWORD TrailIdNew;
+    DWORD TrailNew = 0; // Artscout - 2026: now also the smoke trail of a falling wreck part
+    DWORD TrailIdNew = 0;
     // ****************************************
 
     RViewPoint *viewPoint;

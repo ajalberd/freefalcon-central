@@ -195,7 +195,8 @@ FIELD_DOC = {
     "BullseyeX": "Bullseye grid X",
     "BullseyeY": "Bullseye grid Y",
     "TheaterName": "Theater this campaign belongs to",
-    "Scenario": "Scenario name shown in the UI",
+    "Scenario": "The scenario this file was started from; a save reads its "
+                "base objectives and trigger script from it",
     "UIName": "Campaign title shown in the UI",
     "Tempo": "Campaign pace (affects resupply and reinforcement rates)",
 }

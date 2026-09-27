@@ -10546,6 +10546,72 @@ void SimSeatArm(unsigned long val, int state, void*)
 }
 
 
+// Artscout - 2026: the seat height switch (SEAT ADJ on the right of the bucket). It is a momentary
+// switch: the seat moves while it is held and stops when it is let go, so these act on the key going
+// down and on it coming back up (the keyboard and the joystick both send the release, as a call
+// without KEY_DOWN). A second press in the same direction also stops it, for anything that only ever
+// sends presses. The movement, its end stops and the motor sound are in AirframeClass::CockpitSounds;
+// the eyepoint follows in OTWDriverClass::VCock_HeadCalc.
+extern int g_nSeatMove;
+
+static void SeatSwitch(int dir, int state)
+{
+    if (not SimDriver.GetPlayerAircraft() or
+        not SimDriver.GetPlayerAircraft()->IsSetFlag(MOTION_OWNSHIP))
+        return;
+
+    if (state bitand KEY_DOWN)
+        g_nSeatMove = (g_nSeatMove == dir) ? 0 : dir;
+    else if (g_nSeatMove == dir)
+        g_nSeatMove = 0;
+}
+
+void SimSeatUp(unsigned long, int state, void*)
+{
+    SeatSwitch(1, state);
+}
+
+void SimSeatDown(unsigned long, int state, void*)
+{
+    SeatSwitch(-1, state);
+}
+
+// Artscout - 2026: TEMPORARY. Log the current aim ray to FFDebug.log (consumed in VCock_Exec).
+bool g_bLogPitPoint = false;
+
+void SimLogPitPoint(unsigned long, int state, void*)
+{
+    if (state bitand KEY_DOWN)
+    {
+        // Logged here as well as in VCock_Exec, so a press that never reaches the pit still shows up.
+        FFDebugLog("PITPOINT requested\n");
+        g_bLogPitPoint = true;
+    }
+}
+
+// Artscout - 2026: JHMCS (sim/include/hmcs.h). The HMCS knob -- off at the bottom stop, then
+// symbology brightness -- and an on/off key that remembers the brightness it switched off at.
+void Hmcs_StepKnob(int dir);
+void Hmcs_Toggle();
+
+void SimHmcsToggle(unsigned long, int state, void*)
+{
+    if (state bitand KEY_DOWN)
+        Hmcs_Toggle();
+}
+
+void SimHmcsKnobUp(unsigned long, int state, void*)
+{
+    if (state bitand KEY_DOWN)
+        Hmcs_StepKnob(1);
+}
+
+void SimHmcsKnobDown(unsigned long, int state, void*)
+{
+    if (state bitand KEY_DOWN)
+        Hmcs_StepKnob(-1);
+}
+
 // MD -- 20031130: adding commands to place the seat arm lever directly.
 
 void SimSeatOn(unsigned long val, int state, void*)

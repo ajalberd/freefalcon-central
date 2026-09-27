@@ -35,6 +35,7 @@
 #include "fsound.h"
 #include "soundfx.h"
 #include "simio.h"
+#include "graphics/include/fflog.h" // Artscout - 2026: TEMPORARY, JfsSoundLog
 #include "pilotinputs.h"
 #include "sms.h" // MD
 #include "otwdrive.h" //Cobra
@@ -200,6 +201,12 @@ void AirframeClass::EngineModel(float dt)
 
 #endif
 
+    // Artscout - 2026: the starter's sound is ticked every frame, outside the EngineStopped branch.
+    // Throttling up to idle at 20% clears EngineStopped while the JFS is still engaged (it stays in
+    // to 60%), so a re-arm inside that branch let the looped starter die at the idle detent and left
+    // the whole light-up silent.
+    JfsSound(JfsSoundLoop);
+
     if (IsSet(EngineStopped))
     {
         ftit = Math.FLTust(0.0f, 20.0f, dt, oldFtit); // cool down the engine
@@ -237,7 +244,6 @@ void AirframeClass::EngineModel(float dt)
         {
             rpmCmd = 0.25f; // JFS should take us up to 25%
             spoolrate = 15.0f;
-            JfsSound(JfsSoundLoop); // Artscout - 2026: re-armed every frame, stops with the flag
             //decrease spin time
             JFSSpinTime -= SimLibMajorFrameTime;
 
@@ -1013,6 +1019,12 @@ void AirframeClass::MultiEngineModel(float dt)
 
     //*****************************************************
     //#6 Engine 1 left
+    // Artscout - 2026: the starter's sound is ticked every frame, outside the EngineStopped branch.
+    // Throttling up to idle at 20% clears EngineStopped while the JFS is still engaged (it stays in
+    // to 60%), so a re-arm inside that branch let the looped starter die at the idle detent and left
+    // the whole light-up silent.
+    JfsSound(JfsSoundLoop);
+
     if (IsSet(EngineStopped))
     {
         ftit = Math.FLTust(0.0f, 20.0f, dt, oldFtit); // cool down the engine
@@ -1054,7 +1066,6 @@ void AirframeClass::MultiEngineModel(float dt)
         {
             rpmCmd = 0.25f; // JFS should take us up to 25%
             spoolrate = 15.0f;
-            JfsSound(JfsSoundLoop); // Artscout - 2026: re-armed every frame, stops with the flag
             //decrease spin time
             JFSSpinTime -= SimLibMajorFrameTime;
 
@@ -2330,49 +2341,81 @@ void AirframeClass::JfsSound(JfsSoundPhase phase)
     if (platform not_eq SimDriver.GetPlayerEntity())
         return;
 
-    int extID = 0;
-    int intID = 0;
+    // The crank recording is 10 s. The loop takes over just before it ends; both are the same motor,
+    // so starting the loop at the switch press only plays it twice over.
+    const float crankLength = 9.75f;
+    // At the hand-over the loop is faded rather than cut, so the engine arrives under the starter
+    // instead of after a hole. Volumes are in hundredths of a dB, as everywhere in the sound table.
+    const float fadeLength = 1.5f;
+    const float fadeDepth = -3000.0f;
 
     switch (phase)
     {
     case JfsSoundStart:
-        extID = SFX_JFS_START;
-        intID = SFX_JFS_START_INT;
-        JfsSoundElapsed = 0.0f; // Artscout - 2026: the crank recording starts now
-        break;
+        JfsSoundElapsed = 0.0f;
+        JfsSoundFade = 0.0f;
+        platform->SoundPos.Sfx(SFX_JFS_START_INT, 0, 1.0f, 0.0f);
+        platform->SoundPos.Sfx(SFX_JFS_START, 0, 1.0f, 0.0f);
+        JfsSoundLog("start", rpm);
+        return;
 
     case JfsSoundLoop:
-        // Hold the loop back until the crank recording has finished. The start file is ten seconds
-        // long and both are the same motor, so arming the loop from the switch press just plays it
-        // twice over.
-        //
-        // By time, not by IsPlaying() on the crank. That test never went false for this sound, so
-        // the loop was never armed at all -- which is the dead air between the end of the crank
-        // recording and the hand-over. The recording is 10 s, so give it 9.5.
-        JfsSoundElapsed += SimLibMajorFrameTime;
+        // Called every frame by the engine models. A looped voice runs only while it is re-armed
+        // each frame (mlrVoice::Exec stops it otherwise), so this is what keeps the starter going
+        // for exactly as long as the JFS flag is set -- and no longer gated on IsPlaying(), which
+        // does not report the crank as finished.
+        if (IsSet(JfsStart))
+        {
+            bool wasArmed = JfsSoundElapsed >= crankLength;
+            JfsSoundElapsed += SimLibMinorFrameTime; // ticked once per minor frame by the engine model
 
-        if (JfsSoundElapsed < 9.5f)
-            return;
+            if (JfsSoundElapsed < crankLength)
+                return;
 
-        extID = SFX_JFS_LOOP;
-        intID = SFX_JFS_LOOP_INT;
-        break;
+            if (not wasArmed)
+                JfsSoundLog("loop armed", rpm);
+
+            platform->SoundPos.Sfx(SFX_JFS_LOOP_INT, 0, 1.0f, 0.0f);
+            platform->SoundPos.Sfx(SFX_JFS_LOOP, 0, 1.0f, 0.0f);
+        }
+        else if (JfsSoundFade > 0.0f)
+        {
+            JfsSoundFade -= SimLibMinorFrameTime;
+
+            if (JfsSoundFade <= 0.0f)
+            {
+                JfsSoundLog("fade done", rpm);
+                return; // not re-armed, so the sound system stops the loop
+            }
+
+            float vol = fadeDepth * (1.0f - JfsSoundFade / fadeLength);
+            platform->SoundPos.Sfx(SFX_JFS_LOOP_INT, 0, 1.0f, vol);
+            platform->SoundPos.Sfx(SFX_JFS_LOOP, 0, 1.0f, vol);
+        }
+
+        return;
 
     case JfsSoundEnd:
-        // The starter has stopped. Nothing is silenced here on purpose.
+        // The flag has just been cleared (light-up at 60%, or spin time out). If the loop was
+        // running, fade it over the next frames; if the crank recording is still playing it is a
+        // one-shot and plays out on its own -- the sound system cannot fade a one-shot, and Sfx()
+        // on a playing one restarts it from the top.
         //
-        // The crank is a one-shot and plays out on its own; the loop is a looped sound, so the sound
-        // system stops it as soon as this phase stops re-arming it. Silencing them explicitly was
-        // what cut the starter off part way through the crank -- and it also masked the fact that
-        // the loop was never armed at all, because the silence looked like the hand-over.
-        //
-        // The end recordings stay unused: 4.38's F16JfsEnd reads as a grind at this instant, which
-        // is what the original notes said and what the ear confirmed.
+        // The end recordings stay unused: 4.38's F16JfsEnd reads as a grind at this instant.
+        JfsSoundFade = (JfsSoundElapsed >= crankLength) ? fadeLength : 0.0f;
+        JfsSoundLog("end", rpm);
         return;
     }
+}
 
-    platform->SoundPos.Sfx(intID, 0, 1.0f, 0.0f);
-    platform->SoundPos.Sfx(extID, 0, 1.0f, 0.0f);
+// Artscout - 2026: TEMPORARY. One line per starter event in FFDebug.log, so a single ramp start
+// shows the timeline -- crank, loop armed, hand-over, fade. Remove once it has been heard end to end.
+void AirframeClass::JfsSoundLog(const char* what, float rpmNow)
+{
+    char line[160];
+    sprintf_s(line, "JFS %-10s  t=%6.2f  rpm=%.3f  stopped=%d  jfs=%d\n", what, JfsSoundElapsed,
+              rpmNow, IsSet(EngineStopped) ? 1 : 0, IsSet(JfsStart) ? 1 : 0);
+    FFDebugLog(line);
 }
 
 // JPO start the engine quickly - for deaggregation purposes.

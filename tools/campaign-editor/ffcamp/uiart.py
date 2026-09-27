@@ -104,6 +104,7 @@ class IconSet:
     def __init__(self, base_path):
         self.base = base_path
         self.icons = {}
+        self.order = []
         self._data = b""
         self._load()
 
@@ -125,6 +126,11 @@ class IconSet:
             if kind != RSC_IS_IMAGE:
                 continue
             name = raw_id.split(b"\0")[0].decode("latin-1")
+            # File order matters for the patch sheet: a squadron's patch is an
+            # INDEX into this list, not a name. The order here is the order of
+            # `imageids.id` and of the engine's own SquadronMatchIDs table --
+            # all three agree, which is what makes the index resolvable.
+            self.order.append(name)
             self.icons[name] = {
                 "w": w, "h": h, "cx": cx, "cy": cy,
                 "img": img, "pal": pal, "palN": pal_n, "flags": flags,
@@ -133,29 +139,62 @@ class IconSet:
     def names(self):
         return sorted(self.icons)
 
+    def at(self, index):
+        """The entry at a given file position, or None."""
+        if 0 <= int(index) < len(self.order):
+            return self.order[int(index)]
+        return None
+
+    @staticmethod
+    def _rgb555(c):
+        """One RGB555 word to RGBA, with the magenta key meaning transparent."""
+        if c == COLOUR_KEY:
+            return b"\0\0\0\0"
+        r = ((c >> 10) & 31) * 255 // 31
+        g = ((c >> 5) & 31) * 255 // 31
+        b = (c & 31) * 255 // 31
+        return bytes((r, g, b, 255))
+
     def rgba(self, name):
-        """Decode one icon to (width, height, RGBA bytes)."""
+        """Decode one icon to (width, height, RGBA bytes).
+
+        Two pixel formats live in these files and the low two bits of `flags`
+        say which:
+
+            1  8-bit indices into a per-entry RGB555 palette at `pal`
+            2  RGB555 direct, two bytes a pixel, and `pal` is merely the end
+               of the image rather than a palette -- `palN` is 0
+
+        Reading a format-2 entry as paletted yields an empty palette and a
+        fully transparent image, which is what the squadron patches did: about
+        a third of them are direct colour.
+        """
         e = self.icons.get(name)
         if not e:
             return None
         w, h = e["w"], e["h"]
         if w <= 0 or h <= 0:
             return None
+
+        direct = (e["flags"] & 3) == 2 or e["palN"] <= 0
+
+        if direct:
+            need = w * h * 2
+            if e["img"] + need > len(self._data):
+                return None
+            words = struct.unpack_from("<%dH" % (w * h), self._data, e["img"])
+            out = bytearray()
+            for c in words:
+                out += self._rgb555(c)
+            return w, h, bytes(out)
+
         pix = self._data[e["img"]:e["img"] + w * h]
         if len(pix) < w * h:
             return None
         n = min(256, max(0, e["palN"]))
         pal = struct.unpack_from("<%dH" % n, self._data, e["pal"])
 
-        lut = []
-        for c in pal:
-            if c == COLOUR_KEY:
-                lut.append(b"\0\0\0\0")
-            else:
-                r = ((c >> 10) & 31) * 255 // 31
-                g = ((c >> 5) & 31) * 255 // 31
-                b = (c & 31) * 255 // 31
-                lut.append(bytes((r, g, b, 255)))
+        lut = [self._rgb555(c) for c in pal]
         blank = b"\0\0\0\0"
         out = bytearray()
         for v in pix:
@@ -243,6 +282,7 @@ class UiArt:
         self.resources = load_resource_map(gamedir)
         self._sets = {}
         self._atlases = {}
+        self._movies = None
 
     def _resolve(self, rel):
         for root in self.art_dirs:
@@ -277,6 +317,96 @@ class UiArt:
         st = self.icon_set(colour, light)
         self._atlases[key] = IconAtlas(st) if st else None
         return self._atlases[key]
+
+    def patches(self):
+        """The squadron patch sheet: `art/resource/patches.idx` + `.rsc`.
+
+        A separate resource from the unit icons, with its own 98-entry index.
+        `squadron_patch` on a squadron is a position in it.
+        """
+        if not hasattr(self, "_patches"):
+            self._patches = None
+            base = self._resolve("art/resource/patches")
+            if base:
+                try:
+                    self._patches = IconSet(base)
+                except (OSError, struct.error):
+                    self._patches = None
+        return self._patches
+
+    # --- movies --------------------------------------------------------------
+
+    MOVIE_LINE = re.compile(
+        r'\[MOVIE\]\s+(\S+)\s+"([^"]+)"\s*\[([^\]]*)\]', re.IGNORECASE)
+
+    def _find_art(self, name):
+        """`<root>/main/<name>` or `<root>/art/main/<name>`, first root wins.
+
+        The roots are the theater's art directory and then the game's, and a
+        theater's artdir may be the art tree itself or merely contain one.
+        """
+        for root in self.art_dirs:
+            for rel in (os.path.join("art", "main", name),
+                        os.path.join("main", name)):
+                path = os.path.join(root, rel)
+                if os.path.isfile(path):
+                    return path
+        return None
+
+    def movies(self):
+        """Movie id -> {name, file, title}, from MOVIES.ID and movies.irc.
+
+        A script's `#PLAY_MOVIE 104` names a number, and the number only means
+        something through these two files: `MOVIES.ID` maps the `MV_*` names to
+        ids and `movies.irc` maps each name to a file and a title. A theater
+        can override both (every Israel theater points all seventeen at its own
+        avi files), which is why this goes through the same root list as the
+        icons rather than the game directory.
+        """
+        if self._movies is None:
+            ids = self._read_movie_ids()
+            self._movies = {}
+            for name, path, title in self._read_movie_list():
+                mid = ids.get(name.upper())
+                if mid is None:
+                    continue
+                self._movies[mid] = {"name": name, "file": path, "title": title}
+        return self._movies
+
+    def _read_movie_ids(self):
+        path = self._find_art("MOVIES.ID")
+        out = {}
+        if not path:
+            return out
+        try:
+            with open(path, "r", encoding="latin-1") as fp:
+                for line in fp:
+                    parts = line.split()
+                    if len(parts) < 2:
+                        continue
+                    try:
+                        out[parts[0].upper()] = int(parts[-1])
+                    except ValueError:
+                        pass
+        except OSError:
+            pass
+        return out
+
+    def _read_movie_list(self):
+        path = self._find_art("movies.irc")
+        out = []
+        if not path:
+            return out
+        try:
+            with open(path, "r", encoding="latin-1") as fp:
+                for line in fp:
+                    m = self.MOVIE_LINE.search(line)
+                    if m:
+                        out.append((m.group(1), m.group(2).replace("\\", "/"),
+                                    m.group(3).strip()))
+        except OSError:
+            pass
+        return out
 
     def icon_name(self, icon_index):
         """The `IconIndex` from a unit or objective row -> an icon name."""

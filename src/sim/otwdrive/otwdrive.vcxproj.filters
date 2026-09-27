@@ -47,6 +47,9 @@
     <ClCompile Include="padf3.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="hmcs.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Padlock.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

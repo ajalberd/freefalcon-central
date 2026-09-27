@@ -212,6 +212,7 @@ output at night was ~(0.6, 0.58, 0.38) x alpha over a black sky. Note the *taxi-
 | `g_bObjSpotCones` | 1 | apply spot-light cones instead of omni points |
 | `g_bObjPixelLight` | 1 | per-pixel object lighting (0 = legacy per-vertex) |
 | `g_bObjZBiasEnable` / `g_nObjZBiasStep` | 1 / 60 | (earlier) per-surface `dwzBias` in the object pass |
+| `g_bObjFog` | 1 | (2026-09-25) distance-fog lit world objects like the terrain. D3D12 only ever set `FF_FOG` in `BeginTerrainPass`, so objects were never hazed — distant buildings seen on their shaded side read as black silhouettes on hazed ground. Now OR'd in `FillRenderCB` for object-pass, `FF_LIGHTING`, non-cockpit draws once a fog range is set (the Vulkan backend's per-draw rule). Evidence: `buildingfix_ObjPixelLight_1.rdc` EID 9970 — lighting matches D3D7 exactly (global ambient 0, sun ambient = TOD 0.212, COLOR1 material, 1× modulate), the wall faces away from the sun, texel 0.133 → 0.028, and the fog step was skipped. |
 
 ## 8. Files touched (uncommitted)
 

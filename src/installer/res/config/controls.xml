@@ -193,6 +193,7 @@
     <function name="SimSelectiveJettison" label="SimSelectiveJettison" category=""/>
     <function name="SimEmergencyJettison" label="Ckpit-jettison all" category=""/>
     <function name="SimWheelBrakes" label="Ckpit-Wheel brakes" category=""/>
+    <function name="SimNWSToggle" label="Ckpit-Nosewheel steering" category=""/>
     <function name="SimECMOn" label="Ckpit-ECM" category=""/>
     <function name="SimECMStandby" label="SimECMStandby" category=""/>
     <function name="SimECMConsent" label="SimECMConsent" category=""/>
@@ -619,6 +620,12 @@
     <function name="SimSeatArm" label="Ckpit-SeatArm" category=""/>
     <function name="SimSeatOn" label="SimSeatOn" category=""/>
     <function name="SimSeatOff" label="SimSeatOff" category=""/>
+    <function name="SimSeatUp" label="Ckpit-Seat Up" category=""/>
+    <function name="SimSeatDown" label="Ckpit-Seat Down" category=""/>
+    <function name="SimLogPitPoint" label="Debug-Log cockpit aim point" category=""/>
+    <function name="SimHmcsToggle" label="Ckpit-HMCS On/Off" category=""/>
+    <function name="SimHmcsKnobUp" label="Ckpit-HMCS Brighter" category=""/>
+    <function name="SimHmcsKnobDown" label="Ckpit-HMCS Dimmer/Off" category=""/>
     <function name="SimEWSRWRPower" label="EWS-RWR Power" category=""/>
     <function name="SimEWSRWROn" label="SimEWSRWROn" category=""/>
     <function name="SimEWSRWROff" label="SimEWSRWROff" category=""/>

@@ -441,6 +441,12 @@ static struct UserFunctionListEntry UserFunctionList[] =
          USER_FUNCTION(SimTMSRight) USER_FUNCTION(SimSeatArm)
              USER_FUNCTION(SimSeatOn) // MD
      USER_FUNCTION(SimSeatOff) // MD
+     USER_FUNCTION(SimSeatUp) // Artscout - 2026: seat height
+     USER_FUNCTION(SimSeatDown) // Artscout - 2026: seat height
+     USER_FUNCTION(SimLogPitPoint) // Artscout - 2026: TEMPORARY, log the aim ray
+     USER_FUNCTION(SimHmcsToggle) // Artscout - 2026: JHMCS on/off
+     USER_FUNCTION(SimHmcsKnobUp) // Artscout - 2026: HMCS knob
+     USER_FUNCTION(SimHmcsKnobDown) // Artscout - 2026: HMCS knob
      USER_FUNCTION(SimEWSRWRPower) USER_FUNCTION(SimEWSRWROn) // MD
      USER_FUNCTION(SimEWSRWROff) // MD
      USER_FUNCTION(SimEWSJammerPower) USER_FUNCTION(SimEWSJammerOn) // MD

@@ -1,0 +1,346 @@
+  Callback        X    Y     Z Dist Snd  MBttn ---- Pit: 3D F-16 ---- LOD x/y/z * -569 = X/Y/Z
+SimICPTILS     -740  70  -240  40 126   1
+SimICPALOW     -740 40   -240 40 126   1
+SimICPTHREE    -740 10   -240  40 126   1
+SimICPStpt     -740  70  -273  40 126   1
+SimICPCrus     -740  40   -273  40 126   1
+SimICPSIX      -740  10   -273  40 126   1
+SimICPMark     -740  70  -303  40 126   1
+SimICPEIGHT    -740  40   -303  40 126   1
+SimICPNINE     -740  10   -303  40 126   1
+SimICPZERO     -740  -22  -303  40 126   1
+SimICPCLEAR    -740  -30  -240  40 126   1
+SimICPEnter    -740  -30  -273  40 122   1
+SimICPCom1     -740  80  -210  40 129   1
+SimICPCom2     -740  47   -210  40 129   1  
+SimICPIFF      -740 15   -210  40 129   1
+SimICPLIST     -740  -15  -210 40 129   1
+SimICPAA       -740  -45  -210  40 129   1
+SimICPAG       -740  -80 -210  40 129   1
+SimDriftCO     -740  -20  -320  40 115   1
+SimICPDEDUP    -740  25   -320  40 124   1
+SimICPDEDDOWN  -740  25   -350  40 124   1
+SimICPDEDSEQ   -740  5   -335  40 124   1
+SimICPResetDED -740  45   -335  40 124   1
+SimICPNext     -740  70  -325  40 126   1
+SimICPPrevious -740  70  -345  40 126   1
+SimCBEOSB_1L   -1175  375  -505  20 126   1
+SimCBEOSB_2L   -1175  342  -505  20 126   1
+SimCBEOSB_3L   -1175  309  -505  20 126   1
+SimCBEOSB_4L   -1175  276  -505  20 126   1
+SimCBEOSB_5L   -1175 243  -505  20 126   1
+SimCBEOSB_6L   -1160  185  -561  20 126   1
+SimCBEOSB_7L   -1150  185  -588  20 126   1
+SimCBEOSB_8L   -1150  185  -622  20 126   1
+SimCBEOSB_9L   -1140  185  -648  20 126   1
+SimCBEOSB_10L  -1135  185  -677  20 126   1
+SimCBEOSB_11L  -1115  243  -730  20 126   1
+SimCBEOSB_12L  -1115  276  -730  20 126   1
+SimCBEOSB_13L  -1115  309  -730  20 126   1
+SimCBEOSB_14L  -1115  342  -730  20 126   1
+SimCBEOSB_15L  -1115  375  -730  20 126   1
+SimCBEOSB_16L  -1135  430  -677  20 126   1
+SimCBEOSB_17L  -1140  430  -648  20 126   1
+SimCBEOSB_18L  -1150  430  -622  20 126   1
+SimCBEOSB_19L  -1150  428  -588  20 126   1
+SimCBEOSB_20L  -1160  429  -561  20 126   1
+SimCBEOSB_GAINUP_L  -1170  433  -535  20 126   1
+SimCBEOSB_GAINDOWN_L  -1125  430  -707  20 126  1 
+SimCBEOSB_1R   -1175  -241 -500  20 126   1
+SimCBEOSB_2R   -1175  -273 -500  20 126   1
+SimCBEOSB_3R   -1175  -306 -500  20 126   1
+SimCBEOSB_4R   -1175  -339 -500  20 126   1
+SimCBEOSB_5R   -1175  -372 -500  20 126   1
+SimCBEOSB_6R   -1160  -427 -561  20 126   1
+SimCBEOSB_7R   -1150  -427 -588  20 126   1
+SimCBEOSB_8R   -1150  -430 -622  20 126   1
+SimCBEOSB_9R   -1140  -428 -648  20 126   1
+SimCBEOSB_10R  -1135  -429 -677  20 126   1
+SimCBEOSB_11R  -1115  -372 -730  20 126   1
+SimCBEOSB_12R  -1115  -339 -730  20 126   1
+SimCBEOSB_13R  -1115  -306 -730  20 126   1
+SimCBEOSB_14R  -1115  -273 -730  20 126   1
+SimCBEOSB_15R  -1115  -241 -730  20 126   1
+SimCBEOSB_16R  -1135  -185 -677  20 126   1
+SimCBEOSB_17R  -1140  -185 -648  20 126   1
+SimCBEOSB_18R  -1150  -185 -622  20 126   1
+SimCBEOSB_19R  -1150  -185 -588  20 126   1
+SimCBEOSB_20R  -1160  -185 -561  20 126   1
+SimCBEOSB_GAINUP_R   -1170  -430 -535  20 126   1 
+SimCBEOSB_GAINDOWN_R  -1125  -430 -707  20 126   1
+SimLandingLightOn -814 615 -979  40 126   1
+SimLandingLightOff -797 597 -990  40 126   2
+SimSilenceHorn     -785   675  -985 40 293   1
+SimArmMasterArm    -1058  500  -678  15 298   1
+SimSafeMasterArm   -1055  500  -703  15 297   1
+SimSimMasterArm    -1052  500  -728  15 298   1
+SimStepMasterArm   -1055  500  -703  20 297   2
+SimCATI            -797  745 -967 20 126   1
+SimCATIII          -769  745 -995 20 126   2
+SimHookUp   -935  515   -860 40 126   1
+SimHookDown -935  515   -860 40 126   2
+AFGearUp       -905  523  -923 40 126   1
+AFGearDown     -905  523  -923 40 126   2
+AFAlternateGear      -597  865 -1189 40 289   2
+AFAlternateGearReset -597  865 -1189 40 289   1
+SimParkingBrakeOn  -865  626  -916 20 314   1
+SimParkingBrakeOff -836  626  -945 20 315   1
+SimRFNorm          -1081  466  -480  10 126   1
+SimRFQuiet         -1078  468  -505  10 126   1
+SimRFSilent        -1075  468  -530  10 126   1
+SimICPFAck         -880  445  -390  40 126   1
+ExtinguishMasterCaution  -888  353  -290  50 126   1
+SimWarnReset       -740  -20  -350  15 293   1
+SimIFFIn           -865 488  -458  40 291   1
+SimLaserArmOn  -1070  510  -595  40 126   1
+SimLaserArmOff  -1070  510  -595  40 126   2
+SimSymWheelUp      -740  105  -240  30 294   1
+SimSymWheelDn      -740  105  -240  30 294   2
+SimHUDOn       -740  105  -275  20 129   1
+SimHUDOff      -740  105  -275  20 129   2
+SimRwrPower         -626  774 -1121  20 295   1
+SimRWRSetSearch     -648  808 -1081  20 295   1
+SimRWRSetGroundPriority  -626  814 -1121  20 295   1
+OTWStepHudColor    -740  105  -311  30 129   1
+SimRWRSetUnknowns  -1200  400  -450  15 295   1
+SimRWRSetTargetSep -1200  336  -450  15 295   1
+SimRWRSetPriority  -1200  334  -418  15 295   1
+SimRWRHandoff      -1200  332  -385  15 295   1
+SimRWRSetNaval	-1195  369  -438  15 295   1
+SimHSIIlsTcn        -900  147  -920  10 129   1
+SimHSITcn           -900  126  -900  10 129   1
+SimHSINav           -900  102  -900  10 129   1
+SimHSIIlsNav        -900   92  -920  10 129   1
+SimHsiHeadingInc    -805   68 -950  20 294   1
+SimHsiHeadingDec    -805   68 -950  20 294   2
+SimHsiHdgIncBy1     -805   48 -980  20 294   1
+SimHsiHdgDecBy1     -805   48 -980  20 294   2
+SimHsiCourseInc     -805  -68 -950  20 294   1
+SimHsiCourseDec     -805  -68 -950  20 294   2
+SimHsiCrsIncBy1     -805  -48 -980  20 294   1
+SimHsiCrsDecBy1     -805  -48 -980  20 294   2
+SimFuelSwitchTest    -850 -99 -880   10 129   1
+SimFuelSwitchNorm    -850 -130 -880   10 129   1
+SimFuelSwitchResv    -850 -140 -900  10 129   1
+SimFuelSwitchWingInt -850 -145 -930  10 129   1
+SimFuelSwitchWingExt -850 -135 -950  10 129   1
+SimFuelSwitchCenterExt -850 -105 -950  10 129   1
+SimFuelTransNorm -805 -115 -985  15 129   1
+SimFuelTransWing -805 -115 -985  15 129   2
+SimEmergencyJettison -900 655 -875  40 292   1
+SimRightAPUp         -1038 500 -795   10 314   1
+SimRightAPMid        -1035 485 -828   10 315   1
+SimRightAPDown       -1032 506 -853   10 314   1
+SimLeftAPUp          -1038 553 -795   10 126   1
+SimLeftAPMid         -1035 535 -828   10 126   1
+SimLeftAPDown        -1032 558 -853   10 126   1
+
+SimEWSRWROn         -723   685 -1048  20 129   1
+SimEWSRWROff        -700   685 -1072  20 129   2
+SimEWSJammerOn      -685   705 -1070  20 129   1
+SimEWSJammerOff     -668   711 -1105  20 129   2
+SimEWSChaffOn       -720   586 -1072  20 129   1
+SimEWSChaffOff      -697   586 -1095  20 129   2
+SimEWSFlareOn       -723   546 -1072  20 129   1
+SimEWSFlareOff      -700   546 -1095 20 129   2
+
+SimEWSModeOff       -665   579 -1144  10 129   1
+SimEWSModeStby       -676   575 -1136  10 129   1
+SimEWSModeMan       -683   568 -1132  10 129   1
+SimEWSModeSemi       -688   552 -1130  10 129   1
+SimEWSModeAuto       -688   536 -1134  10 129   1
+
+SimEWSProgOne       -675   625 -1130  10 129   1
+SimEWSProgTwo       -680   614 -1124  10 129   1
+SimEWSProgThree     -681   598 -1123  10 129   1
+SimEWSProgFour       -678   590 -1134  10 129   1
+
+ToggleTIR  -740 -75 -247  20 126   2
+Sim3DCkptHelpOnOff  -740 -75 -247  20 126   1
+
+SimCycleRadioChannel -495  529 -1246  20 129   1
+SimDecRadioChannel -495  529 -1246  20 129   2
+
+SimSeatOn   -466  421 -1012  20 296   1
+SimSeatOff  -574  421 -910  20 296   2
+SimEject   -580  0 -876  20 298   2
+SimEject   -250  -542 -1530  20 298   2
+
+SimThrottleIdleDetent  -153  842 -904  40 293   1
+
+SimStepComm1VolumeUp   -256  683 -1218  20 294   1 
+SimStepComm1VolumeDown -284  706 -1212  20 294   2 
+SimStepComm2VolumeUp   -256  620 -1229  20 294   1 
+SimStepComm2VolumeDown -284  649 -1223  20 294   2 
+SimStepMissileVolumeUp -250  506 -1246  20 294   1
+SimStepMissileVolumeDown -279  535 -1235  20 294   2
+SimStepThreatVolumeUp -176  512 -1246  20 294   1
+SimStepThreatVolumeDown -205  535 -1240  20 294   2
+
+SimAVTRSwitchOff  119  626 -1223  15 129   1
+SimAVTRSwitchAuto 102  609 -1229  15 129   1
+SimAVTRSwitchOn   85  626 -1223  15 129   1 
+
+SimMPOToggle -484  825 -1195  25 293   1
+AFCanopyToggle      -403  927 -1183  40 316   1
+SimJfsStart -347  813 -1200  20 126   1
+
+SimMainPowerOff   40  865 -1189  10 126   1
+SimMainPowerBatt 11  848 -1195  10 290   1
+SimMainPowerMain -6  865 -1195  10 126   1
+
+SimEpuOff 119  950 -1178  10 313   1
+SimEpuAuto 91  945 -1184  10 312   1
+SimEpuOn 63  950 -1178  10 313   1
+
+
+SimIFFPower  381  847  -1194 25 291   1
+SimTACANTR 211   774  -1206 20 126   1
+SimTACANAATR 211   728  -1212 20 126   2
+
+SimCycleLeftAuxComDigit   307   745  -1206 15 126   1
+SimDecLeftAuxComDigit     307   728  -1212 15 126   2
+SimCycleCenterAuxComDigit 284   745  -1206 15 126   1
+SimDecCenterAuxComDigit   284   728  -1212 15 126   2
+SimCycleRightAuxComDigit  262   745  -1206 15 126   1
+SimDecRightAuxComDigit    262   728  -1212 15 126   2
+SimCycleBandAuxComDigit   239   745  -1206 15 126   1
+SimToggleAuxComMaster     227  847  -1195 25 126   1
+
+SimFuelDoorOpen  211   939  -1184 20 126   1
+SimFuelDoorClose 211   893  -1184 20 126   2
+SimFuelPumpOff 302   910  -1184 10 126   1
+SimFuelPumpNorm 290   933  -1184 10 126   1
+SimFuelPumpAft 267   945  -1184 10 126   1
+SimFuelPumpFwd 239   933  -1184 10 126   1
+SimMasterFuelOn  376   956  -1184 25 126   1
+SimMasterFuelOff  376   888  -1189 25 126   2
+
+SimExtlMasterNorm 296   609  -1229 20 126   1
+SimExtlMasterOff 296   569  -1235 20 126   2
+SimAntiCollOn 381   683  -1218 20 126   1
+SimAntiCollOff 381   637  -1223 20 126   2
+SimLightsFlash 324   683  -1218 20 126   1
+SimLightsSteady 324   637  -1223 20 126   2
+SimWingLightBrt 273   671  -1217 20 126   1
+SimWingLightOff 290   649  -1223 20 126   2
+SimWingLightBrt 216   671  -1218 20 126   1
+SimWingLightOff 199   649  -1223 20 126   2
+
+SimMalIndLights 705   921  -1183 15 126   1
+SimMalIndLights 705   921  -1183 15 126   2
+
+SimTrimAPDISC 500   694  -1217 15 299   1
+SimTrimAPNORM 500   745  -1206 15 299   2
+SimTrimNoseUp 523   631  -1223 15 299   1
+SimTrimNoseDown 477   631  -1223 15 299   1
+SimTrimYawLeft 626   648  -1223 15 299   1
+SimTrimYawRight 626   597  -1229 15 299   1
+SimTrimRollLeft 626   728  -1212 15 299   1
+SimTrimRollRight 626   694  -1212 15 299   1
+
+SimLEFLock 615   831  -1195 15 126   1
+SimLEFAuto 615   791  -1201 15 126   2
+SimAltFlapsExtend 512   962  -1178 15 126   1
+SimAltFlapsNorm 512   916  -1184 15 126   2
+
+
+SimLeftHptOn       -529 -688 -1218  20 129   1
+SimLeftHptOff       -489 -688 -1218  20 129   2
+
+SimRightHptOn       -529 -740 -1212  20 129   1
+SimRightHptOff      -489 -740 -1212  20 129   2
+
+SimFCROn            -529 -785 -1206  20 129   1
+SimFCROff           -489 -785 -1206  20 129   2
+
+SimRALTON           -529 -831 -1201  20 129   1
+SimRALTSTDBY        -512 -848 -1201  20 129   1
+SimRALTOFF          -489 -831 -1201  20 129   1
+
+ 
+
+
+SimScalesVVVAH      -467  -688 -1223  15 129   1
+SimScalesVAH        -450  -706 -1223  15 129   1
+SimScalesOff        -432  -688 -1223  15 129   1
+
+SimPitchLadderATTFPM -467 -745 -1212  15 129   1
+SimPitchLadderFPM    -450 -757 -1212  15 129   1
+SimPitchLadderOff    -432 -745 -1212  15 129   1
+
+SimHUDDEDDED        -467 -791 -1206  15 129   1
+SimHUDDEDPFL        -450 -808 -1206  15 129   1
+SimHUDDEDOff        -432 -791 -1206  15 129   1
+
+SimReticleStby      -466 -853 -1201  15 129   1
+SimReticlePri       -449 -853 -1201  15 129   1
+SimReticleOff       -432 -853 -1201  15 129   1
+
+
+
+SimHUDVelocityCAS   -410  -688 -1223  15 129   1
+SimHUDVelocityTAS   -387  -706 -1223  15 129   1
+SimHUDVelocityGND   -370  -688 -1223  15 129   1
+
+SimHUDAltRadar      -410 -740 -1212  15 129   1
+SimHUDAltBaro       -393 -762 -1212  15 129   1
+SimHUDAltAuto       -370 -740 -1212  15 129   1
+
+SimHUDBrtDay        -410 -791 -1206  15 129   1
+SimHUDBrtAuto       -393 -808 -1206  15 129   1
+SimHUDBrtNight      -370 -791 -1206  15 129   1
+
+ 
+SimInteriorLight   -335  -762 -1206  30 129   1
+SimSpotLight   -176  -694 -1211  30 293   1
+SimInstrumentLight  -335  -694 -1211  30 129   1
+
+SimAirSourceOff    -97  -785 -1206  20 124   1
+SimAirSourceNorm   -131  -780 -1206  20 124   1
+SimAirSourceDump   -142  -802 -1206  20 129   1
+SimAirSourceRam    -142  -848 -1201  20 129   1
+
+SimVMSOn            -153  -586 -1229  30 129   1
+SimVMSOff           -102  -586 -1229  30 129   2
+
+
+SimFCCOn             307 -905  -1189  10 129   1
+SimFCCOff            319 -871  -1195  10 129   2
+SimSMSOn             364 -905  -1189  10 129   1
+SimSMSOff            376 -871  -1195  10 129   2
+SimMFDOn             421 -905  -1189  10 129   1
+SimMFDOff            432 -871  -1195  10 129   2
+SimUFCOn             484 -905  -1189  10 129   1
+SimUFCOff            495 -871  -1195  10 129   2
+
+SimGPSOn             393  -808 -1206  10 129   1
+SimGPSOff            404  -768 -1212  10 129   2
+SimDLOn              438  -808 -1206  10 129   1
+SimDLOff             455  -768 -1212  10 129   2
+SimMAPOn             484  -808 -1206  10 129   1
+SimMAPOff            495  -768 -1212  10 129   2
+
+SimINSOff            307 -768  -1212  15 129   1
+SimINSNorm           319 -819  -1206  15 129   1
+SimINSNav            353 -819  -1206  15 129   1
+SimINSInFlt          376 -780  -1206  15 129   1
+
+// 3D kneeboard (Artscout - 2026). Cycles MAP -> BRIEF -> STEERPOINT, the same page state the 2D board
+// and the KneeboardTogglePage keybind use. Position is the CENTRE of the quad in 3dckpit.dat, times
+// -56.9; the radius is generous because the board is a big flat target with nothing else near the knee.
+KneeboardTogglePage  -612  -250  -720 130 126   1
+// Artscout - 2026: controls BMS 4.32's pit makes clickable that FF6's did not. Positions are not copied from
+// BMS (different pit model): each comes from FF6's own pit -- the switch's spot in the panel texture (912)
+// traced back through the model's UVs to the 3D surface it is painted on, x -569. Validated on three
+// existing hotspots (ALT FLAPS 15, LE FLAPS 25, SYM wheel 15 units off). DEPR RET mirrors the SYM wheel.
+SimDigitalBUP        603   951  -1183 15 126   1
+SimFLCSReset         543   818  -1202 15 126   1
+SimFLTBIT            476   818  -1203 15 126   1
+SimOverHeat          788   941  -1185 15 293   1
+SimGndJettOn        -848   728   -928 15 126   1
+SimGndJettOff       -848   728   -928 15 126   2
+SimRetUp            -740  -105   -240 30 294   1
+SimRetDn            -740  -105   -240 30 294   2
+SimHmcsKnobUp       -609   664  -1182 25 129   1
+SimHmcsKnobDown     -609   664  -1182 25 129   2

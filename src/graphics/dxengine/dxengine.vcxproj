@@ -372,6 +372,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="D3D12Backend.h" />
+    <ClInclude Include="gt7tonemap_hlsl.h" />
     <ClInclude Include="d3d12\D3D12Renderer.h" />
     <ClInclude Include="d3d12\D3D12TextureManager.h" />
     <ClInclude Include="IRenderBackend.h" />

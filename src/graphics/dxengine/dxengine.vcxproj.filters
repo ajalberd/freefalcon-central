@@ -62,6 +62,9 @@
     <ClInclude Include="D3D12Backend.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="gt7tonemap_hlsl.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="d3d12\D3D12Renderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>

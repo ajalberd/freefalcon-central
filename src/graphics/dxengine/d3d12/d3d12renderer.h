@@ -76,6 +76,15 @@ public:
     {
         m_depthTargetBound = b;
     }
+    // Artscout - 2026: the backend recorded a draw with its own root signature + descriptor heap (the GT7
+    // pass) -- the next engine draw must re-set ours, exactly as after a list reset.
+    void RequestRebind()
+    {
+        m_frameRebind = true;
+    }
+    // Artscout - 2026: HDR scene + GT7 -- tone map the FP16 scene in place at the 3D -> 2D boundary.
+    bool ToneMapScene() override;
+    void SetRttGlare(const float* glare20) override;
     // #DX12: the texture manager calls this (via D3D12Renderer_NotifyTextureFreed) right before it deletes a
     // D3D12Texture. m_pTex0/m_pTex1 hold the CURRENTLY bound D3D12Texture* -- if it's the one being freed (e.g.
     // on 3D-exit texture cleanup), drop the pointer so the next FlushConstants doesn't read a freed struct's
@@ -490,6 +499,7 @@ private:
         int samples;
         int views;
         bool depth; // the RTT atlas binds a NULL DSV -> depth must be off
+        int rtvFormat; // Artscout - 2026: FP16 HDR scene vs 8-bit target (GT7)
         ID3D12PipelineState* pso;
     };
     std::vector<MeshPsoEntry> m_meshPsos;
@@ -551,6 +561,7 @@ private:
     int m_pitShadowRes; // shadow map edge (texels); 0 = not created yet
     // Artscout - 2026: the cockpit flood/instrument fill (cbRender gCockpitFill) -- rgb, a unused.
     float m_cockpitFill[4];
+    float m_glare[5][4]; // Artscout - 2026: MFD sun glare (cbRender gGlare0..4); zero = off
 
     // Dirty flags: which CBs changed since last bind (per-slot root CBV rebind).
     bool m_dViewport, m_dView, m_dObject, m_dRender, m_dLights;

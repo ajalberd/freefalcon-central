@@ -10,8 +10,10 @@
 #define _CLIPFLAGS_H_
 
 #include <math.h>
+#include "nearclip.h"
 
-static const float NEAR_CLIP_DISTANCE = 1.0f;
+// Artscout - 2026: was a hard 1.0f; now the shared CPU near clip (nearclip.h, default 0.2 = ZNEAR).
+#define NEAR_CLIP_DISTANCE (CpuNearClip())
 
 static const UInt32 ON_SCREEN = 0x00;
 static const UInt32 CLIP_LEFT = 0x01;

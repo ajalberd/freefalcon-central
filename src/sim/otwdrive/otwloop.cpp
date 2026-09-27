@@ -3598,6 +3598,14 @@ void OTWDriverClass::RenderFrame()
                     renderer->ClearZBuffer();
                 }
 
+                // Artscout - 2026: HDR scene + GT7 -- the world and the 3D pit are flushed; what VCock_Exec
+                // draws next is the INSTRUMENTS (HUD combiner, MFD/DED/RWR/kneeboard RTT composites, the
+                // cursor). Those are display-referred, so tone map the scene HERE, before them -- tone mapping
+                // after them curved the HUD green. The call after FlushNearList below is then a no-op
+                // (once per view) and still covers the views that take no cockpit branch.
+                if (g_pRenderer)
+                    g_pRenderer->ToneMapScene();
+
                 if (DisplayMode == ModePadlockF3)
                 {
                     ShiAssert(SimDriver.GetPlayerAircraft() == otwPlatform);
@@ -3689,6 +3697,13 @@ void OTWDriverClass::RenderFrame()
 
             // Clear out the "near" list now that we're done drawing it
             FlushNearList();
+
+            // Artscout - 2026: HDR scene + GT7 -- the 3D is complete for this view; tone map it before the
+            // HUD / 2D pit / text are drawn over it. In the 3D pit this already ran before the instruments
+            // (above) and is a no-op here. Also a no-op when the scene is 8-bit (ToneMapGT7 0, view
+            // instancing, Vulkan).
+            if (g_pRenderer)
+                g_pRenderer->ToneMapScene();
 
             //START_PROFILE("RENDER 2DPIT");
             // Do the first layer of drawn cockpit stuff (pre BLT)
@@ -4447,7 +4462,10 @@ void OTWDriverClass::RenderFrame()
     }
 
     //JAM 18Nov03
-    if (weatherCondition == INCLEMENT and cameraPos.z > realWeather->stratusZ)
+    // Artscout - 2026 (FRONTS): was the global int weatherCondition, which
+    // nothing ever set, so the rain sound never played.
+    if (realWeather->weatherCondition == INCLEMENT and
+        cameraPos.z > realWeather->stratusZ)
     {
         if (DisplayInCockpit())
         {

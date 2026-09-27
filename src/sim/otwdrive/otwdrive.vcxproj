@@ -323,6 +323,7 @@
     <ClCompile Include="otwloop.cpp" />
     <ClCompile Include="padefov.cpp" />
     <ClCompile Include="padf3.cpp" />
+    <ClCompile Include="hmcs.cpp" />
     <ClCompile Include="Padlock.cpp" />
     <ClCompile Include="RadioSubTitle.cpp" />
     <ClCompile Include="Sfx.cpp" />

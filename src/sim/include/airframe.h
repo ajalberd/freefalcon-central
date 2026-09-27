@@ -1484,10 +1484,6 @@ public:
 
     float jfsaccumulator;
     float JFSSpinTime; //MI
-    // Artscout - 2026: how long the starter has been sounding. The loop cannot be gated on
-    // IsPlaying() of the crank recording -- that never reports as finished for this sound, which
-    // left the loop permanently unarmed and the whole middle of the start silent.
-    float JfsSoundElapsed;
     void JfsEngineStart(void);
 
     // Artscout - 2026: JFS starter audio. The starter's state machine is in this class -- the
@@ -1502,6 +1498,16 @@ public:
         JfsSoundEnd
     };
     void JfsSound(JfsSoundPhase phase);
+    void JfsSoundLog(const char* what, float rpmNow); // TEMPORARY
+    float JfsSoundElapsed; // seconds since the crank recording started
+    float JfsSoundFade; // seconds of loop fade left after the hand-over
+    // Artscout - 2026: the player's continuous cockpit sounds -- ECS hum, pilot breathing, buffet,
+    // wheel brakes and the ILS marker beacons. Ticked once per major frame from Exec; every one is a
+    // loop re-armed each frame while its condition holds, so it stops by itself when it does not.
+    void CockpitSounds(void);
+    bool ecsSoundOn; // the ECS was running last frame
+    float ecsSoundTime; // seconds since it started (the start take plays before the loop)
+    int breathSoundLevel; // 0 none, 1 calm, 2 fast, 3 straining -- held with hysteresis
 
     void QuickEngineStart();
     float curMaxStoreSpeed; //me123

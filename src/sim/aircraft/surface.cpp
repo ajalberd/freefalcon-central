@@ -1246,6 +1246,17 @@ void AircraftClass::MoveSurfaces(void)
 
         if (IsLocal())
         {
+            // Artscout - 2026: the canopy latch. It unlocks just before the canopy starts to open and
+            // locks the moment it is fully shut -- the real sequence, and the part FF6 had no sound
+            // for (canopyState is a single bool; there is no separate lock). Player's jet only: these
+            // are cockpit takes, and the AI on the ramp run their canopies too.
+            const bool ownship = (this == SimDriver.GetPlayerEntity());
+            const float canopyWas = GetDOFValue(COMP_CANOPY_DOF);
+
+            if (ownship and af->canopyState and canopyWas == 0.0f and SFX_DEF and
+                af->auxaeroData->canopyMaxAngle > 0.0f and af->auxaeroData->canopyRate > 0.0f)
+                SoundPos.Sfx(SFX_CANOPY_UNLOCK);
+
             if (af->canopyState)
             {
                 // canopy open
@@ -1264,6 +1275,10 @@ void AircraftClass::MoveSurfaces(void)
                         af->auxaeroData->sndCanopyCloseLoop,
                         af->auxaeroData->sndCanopyCloseEnd);
                 ClearAcStatusBits(ACSTATUS_CANOPY); //2004-03-23 Booster
+
+                if (ownship and canopyWas > 0.0f and
+                    GetDOFValue(COMP_CANOPY_DOF) == 0.0f and SFX_DEF)
+                    SoundPos.Sfx(SFX_CANOPY_LOCK);
             }
         }
         else

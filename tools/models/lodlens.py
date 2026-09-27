@@ -360,6 +360,15 @@ def verify_record(record, first_node_id):
     return found
 
 
+def _lod_entries(data):
+    """The log as {lod: entry}. Reads the old single-record format too (keyed by its own "lod")."""
+    if "lods" in data:
+        return data["lods"]
+    if "lod" in data:
+        return {str(data["lod"]): data}
+    return {}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -391,8 +400,11 @@ def main(argv=None):
         if not os.path.exists(log_path):
             raise SystemExit(f"no log at {log_path} -- nothing to revert")
         with open(log_path, "r") as fh:
-            log = json.load(fh)
-        original = log["original"]
+            entry = _lod_entries(json.load(fh)).get(str(args.lod))
+        if entry is None:
+            raise SystemExit(f"no log entry for LOD {args.lod} in {log_path} -- refusing to revert "
+                             f"(the entry holds that LOD's own original offset; any other would corrupt it)")
+        original = entry["original"]
         with open(dxh_path, "r+b") as fh:
             fh.seek(ref_at)
             fh.write(struct.pack("<II", original["offset"], original["size"]))
@@ -459,14 +471,22 @@ def main(argv=None):
         "lenses": args.lens,
         "panels": args.panel,
     }
+    # One entry per LOD. The log used to be a single record per database, so patching a second LOD
+    # replaced the first one's "original" -- and --revert on the first would then have written the
+    # second LOD's offset into its slot. Re-patching the SAME LOD keeps that LOD's first original.
+    entries = {}
     if os.path.exists(log_path):
         with open(log_path, "r") as fh:
-            old = json.load(fh)
+            entries = _lod_entries(json.load(fh))
+    old = entries.get(str(args.lod))
+    if old is not None:
+        log["original"] = old["original"]
         log["previous"] = old.get("previous", []) + [{
             "time": old.get("time"), "patched": old.get("patched"),
             "lenses": old.get("lenses"), "panels": old.get("panels")}]
+    entries[str(args.lod)] = log
     with open(log_path, "w") as fh:
-        json.dump(log, fh, indent=2)
+        json.dump({"lods": entries}, fh, indent=2)
     print(f"appended the patched record at .DXL offset {new_offset}")
     print(f"repointed the .DXH LOD ref at {ref_at} (log: {log_path})")
     return 0

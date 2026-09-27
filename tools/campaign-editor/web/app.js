@@ -190,6 +190,8 @@ const FILE_TABS = [
   {id: 'objectives', label: 'Objectives'},
   {id: 'squadrons', label: 'Squadrons'},
   {id: 'victory', label: 'Victory'},
+  {id: 'weather', label: 'Weather'},
+  {id: 'progress', label: 'Progress'},
   {id: 'members', label: 'File contents'},
 ];
 
@@ -332,6 +334,8 @@ async function drawView() {
   else if (S.tab === 'objectives') node = await objectivesPanel(S.file);
   else if (S.tab === 'squadrons') node = await squadronsPanel(S.file);
   else if (S.tab === 'victory') node = await victoryPanel(S.file);
+  else if (S.tab === 'weather') node = await weatherPanel(S.file);
+  else if (S.tab === 'progress') node = await progressPanel(S.file);
   else if (S.tab === 'members') node = await membersPanel(S.file);
 
   if (!node) return;
@@ -744,10 +748,40 @@ async function victoryPanel(file) {
   if (tri && tri.available) {
     const body = el('div', {class: 'panel-body'});
     body.appendChild(el('p', {class: 'note', text:
-      'A campaign carries no victory field. What ends it is ' + tri.file +
-      ', a script the engine evaluates every tick \u2014 each block below is a ' +
-      '#END_GAME and the conditions that reach it. EndgameResult on this page ' +
-      'only records which one fired.'}));
+      tri.fromScenario
+        ? 'The engine reads the trigger script named by the Scenario field in '
+          + 'this file\u2019s header, so this campaign ends by ' + tri.file
+          + ' \u2014 the script of ' + tri.fromScenario + '. Each block below '
+          + 'is a #END_GAME and the conditions that reach it.'
+        : 'A campaign carries no victory field. What ends it is ' + tri.file +
+          ', a script the engine evaluates every tick \u2014 each block below ' +
+          'is a #END_GAME and the conditions that reach it. EndgameResult on ' +
+          'this page only records which one fired.'}));
+
+    if (tri.fromScenario) {
+      body.appendChild(el('p', {class: 'note warn', text:
+        tri.ownObjectives
+          ? 'This file ships its own script, but the engine does not read it: '
+            + 'CheckTriggers uses the Scenario field in the header, which names '
+            + tri.fromScenario + '. Editing below rewrites ' + tri.file
+            + ', the script that actually applies. To use this file\u2019s own '
+            + 'script instead, change Scenario on the Campaign tab.'
+          : 'A mid-campaign save records objective deltas against '
+            + tri.fromScenario + ', not a scenario of its own, so it cannot '
+            + 'carry its own ending. Editing below rewrites ' + tri.file
+            + ' and changes every campaign and save started from '
+            + tri.fromScenario + '.'}));
+      if (!tri.ownObjectives) {
+        body.appendChild(el('div', {class: 'stores-tools'}, [
+          el('button', {class: 'btn btn-sm btn-primary',
+            text: 'Give this save its own ending\u2026',
+            onclick: () => openSaveEnding(file)}),
+          el('span', {class: 'hint', text:
+            'copies the scenario, points this save at the copy, then edit the ' +
+            'script here without touching ' + tri.fromScenario}),
+        ]));
+      }
+    }
 
     for (const e of tri.endgames) {
       body.appendChild(endgameCard(file, tri, e));
@@ -762,7 +796,9 @@ async function victoryPanel(file) {
       el('header', {}, [
         el('h3', {text: 'How this campaign ends'}),
         el('span', {class: 'hint',
-          text: tri.file + '  \u00b7  ' + tri.totalEvents + ' events  \u00b7  ' +
+          text: tri.file + (tri.fromScenario ? ' (from ' + tri.fromScenario + ')'
+                                             : '') +
+                '  \u00b7  ' + tri.totalEvents + ' events  \u00b7  ' +
                 tri.watched.length + ' objectives watched'}),
       ]),
       body,
@@ -812,6 +848,7 @@ async function victoryPanel(file) {
           ? el('div', {class: 'sl-note', text: row.comment}) : null,
         el('span', {class: 'sl-verb', text: row.verb}),
         el('span', {class: 'sl-text', text: row.text}),
+        row.note ? el('span', {class: 'sl-flag', text: row.note}) : null,
       ]));
     }
     wrap.appendChild(el('div', {class: 'panel'}, [
@@ -819,6 +856,16 @@ async function victoryPanel(file) {
         el('h3', {text: 'Full trigger script'}),
         el('span', {class: 'hint', text: 'read-only'}),
       ]),
+      tri.writeOnlyEvents && tri.writeOnlyEvents.length
+        ? el('div', {class: 'panel-body'},
+            el('p', {class: 'note warn', text:
+              'Event' + (tri.writeOnlyEvents.length === 1 ? ' ' : 's ') +
+              tri.writeOnlyEvents.join(', ') + ' ' +
+              (tri.writeOnlyEvents.length === 1 ? 'is' : 'are') + ' set but ' +
+              'never tested by an #IF_EVENT_PLAYED, so nothing acts on ' +
+              (tri.writeOnlyEvents.length === 1 ? 'it' : 'them') +
+              ' \u2014 the movie beside the write is all that happens.'}))
+        : null,
       listing,
     ]));
   } else {
@@ -938,54 +985,232 @@ async function teamsPanel(file) {
 
 // --- unit and objective lists -----------------------------------------------
 
+// --- sortable, filterable tables --------------------------------------------
+
+// A column is {key, label, value: row => cell, filter: 'text' | 'number' | false}.
+// `state` is {sort, dir, filters} and lives on the panel, so it survives the
+// redraws that follow an edit. `onChange` re-renders a client-side table, or
+// re-fetches one that pages on the server (the Database tab).
+function tableState(store, key) {
+  if (!store[key]) store[key] = {sort: null, dir: 1, filters: {}};
+  return store[key];
+}
+
+function tableHead(columns, state, onChange) {
+  const head = el('tr');
+  for (const c of columns) {
+    const sortable = c.sort !== false;
+    const active = sortable && state.sort === c.key;
+    const th = el('th', {class: sortable ? 'sortable' : ''});
+
+    // The sort target is the label, not the whole cell: the filter input lives
+    // in the same cell and must not re-sort when it is clicked.
+    th.appendChild(el('div', {
+      class: 'col-label' + (active ? ' sorted' : ''),
+      title: sortable ? 'Sort by ' + (c.label || 'this column') : null,
+      onclick: sortable ? () => {
+        if (state.sort === c.key) state.dir = -(state.dir || 1);
+        else { state.sort = c.key; state.dir = 1; }
+        onChange();
+      } : null,
+    }, [c.label, sortable ? el('span', {class: 'arrow',
+      text: active ? (state.dir < 0 ? ' ▾' : ' ▴') : ''}) : null]));
+
+    if (c.filter !== false) {
+      th.appendChild(el('input', {
+        class: 'col-filter',
+        type: 'text',
+        value: state.filters[c.key] || '',
+        placeholder: c.filter === 'number' ? '> 40' : 'filter',
+        spellcheck: 'false',
+        oninput: e => { state.filters[c.key] = e.target.value; onChange(); },
+      }));
+    }
+    head.appendChild(th);
+  }
+  return el('thead', {}, head);
+}
+
+// One column's filter: a substring, or a numeric comparison like "> 40".
+function matchFilter(value, want) {
+  const text = String(value === null || value === undefined ? '' : value)
+    .toLowerCase();
+  const m = /^(>=|<=|>|<|=)\s*(-?\d+(?:\.\d+)?)$/.exec(want);
+  if (m) {
+    const n = Number(value);
+    if (Number.isFinite(n)) {
+      const v = Number(m[2]);
+      if (m[1] === '>') return n > v;
+      if (m[1] === '<') return n < v;
+      if (m[1] === '>=') return n >= v;
+      if (m[1] === '<=') return n <= v;
+      return n === v;
+    }
+  }
+  return text.includes(want);
+}
+
+function tableRows(rows, columns, state) {
+  let out = rows;
+  for (const c of columns) {
+    const want = (state.filters[c.key] || '').trim().toLowerCase();
+    if (!want || c.filter === false) continue;
+    out = out.filter(r => matchFilter(c.value(r), want));
+  }
+  const col = columns.find(c => c.key === state.sort);
+  if (col) {
+    out = out.slice().sort((a, b) => {
+      const av = col.value(a), bv = col.value(b);
+      let d;
+      if (typeof av === 'number' && typeof bv === 'number') d = av - bv;
+      else d = String(av === null || av === undefined ? '' : av)
+        .localeCompare(String(bv === null || bv === undefined ? '' : bv),
+                       undefined, {numeric: true, sensitivity: 'base'});
+      return d * (state.dir < 0 ? -1 : 1);
+    });
+  }
+  return out;
+}
+
 async function unitsPanel(file) {
   const d = await api('/api/map?' + qs({file: file}));
+  M.lastTeams = d.teams;
   const state = unitsPanel.state = unitsPanel.state || {q: '', team: -1, kind: ''};
+  const tstate = tableState(state, 'cols');
 
   const detail = el('div', {class: 'detail'},
     el('div', {class: 'pad', style: 'color:var(--ink-faint)'},
        'Select a unit to inspect it.'));
 
+  // A bar and a number for the 0..100 condition columns, red to green, so a
+  // tired or hungry unit stands out while scrolling. Fatigue reads the other
+  // way round: high is bad.
+  const meter = (v, invert) => {
+    if (v === null || v === undefined) return null;
+    const good = invert ? 100 - v : v;
+    const hue = Math.round(Math.max(0, Math.min(100, good)) * 1.2);
+    return el('span', {class: 'meter'}, [
+      el('span', {class: 'meter-bar', style: 'width:' + Math.max(0,
+        Math.min(100, v)) + '%;background:hsl(' + hue + ',55%,45%)'}),
+      el('span', {class: 'meter-num', text: String(v)}),
+    ]);
+  };
+  const orNone = v => (v === null || v === undefined ? null : v);
+
+  const columns = [
+    {key: 'n', label: '#', value: u => u.n, filter: 'number',
+      cell: u => el('td', {class: 'idx', text: String(u.n)})},
+    {key: 'name', label: 'Name', value: u => u.sqName || u.name || u.kind,
+      cell: u => el('td', {}, [
+        el('span', {class: 'swatch', style: 'background:' + teamColour(u.owner)}),
+        ' ' + (u.sqName || u.name || u.kind),
+        u.isPlayer ? el('span', {class: 'tag', text: 'your squadron'}) : null])},
+    {key: 'type', label: 'Type', value: u => u.aircraft || u.kind},
+    {key: 'team', label: 'Team',
+      value: u => (d.teams[u.owner] || {}).name || ('team ' + u.owner)},
+    {key: 'health', label: 'Health', value: u => orNone(u.health),
+      filter: 'number', title: 'vehicles left, % of full strength',
+      cell: u => el('td', {}, meter(u.health))},
+    {key: 'supply', label: 'Supply', value: u => orNone(u.supply),
+      filter: 'number', cell: u => el('td', {}, meter(u.supply))},
+    {key: 'morale', label: 'Morale', value: u => orNone(u.morale),
+      filter: 'number', cell: u => el('td', {}, meter(u.morale))},
+    {key: 'fatigue', label: 'Fatigue', value: u => orNone(u.fatigue),
+      filter: 'number', cell: u => el('td', {}, meter(u.fatigue, true))},
+    {key: 'elements', label: 'Elements', value: u => makeupText(u.makeup),
+      cell: u => el('td', {class: 'makeup', text: makeupText(u.makeup)})},
+    {key: 'patch', label: 'Patch', filter: false, sort: false,
+      value: u => (u.kind === 'squadron' ? 'x' : ''),
+      cell: u => el('td', {}, unitPatchThumb(u))},
+    {key: 'home', label: 'Home', value: u => u.home || ''},
+    {key: 'pos', label: 'Position', value: u => u.x + ', ' + u.y,
+      cell: u => el('td', {class: 'num', text: u.x + ', ' + u.y})},
+    {key: 'campId', label: 'Camp id', value: u => u.campId, filter: 'number',
+      cell: u => el('td', {class: 'num', text: String(u.campId)})},
+    {key: 'wp', label: 'WP', value: u => u.wp || 0, filter: 'number',
+      cell: u => el('td', {class: 'num', text: u.wp ? String(u.wp) : ''})},
+  ];
+
+  // Which columns show. Remembered in this browser; a column with nothing to
+  // show for the rows on screen (Patch and Home on battalions, the condition
+  // columns on flights) steps aside by itself.
+  const HIDE_KEY = 'ffcamp.units.hidden';
+  let hidden;
+  try { hidden = new Set(JSON.parse(localStorage.getItem(HIDE_KEY) ||
+                                    '["pos","campId","wp"]')); }
+  catch (e) { hidden = new Set(['pos', 'campId', 'wp']); }
+  const saveHidden = () => {
+    try { localStorage.setItem(HIDE_KEY, JSON.stringify([...hidden])); }
+    catch (e) { /* private window: keep it for this page only */ }
+  };
+  const allColumns = columns;
+  let shownColumns = allColumns;
+  let headSig = '';
+
   const body = el('tbody');
   const stat = el('span', {class: 'stat'});
+
+  const openDetail = guard(async (u, row) => {
+    for (const tr of body.children) tr.classList.remove('on');
+    if (row) {
+      row.classList.add('on');
+      // The panel may not be in the document yet when a row is opened from
+      // another tab, and scrollIntoView on a detached node does nothing.
+      setTimeout(() => row.scrollIntoView({block: 'nearest'}), 0);
+    }
+    const info = await api('/api/unit?' + qs({file: file, n: u.n}));
+    detail.textContent = '';
+    detail.appendChild(await unitDetail(info, u, file, () => {},
+      guard(async () => { await drawView(); })));
+  });
+
   const redraw = () => {
     body.textContent = '';
     const needle = state.q.trim().toLowerCase();
-    const shown = d.units.filter(u =>
+    const searched = d.units.filter(u =>
       (state.team < 0 || u.owner === state.team) &&
       (!state.kind || u.kind === state.kind) &&
-      (!needle || (u.name || '').toLowerCase().includes(needle) ||
-       String(u.campId).includes(needle)));
+      (!needle || unitHaystack(u).includes(needle)));
+    const shown = tableRows(searched, allColumns, tstate);
+
+    // Only the chosen columns, and of those only ones with something to show.
+    const onScreen = shown.slice(0, 800);
+    shownColumns = allColumns.filter(c => !hidden.has(c.key) &&
+      (c.key === 'n' || c.key === 'name' || onScreen.some(u => {
+        const v = c.value(u);
+        return v !== null && v !== undefined && v !== '';
+      })));
+    // Rebuild the header only when the set of columns or the sort changes:
+    // rebuilding it on every keystroke would take the focus out of the column
+    // filter being typed in.
+    const sig = shownColumns.map(c => c.key).join(',') + '|' + tstate.sort +
+                (tstate.dir || 1);
+    if (sig !== headSig) {
+      headSig = sig;
+      const fresh = tableHead(shownColumns, tstate, redraw);
+      if (thead) thead.replaceWith(fresh);
+      thead = fresh;
+    }
+    // Your squadron leads the list, whatever the sort, as on the Squadrons tab.
+    shown.sort((a, b) => (b.isPlayer ? 1 : 0) - (a.isPlayer ? 1 : 0));
     stat.textContent = shown.length.toLocaleString() + ' of ' +
-                       d.units.length.toLocaleString();
+                       d.units.length.toLocaleString() +
+                       (shown.length > 800 ? '   ·   first 800 shown' : '');
     for (const u of shown.slice(0, 800)) {
       const t = d.teams[u.owner];
-      body.appendChild(el('tr', {
-        onclick: guard(async () => {
-          for (const tr of body.children) tr.classList.remove('on');
-          const info = await api('/api/unit?' + qs({file: file, n: u.n}));
-          detail.textContent = '';
-          detail.appendChild(unitDetail(info, u, file, () => {},
-            guard(async () => { await drawView(); })));
-        }),
-      }, [
-        el('td', {class: 'idx', text: String(u.n)}),
-        el('td', {}, [
-          el('span', {class: 'swatch',
-            style: 'background:' + teamColour(u.owner)}),
-          ' ' + (u.name || u.kind),
-        ]),
-        el('td', {text: u.kind}),
-        el('td', {text: (t && t.name) || ('team ' + u.owner)}),
-        el('td', {class: 'num', text: u.x + ', ' + u.y}),
-        el('td', {class: 'num', text: String(u.campId)}),
-        el('td', {class: 'num', text: u.wp ? String(u.wp) : ''}),
-      ]));
+      const tr = el('tr', {
+        'data-n': String(u.n),
+        class: u.isPlayer ? 'mine' : '',
+        onclick: guard(async () => { await openDetail(u, tr); }),
+      }, shownColumns.map(c => c.cell ? c.cell(u)
+        : el('td', {text: String(c.value(u) === null || c.value(u) === undefined
+                                 ? '' : c.value(u))})));
+      body.appendChild(tr);
     }
   };
 
   const search = el('input', {type: 'text', value: state.q, spellcheck: 'false',
-    placeholder: 'Search name or camp id…',
+    placeholder: 'Search name, aircraft, base, camp id…',
     oninput: e => { state.q = e.target.value; redraw(); }});
   const teamSel = el('select', {onchange: e => {
     state.team = Number(e.target.value); redraw();
@@ -998,7 +1223,50 @@ async function unitsPanel(file) {
     [...new Set(d.units.map(u => u.kind))].sort().map(k =>
       el('option', {value: k, selected: k === state.kind}, k))));
 
+  let thead = null;
   redraw();
+
+  // The column picker: a checkbox per column, kept across visits.
+  const colMenu = el('details', {class: 'col-picker'}, [
+    el('summary', {class: 'btn btn-sm', text: 'Columns'}),
+    el('div', {class: 'col-picker-list'}, allColumns
+      .filter(c => c.key !== 'n' && c.key !== 'name')
+      .map(c => el('label', {class: 'chk'}, [
+        el('input', {type: 'checkbox', checked: !hidden.has(c.key),
+          onchange: e => {
+            if (e.target.checked) hidden.delete(c.key);
+            else hidden.add(c.key);
+            saveHidden();
+            redraw();
+          }}),
+        el('span', {text: c.label}),
+      ]))),
+  ]);
+
+  // The squadron this file says you last flew (the header's PlayerSquadronID).
+  // The button clears whatever filter would hide it, because a jump that
+  // silently lands on nothing is worse than no button.
+  const mine = d.units.find(u => u.isPlayer);
+  const mineBtn = mine ? el('button', {class: 'btn btn-sm',
+    title: (mine.sqName || mine.name) + (mine.home ? ' · ' + mine.home : ''),
+    onclick: guard(async () => {
+      if (!body.querySelector('[data-n="' + mine.n + '"]')) {
+        state.q = ''; state.team = -1; state.kind = '';
+        search.value = ''; teamSel.value = '-1'; kindSel.value = '';
+        tstate.filters = {};
+        headSig = '';
+        redraw();
+      }
+      await openDetail(mine, body.querySelector('[data-n="' + mine.n + '"]'));
+    })}, 'My squadron') : null;
+
+  // A row opened from somewhere else (the Squadrons tab) is selected here.
+  if (state.pick !== undefined && state.pick !== null) {
+    const want = state.pick;
+    state.pick = null;
+    const u = d.units.find(x => x.n === want);
+    if (u) await openDetail(u, body.querySelector('[data-n="' + want + '"]'));
+  }
 
   return el('div', {class: 'browser'}, [
     el('div', {class: 'browser-list'}, [
@@ -1006,13 +1274,13 @@ async function unitsPanel(file) {
         search, teamSel, kindSel,
         el('span', {class: 'spacer'}),
         stat,
+        colMenu,
+        mineBtn,
         el('button', {class: 'btn btn-sm btn-primary',
           onclick: () => openPlacePicker(file)}, 'Place unit…'),
       ]),
       el('div', {class: 'rows'}, el('table', {class: 'data'}, [
-        el('thead', {}, el('tr', {}, ['#', 'Name', 'Kind', 'Team',
-                                      'Position', 'Camp id', 'WP']
-          .map(h => el('th', {text: h})))),
+        thead,
         body,
       ])),
     ]),
@@ -1020,35 +1288,82 @@ async function unitsPanel(file) {
   ]);
 }
 
+// Everything the Units search box should match, so a squadron can be found by
+// its aircraft or its base as well as its name.
+function unitHaystack(u) {
+  return [u.sqName, u.name, u.aircraft, u.home, u.kind,
+          (u.makeup || []).map(m => m.name).join(' '),
+          String(u.campId)].join(' ').toLowerCase();
+}
+
+function makeupText(makeup) {
+  if (!makeup || !makeup.length) return '';
+  return makeup.map(m => m.count + ' × ' + m.name).join(', ');
+}
+
+function unitPatchThumb(u) {
+  if (u.kind !== 'squadron' || u.patch === null || u.patch === undefined) {
+    return null;
+  }
+  const img = el('img', {class: 'sq-thumb', alt: '',
+    title: u.patchName || ('patch ' + u.patch),
+    src: '/api/patch?theater=' + encodeURIComponent(S.theater)
+         + '&i=' + u.patch});
+  img.addEventListener('error', () => img.remove());
+  return img;
+}
+
 async function objectivesPanel(file) {
   const d = await api('/api/map?' + qs({file: file}));
+  M.lastTeams = d.teams;
   const state = objectivesPanel.state =
     objectivesPanel.state || {q: '', team: -1, cat: ''};
+  const tstate = tableState(state, 'cols');
 
   const detail = el('div', {class: 'detail'},
     el('div', {class: 'pad', style: 'color:var(--ink-faint)'},
        'Select an objective to inspect it.'));
 
+  const columns = [
+    {key: 'n', label: '#', value: o => o.n, filter: 'number'},
+    {key: 'name', label: 'Name', value: o => o.name || o.type},
+    {key: 'type', label: 'Type', value: o => o.type},
+    {key: 'cat', label: 'Category', value: o => d.categories[o.cat] || o.cat},
+    {key: 'owner', label: 'Owner',
+      value: o => (d.teams[o.owner] || {}).name || ('team ' + o.owner)},
+    {key: 'pos', label: 'Position', value: o => o.x + ', ' + o.y},
+    {key: 'tacan', label: 'TACAN', value: o => o.tacan || ''},
+  ];
+
   const body = el('tbody');
   const stat = el('span', {class: 'stat'});
+
+  const openDetail = guard(async (o, row) => {
+    for (const tr of body.children) tr.classList.remove('on');
+    if (row) { row.classList.add('on'); row.scrollIntoView({block: 'nearest'}); }
+    const info = await api('/api/objective?' + qs({file: file, n: o.n}));
+    detail.textContent = '';
+    detail.appendChild(objectiveDetail(info, o, file, () => {},
+      guard(async () => { await openDetail(o, row); })));
+  });
+
   const redraw = () => {
     body.textContent = '';
     const needle = state.q.trim().toLowerCase();
-    const shown = d.objectives.filter(o =>
+    const searched = d.objectives.filter(o =>
       (state.team < 0 || o.owner === state.team) &&
       (!state.cat || o.cat === state.cat) &&
       (!needle || (o.name || '').toLowerCase().includes(needle) ||
        (o.type || '').toLowerCase().includes(needle)));
+    const shown = tableRows(searched, columns, tstate);
     stat.textContent = shown.length.toLocaleString() + ' of ' +
-                       d.objectives.length.toLocaleString();
+                       d.objectives.length.toLocaleString() +
+                       (shown.length > 800 ? '   ·   first 800 shown' : '');
     for (const o of shown.slice(0, 800)) {
       const t = d.teams[o.owner];
-      body.appendChild(el('tr', {
-        onclick: guard(async () => {
-          const info = await api('/api/objective?' + qs({file: file, n: o.n}));
-          detail.textContent = '';
-          detail.appendChild(objectiveDetail(info, o, file, () => {}));
-        }),
+      const tr = el('tr', {
+        'data-n': String(o.n),
+        onclick: guard(async () => { await openDetail(o, tr); }),
       }, [
         el('td', {class: 'idx', text: String(o.n)}),
         el('td', {}, [
@@ -1060,7 +1375,9 @@ async function objectivesPanel(file) {
         el('td', {text: d.categories[o.cat] || o.cat}),
         el('td', {text: (t && t.name) || ('team ' + o.owner)}),
         el('td', {class: 'num', text: o.x + ', ' + o.y}),
-      ]));
+        el('td', {class: 'num', text: o.tacan || ''}),
+      ]);
+      body.appendChild(tr);
     }
   };
 
@@ -1092,9 +1409,7 @@ async function objectivesPanel(file) {
         stat,
       ]),
       el('div', {class: 'rows'}, el('table', {class: 'data'}, [
-        el('thead', {}, el('tr', {}, ['#', 'Name', 'Type', 'Category',
-                                      'Owner', 'Position']
-          .map(h => el('th', {text: h})))),
+        tableHead(columns, tstate, redraw),
         body,
       ])),
     ]),
@@ -1116,26 +1431,146 @@ async function squadronsPanel(file) {
     ]));
     return wrap;
   }
+
+  const state = squadronsPanel.state = squadronsPanel.state || {};
+  const tstate = tableState(state, 'cols');
+  const rows = c.squadrons.map((s, i) => Object.assign({_i: i}, s));
+
+  const columns = [
+    {key: 'i', label: '#', value: s => s._i, filter: 'number'},
+    {key: 'patch', label: 'Patch', filter: false, sort: false},
+    {key: 'name', label: 'Name', value: s => s.name || ''},
+    {key: 'aircraft', label: 'Aircraft', value: s => s.aircraft || ''},
+    {key: 'airbase', label: 'Airbase', value: s => s.airbaseName || ''},
+    {key: 'strength', label: 'Strength', value: s => s.currentStrength,
+      filter: 'number'},
+    {key: 'specialty', label: 'Specialty', value: s => s.specialtyName || ''},
+    {key: 'country', label: 'Country', value: s => s.countryName || ''},
+    {key: 'pos', label: 'Position',
+      value: s => s.x.toFixed(0) + ', ' + s.y.toFixed(0)},
+  ];
+
+  // The header record and the unit share only a VU_ID, so that is the join:
+  // find the unit with the same id and open it on the Units tab.
+  const openUnit = async (s) => {
+    const d = await api('/api/map?' + qs({file: file}));
+    const hit = (d.units || []).find(u =>
+      u.kind === 'squadron' && u.id && s.id &&
+      u.id[0] === s.id[0] && u.id[1] === s.id[1]);
+    if (!hit) {
+      toast('No squadron unit carries this record\u2019s id', 'err');
+      return;
+    }
+    unitsPanel.state = unitsPanel.state || {q: '', team: -1, kind: ''};
+    unitsPanel.state.kind = 'squadron';
+    unitsPanel.state.q = '';
+    unitsPanel.state.pick = hit.n;
+    S.tab = 'units';
+    drawTabs();
+    await drawView();
+  };
+
+  // What this file says you last flew. A fresh scenario records nothing
+  // meaningful, and saying so beats pinning a squadron nobody chose.
+  const mine = rows.find(s => s.isPlayer);
+  let banner;
+  if (mine) {
+    const thumb = el('img', {class: 'sq-thumb', alt: '',
+      src: '/api/patch?theater=' + encodeURIComponent(S.theater)
+           + '&i=' + mine.squadronPatch});
+    thumb.addEventListener('error', () => thumb.remove());
+    banner = el('div', {class: 'mine-banner'}, [
+      thumb,
+      el('div', {}, [
+        el('div', {class: 'lab', text: 'Your squadron'}),
+        el('div', {class: 'who', text: [mine.name, mine.aircraft,
+          mine.airbaseName].filter(Boolean).join('  \u00b7  ')}),
+      ]),
+      el('span', {class: 'spacer'}),
+      el('button', {class: 'btn btn-sm btn-primary', text: 'Open it',
+        onclick: guard(async () => { await openUnit(mine); })}),
+    ]);
+  } else {
+    banner = el('p', {class: 'note', text: c.playerSquadron
+      ? 'This file records no squadron you have flown yet \u2014 it is a '
+        + 'fresh scenario, or the id it holds matches no squadron here.'
+      : 'This file records no player squadron.'});
+  }
+
+  const body = el('tbody');
+  const stat = el('span', {class: 'stat'});
+
+  const redraw = () => {
+    body.textContent = '';
+    const shown = tableRows(rows, columns, tstate);
+    // Your squadron (the header's PlayerSquadronID) always leads the list,
+    // whatever the sort, so it is the first thing you see.
+    shown.sort((a, b) => (b.isPlayer ? 1 : 0) - (a.isPlayer ? 1 : 0));
+    stat.textContent = shown.length.toLocaleString() + ' of ' +
+                       rows.length.toLocaleString() + ' shown';
+    for (const s of shown) {
+      const patch = el('img', {class: 'sq-thumb', alt: '',
+        src: '/api/patch?theater=' + encodeURIComponent(S.theater)
+             + '&i=' + s.squadronPatch});
+      patch.addEventListener('error', () => patch.remove());
+
+      // The header record and the unit share only a VU_ID, so that is the
+      // join: find the unit with the same id and open it straight away.
+      body.appendChild(el('tr', {class: 'clickable' + (s.isPlayer ? ' mine' : ''), onclick: guard(async () => { await openUnit(s); })}, [
+        el('td', {class: 'idx', text: String(s._i)}),
+        el('td', {}, patch),
+        el('td', {}, [s.name || ('squadron ' + s._i),
+          s.isPlayer ? el('span', {class: 'tag', text: 'your squadron'}) : null]),
+        el('td', {text: s.aircraft || ''}),
+        el('td', {text: s.airbaseName || ''}),
+        el('td', {class: 'num', text: String(s.currentStrength)}),
+        el('td', {text: s.specialtyName || String(s.specialty)}),
+        el('td', {text: s.countryName || String(s.country)}),
+        el('td', {class: 'num',
+          text: s.x.toFixed(0) + ', ' + s.y.toFixed(0)}),
+      ]));
+    }
+  };
+  redraw();
+  // This tab is the campaign HEADER's list of squadrons the player may fly --
+  // a different thing from the squadron entities in the unit stream, which is
+  // where stores, pilots and the airbase assignment live. Asking "where do I
+  // change my squadron's weapons" and landing here is the obvious mistake, so
+  // say where to go.
   wrap.appendChild(el('div', {class: 'panel'}, [
     el('header', {}, [
       el('h3', {text: 'Selectable squadrons'}),
       el('span', {class: 'hint',
-        text: c.squadronCount + ' in this campaign, read-only'}),
+        text: c.squadronCount + ' flyable in this campaign'}),
+    ]),
+    el('div', {class: 'panel-body'}, [
+      banner,
+      el('p', {class: 'note', text:
+        'This is the roster the campaign-select screen offers the player: a '
+        + 'record per flyable squadron, kept in the campaign header and '
+        + 'separate from the squadron units themselves. It is what decides '
+        + 'which squadrons you can fly, and it carries the patch and the '
+        + 'airbase label shown on that screen.'}),
+      el('p', {class: 'note', text:
+        'Weapons, stores, pilots and kills belong to the squadron units. Click '
+        + 'a row to open the matching unit, or take the whole list at once.'}),
+      el('div', {class: 'toolbar'}, [
+        el('button', {class: 'btn', text: 'Open all squadron units',
+          onclick: guard(async () => {
+            unitsPanel.state = unitsPanel.state || {q: '', team: -1, kind: ''};
+            unitsPanel.state.kind = 'squadron';
+            unitsPanel.state.q = '';
+            S.tab = 'units';
+            drawTabs();
+            await drawView();
+          })}),
+        el('span', {class: 'spacer'}),
+        stat,
+      ]),
     ]),
     el('table', {class: 'data'}, [
-      el('thead', {}, el('tr', {}, ['#', 'Airbase', 'dIndex', 'Strength',
-                                    'Specialty', 'Country', 'Position']
-        .map(h => el('th', {text: h})))),
-      el('tbody', {}, c.squadrons.map((s, i) => el('tr', {}, [
-        el('td', {class: 'idx', text: String(i)}),
-        el('td', {text: s.airbaseName}),
-        el('td', {class: 'num', text: String(s.dIndex)}),
-        el('td', {class: 'num', text: String(s.currentStrength)}),
-        el('td', {class: 'num', text: String(s.specialty)}),
-        el('td', {class: 'num', text: String(s.country)}),
-        el('td', {class: 'num',
-          text: s.x.toFixed(0) + ', ' + s.y.toFixed(0)}),
-      ]))),
+      tableHead(columns, tstate, redraw),
+      body,
     ]),
   ]));
   return wrap;
@@ -1215,48 +1650,76 @@ let searchTimer = null;
 async function tablePanel(name, query) {
   const q = query === undefined ? (tablePanel.q || '') : query;
   tablePanel.q = q;
-  const data = await api('/api/table?theater=' + encodeURIComponent(S.theater) +
-                         '&table=' + encodeURIComponent(name) +
-                         '&q=' + encodeURIComponent(q) + '&limit=400');
+  tablePanel.states = tablePanel.states || {};
+  const tstate = tableState(tablePanel.states, name);
 
   const detail = el('div', {class: 'detail'},
     el('div', {class: 'pad', style: 'color:var(--ink-faint)'},
        'Select a row to edit it.'));
 
-  const body = el('tbody', {}, data.rows.map(r => el('tr', {
-    class: r._changed ? 'edited' : '',
-    onclick: guard(async () => {
-      S.rowIndex = r._i;
-      for (const tr of body.children) tr.classList.remove('on');
-      const idx = data.rows.indexOf(r);
-      if (body.children[idx]) body.children[idx].classList.add('on');
-      const panel = await rowDetail(name, r._i);
-      detail.textContent = '';
-      detail.appendChild(panel);
-    }),
-  }, [
-    el('td', {class: 'idx', text: String(r._i)}),
-    el('td', {text: r._name || ''}),
-    ...data.columns.map(c => el('td', {
-      class: typeof r[c] === 'number' ? 'num' : '',
-      text: fmt(r[c]),
-    })),
-    name === 'class' ? el('td', {text: r._dtype}) : null,
-  ])));
+  const body = el('tbody');
+  const table = el('table', {class: 'data'});
+  const stat = el('span', {class: 'stat'});
+  let columns = null;
+  let editTimer = null;
+
+  // Typing in a column filter should not fire a request per keystroke.
+  const onChange = () => {
+    clearTimeout(editTimer);
+    editTimer = setTimeout(() => reload(), 200);
+  };
+
+  // Sorting and filtering happen on the server, because the table pages: a
+  // client-side sort would only reorder the 400 rows that happen to be here.
+  const reload = guard(async () => {
+    const params = new URLSearchParams({
+      theater: S.theater, table: name, q: q, limit: '400',
+      sort: tstate.sort || '', dir: String(tstate.dir || 1),
+      filters: JSON.stringify(tstate.filters || {}),
+    });
+    const data = await api('/api/table?' + params.toString());
+    columns = dbTableColumns(data, name);
+
+    table.textContent = '';
+    table.appendChild(tableHead(columns, tstate, onChange));
+    body.textContent = '';
+    for (const r of data.rows) {
+      body.appendChild(el('tr', {
+        class: r._changed ? 'edited' : '',
+        onclick: guard(async () => {
+          S.rowIndex = r._i;
+          for (const tr of body.children) tr.classList.remove('on');
+          const idx = data.rows.indexOf(r);
+          if (body.children[idx]) body.children[idx].classList.add('on');
+          const panel = await rowDetail(name, r._i);
+          detail.textContent = '';
+          detail.appendChild(panel);
+        }),
+      }, [
+        el('td', {class: 'idx', text: String(r._i)}),
+        el('td', {text: r._name || ''}),
+        ...data.columns.map(c => el('td', {
+          class: typeof r[c] === 'number' ? 'num' : '',
+          text: fmt(r[c]),
+        })),
+        name === 'class' ? el('td', {text: r._dtype}) : null,
+      ]));
+    }
+    table.appendChild(body);
+    stat.textContent =
+      data.matched.toLocaleString() + ' of ' + data.total.toLocaleString() +
+      ' rows' + (data.changed ? '   ·   ' + data.changed + ' edited' : '') +
+      '   ·   ' + data.file;
+    return data;
+  });
 
   const search = el('input', {
     type: 'text', placeholder: 'Search name or value…', value: q,
     spellcheck: 'false',
     oninput: e => {
+      tablePanel.q = e.target.value;
       clearTimeout(searchTimer);
-      const v = e.target.value;
-      searchTimer = setTimeout(guard(async () => {
-        const view = $('#view');
-        view.textContent = '';
-        view.appendChild(await tablePanel(name, v));
-        const box = $('.toolbar input[type=text]');
-        if (box) { box.focus(); box.setSelectionRange(v.length, v.length); }
-      }), 220);
+      searchTimer = setTimeout(() => reload(), 220);
     },
   });
 
@@ -1264,10 +1727,7 @@ async function tablePanel(name, query) {
     el('div', {class: 'toolbar'}, [
       search,
       el('span', {class: 'spacer'}),
-      el('span', {class: 'stat', text:
-        data.matched.toLocaleString() + ' of ' + data.total.toLocaleString() +
-        ' rows' + (data.changed ? '   ·   ' + data.changed + ' edited' : '') +
-        '   ·   ' + data.file}),
+      stat,
       el('button', {class: 'btn btn-sm',
         title: 'Append a copy of the selected row',
         onclick: guard(async () => {
@@ -1281,24 +1741,34 @@ async function tablePanel(name, query) {
           await afterEdit();
         })}, 'Add row'),
     ]),
-    el('div', {class: 'rows'}, el('table', {class: 'data'}, [
-      el('thead', {}, el('tr', {}, [
-        el('th', {text: '#'}), el('th', {text: 'Name'}),
-        ...data.columns.map(c => el('th', {text: c})),
-        name === 'class' ? el('th', {text: 'data'}) : null,
-      ])),
-      body,
-    ])),
+    el('div', {class: 'rows'}, table),
   ]);
 
   const wrap = el('div', {class: 'browser'}, [list, detail]);
+  const data = await reload();
   if (S.rowIndex !== null && data.rows.some(r => r._i === S.rowIndex)) {
     const idx = data.rows.findIndex(r => r._i === S.rowIndex);
-    body.children[idx].classList.add('on');
+    if (body.children[idx]) body.children[idx].classList.add('on');
     detail.textContent = '';
     detail.appendChild(await rowDetail(name, S.rowIndex));
   }
   return wrap;
+}
+
+// The Database tab's columns: the row index and name the server computes,
+// then whichever summary columns that table shows.
+function dbTableColumns(data, name) {
+  const cols = [
+    {key: '_i', label: '#', value: r => r._i, filter: 'number'},
+    {key: '_name', label: 'Name', value: r => r._name || ''},
+  ];
+  for (const c of data.columns) {
+    cols.push({key: c, label: c, value: r => r[c]});
+  }
+  if (name === 'class') {
+    cols.push({key: '_dtype', label: 'data', value: r => r._dtype || ''});
+  }
+  return cols;
 }
 
 function fmt(v) {
@@ -1365,6 +1835,142 @@ const GROUPS = {
 
 // A fixed char array has count > 1 but edits as one text box, not a grid.
 const isVector = c => c && c.count > 1 && c.kind !== 'str';
+
+// --- aircraft hardpoints -----------------------------------------------------
+
+// `Weapon[hp]` is a ROW in FALCON4.WCD or, when `Weapons[hp]` is 255, in
+// FALCON4.WLD -- the marker LoadoutWeapons checks. The two arrays are one
+// edit: picking a weapon list has to write the 255 alongside the row, or the
+// engine looks the same number up in the other table.
+let WEAPON_LOOKUP = null;
+
+async function loadWeaponLookup() {
+  if (WEAPON_LOOKUP && WEAPON_LOOKUP.theater === S.theater) return WEAPON_LOOKUP;
+  const [w, l] = await Promise.all([
+    api('/api/lookup?theater=' + encodeURIComponent(S.theater) + '&kind=weapon'),
+    api('/api/lookup?theater=' + encodeURIComponent(S.theater)
+        + '&kind=weaponlist'),
+  ]);
+  const byName = new Map();
+  for (const it of l.items) {
+    // Row 0 of FALCON4.WLD has no name; offering it would just be a blank
+    // entry in the picker.
+    if (!it.name.trim()) continue;
+    byName.set(('list: ' + it.name).trim().toLowerCase(),
+               {row: it.row, list: true, name: it.name});
+  }
+  for (const it of w.items) {
+    if (!it.name.trim()) continue;
+    byName.set(it.name.trim().toLowerCase(),
+               {row: it.row, list: false, name: it.name});
+  }
+  WEAPON_LOOKUP = {
+    theater: S.theater, byName,
+    weapons: w.items.filter(it => it.name.trim()),
+    lists: l.items.filter(it => it.name.trim()),
+  };
+  return WEAPON_LOOKUP;
+}
+
+function weaponDatalist() {
+  let dl = document.getElementById('weapon-options');
+  // Rebuild when the theater changes: the weapon tables are per-theater.
+  if (dl && dl.dataset.theater === S.theater) return dl;
+  if (dl) dl.remove();
+  dl = el('datalist', {id: 'weapon-options'});
+  dl.dataset.theater = S.theater;
+  for (const it of WEAPON_LOOKUP.weapons) {
+    dl.appendChild(el('option', {value: it.name}));
+  }
+  for (const it of WEAPON_LOOKUP.lists) {
+    dl.appendChild(el('option', {value: 'list: ' + it.name}));
+  }
+  document.body.appendChild(dl);
+  return dl;
+}
+
+// One row per hardpoint: what it carries, and how many when fully supplied.
+// `onCommit(weapon, shots)` receives both arrays and saves them together.
+async function hardpointEditor(opts) {
+  await loadWeaponLookup();
+  weaponDatalist();
+
+  const weapon = opts.weapon.slice();
+  const shots = opts.shots.slice();
+  const resolved = (opts.resolved || []).slice();
+
+  const box = el('div', {class: 'group'});
+  if (opts.title !== '') {
+    box.appendChild(el('h4', {text: opts.title || 'Hardpoints'}));
+  }
+  box.appendChild(el('p', {class: 'note', text:
+    'A slot whose count is 255 is a weapon list (FALCON4.WLD); otherwise it is '
+    + 'a weapon row (FALCON4.WCD). Picking a list sets that marker for you.'}));
+
+  for (let i = 0; i < weapon.length; i++) {
+    let isList = shots[i] === 255;
+
+    const name = el('input', {type: 'text', class: 'hp-name',
+      spellcheck: 'false', list: 'weapon-options',
+      value: resolved[i] || '', placeholder: '(empty)'});
+    const count = el('input', {type: 'number', min: '0', max: '254',
+      value: String(isList ? 255 : shots[i]), disabled: isList});
+    const note = el('div', {class: 'name',
+      text: isList ? 'weapon list' : (weapon[i] ? 'row ' + weapon[i] : '')});
+
+    const commit = guard(async () => {
+      await opts.onCommit(weapon.slice(), shots.slice());
+    });
+
+    name.addEventListener('change', guard(async () => {
+      const text = name.value.trim();
+      if (!text) {
+        weapon[i] = 0;
+        shots[i] = 0;
+        count.value = '0';
+        count.disabled = false;
+        note.textContent = '';
+        resolved[i] = '';
+        await commit();
+        return;
+      }
+      const hit = WEAPON_LOOKUP.byName.get(text.toLowerCase());
+      if (!hit) {
+        name.value = resolved[i] || '';
+        toast('No weapon or weapon list is called ' + text, 'err');
+        return;
+      }
+      weapon[i] = hit.row;
+      isList = hit.list;
+      if (isList) {
+        shots[i] = 255;
+        count.value = '255';
+        count.disabled = true;
+      } else if (shots[i] === 255) {
+        shots[i] = 1;
+        count.value = '1';
+        count.disabled = false;
+      }
+      resolved[i] = isList ? 'list: ' + hit.name : hit.name;
+      note.textContent = isList ? 'weapon list' : 'row ' + hit.row;
+      await commit();
+    }));
+
+    count.addEventListener('change', guard(async () => {
+      const v = Math.max(0, Math.min(254, Number(count.value) || 0));
+      shots[i] = v;
+      count.value = String(v);
+      await commit();
+    }));
+
+    box.appendChild(el('div', {class: 'hpoint'}, [
+      el('div', {class: 'hp', text: String(i)}),
+      name, count, note,
+    ]));
+  }
+
+  return box;
+}
 
 async function rowDetail(table, index) {
   const r = await api('/api/row?theater=' + encodeURIComponent(S.theater) +
@@ -1472,6 +2078,25 @@ async function rowDetail(table, index) {
 
   const groups = GROUPS[table];
   const done = new Set();
+
+  // The vehicle table's Weapon/Weapons pair is one control, not two arrays:
+  // the 255 in Weapons decides which table Weapon is a row in.
+  if (table === 'vehicle' && cols.Weapon && cols.Weapons) {
+    wrap.appendChild(await hardpointEditor({
+      weapon: r.values.Weapon,
+      shots: r.values.Weapons,
+      resolved: r.resolved.Weapon || [],
+      title: 'Hardpoints',
+      onCommit: async (weapon, shots) => {
+        await api('/api/edit', {theater: S.theater, table: table, index: index,
+                                values: {Weapon: weapon, Weapons: shots}});
+        await afterEdit(true);
+      },
+    }));
+    done.add('Weapon');
+    done.add('Weapons');
+  }
+
   const emitField = (nm, into) => {
     if (!cols[nm] || done.has(nm)) return;
     done.add(nm);
@@ -1570,6 +2195,11 @@ function openNewCampaign(source) {
     'each other, and the engine will not rebuild them from nothing. So a new ' +
     'campaign starts as a copy of one that already works, renamed. ' +
     'Everything in it is then editable here.'}));
+  body.appendChild(el('p', {class: 'note', text:
+    'The trigger script comes across as <name>.tri, so the copy ends the way ' +
+    'its source does — change it on the Victory tab. Starting from a save ' +
+    'also brings the scenario\u2019s objective list across, which is what the ' +
+    'engine reads a save\u2019s objectives from.'}));
 
   $('#modal-ok').onclick = guard(async () => {
     const res = await api('/api/campaign/new', {
@@ -1577,15 +2207,53 @@ function openNewCampaign(source) {
       name: name.value.trim(), uiName: ui.value.trim(),
     });
     $('#modal').hidden = true;
-    toast('Created ' + res.file + ' from ' + res.from, 'ok');
+    toast('Created ' + res.file + ' from ' + res.from +
+          (res.script ? '  \u00b7  ' + res.script : ''), 'ok');
     S.info = await api('/api/theater?theater=' + encodeURIComponent(S.theater));
     await loadState();
     await openCampaign(res.file);
   });
 }
 
-function openNewTheater(baseTdf) {
-  const body = showModal('New theater', 'Create');
+// A save's ending comes from the scenario its header names, so giving it one
+// of its own means copying that scenario -- objectives included -- and
+// pointing the save at the copy. See api_save_ending for the engine's rules.
+function openSaveEnding(file) {
+  const body = showModal('Give this save its own ending', 'Create');
+  body.textContent = '';
+
+  const stem = file.replace(/\.[^.]+$/, '');
+  const name = el('input', {type: 'text', value: stem + ' ending',
+                            spellcheck: 'false'});
+  const ui = el('input', {type: 'text', placeholder: 'shown in the game UI',
+                          spellcheck: 'false'});
+
+  body.appendChild(el('label', {class: 'field'},
+                      [el('span', {text: 'New scenario name'}), name]));
+  body.appendChild(el('label', {class: 'field'},
+                      [el('span', {text: 'Campaign title'}), ui]));
+  body.appendChild(el('p', {class: 'note', text:
+    'A save has no trigger script of its own: the engine reads the one named ' +
+    'by the Scenario field in its header. This makes a copy of that scenario ' +
+    'with the same objective list, writes <name>.tri for it, and points this ' +
+    'save at the copy \u2014 so you can edit the ending here without changing ' +
+    'the scenario it came from. Units, teams, pilots and the objective ' +
+    'deltas still come from the save.'}));
+
+  $('#modal-ok').onclick = guard(async () => {
+    const res = await api('/api/save/ending', {
+      theater: S.theater, file: file,
+      name: name.value.trim(), uiName: ui.value.trim(),
+    });
+    $('#modal').hidden = true;
+    toast('Created ' + res.scenario +
+          (res.script ? ' and ' + res.script : ''), 'ok');
+    await refreshPending();
+    await drawView();
+  });
+}
+
+function openNewTheater(baseTdf) {  const body = showModal('New theater', 'Create');
   body.textContent = '';
   const name = el('input', {type: 'text', placeholder: 'Korea 1980s',
                             spellcheck: 'false'});

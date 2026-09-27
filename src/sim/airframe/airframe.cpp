@@ -254,6 +254,10 @@ AirframeClass::AirframeClass(AircraftClass* self)
     //MI JFS spin time
     JFSSpinTime = 240; //4 minutes available
     JfsSoundElapsed = 0.0f; // Artscout - 2026: starter sound clock
+    JfsSoundFade = 0.0f;
+    ecsSoundOn = false; // Artscout - 2026: cockpit sound state
+    ecsSoundTime = 0.0f;
+    breathSoundLevel = 0;
     dragChute = DRAGC_STOWED;
     canopyState = false;
     nozzlePos = 0;
@@ -712,6 +716,7 @@ void AirframeClass::Exec(void)
     }
 
     RunLandingGear(); // MLR 2003-10-16
+    CockpitSounds(); // Artscout - 2026: once per major frame, player's jet only
 }
 
 void AirframeClass::RemoteUpdate()

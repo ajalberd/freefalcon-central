@@ -299,6 +299,11 @@ enum Switches
     COMP_3DPIT_FAULT_COL4_6 = 252, // Fault panel lights -  row 6
     COMP_3DPIT_FAULT_COL4_7 = 253, // Fault panel lights -  row 7
     COMP_3DPIT_FAULT_COL4_8 = 254, // Fault panel lights -  row 8
+    // Artscout - 2026: the MRK BCN lamp. The stock pit has no such lamp, so its lenses were added to the
+    // model (tools/models/lodlens.py) on this switch: mask 1 = outer marker (blue), 2 = middle (amber).
+    // Every index from 80 up is taken, so it borrows 60 -- an exterior-model number (gear extension)
+    // that nothing ever sets on the cockpit object.
+    COMP_3DPIT_MRK_BCN = 60,
 
     // Moved above to ID's #81+
     //COMP_3DPIT_TRIM_PITCH_SW = 255, // Trim Pitch indicator - 8 states

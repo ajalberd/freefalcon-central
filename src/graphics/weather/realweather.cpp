@@ -31,6 +31,7 @@
 #include "cmpclass.h"
 //#include "weather.h"
 #include "dispopts.h"
+#include "fflog.h"
 #ifdef _WIN32
 #include "urlmon.h"//Cobra added this so FreeFalcon connects to the net
 //works with urlmon.lib which needs to be present for project to build.
@@ -296,7 +297,9 @@ inline void RealWeather::DrawStratus2(Tpoint *position, int txtIndex)
 inline void RealWeather::DrawCumulus(Tpoint *position, int txtIndex,
                                      float Radius)
 {
-    if (weatherCondition not_eq FAIR)
+    // Artscout - 2026 (FRONTS): with fronts, a Sunny sky can hold the cumulus
+    // of a front coming in; the caller decides per cell.
+    if (frontMap.active ? weatherCondition > FAIR : weatherCondition not_eq FAIR)
         return;
 
     float minFog = 0.2f;
@@ -444,6 +447,9 @@ RealWeather::RealWeather()
     // Linear Fog stuff
     LinearFogStatus = false;
     LinearFogLimit = 10000.0f;
+
+    localSeverity = 1.f;
+    overcastFade = 1.f;
     // RV - Biker - Not used atm
 }
 
@@ -481,10 +487,16 @@ void RealWeather::Setup(ObjectDisplayList *cumulusList,
             real2DClouds = new Real2DCloud[MAX_NUM_DRAWABLES];
         }
 
+        // Artscout - 2026: each array exists only if its list was given (above); this loop used to
+        // dereference both unconditionally -- a NULL deref with either list missing. Dead today (this
+        // branch is Z-buffering OFF only), fixed so it is not a trap when revived.
         for (i = 0; i < MAX_NUM_DRAWABLES; i++)
         {
-            real2DClouds[i].Setup(stratusList);
-            real3DClouds[i].Setup(cumulusList);
+            if (real2DClouds)
+                real2DClouds[i].Setup(stratusList);
+
+            if (real3DClouds)
+                real3DClouds[i].Setup(cumulusList);
         }
     }
 
@@ -508,6 +520,10 @@ void RealWeather::RefreshWeather(RenderOTW *Renderer)
     viewerX = renderer->viewpoint->X();
     viewerY = renderer->viewpoint->Y();
     viewerZ = renderer->viewpoint->Z();
+
+    // Artscout - 2026 (FRONTS): the condition is the one where we are
+    if (frontMap.active)
+        SampleLocal();
 
     TheTimeOfDay.SetScaleFactor(0);
 
@@ -534,7 +550,7 @@ void RealWeather::RefreshWeather(RenderOTW *Renderer)
 
     if (UnderOvercast() or InsideOvercast())
     {
-        float OvercastShading = .8f + ShadingFactor * 0.05f;
+        float OvercastShading = (.8f + ShadingFactor * 0.05f) * overcastFade;
 
         // if under Overcast
         if (UnderOvercast())
@@ -573,7 +589,8 @@ void RealWeather::RefreshWeather(RenderOTW *Renderer)
     if (TheTimeManager.GetClockTime() - WeatherQualityElapsed >= 1000)
     {
         // if Local game, update data
-        if (not vuLocalGame or vuLocalGame->IsLocal())
+        if ((not vuLocalGame or vuLocalGame->IsLocal()) and
+            not frontMap.active)
         {
             if (WeatherQualityStep)
                 WeatherQualityStep--;
@@ -608,7 +625,7 @@ void RealWeather::RefreshWeather(RenderOTW *Renderer)
 
     // Update fog evolution with weather
     if (weatherCondition == POOR)
-        LinearFogLimit = -stratusZ * 4.0f;
+        LinearFogLimit = -stratusZ * 4.0f / max(overcastFade, 0.25f);
 
     if (weatherCondition == INCLEMENT)
     {
@@ -985,7 +1002,7 @@ void RealWeather::UpdateDrawables()
     else
     {
         // if Bad weather, Stratus1 more dense and darker...
-        Stratus1Alpha = 0.7f + 0.02f * ShadingFactor;
+        Stratus1Alpha = (0.7f + 0.02f * ShadingFactor) * overcastFade;
         StratusShading = (ObserverPos == OBSERVER_LOW) ?
                              0.7f - 0.03f * (float)ShadingFactor :
                              0.9f;
@@ -1019,6 +1036,12 @@ void RealWeather::UpdateDrawables()
     Tpoint wp, vp[4], cumulusPos, stratusPos, shadowPos;
     int i, row, col, sTxtIndex, cTxtIndex, cPntIndex, p = 0, q = 0, r = 0;
 
+    // Artscout - 2026 (FRONTS): each cell asks the field for its own weather,
+    // so a front 50 km off shows as a bank of cloud before you reach it.
+    bool perCell = frontMap.active and weatherCondition <= FAIR;
+    DWORD baseHi = CloudHiColor, baseLo = CloudLoColor;
+    float frontCumulusZ = (cumulusZ > -6000.f) ? -8000.f : cumulusZ;
+
     for (row = drawableCell; row < numCells - drawableCell; row++)
     {
         for (col = drawableCell; col < numCells - drawableCell; col++)
@@ -1026,6 +1049,36 @@ void RealWeather::UpdateDrawables()
             sTxtIndex = weatherCellArray[row][col].sTxtIndex;
             stratusPos.x = weatherCellArray[row][col].cloudPosX + weatherShiftX;
             stratusPos.y = weatherCellArray[row][col].cloudPosY + weatherShiftY;
+
+            bool cellCumulus = (weatherCondition == FAIR);
+            float cellRadius = weatherCellArray[row][col].Radius;
+            float cellBaseZ = cumulusZ;
+
+            if (perCell)
+            {
+                float sev = SeverityAt(stratusPos.x, stratusPos.y);
+                cellCumulus = sev >= 1.5f;
+
+                if (cellCumulus)
+                {
+                    // Fair: whiter to darker across the band. Past it, into
+                    // weather we would be under an overcast for: towering,
+                    // dark, and larger, so the front reads as a wall.
+                    float sf = min(max((sev - 1.5f) * 9.f, 0.f), 10.f);
+                    float shade = 1.0f - 0.03f * sf;
+                    float alpha = min(0.9f + sf * 0.01f, 1.f);
+                    CloudHiColor = F_TO_ARGB(alpha, litCloudColor.r,
+                                             litCloudColor.g, litCloudColor.b);
+                    CloudLoColor = F_TO_ARGB(alpha, litCloudColor.r * shade,
+                                             litCloudColor.g * shade,
+                                             litCloudColor.b * shade);
+
+                    if (sev > 2.3f)
+                        cellRadius *= 1.f + 0.6f * min(sev - 2.3f, 1.5f);
+
+                    cellBaseZ = frontCumulusZ;
+                }
+            }
 
             stratusPos.z = Stratus1Z;
 
@@ -1037,7 +1090,7 @@ void RealWeather::UpdateDrawables()
             stratusPos.z = stratus2Z;
             DrawStratus2(&stratusPos, sTxtIndex);
 
-            if (weatherCondition == FAIR or
+            if (cellCumulus or
                 (weatherCondition > FAIR and InsideOvercast()))
             {
                 for (i = 0; i < NUM_3DCLOUD_POLYS; i++)
@@ -1069,14 +1122,14 @@ void RealWeather::UpdateDrawables()
                         cumulusPos.x = (stratusPos.x +
                                         (float)(i - 2) *
                                             /*puffRadius*/
-                                            weatherCellArray[row][col].Radius *
+                                            cellRadius *
                                             0.075f * sideRandFactor);
                         cumulusPos.y = (stratusPos.y +
                                         (float)(i - 2) *
                                             /*puffRadius*/
-                                            weatherCellArray[row][col].Radius *
+                                            cellRadius *
                                             0.075f * sideRandFactor);
-                        cumulusPos.z = cumulusZ + 500.0f * ZRandFactor - 5000;
+                        cumulusPos.z = cellBaseZ + 500.0f * ZRandFactor - 5000;
                     }
 
                     else
@@ -1089,7 +1142,7 @@ void RealWeather::UpdateDrawables()
                             stratusPos.y +
                             ((cloudPntList[cPntIndex][2] * 1.8f) / 30.f);
                         cumulusPos.z =
-                            cumulusZ -
+                            cellBaseZ -
                             ((cloudPntList[cPntIndex][1] * 1.8f) / 30.f) - 5000;
                     }
 
@@ -1097,11 +1150,11 @@ void RealWeather::UpdateDrawables()
 
                     cumulusPos.x =
                         (stratusPos.x + (float)(i - 2) *
-                                            weatherCellArray[row][col].Radius *
+                                            cellRadius *
                                             2.3f);
                     cumulusPos.y =
                         (stratusPos.y + (float)(i - 2) *
-                                            weatherCellArray[row][col].Radius *
+                                            cellRadius *
                                             2.3f);
                     cumulusPos.z = cumulusZ - 3000.0f;
 
@@ -1113,7 +1166,7 @@ void RealWeather::UpdateDrawables()
 
                     if (DisplayOptions.bZBuffering)
                         DrawCumulus(&cumulusPos, cTxtIndex,
-                                    weatherCellArray[row][col].Radius);
+                                    cellRadius);
                     else
                         real3DClouds[q].drawable3DClouds[r++].Update(
                             &cumulusPos, cTxtIndex);
@@ -1132,6 +1185,9 @@ void RealWeather::UpdateDrawables()
                     }
                 }
             }
+
+            if (perCell)
+                CloudHiColor = baseHi, CloudLoColor = baseLo;
 
 
             p++;
@@ -1210,6 +1266,95 @@ void RealWeather::UpdateDrawables()
         DrawRain();
 
     //STOP_PROFILE("Clouds");
+}
+
+// Artscout - 2026 (FRONTS) ---------------------------------------------------
+
+float RealWeather::SeverityAt(float x, float y)
+{
+    if (not frontMap.active)
+        return (float)weatherCondition;
+
+    return frontMap.Severity(x, y, TheCampaign.CurrentTime);
+}
+
+int RealWeather::ConditionAt(float x, float y)
+{
+    if (not frontMap.active)
+        return weatherCondition;
+
+    return WeatherFrontMap::Condition(SeverityAt(x, y));
+}
+
+void RealWeather::OnLocalCondition(int condition)
+{
+    weatherCondition = condition;
+    oldWeatherCondition = condition;
+    UpdateCondition();
+}
+
+void RealWeather::SampleLocal()
+{
+    float sev = frontMap.Severity(viewerX, viewerY, TheCampaign.CurrentTime);
+    localSeverity = sev;
+
+    // Change condition only once clearly past the boundary between two, so
+    // flying along a front's edge does not flicker between them.
+    int target = WeatherFrontMap::Condition(sev);
+    int cond = weatherCondition;
+
+    if (target not_eq cond)
+    {
+        float edge = (float)min(target, cond) + 0.5f;
+
+        if (fabs(sev - edge) > 0.08f or abs(target - cond) > 1)
+            cond = target;
+    }
+
+    if (cond not_eq weatherCondition)
+    {
+        char line[160];
+        sprintf_s(line, sizeof(line),
+                  "FRONTS: local condition %d -> %d, severity %.2f at %.0f,%.0f km\n",
+                  weatherCondition, cond, sev, viewerY / 3279.98f,
+                  viewerX / 3279.98f);
+        FFDebugLog(line);
+
+        OnLocalCondition(cond);
+
+        if (renderer and renderer->viewpoint)
+            renderer->RefreshWeatherHaze();
+    }
+
+    // Shade within the condition from the fraction, so the sky darkens as a
+    // front comes on rather than all at once when the condition switches.
+    overcastFade = 1.f;
+
+    switch (weatherCondition)
+    {
+    case SUNNY:
+        ShadingFactor = min(max((sev - 1.f) * 6.f, 0.f), 3.f);
+        break;
+
+    case FAIR:
+        ShadingFactor = min(max((sev - 1.5f) * 9.f, 0.f), 9.f);
+        break;
+
+    case POOR:
+    {
+        float f = min(max(sev - 2.5f, 0.f), 1.f);
+        ShadingFactor = 5.f + 5.f * f;
+        // Deck lowers from 15,000 ft to 8,000 ft into the front.
+        stratusZ = -(15000.f - 7000.f * f);
+        overcastFade = min(max((sev - 2.5f) / 0.35f, 0.3f), 1.f);
+        break;
+    }
+
+    default:
+        // RefreshWeather derives the deck, fog and shading from this.
+        WeatherQuality = min(max(1.f - (sev - 3.5f), 0.05f), 1.f);
+        break;
+    }
 }
 
 // RED - New stuff incoming

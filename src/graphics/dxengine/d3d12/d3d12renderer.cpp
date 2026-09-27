@@ -150,6 +150,8 @@ struct CBRender
     // add on top of the environment, handed over by the sim (CockpitManager::GetCockpitFill); the
     // object pass already carries the environment as gAmbient. MUST match cbRender in ffemu.hlsl.
     float cockpitFill[4];
+    // Artscout - 2026: MFD sun glare (gGlare0..4) -- see ffemu.hlsl cbRender and IRenderer::SetRttGlare.
+    float glare[5][4];
 };
 // Object/dynamic vertex layouts (match DXVbManager / the object input layout below).
 struct DynV
@@ -271,6 +273,7 @@ D3D12Renderer::D3D12Renderer()
         m_shadowParams[3] = 0.0f;
     // Artscout - 2026: no cockpit fill until the sim publishes one (the knobs are off in the menus).
     m_cockpitFill[0] = m_cockpitFill[1] = m_cockpitFill[2] = m_cockpitFill[3] = 0.0f;
+    memset(m_glare, 0, sizeof(m_glare));
     // Artscout - 2026: #13 clouds off until SetCloudParams runs (FF_CLOUD is only set by BeginCloudPass anyway).
     for (int c = 0; c < 4; ++c)
     {
@@ -1431,6 +1434,21 @@ void D3D12Renderer::SetCockpitFill(float r, float g, float b)
     m_cockpitFill[3] = (g_fPitFillReach > 0.0f) ? g_fPitFillReach : 0.0f;
     m_dRender = true;
 }
+// Artscout - 2026: HDR scene + GT7. The backend owns the targets and the pass; every renderer draw is
+// recorded straight into the list, so nothing of ours is pending here -- the caller has already flushed
+// the engine's own poly lists (otwloop).
+void D3D12Renderer::SetRttGlare(const float* glare20)
+{
+    if (glare20)
+        memcpy(m_glare, glare20, sizeof(m_glare));
+    else
+        memset(m_glare, 0, sizeof(m_glare));
+    m_dRender = true;
+}
+bool D3D12Renderer::ToneMapScene()
+{
+    return g_pD3D12Backend && g_pD3D12Backend->ToneMapSceneGT7();
+}
 void D3D12Renderer::SetIRGrey(bool on)
 {
     m_irGrey = on;
@@ -1495,6 +1513,18 @@ void D3D12Renderer::FillRenderCB(void* pCb)
     // it) AND the GPU-terrain path (BeginTerrainPass/DrawTerrainMesh set m_flags directly, bypassing SetState).
     cb.flags = m_flags | (m_irGrey ? FF_IRGREY : 0u) |
                (m_fullBright ? FF_FULLBRIGHT : 0u);
+    // Artscout - 2026: fog the lit world objects -- buildings, vehicles, other aircraft -- exactly as the
+    // terrain is fogged. Only BeginTerrainPass ever set FF_FOG on this backend, so a building 13 nm out
+    // sat unhazed on hazed ground and read as a black silhouette whenever you saw its shaded side
+    // (captured: buildingfix_ObjPixelLight_1.rdc, EID 9970, gFlags without FOG). The Vulkan backend has
+    // always done this per draw; same rule here: object pass, lit (so not the sky dome or particles),
+    // never the cockpit, and only once a fog range is set. ObjFog 0 restores the old behaviour.
+    {
+        extern bool g_bObjFog;
+        if (g_bObjFog and m_pass == 1 and (cb.flags & FF_LIGHTING) and not m_cockpitPass and
+            m_fogEnd > m_fogStart)
+            cb.flags |= FF_FOG;
+    }
     cb.alphaRef = m_alphaRef;
     cb.fogStart = m_fogStart;
     cb.fogEnd = m_fogEnd;
@@ -1512,6 +1542,7 @@ void D3D12Renderer::FillRenderCB(void* pCb)
     // gray box. Anything drawn while the aperture stencil is armed gets no fill.
     if (m_blend == BLEND_OPAQUE && m_hudStencil == 0)
         memcpy(cb.cockpitFill, m_cockpitFill, sizeof(cb.cockpitFill));
+    memcpy(cb.glare, m_glare, sizeof(cb.glare)); // armed only around an MFD composite
 }
 
 void D3D12Renderer::BeginFrameStateIfNeeded()
@@ -2144,6 +2175,11 @@ ID3D12PipelineState* D3D12Renderer::GetPSO(int pass, int blend, bool dWrite,
     int samples = g_pD3D12Backend ? g_pD3D12Backend->CurrentSampleCount() : 1;
     if (samples < 1)
         samples = 1;
+    // Artscout - 2026: HDR scene + GT7 -- the RTV format is per target now, like the sample count: the FP16
+    // scene vs the 8-bit back buffer / RTT atlas / menu. Keyed so both variants coexist.
+    const int rtvFormat = g_pD3D12Backend ? g_pD3D12Backend->CurrentRtvFormat() :
+                                            D3D12Backend::BackBufferFormat();
+    const bool hdrTarget = rtvFormat != D3D12Backend::BackBufferFormat();
 
     // #DX12 п.5: view-instanced variant is a DISTINCT PSO (DXIL shaders + view-instancing subobject). The view
     // count (2 stereo / 4 quad) is part of the PSO -> fold it into the key so both coexist.
@@ -2163,7 +2199,8 @@ ID3D12PipelineState* D3D12Renderer::GetPSO(int pass, int blend, bool dWrite,
            << 18) // quad (4-view) VI variant
         | ((unsigned)(m_objZBias & 3)
            << 19) // per-surface dwzBias bucket (object pass)
-        | ((unsigned)(m_shadowPass ? 1u : 0u) << 21); // cockpit shadow depth-only variant
+        | ((unsigned)(m_shadowPass ? 1u : 0u) << 21) // cockpit shadow depth-only variant
+        | ((unsigned)(hdrTarget ? 1u : 0u) << 22); // Artscout - 2026: FP16 HDR scene target (GT7)
 
     PsoMap* cache = (PsoMap*)m_pPsoCache;
     PsoMap::iterator it = cache->find(key);
@@ -2412,7 +2449,7 @@ ID3D12PipelineState* D3D12Renderer::GetPSO(int pass, int blend, bool dWrite,
     pd.SampleMask = 0xFFFFFFFFu;
     pd.NumRenderTargets = m_shadowPass ? 0u : 1u;
     pd.RTVFormats[0] = m_shadowPass ? DXGI_FORMAT_UNKNOWN
-                                    : (DXGI_FORMAT)D3D12Backend::BackBufferFormat();
+                                    : (DXGI_FORMAT)rtvFormat;
     pd.SampleDesc.Count =
         (UINT)samples; // MSAA: match the currently-bound target
 
@@ -2450,6 +2487,10 @@ ID3D12PipelineState* D3D12Renderer::GetParticlePSO(int blendMode)
                                     1; // MSAA: match the bound target
     if (samples < 1)
         samples = 1;
+    // Artscout - 2026: the bound target's format (FP16 HDR scene vs 8-bit) -- key bit 12, see GetPSO.
+    const int rtvFormat = g_pD3D12Backend ? g_pD3D12Backend->CurrentRtvFormat() :
+                                            D3D12Backend::BackBufferFormat();
+    const bool hdrTarget = rtvFormat != D3D12Backend::BackBufferFormat();
     // #DX12 п.5: view-instanced particle variant (DXIL + view-instancing). Requires the optional VI particle
     // blobs -- if they didn't compile, particles simply don't draw in the VI pass (safe degradation).
     bool stereo = m_stereoActive && m_viAvailable && m_viBlob[VI_PARTICLE_VS] &&
@@ -2461,11 +2502,11 @@ ID3D12PipelineState* D3D12Renderer::GetParticlePSO(int blendMode)
     // to the other. A pipeline whose ViewInstanceCount / sample count does not match the bound target renders
     // garbage: the hero explosion came out as flat squares. Which variant won depended on PSO caching order, which
     // is why unrelated extra draws (the sky glare) appeared to cause and "fix" it. GetPSO keys each field its own
-    // bits and was never affected. Layout here: bm 0-1, depth 4, stereo 6, quad 7, samples 8-11, particle tag 25.
+    // bits and was never affected. Layout here: bm 0-1, depth 4, stereo 6, quad 7, samples 8-11, HDR 12, particle tag 25.
     unsigned key = 0x02000000u | ((unsigned)(bm & 3)) | (depthOn ? 0x10u : 0u) |
                    (stereo ? 0x40u : 0u) |
                    ((stereo && m_stereoViewCount == 4) ? 0x80u : 0u) |
-                   ((unsigned)(samples & 0xF) << 8);
+                   ((unsigned)(samples & 0xF) << 8) | (hdrTarget ? 0x1000u : 0u);
     if (m_stereoActive && !stereo)
         return 0; // VI pass but no VI particle PSO -> skip particles this frame
     PsoMap* cache = (PsoMap*)m_pPsoCache;
@@ -2556,7 +2597,7 @@ ID3D12PipelineState* D3D12Renderer::GetParticlePSO(int blendMode)
     pd.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pd.SampleMask = 0xFFFFFFFFu;
     pd.NumRenderTargets = 1;
-    pd.RTVFormats[0] = (DXGI_FORMAT)D3D12Backend::BackBufferFormat();
+    pd.RTVFormats[0] = (DXGI_FORMAT)rtvFormat;
     pd.SampleDesc.Count = (UINT)samples;
 
     ID3D12PipelineState* pso = 0;
@@ -3331,6 +3372,9 @@ ID3D12PipelineState* D3D12Renderer::GetMeshTerrainPso()
     // runtime DROPS the draw -- which is why the sensor showed objects but no
     // terrain. Same rule GetPSO follows for every other pass.
     const bool depthOn = m_depthTargetBound;
+    // Artscout - 2026: HDR scene + GT7 -- the RTV format follows the bound target (see GetPSO).
+    const int rtvFormat = g_pD3D12Backend ? g_pD3D12Backend->CurrentRtvFormat() :
+                                            D3D12Backend::BackBufferFormat();
 
     // Cached per combination: the sensor RTT pass is mono and the eyes are
     // view-instanced, so one slot would rebuild the PSO twice EVERY frame -- and
@@ -3338,7 +3382,8 @@ ID3D12PipelineState* D3D12Renderer::GetMeshTerrainPso()
     for (size_t i = 0; i < m_meshPsos.size(); ++i)
     {
         if (m_meshPsos[i].samples == samples && m_meshPsos[i].views == nViews &&
-            m_meshPsos[i].depth == depthOn)
+            m_meshPsos[i].depth == depthOn &&
+            m_meshPsos[i].rtvFormat == rtvFormat)
         {
             return m_meshPsos[i].pso;
         }
@@ -3468,7 +3513,7 @@ ID3D12PipelineState* D3D12Renderer::GetMeshTerrainPso()
     D3D12_RT_FORMAT_ARRAY rtf;
     ZeroMemory(&rtf, sizeof(rtf));
     rtf.NumRenderTargets = 1;
-    rtf.RTFormats[0] = (DXGI_FORMAT)D3D12Backend::BackBufferFormat();
+    rtf.RTFormats[0] = (DXGI_FORMAT)rtvFormat;
 
     DXGI_SAMPLE_DESC sd;
     sd.Count = (UINT)samples;
@@ -3558,14 +3603,15 @@ ID3D12PipelineState* D3D12Renderer::GetMeshTerrainPso()
     e.samples = samples;
     e.views = nViews;
     e.depth = depthOn;
+    e.rtvFormat = rtvFormat;
     e.pso = pso;
     m_meshPsos.push_back(e);
 
     // Blob sizes identify WHICH build of the shaders is in the exe -- a stale
     // generated header is otherwise indistinguishable from a shader bug.
-    R12Log("[D3D12R] mesh terrain PSO ready (samples=%d, views=%d, depth=%d) "
-           "blobs as=%u ms=%u ps=%u\n",
-           samples, nViews, (int)depthOn, asSize, msSize, psSize);
+    R12Log("[D3D12R] mesh terrain PSO ready (samples=%d, views=%d, depth=%d, "
+           "fmt=%d) blobs as=%u ms=%u ps=%u\n",
+           samples, nViews, (int)depthOn, rtvFormat, asSize, msSize, psSize);
     return pso;
 }
 

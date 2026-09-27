@@ -1312,6 +1312,13 @@ int AircraftClass::CreateDamageF16Effects()
     if (not IsF16())
         return 0;
 
+    // Artscout - 2026: this path needs the break-apart F-16 model (a switch per break line, a slot per
+    // piece). FF6's VIS_CF16A is a plain 0-switch "Crashed F-16C", so every piece would draw as the whole
+    // wreck -- and returning 1 would also skip the generic parts. Fall through to those instead.
+    if (DAMAGEF16_ID >= TheObjectListLength or
+        TheObjectList[DAMAGEF16_ID].nSwitches <= DAMAGEF16_CANOPYBREAK_SWITCH)
+        return 0;
+
     float groundZ = OTWDriver.GetApproxGroundLevel(XPos(), YPos());
 
     if (ZPos() - groundZ < -500.0f)
@@ -1405,13 +1412,28 @@ void AircraftClass::RunExplosion(void)
     // KCK NOTE: Why are we creating SimBaseClass entities here?
     // Can't we just pass the stinking drawable object?
     // Ed seems to think not, if we want to keep the rotation deltas.
+    classPtr = &Falcon4ClassTable[Type() - VU_LAST_ENTITY_TYPE];
+
     for (i = 0; i < 4; i++)
     {
+        // Artscout - 2026: no piece model in this slot -> no part (and no leaked entity)
+        const int partVis = classPtr->visType[i + 2];
+
+        if (partVis <= 0 or partVis >= TheObjectListLength)
+            continue;
+
         tmpSimBase = new SimStaticClass(Type()); //SimBaseClass(Type());
-        classPtr = &Falcon4ClassTable[Type() - VU_LAST_ENTITY_TYPE];
         CalcTransformMatrix(tmpSimBase);
-        OTWDriver.CreateVisualObject(tmpSimBase, classPtr->visType[i + 2], &tpo,
-                                     &tpim, OTWDriver.Scale());
+        OTWDriver.CreateVisualObject(tmpSimBase, partVis, &tpo, &tpim,
+                                     OTWDriver.Scale());
+
+        if (not tmpSimBase->drawPointer)
+        {
+            VuReferenceEntity(tmpSimBase); // frees the unused entity the VU way
+            VuDeReferenceEntity(tmpSimBase);
+            continue;
+        }
+
         tmpSimBase->SetPosition(pos.x, pos.y, pos.z);
 
         if (not i)
@@ -1439,14 +1461,14 @@ void AircraftClass::RunExplosion(void)
             // First peice is more steady and is flaming
             tmpSimBase->SetYPRDelta(0.0F, 0.0F,
                                     10.0F + PRANDFloat() * 30.0F * DTR);
-            /*
+            // Artscout - 2026: restored -- the Falcon 4.0 break-up. The part now stays a model (see
+            // SfxClass::TryParticleEffect) and trails its own smoke.
             OTWDriver.AddSfxRequest(
-            new SfxClass (SFX_FLAMING_PART, // type
-             SFX_MOVES bitor SFX_USES_GRAVITY bitor SFX_EXPLODE_WHEN_DONE,
-             tmpSimBase, // sim base *
-             3.0f + PRANDFloatPos() * 4.0F, // time to live
-             1.0F ) ); // scale
-             */
+                new SfxClass(SFX_FLAMING_PART, // type
+                             SFX_MOVES bitor SFX_USES_GRAVITY bitor SFX_EXPLODE_WHEN_DONE,
+                             tmpSimBase,                    // sim base *
+                             3.0f + PRANDFloatPos() * 4.0F, // time to live
+                             1.0F));                        // scale
             pos.x = XPos();
             pos.y = YPos();
             pos.z = ZPos();
@@ -1460,14 +1482,14 @@ void AircraftClass::RunExplosion(void)
             tmpSimBase->SetYPRDelta(PRANDFloat() * 30.0F * DTR,
                                     PRANDFloat() * 30.0F * DTR,
                                     PRANDFloat() * 30.0F * DTR);
-            /*
+            // Artscout - 2026: restored (see the flaming part above)
             OTWDriver.AddSfxRequest(
-             new SfxClass (SFX_SMOKING_PART, // type
-             SFX_MOVES bitor SFX_USES_GRAVITY bitor SFX_BOUNCES bitor SFX_EXPLODE_WHEN_DONE,
-             tmpSimBase, // sim base *
-             4.0f * PRANDFloatPos() + (float)((i+1)*(i+1)), // time to live
-             1.0 ) ); // scale
-             */
+                new SfxClass(SFX_SMOKING_PART, // type
+                             SFX_MOVES bitor SFX_USES_GRAVITY bitor SFX_BOUNCES bitor
+                                 SFX_EXPLODE_WHEN_DONE,
+                             tmpSimBase, // sim base *
+                             4.0f * PRANDFloatPos() + (float)((i + 1) * (i + 1)), // time to live
+                             1.0F));                                              // scale
             pos.x = XPos();
             pos.y = YPos();
             pos.z = ZPos();

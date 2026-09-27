@@ -14,6 +14,7 @@
 #include "hud.h"
 #include "fcc.h"
 #include "fakerand.h"
+#include "hmcs.h" // Artscout - 2026: helmet-cued ACM BORE
 
 static int didDesignate = FALSE;
 static int didDroptargetCmd = FALSE;
@@ -1269,6 +1270,21 @@ void RadarDopplerClass::ACMMode(void)
             seekerAzCenter = 0.0F;
             seekerElCenter = -3.0F * DTR;
             ;
+
+            // Artscout - 2026: JHMCS (hmcs.h). The player's bore line is the helmet line of sight
+            // instead of the fixed cross, so TMS-up in a dogfight locks whatever the pilot is looking
+            // at -- the AIM-120 half of helmet cueing. Clamped to the antenna's gimbal stops.
+            extern bool g_bHmcsSlaveRadar;
+            float hAz, hEl;
+
+            if (g_bHmcsSlaveRadar and
+                platform == SimDriver.GetPlayerAircraft() and
+                Hmcs_GetLos(platform, &hAz, &hEl))
+            {
+                seekerAzCenter = max(-MAX_ANT_EL, min(MAX_ANT_EL, hAz));
+                seekerElCenter = max(-MAX_ANT_EL, min(MAX_ANT_EL, hEl));
+                Hmcs_NoteRadarSlaved();
+            }
         }
 
         /*-------------------*/

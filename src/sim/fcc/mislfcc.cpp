@@ -15,6 +15,7 @@
 #include "campbase.h"
 #include "classtbl.h"
 #include "simdrive.h" // MLR to give access to SimDriver for Aim9 volume
+#include "hmcs.h" // Artscout - 2026: helmet-cued AIM-9 seeker
 
 
 // Angle off sun at which sun effect goes to zero
@@ -46,6 +47,16 @@ void FireControlComputer::AirAirMode(void)
 
     if (not(Sms->curWeaponType == wtAim120 or Sms->curWeaponType == wtAim9))
         return; //me123
+
+    // Artscout - 2026: JHMCS (hmcs.h). While the player's helmet has a line of sight, it stands in
+    // for the boresight: a caged AIM-9 with no radar target to slave to looks where the pilot looks,
+    // and an uncaged one with nothing to track searches there. hmcsAz/El are clamped to the seeker
+    // gimbal by SetSeekerPos wherever they are applied.
+    extern bool g_bHmcsSlaveSeeker;
+    float hmcsAz = 0.0f, hmcsEl = 0.0f;
+    const bool hmcsCue = playerFCC and g_bHmcsSlaveSeeker and
+                         Sms->curWeaponType == wtAim9 and
+                         Hmcs_GetLos(platform, &hmcsAz, &hmcsEl);
 
     SimWeaponClass* cw = Sms->GetCurrentWeapon();
 
@@ -163,18 +174,27 @@ void FireControlComputer::AirAirMode(void)
                                           VU_LAST_ENTITY_TYPE]
                             .dataPtr;
 
+                // Artscout - 2026: ...unless the helmet is cueing (hmcsCue): then the search runs, down the
+                // helmet line of sight, which is the thing the padlock was standing in for.
                 if (not playerFCC or
                     ( // don't do this check for ai
                         vc and
                         (not(vc->Flags bitand 0x20000000) or
                          // JB 010712 Normal behavior for the 2d cockpit
                          OTWDriver.GetOTWDisplayMode() ==
-                             OTWDriverClass::Mode2DCockpit) and
+                             OTWDriverClass::Mode2DCockpit or
+                         hmcsCue) and
                         not theMissile->isCaged))
                 {
                     // We don't have a target so find one
                     if (not theMissile->targetPtr)
                     {
+                        if (hmcsCue)
+                        {
+                            missileSeekerAz = hmcsAz;
+                            missileSeekerEl = hmcsEl;
+                        }
+
                         theMissile->SetSeekerPos(&missileSeekerAz,
                                                  &missileSeekerEl);
                         curTarget = targetList;
@@ -230,6 +250,17 @@ void FireControlComputer::AirAirMode(void)
                     }
                     else
                     {
+                        // Artscout - 2026: no radar target to slave to -> the helmet is the slave
+                        // source. Clamp through the seeker first so the tone test below compares
+                        // against where the head can actually look, not past the gimbal stop.
+                        if (hmcsCue)
+                        {
+                            float a = hmcsAz, e = hmcsEl;
+                            theMissile->SetSeekerPos(&a, &e);
+                            missileSeekerAz = a;
+                            missileSeekerEl = e;
+                        }
+
                         // Here either we don't care about the actual target
                         // or we are caged and won't 'lock' on to it
                         float oldAz = missileSeekerAz;
@@ -706,6 +737,14 @@ void FireControlComputer::AirAirMode(void)
                         theMissile->targetPtr->localData->range);
                     theMissile->RunSeeker();
                 }
+                // Artscout - 2026: uncaged, nothing tracked, helmet cueing -> wait where the pilot looks.
+                else if (hmcsCue and theMissile->sensorArray)
+                {
+                    missileTarget = FALSE;
+                    missileTOF = 0.0F;
+                    float a = hmcsAz, e = hmcsEl;
+                    theMissile->SetSeekerPos(&a, &e);
+                }
                 // Marco Edit - only want IR missiles to 'search'
                 else if (Sms->curWeaponType == wtAim9 and
                          theMissile->sensorArray)
@@ -736,6 +775,15 @@ void FireControlComputer::AirAirMode(void)
                     float a = 0;
                     theMissile->SetSeekerPos(&a, &a);
                 }
+            }
+            // Artscout - 2026: caged with no radar slave, helmet cueing -> the seeker follows the head
+            // (ahead of the nutating/bore positions, which are what "no cue at all" looks like).
+            else if (hmcsCue and theMissile->isCaged and theMissile->sensorArray)
+            {
+                missileTarget = FALSE;
+                missileTOF = 0.0F;
+                float a = hmcsAz, e = hmcsEl;
+                theMissile->SetSeekerPos(&a, &e);
             }
             // Nutating Seekerhead
             else if (g_bRealisticAvionics and theMissile->isCaged and

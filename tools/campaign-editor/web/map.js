@@ -46,6 +46,10 @@ const LAYER_MIN_ZOOM = {
   port: 0.3, military: 0.3, airdefence: 0.3, airbase: 0,
 };
 
+// falclib/include/f4vu.h, the values that fit in the two bits a feature gets
+// on disk. The engine recomputes an objective's condition from these on load.
+const FEATURE_STATUS = ['Normal', 'Repaired', 'Damaged', 'Destroyed'];
+
 // The game's own icon atlases, one per team colour, loaded once per theater.
 const ICONS = {theater: null, manifest: null, images: {}, ready: false};
 
@@ -99,6 +103,11 @@ const M = {
   showUnits: true,
   showObjectives: true,
   legendOpen: true,
+  // The objectives the trigger script watches. `scriptAll` adds the places
+  // named by front-line event conditions, not just the ones that end the war.
+  showScript: true,
+  scriptAll: false,
+  scriptTargets: null,
   selected: null,        // {sort: 'unit'|'objective', item}
   hover: null,
   file: null,
@@ -111,6 +120,13 @@ let mapFocusTarget = null;
 function mapFocus(x, y) {
   mapFocusTarget = {x: x, y: y};
   if (mapFocus._apply) mapFocus._apply();
+}
+
+// The teams of the open file. The Units and Objectives tabs open the same
+// detail pages as the map without the map having loaded, so they leave their
+// own copy here.
+function teamsList() {
+  return (M.data && M.data.teams) || M.lastTeams || [];
 }
 
 function teamColour(team) {
@@ -169,8 +185,65 @@ function mapReset() {
 async function mapPanel(file) {
   const data = await api('/api/map?theater=' + encodeURIComponent(S.theater) +
                          '&file=' + encodeURIComponent(file));
-  if (M.file !== file) { mapReset(); M.file = file; }
+  const changedFile = M.file !== file;
+  if (changedFile) { mapReset(); M.file = file; }
   M.data = data;
+
+  // The script's targets, keyed by objective index. A campaign whose endgames
+  // name no place (some Israel ones are event and timer only) opens showing
+  // every control condition instead, or the layer would look empty.
+  const script = data.script || {targets: []};
+  M.scriptTargets = new Map();
+  for (const t of (script.targets || [])) M.scriptTargets.set(t.n, t);
+  if (changedFile) {
+    M.scriptAll = !(script.targets || []).some(t => t.endgame);
+  }
+
+  const scriptTarget = o => (M.showScript && M.showObjectives
+    ? M.scriptTargets.get(o.n) : null);
+  const scriptVisible = t => !!t && (M.scriptAll || t.endgame);
+  const scriptShown = () => [...M.scriptTargets.values()]
+    .filter(t => M.scriptAll || t.endgame).length;
+
+  const teamName = team => (data.teams[team] || {}).name || ('team ' + team);
+
+  // "ROK must hold (any of 3) · endgame" -- what a ring means, in words.
+  function scriptLabel(t) {
+    const parts = [];
+    const pos = t.conditions.find(c => !c.negated);
+    const neg = t.conditions.find(c => c.negated);
+    if (pos) {
+      parts.push(teamName(pos.team) + ' must hold' +
+                 (pos.mode === 'O' ? ' (any of ' + pos.count + ')' : ' (all)'));
+    }
+    if (neg) parts.push(teamName(neg.team) + ' must not hold');
+    if (t.endgame) parts.push('endgame');
+    return parts.join(' \u00b7 ');
+  }
+
+  // A ring around a place the script watches: the team's colour, solid for
+  // "must hold" and dashed for a condition in an #ELSE branch. A second,
+  // thinner ring marks an endgame target -- one that ends the campaign rather
+  // than firing a front-line event.
+  function drawScriptRing(g, t, x, y, s) {
+    const cond = t.conditions.find(c => !c.negated) || t.conditions[0];
+    if (!cond) return;
+    g.save();
+    g.translate(x, y);
+    g.strokeStyle = teamColour(cond.team);
+    g.lineWidth = Math.max(1.4, s / 3.5);
+    if (cond.negated) g.setLineDash([3, 3]);
+    g.beginPath();
+    g.arc(0, 0, s * 2.1, 0, Math.PI * 2);
+    g.stroke();
+    if (t.endgame) {
+      g.beginPath();
+      g.arc(0, 0, s * 2.9, 0, Math.PI * 2);
+      g.lineWidth = Math.max(1, s / 6);
+      g.stroke();
+    }
+    g.restore();
+  }
 
   const box = el('div', {class: 'map-canvas-box'});
   const canvas = el('canvas');
@@ -181,14 +254,134 @@ async function mapPanel(file) {
   box.appendChild(tip);
 
   const detail = el('div', {class: 'detail'});
+
+  let scriptLegend = null;
+  let scriptLegendCount = null;
+  const scriptCountText = () => scriptShown() + ' of ' + script.targets.length +
+    ' place' + (script.targets.length === 1 ? '' : 's') + ' shown';
+
+  // The layer toggles appear both here and in the legend, so they are built
+  // once and handed to whichever container asks; `refreshSidebar` rebuilds the
+  // sidebar copy after either one changes.
+  function renderScriptToggles() {
+    const box = el('div', {class: 'script-toggles'});
+    const sync = () => {
+      draw();
+      refreshSidebar();
+      if (scriptLegend) {
+        scriptLegend.replaceWith(scriptLegend = renderScriptToggles());
+        scriptLegend.classList.add('legend-script');
+      }
+      if (scriptLegendCount) scriptLegendCount.textContent = scriptCountText();
+    };
+    box.appendChild(el('label', {class: 'chk'}, [
+      el('input', {type: 'checkbox', checked: M.showScript,
+        onchange: e => { M.showScript = e.target.checked; sync(); }}),
+      el('span', {text: 'Rings on the map'}),
+    ]));
+    if (script.targets.some(t => !t.endgame)) {
+      box.appendChild(el('label', {class: 'chk'}, [
+        el('input', {type: 'checkbox', checked: M.scriptAll,
+          onchange: e => { M.scriptAll = e.target.checked; sync(); }}),
+        el('span', {text: 'include event conditions'}),
+      ]));
+    }
+    return box;
+  }
+
+  // The map's copy of the Victory tab's question: which places does the script
+  // actually watch, and what has to happen to them. The rings are the fast
+  // version; this is the readable one, and where a place can be clicked.
+  function scriptPanel() {
+    if (!script.available || !M.scriptTargets.size) return null;
+
+    const byN = new Map(data.objectives.map(o => [o.n, o]));
+    const box = el('div', {class: 'group'});
+    box.appendChild(el('h4', {text: 'Objectives the script watches'}));
+    box.appendChild(el('p', {class: 'note', text:
+      script.file + (script.fromScenario
+        ? ' \u2014 the script of ' + script.fromScenario : '') +
+      ' names ' + script.targets.length + ' place' +
+      (script.targets.length === 1 ? '' : 's') + ' in control conditions. ' +
+      'Solid ring: the team must hold it. Dashed: it must not. Double ring: ' +
+      'the condition ends the campaign.'}));
+    if (!M.scriptAll && !script.targets.some(t => t.endgame)) {
+      box.appendChild(el('p', {class: 'note warn', text:
+        'No endgame in this script names a place \u2014 it ends on events or ' +
+        'a timer \u2014 so every control condition is shown.'}));
+    }
+    box.appendChild(renderScriptToggles());
+
+    // One row per condition, not per place: the same objective can be named by
+    // several conditions, with different teams and polarities, and two
+    // conditions that happen to share a team and mode are still separate sets.
+    const groups = new Map();
+    for (const t of script.targets) {
+      if (!M.scriptAll && !t.endgame) continue;
+      for (const c of t.conditions) {
+        const key = [c.team, c.mode, c.negated, t.endgame, c.line].join('|');
+        let g = groups.get(key);
+        if (!g) {
+          g = {team: c.team, mode: c.mode, negated: c.negated,
+               count: c.count, endgame: t.endgame, items: []};
+          groups.set(key, g);
+        }
+        g.items.push(t);
+      }
+    }
+    const rows = [...groups.values()].sort((a, b) =>
+      (b.endgame - a.endgame) || (a.team - b.team) ||
+      (a.negated - b.negated) || (a.mode < b.mode ? 1 : -1));
+    for (const g of rows) {
+      box.appendChild(el('div', {class: 'script-cond'}, [
+        el('div', {class: 'script-head'}, [
+          el('span', {class: 'swatch',
+            style: 'background:' + teamColour(g.team)}),
+          el('span', {text: teamName(g.team)}),
+          el('span', {text: g.negated ? 'must not hold' : 'must hold'}),
+          el('span', {class: 'hint',
+            text: g.mode === 'O' ? 'any of ' + g.count
+                                 : 'all of ' + g.count}),
+          g.endgame ? el('span', {class: 'tag', text: 'endgame'}) : null,
+        ]),
+        el('div', {class: 'script-chips'}, g.items.map(t =>
+          el('button', {class: 'script-chip', title: 'camp id ' + t.campId,
+            onclick: () => {
+              const o = byN.get(t.n);
+              if (o) { mapFocus(o.x, o.y); show({sort: 'objective', item: o}); }
+            }}, (byN.get(t.n) || {}).name || ('objective ' + t.campId)))),
+      ]));
+    }
+
+    const notes = [];
+    if (script.dead) {
+      notes.push(script.dead + ' watched id' + (script.dead === 1 ? '' : 's') +
+                 ' match no objective here');
+    }
+    if (script.otherConditions) {
+      notes.push(script.otherConditions + ' other condition' +
+                 (script.otherConditions === 1 ? '' : 's') +
+                 ' (events, ratios, timers) name no place');
+    }
+    if (notes.length) {
+      box.appendChild(el('p', {class: 'note', text: notes.join('; ') + '.'}));
+    }
+    return box;
+  }
+
   const resetDetail = () => {
     detail.textContent = '';
-    detail.appendChild(el('div', {class: 'pad', style: 'color:var(--ink-faint)'},
+    const pad = el('div', {class: 'pad'});
+    pad.appendChild(el('p', {style: 'color:var(--ink-faint)', text:
       data.error
         ? 'The unit list in this file could not be decoded: ' + data.error
         : 'Click anything to inspect it. Shift-drag a unit to move it. ' +
-          'Right-click the map to place a new unit.'));
+          'Right-click the map to place a new unit.'}));
+    const panel = scriptPanel();
+    if (panel) pad.appendChild(panel);
+    detail.appendChild(pad);
   };
+  const refreshSidebar = () => { if (!M.selected) resetDetail(); };
   resetDetail();
 
   // --- projection ----------------------------------------------------------
@@ -288,19 +481,23 @@ async function mapPanel(file) {
     g.lineWidth = 1;
     g.strokeRect(M.view.ox, M.view.oy, w, h);
 
-    // Objectives first, so units sit on top of them.
+    // Objectives first, so units sit on top of them. A script target draws
+    // even when its category is below its zoom threshold -- the handful of
+    // places that decide the war should be findable zoomed out.
     const os = objSize();
     const byCat = {};
     for (const o of data.objectives) {
-      if (!objVisible(o)) continue;
+      if (!objVisible(o) && !scriptVisible(scriptTarget(o))) continue;
       (byCat[o.cat] = byCat[o.cat] || []).push(o);
     }
     for (const [cat, glyph] of OBJ_LAYERS) {
       for (const o of (byCat[cat] || [])) {
         const [sx, sy] = toScreen(o.x, o.y);
         if (sx < -12 || sy < -12 || sx > r.width + 12 || sy > r.height + 12) continue;
+        const t = scriptTarget(o);
         drawObjective(g, o, sx, sy, os, glyph,
                       isSelected('objective', o), o === M.hover);
+        if (scriptVisible(t)) drawScriptRing(g, t, sx, sy, os);
       }
     }
 
@@ -557,12 +754,13 @@ async function mapPanel(file) {
       const info = await api('/api/unit?theater=' + encodeURIComponent(S.theater) +
                              '&file=' + encodeURIComponent(file) + '&n=' + hit.item.n);
       detail.textContent = '';
-      detail.appendChild(unitDetail(info, hit.item, file, draw, reload));
+      detail.appendChild(await unitDetail(info, hit.item, file, draw, reload));
     } else {
       const info = await api('/api/objective?theater=' + encodeURIComponent(S.theater) +
                              '&file=' + encodeURIComponent(file) + '&n=' + hit.item.n);
       detail.textContent = '';
-      detail.appendChild(objectiveDetail(info, hit.item, file, draw));
+      detail.appendChild(objectiveDetail(info, hit.item, file, draw,
+                                         () => show(hit)));
     }
     draw();
   });
@@ -571,6 +769,17 @@ async function mapPanel(file) {
     S.rowIndex = null;
     await drawView();
   });
+
+  // A quick action from the right-click menu reloads the whole panel. Re-open
+  // whatever was selected, against the fresh data, so the sidebar does not go
+  // blank under the cursor.
+  if (M.selected && M.selected.item) {
+    const sort = M.selected.sort;
+    const pool = sort === 'unit' ? data.units : data.objectives;
+    const fresh = pool.find(x => x.n === M.selected.item.n);
+    if (fresh) await show({sort: sort, item: fresh});
+    else { M.selected = null; resetDetail(); }
+  }
 
   // --- interaction ---------------------------------------------------------
 
@@ -654,9 +863,19 @@ async function mapPanel(file) {
     if (hit) {
       const t = data.teams[item.owner];
       const who = (t && t.name) || ('team ' + item.owner);
-      tip.textContent = hit.sort === 'unit'
-        ? (item.name || item.kind) + '  ·  ' + who + '  ·  ' + item.x + ', ' + item.y
-        : (item.name || item.type) + '  ·  ' + item.type + '  ·  ' + who;
+      if (hit.sort === 'unit') {
+        const bits = [item.sqName || item.name || item.kind];
+        if (item.aircraft) bits.push(item.aircraft);
+        bits.push(who, item.x + ', ' + item.y);
+        if (item.supply !== undefined) bits.push('supply ' + item.supply);
+        if (item.losses) bits.push('losses ' + item.losses + '%');
+        tip.textContent = bits.join('  ·  ');
+      } else {
+        const bits = [item.name || item.type, item.type, who];
+        const t = scriptTarget(item);
+        if (t) bits.push(scriptLabel(t));
+        tip.textContent = bits.join('  \u00b7  ');
+      }
       tip.style.display = '';
       tip.style.left = Math.min(sx + 14, r.width - tip.offsetWidth - 8) + 'px';
       tip.style.top = (sy + 16) + 'px';
@@ -684,12 +903,17 @@ async function mapPanel(file) {
   // --- legend --------------------------------------------------------------
 
   const perTeam = new Map(), perKind = new Map(), perCat = new Map();
+  const perTeamObj = new Map(), perTeamAB = new Map();
   for (const u of data.units) {
     perTeam.set(u.owner, (perTeam.get(u.owner) || 0) + 1);
     perKind.set(u.kind, (perKind.get(u.kind) || 0) + 1);
   }
   for (const o of data.objectives) {
     perCat.set(o.cat, (perCat.get(o.cat) || 0) + 1);
+    perTeamObj.set(o.owner, (perTeamObj.get(o.owner) || 0) + 1);
+    if (o.cat === 'airbase') {
+      perTeamAB.set(o.owner, (perTeamAB.get(o.owner) || 0) + 1);
+    }
   }
 
   const legend = el('div', {class: 'map-legend' + (M.legendOpen ? '' : ' shut')});
@@ -705,10 +929,21 @@ async function mapPanel(file) {
     legend.appendChild(h);
   };
 
+  // Biggest holder first: the question this section answers is "who is the
+  // enemy here", and that is the objectives far more than the unit count.
   section('Teams');
-  for (const [team, n] of [...perTeam.entries()].sort((a, b) => b[1] - a[1])) {
+  const teamRows = [...new Set([...perTeam.keys(), ...perTeamObj.keys()])]
+    .map(team => [team, perTeam.get(team) || 0, perTeamObj.get(team) || 0,
+                  perTeamAB.get(team) || 0])
+    .sort((a, b) => (b[2] - a[2]) || (b[1] - a[1]) || (a[0] - b[0]));
+  for (const [team, n, objs, bases] of teamRows) {
     const t = data.teams[team];
-    legend.appendChild(el('label', {}, [
+    const detail = objs + ' objective' + (objs === 1 ? '' : 's') +
+                   ' \u00b7 ' + bases + ' airbase' + (bases === 1 ? '' : 's');
+    legend.appendChild(el('label', {
+      title: ((t && t.name) || ('team ' + team)) + ': ' + n + ' unit' +
+             (n === 1 ? '' : 's') + ', ' + detail,
+    }, [
       el('input', {type: 'checkbox', checked: !M.hiddenTeams.has(team),
         onchange: e => {
           if (e.target.checked) M.hiddenTeams.delete(team);
@@ -718,6 +953,7 @@ async function mapPanel(file) {
       el('span', {class: 'swatch', style: 'background:' + teamColour(team)}),
       el('span', {text: (t && t.name) || ('team ' + team)}),
       el('span', {class: 'n', text: String(n)}),
+      el('span', {class: 'sub', text: detail}),
     ]));
   }
 
@@ -759,6 +995,22 @@ async function mapPanel(file) {
         el('span', {class: 'n', text: String(n)}),
       ]));
     }
+  }
+  if (script.available && script.targets.length) {
+    section('Script');
+    scriptLegend = renderScriptToggles();
+    scriptLegend.classList.add('legend-script');
+    legend.appendChild(scriptLegend);
+    scriptLegendCount = el('div', {class: 'hint', text: scriptCountText()});
+    legend.appendChild(scriptLegendCount);
+  }
+  if (data.bullseye && data.bullseye[0]) {
+    section('Reference');
+    legend.appendChild(el('div', {class: 'bullseye-key'}, [
+      el('span', {class: 'bullseye-mark', text: '\u271b'}),
+      el('span', {text: 'Bullseye ' + data.bullseye[0] + ', ' +
+                        data.bullseye[1]}),
+    ]));
   }
   box.appendChild(legend);
 
@@ -890,7 +1142,7 @@ async function openPlacePickerImpl(file, gx, gy) {
   const body = $('#modal-body');
   body.textContent = '';
 
-  const teams = (M.data.teams || []).filter(t => t.name && t.name !== 'XX');
+  const teams = teamsList().filter(t => t.name && t.name !== 'XX');
   const teamSel = el('select', {}, teams.map(t =>
     el('option', {value: t.index, selected: t.index === (M.place ? M.place.owner : 6)},
        t.index + '  ' + t.name)));
@@ -991,6 +1243,26 @@ function openMapMenu(box, sx, sy, gx, gy, hit, file, reload, show) {
   const menu = el('div', {class: 'map-menu', id: 'map-menu'});
   const item = (label, fn, cls) => menu.appendChild(
     el('button', {class: cls || '', onclick: () => { closeMapMenu(); fn(); }}, label));
+  const sep = () => menu.appendChild(el('div', {class: 'sep'}));
+  const head = (text) => menu.appendChild(el('div', {class: 'head', text: text}));
+
+  // A labelled dropdown inside the menu, for the two fields a click should
+  // not have to open the sidebar for: orders and team.
+  const dropdown = (label, options, value, apply) => {
+    const sel = el('select', {class: 'menu-select'}, options.map(o =>
+      el('option', {value: o.value, selected: o.value === value}, o.label)));
+    sel.addEventListener('change', guard(async () => { apply(Number(sel.value)); }));
+    menu.appendChild(el('label', {class: 'menu-field'}, [
+      el('span', {text: label}), sel]));
+  };
+
+  const setUnit = (u, values, note) => guard(async () => {
+    await api('/api/unit/edit',
+              {theater: S.theater, file: file, n: u.n, values: values});
+    toast((note || 'Updated') + ' — ' + (u.sqName || u.name || u.kind), 'ok');
+    await refreshPending();
+    await reload();
+  });
 
   menu.appendChild(el('div', {class: 'head', text: gx + ', ' + gy}));
 
@@ -1001,39 +1273,98 @@ function openMapMenu(box, sx, sy, gx, gy, hit, file, reload, show) {
   }
 
   if (hit && hit.sort === 'unit') {
-    menu.appendChild(el('div', {class: 'sep'}));
-    menu.appendChild(el('div', {class: 'head',
-      text: hit.item.name || hit.item.kind}));
+    const u = hit.item;
+    const label = u.sqName || u.name || u.kind;
+    sep();
+    head(label);
     item('Inspect', () => show(hit));
-    item('Move here', guard(async () => {
-      await api('/api/unit/edit', {theater: S.theater, file: file,
-        n: hit.item.n, values: {x: gx, y: gy}});
-      toast('Moved ' + (hit.item.name || hit.item.kind), 'ok');
-      await refreshPending();
-      await reload();
-    }));
+    item('Move here', setUnit(u, {x: gx, y: gy}, 'Moved'));
     item('Duplicate here', guard(async () => {
       const res = await api('/api/unit/add', {
-        theater: S.theater, file: file, classIndex: hit.item.type,
-        x: gx, y: gy, owner: hit.item.owner,
+        theater: S.theater, file: file, classIndex: u.type,
+        x: gx, y: gy, owner: u.owner,
       });
       toast('Duplicated as unit ' + res.n, 'ok');
       await refreshPending();
       await reload();
     }));
+
+    // The condition quick actions, exactly the fields the sidebar edits.
+    sep();
+    if (u.supply !== undefined) {
+      item('Supply to 100', setUnit(u, {supply: 100}, 'Resupplied'));
+    }
+    if (u.morale !== undefined) {
+      item('Morale to 100', setUnit(u, {morale: 100}, 'Morale restored'));
+    }
+    if (u.fatigue !== undefined) {
+      item('Clear fatigue', setUnit(u, {fatigue: 0}, 'Fatigue cleared'));
+    }
+    if (u.losses !== undefined) {
+      item('Clear losses', setUnit(u, {losses: 0}, 'Losses cleared'));
+    }
+    if (u.orders !== undefined) {
+      dropdown('Orders', ((M.data && M.data.orders) || []).map((o, i) =>
+        ({value: i, label: i + '  ' + o})), u.orders,
+        v => setUnit(u, {orders: v}, 'Orders set')());
+    }
+    if (u.kind === 'squadron') {
+      sep();
+      item('Resupply squadron', guard(async () => {
+        const r = await api('/api/unit/stores',
+          {theater: S.theater, file: file, n: u.n, action: 'resupply'});
+        toast(r.changed + ' weapon(s) refilled', 'ok');
+        await refreshPending();
+        await reload();
+      }));
+      item('Empty the rack', guard(async () => {
+        const r = await api('/api/unit/stores',
+          {theater: S.theater, file: file, n: u.n, action: 'clear'});
+        toast(r.changed + ' weapon(s) emptied', 'ok');
+        await refreshPending();
+        await reload();
+      }));
+    }
+
+    sep();
+    dropdown('Team', teamsList().map(t =>
+      ({value: t.index, label: t.index + '  ' + (t.name || ('team ' + t.index))})),
+      u.owner, v => setUnit(u, {owner: v}, 'Team changed')());
     item('Delete', guard(async () => {
       const res = await api('/api/unit/delete',
-                            {theater: S.theater, file: file, n: hit.item.n});
+                            {theater: S.theater, file: file, n: u.n});
       toast('Deleted. ' + res.total + ' units left.', 'ok');
       M.selected = null;
       await refreshPending();
       await reload();
     }), 'danger');
   } else if (hit && hit.sort === 'objective') {
-    menu.appendChild(el('div', {class: 'sep'}));
-    menu.appendChild(el('div', {class: 'head',
-      text: hit.item.name || hit.item.type}));
+    const o = hit.item;
+    const setObj = (body, note) => guard(async () => {
+      await api('/api/objective/edit',
+                {theater: S.theater, file: file, n: o.n, values: body});
+      toast(note + ' — ' + (o.name || o.type), 'ok');
+      await refreshPending();
+      await reload();
+    });
+    const featureAction = (action, note) => guard(async () => {
+      const r = await api('/api/objective/feature',
+        {theater: S.theater, file: file, n: o.n, action: action});
+      toast(r.changed + ' ' + note + ' — ' + (o.name || o.type), 'ok');
+      await refreshPending();
+      await reload();
+    });
+
+    sep();
+    head(o.name || o.type);
     item('Inspect', () => show(hit));
+    item('Repair all features', featureAction('repair-all', 'features repaired'));
+    item('Destroy all features',
+         featureAction('destroy-all', 'features destroyed'));
+    item('Supply and fuel to 100', setObj({supply: 100, fuel: 100}, 'Resupplied'));
+    dropdown('Team', teamsList().map(t =>
+      ({value: t.index, label: t.index + '  ' + (t.name || ('team ' + t.index))})),
+      o.owner, v => setObj({owner: v}, 'Team changed')());
   }
 
   box.appendChild(menu);
@@ -1051,32 +1382,70 @@ function openMapMenu(box, sx, sy, gx, gy, hit, file, reload, show) {
 
 // --- detail panes ------------------------------------------------------------
 
-function unitDetail(info, u, file, redraw, reload) {
+async function unitDetail(info, u, file, redraw, reload) {
   const wrap = el('div');
   const v = info.values;
 
   const pending = {};
+  // Every field the pane edits registers its input here, so a value the
+  // server clamped (supply 999 -> 100) is shown back as what was written.
+  const fields = {};
   const push = guard(async () => {
     if (!Object.keys(pending).length) return;
-    await api('/api/unit/edit',
+    const res = await api('/api/unit/edit',
               {theater: S.theater, file: file, n: info.n, values: pending});
-    for (const k in pending) { u[k] = pending[k]; delete pending[k]; }
+    for (const k in pending) {
+      const got = (res.values && res.values[k] !== undefined)
+        ? res.values[k] : pending[k];
+      v[k] = got;
+      u[k] = got;
+      if (fields[k]) fields[k].value = String(got);
+      delete pending[k];
+    }
     redraw();
     await refreshPending();
   });
 
-  const num = (key, label) => el('label', {class: 'field'}, [
-    el('span', {text: label || key}),
-    el('input', {type: 'number', value: String(v[key]),
+  const num = (key, label, lo, hi) => {
+    const input = el('input', {type: 'number', value: String(v[key]),
+      min: lo === undefined ? null : String(lo),
+      max: hi === undefined ? null : String(hi),
       oninput: e => {
         pending[key] = Number(e.target.value);
         e.target.classList.add('changed');
       },
-      onchange: push}),
-  ]);
+      onchange: push});
+    fields[key] = input;
+    return el('label', {class: 'field'}, [
+      el('span', {text: label || key}), input,
+    ]);
+  };
+
+  // A percentage with a bar under it, the same glanceable shape the stores
+  // availability uses.
+  const pct = (key, label) => {
+    const val = Math.max(0, Math.min(100, Number(v[key]) || 0));
+    const fill = el('div', {
+      class: 'cond-fill ' + (key === 'losses' ? 'bad' : 'good'),
+      style: 'width:' + val + '%'});
+    const input = el('input', {type: 'number', min: '0', max: '100',
+      value: String(v[key]),
+      oninput: e => {
+        pending[key] = Number(e.target.value);
+        fill.style.width =
+          Math.max(0, Math.min(100, Number(e.target.value) || 0)) + '%';
+        e.target.classList.add('changed');
+      },
+      onchange: push});
+    fields[key] = input;
+    return el('label', {class: 'field'}, [
+      el('span', {text: label}), input,
+      el('div', {class: 'cond-bar'}, fill),
+    ]);
+  };
 
   wrap.appendChild(el('div', {class: 'detail-head'}, [
-    el('h3', {text: info.name || info.kind}),
+    el('h3', {text: info.title || info.name || info.kind}),
     el('div', {class: 'sub mono',
       text: info.kind + '  ·  camp id ' + v.campId +
             '  ·  class row ' + v.classIndex}),
@@ -1092,6 +1461,31 @@ function unitDetail(info, u, file, redraw, reload) {
     ]),
   ]));
 
+  // Condition first: it is what the campaign screen leads with, and it is
+  // what you reach for while the map is on screen.
+  const COND = [['supply', 'supply %'], ['morale', 'morale %'],
+                ['fatigue', 'fatigue %'], ['losses', 'losses %']];
+  const present = COND.filter(([k]) => v[k] !== undefined);
+  const orders = (M.data && M.data.orders) || [];
+  if (present.length || v.orders !== undefined || v.fuel !== undefined) {
+    const box = el('div', {class: 'group'});
+    box.appendChild(el('h4', {text: 'Condition'}));
+    const grid = el('div', {class: 'grid2'});
+    for (const [k, label] of present) grid.appendChild(pct(k, label));
+    if (v.fuel !== undefined) grid.appendChild(num('fuel', 'fuel'));
+    if (v.orders !== undefined) {
+      grid.appendChild(el('label', {class: 'field'}, [
+        el('span', {text: 'orders'}),
+        el('select', {onchange: e => {
+          pending.orders = Number(e.target.value); push();
+        }}, orders.map((o, i) =>
+          el('option', {value: i, selected: i === v.orders}, i + '  ' + o))),
+      ]));
+    }
+    box.appendChild(grid);
+    wrap.appendChild(box);
+  }
+
   wrap.appendChild(el('div', {class: 'group'}, [
     el('h4', {text: 'Position and allegiance'}),
     el('div', {class: 'grid2'}, [num('x', 'grid x (east)'),
@@ -1099,11 +1493,42 @@ function unitDetail(info, u, file, redraw, reload) {
     el('label', {class: 'field'}, [
       el('span', {text: 'owner'}),
       el('select', {onchange: e => { pending.owner = Number(e.target.value); push(); }},
-         (M.data.teams || []).map(t =>
+         teamsList().map(t =>
            el('option', {value: t.index, selected: t.index === v.owner},
               t.index + '  ' + (t.name || 'team ' + t.index)))),
     ]),
   ]));
+
+  {
+    const head = squadronHeader(info);
+    if (head) wrap.appendChild(head);
+    const stores = storesPanel(file, info);
+    if (stores) wrap.appendChild(stores);
+  }
+
+  // The aeroplane's hardpoints, editable here because this is where a
+  // squadron is being looked at -- the same control the Database tab uses.
+  if (info.loadout && info.loadout.hardpoints) {
+    const lo = info.loadout;
+    wrap.appendChild(el('p', {class: 'note warn', text:
+      'The hardpoints below are class data: they belong to every '
+      + (lo.aircraft || 'aircraft') + ' in this theater, and ' + lo.sharedWith
+      + ' unit type' + (lo.sharedWith === 1 ? '' : 's') + ' fly it. Editing '
+      + 'here moves all of them.'}));
+    wrap.appendChild(await hardpointEditor({
+      weapon: lo.hardpoints.map(h => h.weapon),
+      shots: lo.hardpoints.map(h => h.shots),
+      resolved: lo.hardpoints.map(h => h.name),
+      title: 'Aircraft loadout — ' + (lo.aircraft || ''),
+      onCommit: guard(async (weapon, shots) => {
+        await api('/api/edit', {theater: S.theater, table: 'vehicle',
+                                index: lo.vehicleRow,
+                                values: {Weapon: weapon, Weapons: shots}});
+        toast('Hardpoints updated for every ' + (lo.aircraft || 'aircraft'));
+        await refreshPending();
+      }),
+    }));
+  }
 
   if (info.composition && info.composition.length) {
     wrap.appendChild(el('div', {class: 'group'}, [
@@ -1120,11 +1545,9 @@ function unitDetail(info, u, file, redraw, reload) {
 
   const READOUT = [
     ['roster', 'roster'], ['unitFlags', 'flags'], ['moved', 'moved'],
-    ['losses', 'losses'], ['supply', 'supply'], ['morale', 'morale'],
-    ['fatigue', 'fatigue'], ['orders', 'orders'], ['division', 'division'],
-    ['specialty', 'specialty'], ['missionsFlown', 'missions flown'],
-    ['totalLosses', 'total losses'], ['mission', 'mission'],
-    ['elements', 'elements'],
+    ['division', 'division'], ['specialty', 'specialty'],
+    ['missionsFlown', 'missions flown'], ['totalLosses', 'total losses'],
+    ['mission', 'mission'], ['elements', 'elements'],
   ];
   const stats = [];
   for (const [k, label] of READOUT) {
@@ -1156,16 +1579,25 @@ function unitDetail(info, u, file, redraw, reload) {
   return wrap;
 }
 
-function objectiveDetail(info, o, file, redraw) {
+function objectiveDetail(info, o, file, redraw, reload) {
   const wrap = el('div');
   const v = info.values;
+  const canEdit = info.canEdit;
 
   const pending = {};
+  const fields = {};
   const push = guard(async () => {
     if (!Object.keys(pending).length) return;
-    await api('/api/objective/edit',
+    const res = await api('/api/objective/edit',
               {theater: S.theater, file: file, n: info.n, values: pending});
-    for (const k in pending) { o[k] = pending[k]; delete pending[k]; }
+    for (const k in pending) {
+      const got = (res.values && res.values[k] !== undefined)
+        ? res.values[k] : pending[k];
+      v[k] = got;
+      o[k] = got;
+      if (fields[k]) fields[k].value = String(got);
+      delete pending[k];
+    }
     redraw();
     await refreshPending();
   });
@@ -1178,22 +1610,28 @@ function objectiveDetail(info, o, file, redraw) {
     el('div', {class: 'sub', text: info.className}),
   ]));
 
-  if (!info.canEdit) {
+  if (!canEdit) {
     wrap.appendChild(el('div', {class: 'group'},
       el('p', {class: 'note warn', text:
         'This file has no objective list of its own, so objectives here are ' +
         'read-only. Open the scenario it was started from to edit them.'})));
   }
 
-  const num = (key, label) => el('label', {class: 'field'}, [
-    el('span', {text: label || key}),
-    el('input', {type: 'number', value: String(v[key]), disabled: !info.canEdit,
+  const num = (key, label, lo, hi) => {
+    const input = el('input', {type: 'number', value: String(v[key]),
+      disabled: !canEdit,
+      min: lo === undefined ? null : String(lo),
+      max: hi === undefined ? null : String(hi),
       oninput: e => {
         pending[key] = Number(e.target.value);
         e.target.classList.add('changed');
       },
-      onchange: push}),
-  ]);
+      onchange: push});
+    fields[key] = input;
+    return el('label', {class: 'field'}, [
+      el('span', {text: label || key}), input,
+    ]);
+  };
 
   wrap.appendChild(el('div', {class: 'group'}, [
     el('h4', {text: 'Position and allegiance'}),
@@ -1201,13 +1639,25 @@ function objectiveDetail(info, o, file, redraw) {
                                  num('y', 'grid y (north)')]),
     el('label', {class: 'field'}, [
       el('span', {text: 'owner'}),
-      el('select', {disabled: !info.canEdit,
+      el('select', {disabled: !canEdit,
         onchange: e => { pending.owner = Number(e.target.value); push(); }},
-        (M.data.teams || []).map(t =>
+        teamsList().map(t =>
           el('option', {value: t.index, selected: t.index === v.owner},
              t.index + '  ' + (t.name || 'team ' + t.index)))),
     ]),
     num('priority', 'priority'),
+  ]));
+
+  // Condition: supply and fuel drive the sortie rate, losses are what the
+  // side has already lost. Editable here so an airbase can be resupplied or
+  // run down without leaving the map.
+  wrap.appendChild(el('div', {class: 'group'}, [
+    el('h4', {text: 'Condition'}),
+    el('div', {class: 'grid3'}, [
+      num('supply', 'supply %', 0, 100),
+      num('fuel', 'fuel %', 0, 100),
+      num('losses', 'losses %', 0, 100),
+    ]),
   ]));
 
   if (info.tacan) {
@@ -1228,9 +1678,8 @@ function objectiveDetail(info, o, file, redraw) {
   }
 
   const stats = [];
-  for (const [k, label] of [['supply', 'supply'], ['fuel', 'fuel'],
-                            ['losses', 'losses'], ['objFlags', 'flags'],
-                            ['nameId', 'name id'], ['firstOwner', 'first owner'],
+  for (const [k, label] of [['objFlags', 'flags'], ['nameId', 'name id'],
+                            ['firstOwner', 'first owner'],
                             ['objType', 'type code']]) {
     if (v[k] === undefined) continue;
     stats.push(el('div', {class: 'field'}, [
@@ -1244,15 +1693,67 @@ function objectiveDetail(info, o, file, redraw) {
   ]));
 
   if (info.features && info.features.length) {
-    wrap.appendChild(el('div', {class: 'group'}, [
-      el('h4', {text: 'Features (' + info.featureCount + ')'}),
-      el('ul', {class: 'comp'}, info.features.map(f =>
-        el('li', {}, [el('span', {text: f.name || ('feature ' + f.index)}),
-                      el('span', {class: 'n', text: f.value + '%'})]))),
-      el('button', {class: 'btn btn-sm', style: 'margin-top:8px',
+    const box = el('div', {class: 'group'});
+    box.appendChild(el('h4', {text: 'Features (' + info.featureCount + ')'}));
+    box.appendChild(el('p', {class: 'note', text:
+      'Damage is stored as two bits per feature and the engine recomputes the '
+      + "objective's condition from them on load, so this is the repair / "
+      + 'destroy switch. Destroying or repairing one walks its critical links, '
+      + 'the way the engine does.'}));
+
+    const list = el('div', {class: 'feat-list'});
+    for (const f of info.features) {
+      list.appendChild(el('div', {
+        class: 'feat' + (f.status === 3 ? ' dead' : ''),
+      }, [
+        el('span', {class: 'feat-name', title: 'feature slot ' + f.slot,
+          text: f.name || ('feature ' + f.slot)}),
+        el('span', {class: 'feat-val', text: f.value + '%'}),
+        el('select', {disabled: !canEdit,
+          onchange: guard(async (e) => {
+            const r = await api('/api/objective/feature',
+              {theater: S.theater, file: file, n: info.n, feature: f.slot,
+               status: Number(e.target.value)});
+            info.features = r.features;
+            toast(r.changed > 1
+              ? r.changed + ' linked features set to ' + r.statusName.toLowerCase()
+              : 'Feature set to ' + r.statusName.toLowerCase());
+            await refreshPending();
+            await reload();
+          })}, FEATURE_STATUS.map((s, i) =>
+            el('option', {value: i, selected: i === f.status}, s))),
+      ]));
+    }
+    box.appendChild(list);
+
+    box.appendChild(el('div', {class: 'stores-tools'}, [
+      el('button', {class: 'btn btn-sm', text: 'Repair all',
+        disabled: !canEdit,
+        onclick: guard(async () => {
+          const r = await api('/api/objective/feature',
+            {theater: S.theater, file: file, n: info.n, action: 'repair-all'});
+          toast(r.changed + ' features repaired');
+          await refreshPending();
+          await reload();
+        })}),
+      el('button', {class: 'btn btn-sm', text: 'Destroy all',
+        disabled: !canEdit,
+        onclick: guard(async () => {
+          const r = await api('/api/objective/feature',
+            {theater: S.theater, file: file, n: info.n, action: 'destroy-all'});
+          toast(r.changed + ' features destroyed');
+          await refreshPending();
+          await reload();
+        })}),
+      el('button', {class: 'btn btn-sm', style: 'margin-left:auto',
         onclick: () => openTable('objective', info.className || '')},
         'Edit this objective type'),
+      info.featureCount > info.features.length
+        ? el('span', {class: 'hint',
+            text: 'showing ' + info.features.length + ' of ' + info.featureCount})
+        : null,
     ]));
+    wrap.appendChild(box);
   }
 
   if (info.links && info.links.length) {
@@ -1269,3 +1770,276 @@ function objectiveDetail(info, o, file, redraw) {
 
   return wrap;
 }
+
+
+// --- squadron stores --------------------------------------------------------
+
+// Two tables meet on this panel and they are not the same kind of thing.
+//
+//   COUNT is the squadron's own stock, in the .cam entity. Editing it changes
+//         this squadron and nothing else.
+//   MAX   is class data, one row of FALCON4.SSD shared by every squadron class
+//         with the same SpecialIndex. A max of 0 means the squadron is never
+//         issued the weapon -- resupply skips it -- so the loadout screen shows
+//         it OUT for the whole war. Max is the real enable/disable, and it
+//         moves other squadrons with it.
+//
+// The engine's own availability is (count * 4) / max, clamped 0..4, which is
+// what the bar shows and what the loadout screen colours by.
+function storesPanel(file, info) {
+  const st = info.stores;
+  const box = el('div', {class: 'group'});
+
+  if (!st || !st.available) {
+    return null;
+  }
+
+  let showAll = false;
+
+  const post = (body) => api('/api/unit/stores', Object.assign(
+    {theater: S.theater, file: file, n: info.n, showAll: showAll}, body));
+
+  const redraw = (fresh) => {
+    info.stores = fresh;
+    const next = storesPanel(file, info);
+    if (next) box.replaceWith(next);
+  };
+
+  box.appendChild(el('h4', {text: 'Stores'}));
+  box.appendChild(el('p', {class: 'note', text:
+    st.shown + ' of ' + st.length + ' weapon slots. Count is this squadron; '
+    + 'max comes from stores row ' + st.specialIndex + ', shared by '
+    + st.sharedWith + ' squadron ' + (st.sharedWith === 1 ? 'class' : 'classes')
+    + ' in every campaign of this theater.'}));
+
+  if (st.locked) {
+    const cap = el('input', {type: 'number', class: 'st-n', min: '1',
+                             max: '255', value: '100'});
+    box.appendChild(el('div', {class: 'note warn stores-locked'}, [
+      el('div', {text: st.locked + ' weapon' + (st.locked === 1 ? '' : 's')
+        + ' this aircraft can load ' + (st.locked === 1 ? 'is' : 'are')
+        + ' never issued (max 0), so the loadout screen shows '
+        + (st.locked === 1 ? 'it' : 'them') + ' OUT for the whole war. '
+        + 'Unlocking gives each a maximum and fills this squadron now; '
+        + 'resupply keeps it topped up after that.'}),
+      el('div', {class: 'stores-tools'}, [
+        el('span', {class: 'hint', text: 'max'}), cap,
+        el('button', {class: 'btn btn-sm btn-primary',
+          text: 'Unlock ' + st.locked + ' locked weapon'
+                + (st.locked === 1 ? '' : 's'),
+          onclick: guard(async () => {
+            const r = await post({action: 'unlock', max: Number(cap.value)});
+            toast(r.changed + ' weapon(s) unlocked');
+            await refreshPending();
+            redraw(r.stores);
+          })}),
+      ]),
+    ]));
+  }
+
+  const inf = [];
+  for (const [k, label] of [['aa', 'AA'], ['ag', 'AG'], ['gun', 'gun']]) {
+    if (st.infinite[k]) {
+      inf.push((st.infiniteNames[k] || ('weapon ' + st.infinite[k]))
+               + ' (' + label + ')');
+    }
+  }
+  if (inf.length) {
+    box.appendChild(el('p', {class: 'note', text:
+      'Never runs out: ' + inf.join(', ') + '.'}));
+  }
+
+  const tools = el('div', {class: 'stores-tools'}, [
+    el('button', {class: 'btn btn-sm', text: 'Resupply to max',
+      onclick: guard(async () => {
+        const r = await post({action: 'resupply'});
+        toast(r.changed + ' weapon(s) refilled');
+        await refreshPending();
+        redraw(r.stores);
+      })}),
+    el('button', {class: 'btn btn-sm', text: 'Empty the rack',
+      onclick: guard(async () => {
+        const r = await post({action: 'clear'});
+        toast(r.changed + ' weapon(s) emptied');
+        await refreshPending();
+        redraw(r.stores);
+      })}),
+    el('label', {class: 'chk'}, [
+      el('input', {type: 'checkbox', onchange: guard(async (ev) => {
+        showAll = ev.target.checked;
+        const fresh = await api('/api/unit?' + qs(
+          {file: file, n: info.n, allstores: showAll ? 1 : 0}));
+        redraw(fresh.stores);
+      })}),
+      el('span', {text: 'Show all'}),
+    ]),
+  ]);
+  box.appendChild(tools);
+
+  // The full array is 600 slots; with Show all ticked a name filter is the
+  // only way to find one.
+  const filter = el('input', {type: 'text', class: 'st-filter', spellcheck: 'false',
+    placeholder: 'Filter weapons…'});
+  filter.addEventListener('input', () => refill());
+  box.appendChild(filter);
+
+  const body = el('tbody');
+
+  const refill = () => {
+    body.textContent = '';
+    const needle = filter.value.trim().toLowerCase();
+    for (const r of st.rows) {
+      if (needle && !r.name.toLowerCase().includes(needle)) continue;
+
+      const cnt = el('input', {type: 'number', class: 'st-n', min: '0',
+                               max: '255', value: String(r.count)});
+      cnt.addEventListener('change', guard(async () => {
+        const res = await post({index: r.index, count: Number(cnt.value)});
+        await refreshPending();
+        redraw(res.stores);
+      }));
+
+      const cap = el('input', {type: 'number', class: 'st-n', min: '0',
+                               max: '255', value: String(r.max)});
+      cap.addEventListener('change', guard(async () => {
+        const res = await post({index: r.index, max: Number(cap.value)});
+        await refreshPending();
+        redraw(res.stores);
+      }));
+
+      const on = el('input', {type: 'checkbox'});
+      on.checked = r.carryable;
+      on.addEventListener('change', guard(async () => {
+        // Disabling means taking the class maximum to zero -- nothing else
+        // actually stops the weapon being loaded.
+        const res = await post({index: r.index,
+                                max: on.checked ? (r.max || 100) : 0,
+                                fill: on.checked});
+        await refreshPending();
+        redraw(res.stores);
+      }));
+
+      body.appendChild(el('tr', {class: r.carryable ? '' : 'st-off'}, [
+        el('td', {}, on),
+        el('td', {class: 'st-name', title: 'FALCON4.WCD row ' + r.index
+                  + (r.loadable ? ' \u00b7 on this aircraft\u2019s hardpoints'
+                                : '')}, [
+          r.name,
+          r.locked ? el('span', {class: 'st-tag', text: 'OUT \u00b7 locked'})
+                   : null]),
+        el('td', {}, cnt),
+        el('td', {}, r.infinite ? el('span', {class: 'hint', text: 'inf'}) : cap),
+        el('td', {}, el('span', {class: 'st-bar av' + r.avail,
+                                 title: 'availability ' + r.avail + ' of 4'})),
+      ]));
+    }
+  };
+  refill();
+
+  box.appendChild(el('table', {class: 'data stores'}, [
+    el('thead', {}, el('tr', {}, ['', 'Weapon', 'Count', 'Max', ''].map(
+      h => el('th', {text: h})))),
+    body,
+  ]));
+
+  return box;
+}
+
+
+// --- the squadron header ----------------------------------------------------
+
+// The things Mission Commander puts at the top of a squadron page. All of it is
+// read-only here: the patch, the aeroplane and the name are class data or
+// composed by the engine, not fields you can type into.
+function squadronHeader(info) {
+  const sq = info.squadron;
+  if (!sq) return null;
+
+  const box = el('div', {class: 'group sq-head'});
+
+  const left = el('div', {class: 'sq-patch'});
+  if (sq.patch !== null && sq.patch !== undefined) {
+    const img = el('img', {
+      alt: sq.patchName || ('patch ' + sq.patch),
+      title: (sq.patchName || '') + '  (patch ' + sq.patch + ')',
+      src: '/api/patch?theater=' + encodeURIComponent(S.theater)
+           + '&i=' + sq.patch,
+    });
+    // A theater without the patch sheet just gets no picture.
+    img.addEventListener('error', () => img.remove());
+    left.appendChild(img);
+  }
+
+  const rows = [];
+  const add = (label, value) => {
+    if (value === '' || value === null || value === undefined) return;
+    rows.push(el('div', {class: 'field'}, [
+      el('span', {text: label}),
+      el('div', {class: 'mono', text: String(value)}),
+    ]));
+  };
+  add('aircraft', sq.aircraft);
+  add('airbase', sq.airbase);
+  add('specialty', sq.specialtyName || sq.specialty);
+  add('patch', sq.patchName ? (sq.patchName + '  #' + sq.patch)
+                            : ('#' + sq.patch));
+
+  const right = el('div', {class: 'sq-id'}, [
+    el('h4', {text: sq.name || 'Squadron'}),
+    sq.selectable
+      ? el('span', {class: 'tag', text: 'player selectable'})
+      : el('span', {class: 'hint', text: 'not in the campaign\u2019s squadron list'}),
+    el('div', {class: 'grid2'}, rows),
+  ]);
+
+  box.appendChild(el('div', {class: 'sq-top'}, [left, right]));
+
+  const stat = (label, value) => el('div', {class: 'field'}, [
+    el('span', {text: label}),
+    el('div', {class: 'mono', text: String(value)}),
+  ]);
+  box.appendChild(el('div', {class: 'grid4'}, [
+    stat('A-A kills', sq.kills.aa),
+    stat('A-G kills', sq.kills.ag),
+    stat('A-S kills', sq.kills.as),
+    stat('A-N kills', sq.kills.an),
+    stat('missions', sq.missionsFlown),
+    stat('score', sq.missionScore),
+    stat('aircraft lost', sq.totalLosses),
+    stat('pilots lost', sq.pilotLosses),
+  ]));
+
+  if (sq.pilots && sq.pilots.length) {
+    const body = el('tbody', {}, sq.pilots.map((p, i) => el('tr', {}, [
+      el('td', {class: 'idx', text: String(i)}),
+      el('td', {class: 'num', text: String(p.id)}),
+      el('td', {class: 'num', text: String(p.skill)}),
+      el('td', {class: 'num', text: String(p.rating)}),
+      el('td', {text: p.statusName}),
+      el('td', {class: 'num', text: String(p.kills.aa)}),
+      el('td', {class: 'num', text: String(p.kills.ag)}),
+      el('td', {class: 'num', text: String(p.missions)}),
+    ])));
+
+    const table = el('table', {class: 'data pilots'}, [
+      el('thead', {}, el('tr', {}, ['#', 'Id', 'Skill', 'Rating', 'Status',
+                                    'AA', 'AG', 'Msn']
+        .map(h => el('th', {text: h})))),
+      body,
+    ]);
+
+    const wrap = el('div', {class: 'pilots-wrap', hidden: true}, table);
+    const toggle = el('button', {class: 'btn btn-sm',
+      text: 'Pilots (' + sq.pilots.length + ')',
+      onclick: () => { wrap.hidden = !wrap.hidden; }});
+
+    box.appendChild(el('div', {style: 'margin-top:10px'}, toggle));
+    box.appendChild(wrap);
+    box.appendChild(el('p', {class: 'note', text:
+      'Pilot names live in the campaign\u2019s callsign table, which the editor '
+      + 'does not read yet \u2014 these are the ids the game looks them up by.'}));
+  }
+
+  return box;
+}
+

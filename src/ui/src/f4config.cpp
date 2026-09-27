@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <windows.h>
 #include "../../sim/include/phyconst.h" //JAM 19Sep03
+#include "../../graphics/include/nearclip.h" // Artscout - 2026: g_fCpuNearClip lives in CpuNearClip()
 
 // PHASE 1 D3D7->D3D11: when true DXContext::Init brings up D3D11Backend instead of DDraw7/D3D7.
 // Artscout - 2026 (D3D11 purge C0): default OFF -- D3D12 is now the sole GPU backend. Nothing sets this
@@ -384,6 +385,10 @@ public:
 
 extern char FalconDataDirectory[];
 extern "C" int g_nBWMaxDeltaTime; // needed to link into C files (capi.c)
+// Artscout - 2026: JHMCS helmet-mounted cueing, defined in sim/otwdrive/hmcs.cpp (knobs described in hmcs.h).
+extern int g_nHmcs, g_nHmcsLevel;
+extern bool g_bHmcsSlaveSeeker, g_bHmcsSlaveRadar, g_bHmcsHudBlank, g_bHmcsLog;
+extern float g_fHmcsHudHalfWidth, g_fHmcsHudTop, g_fHmcsHudBottom, g_fHmcsScale, g_fHmcsTextScale;
 extern "C" int g_nBWCheckDeltaTime;
 
 // #define OPENEYES //; disabled until futher
@@ -423,6 +428,15 @@ int g_nKnee3DFont = 2;
 // Artscout - 2026 (NAVAIDS page): -1 picks the largest of the three sizes whose
 // row still fits the page, which is what you want; 0/1/2 force one.
 int g_nKneeNavaidFont = -1;
+// Artscout - 2026 (FRONTS): weather that varies across the theater -- moving
+// fronts, storm cells and clearings over drifting random patches, on top of the
+// condition picked in Setup. 0 = the old single condition for the whole map.
+int g_nWeatherFronts = 1;
+// New fronts per campaign day, on average. 0 = only the ones already there.
+float g_fWeatherFrontsPerDay = 3.0f;
+// How much the random patches vary the condition: 0 none, 1 about a third
+// of the map a step away from prevailing.
+float g_fWeatherNoise = 0.8f;
 // Artscout - 2026 (RWR): which bitmap font the RWR scope draws its symbols with. -1 (default) = the
 // MFD font, which is what the scope has always used. 0/1/2 force one of the three matched sizes and 3
 // is warn_font, a different typeface (bold, caps and digits only) rather than a fourth size. The font
@@ -818,14 +832,30 @@ bool g_bObjSpotCones =
     true; // Artscout - 2026: apply spot-light cones to object lighting (Params.y=2). Every port light was uploaded as an omni point, so the F-16's anti-collision beacon (D3DLIGHT_SPOT, ~5 deg beam, 1500 ft range) lit the whole jet and every store within 1500 ft. 0 = old point approximation.
 bool g_bObjCullPit =
     true; // Artscout - 2026: also apply g_nObjCullMode to objects drawn from the VB manager's PIT list (the 3D pit AND everything attached to it -- CockAttachWeapons/VCock_DrawThePit run under SetPitMode(true), so the player's own wing stores ride the pit path). This is the one that matters for the missile fin flicker: the fins are two near-coincident faces of a thin plate, and with culling they were still drawn unculled because they were on the pit path. 0 = keep the old no-cull for pit-list draws.
+bool g_bObjFog =
+    true; // Artscout - 2026: distance-fog the lit world objects (buildings, vehicles, aircraft) like the terrain. The D3D12 backend only ever fogged the terrain, so distant buildings stood out as black silhouettes on hazed ground whenever their shaded side faced you. 0 = the old unfogged objects.
 bool g_bObjPixelLight =
     true; // Artscout - 2026: evaluate object lighting PER PIXEL instead of per vertex (FF_PIXELLIGHT). The light model does not change; the sun + point/spot lights (and the Blinn-Phong specular) are computed in the pixel shader from the interpolated world normal/position/view vector. Per-vertex Gouraud is what smears a small lamp's colour across whole low-poly panels -- e.g. the F-16's air-intake light (range 3 ft) washing a multi-foot fuselage triangle red. 0 = legacy per-vertex lighting.
 bool g_bPitShadow =
     true; // Artscout - 2026: cockpit sun shadows. The 3D pit BSP is replayed depth-only into a small sun-space shadow map once per flush, and the cockpit branch of the object pixel shader darkens only the SUN term where the pit occludes it (ambient/lamps are untouched). The map is fitted to the pit model's own bounding box in MODEL space, so it is independent of camera and aircraft attitude -- only the sun direction in the pit frame changes it. 0 = no cockpit shadows (the PS returns unshadowed).
+bool g_bToneMapGT7 =
+    true; // Artscout - 2026: HDR scene + Gran Turismo 7 tone mapping (D3D12). The 3D scene renders into an FP16 target instead of the 8-bit back buffer / XR eye image, so additive glows, lamps, specular and the afterburner are no longer clipped at 1 by the target; at the 3D -> 2D boundary the GT7 operator (Polyphony's reference, ICtCp) rolls those highlights off and hue-preserves them, then the HUD / 2D pit draw on top un-curved. Scene 1.0 is placed on GT7's SDR paper white, so mid-tones look as before. 0 = the old 8-bit scene, bit for bit.
+float g_fPitShadowFitReach =
+    7.0f; // Artscout - 2026: the cockpit shadow map is fitted to a box of +-this (feet) around the pit model origin, which is the pilot's eye. It used the pit's parent-record bbox, which is stale (claims x -21..1.1; the LOD really spans -52..14), so the glare shield, instrument panel and MFDs ahead of x = 1.1 were outside the map. 7 ft covers the canopy bow/frame, glare shield and seat with a tighter (sharper) fit than before. 0 = the old parent-record box.
+float g_fMfdGlare =
+    0.25f; // Artscout - 2026: sun glare on the MFD glass (D3D12). The displays are self-lit and never react to shade by themselves; this adds the sunlight their glass reflects -- sun colour x N.L x this -- as a veil, masked per pixel by the cockpit shadow map, so an MFD in direct sun washes out and one in the canopy-bow shadow stays crisp. 0 = off.
+float g_fSunTodTint =
+    1.0f; // Artscout - 2026: colour the sun (diffuse + specular glint on objects, the pit and the mesh terrain) with the hue of the time-of-day table's TextureLighting -- orange at sunset, slightly cool at noon. The D3D7-era sun colour was white at every hour, so the sunset glint on the jet stayed white while the ground went orange. 0 = white sun (old).
+float g_fSunTodDimRef =
+    0.6f; // Artscout - 2026: dim the sun as the TOD TextureLighting falls below this level (its brightest channel). Daytime sits above it (noon 0.85), so only dusk/dawn change: 18:45 -> x0.83, 19:00 -> x0.42, 19:30 -> x0.13. The table itself keeps Diffuse 0.45 / Specular 1.3 until the sun is on the horizon. 0 = no dimming (old).
+float g_fToneMapExposure =
+    1.0f; // Artscout - 2026: exposure into the GT7 curve (multiplies the scene before tone mapping). 1.0 = scene white sits on paper white: mid-tones unchanged, highlights clip at ~1.5x white. Lower it to buy highlight headroom (everything darkens), raise it for a brighter, more compressed image.
 float g_fPitShadowStrength =
     1.0f; // Artscout - 2026: how much a fully occluded sun texel darkens the cockpit surface. 1.0 = the sun term goes to zero in shadow (hard reality), lower = the shadow is filled by the surface's own ambient. Tunable in flight; a little under 1 usually reads best because the pit is dark already.
 bool g_bLightFalloffD3D7 =
     true; // Artscout - 2026: use each dynamic light's AUTHORED D3D7 attenuation (1/(a0 + a1*d), cut at its range) instead of the port's hard linear ramp (1 - d/range). The ramp is what made the pit's own lamps read as dead: the F-16 pit's flood/instrument lights are authored with a 2.2-unit range inside a 22-unit pit, so the ramp lit a 2-unit ball and the flood knob appeared to do nothing. 0 = old ramp (the fallback for lights whose data has no falloff, e.g. the tail strobe, is automatic either way).
+float g_fDisplayNightLevel =
+    0.4f; // Artscout - 2026: brightness of the self-lit RTT displays (MFDs, DED, PFL, RWR) in full darkness, rising to 1.0 in daylight (VirtualDisplay::DrawRttQuad). They used to composite at a flat 1.0 whatever the time of day. The HUD is exempt -- it has its own ambient-driven brightness. 1.0 = the old behaviour.
 float g_fPitFillScale =
     1.0f; // Artscout - 2026: scale on the 3D pit's flood/instrument fill (CockpitManager::GetCockpitFill). 1.0 = the same values the 2D pit art is tinted by; raise for a stronger knob effect, 0 to disable the fill and judge the model's own lamps alone.
 float g_fPitFillReach =
@@ -861,6 +891,8 @@ float g_fSubtitleLineSpacing = 1.25f;
 // The font set is NOT a four-step size ladder: 0 = 6x4, 1 = 8x6, 2 = 10x7, and 3 = warn_font -- the caution-panel
 // typeface, with its own metrics meant for short all-caps labels. Picking 3 for flowing radio text gets you a much
 // larger face AND its unrelated letter spacing. 2 is the largest real size; go past it with the scale below.
+float g_fSeatTravel = 2.5f; // Artscout - 2026: seat height travel each way from neutral, in INCHES (SimSeatUp/SimSeatDown). The ACES II moves 5 in in total, i.e. 2.5 each way; raise it if you want more range to match your real sitting height in VR.
+int g_nPilotBreathing = 1; // Artscout - 2026: pilot breathing in the mask (AirframeClass::CockpitSounds). 0 = off, 1 = only under G (fast from ~4 G, straining from ~6.5), 2 = calm breathing all the time as well.
 int g_nSubtitleFont = 2;
 // Continuous size on top of the chosen font: scales the glyph quads and the advance together, so letter spacing
 // stays proportional. 1.0 = the font's native size.
@@ -927,6 +959,12 @@ bool g_bCampaignPackageTakeoffLock =
     true; // Artscout - 2026: open the campaign's Add Package window pinned to TAKEOFF rather than to TIME ON TARGET. Both locks start off in package.scf and SetupPackageControls then turns the TOT one on, so the window has always opened demanding the flight be over the target at exactly the displayed second -- TYPE_EQ, the tightest request the planner takes, and the reason hand-built packages come back "no aircraft free" so often. It also means the Status dropdown does nothing, because tactical_make_flight consults gPackageTOT first and never reaches start_at. Locking takeoff instead asks for "airborne by then", which is what you want in a running campaign; the Tactical Engagement editor is untouched either way, since a scripted time on target is exactly what it is for. 0 restores the stock behaviour here too. "CampaignPackageTakeoffLock".
 bool g_bLogCampMenu =
     false; // Artscout - 2026: log what the "Build package" submenu decided, every time a campaign popup opens -- which menu, what was right-clicked, how many squadrons the theater offered and why the rest were dropped, and whether the parent item ended up enabled. The item is a submenu, so a disabled parent and a parent nobody thought to hover over look identical from the outside, and the candidate filter is three separate rejections (wrong team, no airframes, no role against this target) that all end in the same silence. "LogCampMenu".
+bool g_bCampMapIconHealth =
+    true; // Artscout - 2026: objective icons on the campaign map darken with damage (status 100 = as drawn, 0 = CampMapIconMin brightness), so a flattened target reads at a glance without switching the damage overlay on. 0 = stock icons.
+float g_fCampMapIconMin =
+    0.35f; // Artscout - 2026: brightness of a 0%-status objective icon (1 = never darkens). Linear in status between this and 1.
+int g_nPathDamageCost =
+    100; // Artscout - 2026: damage feeds ground ROUTE cost (GetObjectiveMovementCost, path.cpp). Link costs are baked from terrain at campaign build, so a half-dropped bridge or cratered road junction was as cheap to plan through as an intact one; only a 0% bridge was blocked. At 100, entering a damaged road/junction/rail node costs up to x2 and a damaged bridge up to x4, scaling linearly with objective status (repair re-opens it on its own); capped below "impassable". The planner-side twin of SupplyInterdiction. 0 = stock. "PathDamageCost".
 int g_nSupplyInterdiction =
     100; // Artscout - 2026: how much a DAMAGED road or bridge costs the supply run crossing it, as a percentage of the built-in curve (SendSupply, supply.cpp). Stock is a flat 2% per hop whether the bridge is standing or in the river, which leaves the campaign generating AMIS_INT and AMIS_INTSTRIKE sorties against a mechanism that was never wired up. At 100 a wrecked bridge costs the convoy half of what is crossing it and a cratered road about a sixth; both scale linearly with the objective status, so repair re-opens the route on its own. Above 100 for harsher interdiction -- the per-node loss is clamped at 95% so a closed route starves a front rather than erasing a convoy outright. 0 restores stock exactly. "SupplyInterdiction".
 bool g_bVrWindowsCursor =
@@ -980,7 +1018,8 @@ float g_fVrTracerBright = 0.6f;
 // Artscout - 2026 (VR): radio/comms (AWACS/Tower) + exit menu are centered on screen and scaled by this factor
 // in the headset so they sit in one consistent place instead of the data-driven flat-screen corner. <1 shrinks.
 // FFViper.cfg "VrMenuScale". Flat path is unaffected.
-float g_fVrMenuScale = 0.7f;
+// Bumped 0.7 -> 1.05 (1.5x): the menu read as too small in the headset.
+float g_fVrMenuScale = 1.05f;
 bool g_bAllHaveIFF = false; // Cobra - Give all a/c IFF interrogator
 bool g_bAnimPilotHead = true; // Cobra - Animate the pilot's head
 float g_fPilotActInterval =
@@ -1621,6 +1660,10 @@ float g_fTaxiEarly =
 bool g_bUse_DX_Engine = true;
 
 static ConfigOption<bool> BoolOpts[] = {
+    {"HmcsSlaveSeeker", &g_bHmcsSlaveSeeker}, // Artscout - 2026: JHMCS slaves the AIM-9 seeker to the helmet
+    {"HmcsSlaveRadar", &g_bHmcsSlaveRadar},   // Artscout - 2026: JHMCS points ACM BORE down the helmet LOS
+    {"HmcsHudBlank", &g_bHmcsHudBlank},       // Artscout - 2026: JHMCS blanks inside the HUD box
+    {"HmcsLog", &g_bHmcsLog},                 // Artscout - 2026: JHMCS state line in FFDebug.log, 1/s
     {"EnableBindless", &g_bEnableBindless}, // textures by index from one resident heap (both backends)
     {"SensorSceneVulkan", &g_bSensorSceneVulkan}, // TGP/MAV/FLIR video in the MFD under Vulkan
     {"VsyncVrMirror",
@@ -1635,10 +1678,16 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bObjSpotCones}, // Artscout - 2026: apply spot-light cones (F-16 beacon is a spot, not a 1500 ft omni lamp)
     {"ObjCullPit",
      &g_bObjCullPit}, // Artscout - 2026: cull pit-list draws too (wing stores ride the pit path -- fins!)
+    {"ObjFog",
+     &g_bObjFog}, // Artscout - 2026: fog lit world objects like the terrain (D3D12)
     {"ObjPixelLight",
      &g_bObjPixelLight}, // Artscout - 2026: per-pixel object lighting (small lamps stop washing whole panels)
+    {"CampMapIconHealth",
+     &g_bCampMapIconHealth}, // Artscout - 2026: darken objective icons by damage
     {"PitShadow",
      &g_bPitShadow}, // Artscout - 2026: cockpit sun shadows (depth-only pit replay + PS lookup)
+    {"ToneMapGT7",
+     &g_bToneMapGT7}, // Artscout - 2026: FP16 HDR scene + GT7 tone mapping (D3D12)
     {"LightFalloffD3D7",
      &g_bLightFalloffD3D7}, // Artscout - 2026: authored D3D7 light attenuation, not the linear ramp
     {"LightSprites",
@@ -2044,11 +2093,15 @@ static ConfigOption<bool> BoolOpts[] = {
     {NULL, NULL}};
 
 static ConfigOption<int> IntOpts[] = {
+    {"Hmcs", &g_nHmcs}, // Artscout - 2026: JHMCS 0 off, 1 HMS-flagged aircraft, 2 all aircraft
+    {"HmcsLevel", &g_nHmcsLevel}, // Artscout - 2026: HMCS knob at launch: 0 off, 1 dim .. 3 bright
     {"ThrottleMode", &g_nThrottleMode},
     {"TileActivatePerFrame",
      &g_nTileActivatePerFrame}, // #107: terrain texture activations per render (spike budget)
     {"TileActivateMeshPerFrame",
      &g_nTileActivateMeshPerFrame}, // Artscout - 2026: #78 -- same budget for the mesh-shader terrain (no per-tile draws there, so it can afford more).
+    {"PilotBreathing",
+     &g_nPilotBreathing}, // Artscout - 2026: 0 off, 1 under G, 2 always
     {"SubtitleFont",
      &g_nSubtitleFont}, // Artscout - 2026: radio subtitle font index (bigger = larger glyphs)
     {"ObjZBiasStep",
@@ -2059,6 +2112,8 @@ static ConfigOption<int> IntOpts[] = {
      &g_nCampMapTerrainLod}, // Artscout - 2026: terrain LOD the campaign map is built from (0 = finest)
     {"CampMapDetailTiles",
      &g_nCampMapDetailTiles}, // Artscout - 2026: decoded ground tiles the detail layer keeps resident
+    {"PathDamageCost",
+     &g_nPathDamageCost}, // Artscout - 2026: damaged roads/bridges cost more to ROUTE through (0 = stock)
     {"SupplyInterdiction",
      &g_nSupplyInterdiction}, // Artscout - 2026: damage-scaled supply loss per node (0 = stock flat 2%)
     {"SupplyMapThreshold",
@@ -2076,6 +2131,7 @@ static ConfigOption<int> IntOpts[] = {
      &g_nFarLodExtra}, // Artscout - 2026 (#79): extra coarse terrain LOD rings (geomorph target for far tiles)
     {"Knee3DFont", &g_nKnee3DFont}, // Artscout - 2026 (3D kneeboard)
     {"KneeNavaidFont", &g_nKneeNavaidFont}, // Artscout - 2026 (NAVAIDS)
+    {"WeatherFronts", &g_nWeatherFronts}, // Artscout - 2026 (FRONTS): 0 = one condition everywhere
     {"RwrFont", &g_nRwrFont}, // Artscout - 2026 (RWR): -1 = one size below the MFD font, else 0..3
     {"CanopyAttenuation", &g_nCanopyAttenuation}, // Artscout - 2026: extra dB of canopy muffling, 0 = off
     {"PadlockBoxSize", &g_nPadlockBoxSize},
@@ -2206,6 +2262,13 @@ static ConfigOption<char> StringOpts[] = {
     {NULL, NULL}};
 
 static ConfigOption<float> FloatOpts[] = {
+    {"WeatherFrontsPerDay", &g_fWeatherFrontsPerDay}, // Artscout - 2026 (FRONTS)
+    {"WeatherNoise", &g_fWeatherNoise}, // Artscout - 2026 (FRONTS)
+    {"HmcsHudHalfWidth", &g_fHmcsHudHalfWidth}, // Artscout - 2026: JHMCS HUD blanking box, deg
+    {"HmcsHudTop", &g_fHmcsHudTop},
+    {"HmcsHudBottom", &g_fHmcsHudBottom},
+    {"HmcsScale", &g_fHmcsScale},         // Artscout - 2026: JHMCS symbology size
+    {"HmcsTextScale", &g_fHmcsTextScale}, // Artscout - 2026: JHMCS glyph size
     {"MipLodBias", &g_fMipLodBias},
     {"SubtitleX",
      &g_fSubtitleX}, // Artscout - 2026: radio subtitle left edge, viewport NDC (+ = right)
@@ -2227,6 +2290,24 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fTerrainCullPad}, // Artscout - 2026: #78 -- terrain cull frustum widened by this fraction of FOV (head-turn margin)
     {"PitShadowStrength",
      &g_fPitShadowStrength}, // Artscout - 2026: cockpit shadow darkness (1 = sun dies in shadow, 0 = no darkening)
+    {"PitShadowFitReach",
+     &g_fPitShadowFitReach}, // Artscout - 2026: cockpit shadow fit box half-size around the eye (0 = old bbox)
+    {"MfdGlare",
+     &g_fMfdGlare}, // Artscout - 2026: MFD sun-glare veil strength (0 = off)
+    {"SunTodTint",
+     &g_fSunTodTint}, // Artscout - 2026: sun hue from the TOD table (0 = white sun)
+    {"SunTodDimRef",
+     &g_fSunTodDimRef}, // Artscout - 2026: sun fades below this TOD light level (0 = off)
+    {"ToneMapExposure",
+     &g_fToneMapExposure}, // Artscout - 2026: scene exposure into the GT7 curve (1 = scene white on paper white)
+    {"CampMapIconMin",
+     &g_fCampMapIconMin}, // Artscout - 2026: brightness of a 0%-status objective icon
+    {"CpuNearClip",
+     &CpuNearClip()}, // Artscout - 2026: CPU near clip in ft for BSPlib/Render3D prims (0.2 = GPU ZNEAR; 1.0 = old)
+    {"DisplayNightLevel",
+     &g_fDisplayNightLevel}, // Artscout - 2026: RTT display brightness in darkness (1 = never dims)
+    {"SeatTravel",
+     &g_fSeatTravel}, // Artscout - 2026: seat height travel each way, inches
     {"PitFillScale",
      &g_fPitFillScale}, // Artscout - 2026: scale on the 3D pit's flood/instrument fill (0 = off)
     {"PitFillReach",

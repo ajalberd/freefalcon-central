@@ -29,6 +29,14 @@
 #include "missdata.h" // 2002-03-08 S.G.
 #include "graphics/include/drawparticlesys.h"
 
+// Artscout - 2026: a ground gun firing tracers sounds like its calibre -- a 12.7 mm quad, a 23 mm
+// ZU and a 40 mm Bofors used to share one machine-gun loop (SFX_MCGUN). Unknown or rotary guns keep it.
+static int GroundGunSfx(SimWeaponClass *gun)
+{
+    const int s = GunCalibreSfx(gun, false);
+    return s ? s : SFX_MCGUN;
+}
+
 extern float g_fTracerAccuracyFactor; // 2002-03-12
 extern bool g_bToggleAAAGunFlag; // 2002-03-12
 extern bool g_bFireOntheMove; // FRB - Test
@@ -81,7 +89,7 @@ void GroundClass::WeaponKeepAlive(void)
                     if (IsGunFiring(i) and Gun->numFlying < numToFly)
                     {
                         fire = TRUE;
-                        SoundPos.Sfx(SFX_MCGUN, 0, 1.0, 0);
+                        SoundPos.Sfx(GroundGunSfx(Gun), 0, 1.0, 0);
 
                         pos.x = XPos();
                         pos.y = YPos();
@@ -212,7 +220,7 @@ BOOL GroundClass::DoWeapons(void)
 
             if (Gun->IsTracer())
             {
-                SoundPos.Sfx(SFX_MCGUN);
+                SoundPos.Sfx(GroundGunSfx(Gun));
                 SetGunFiring(Sms->GetCurrentWeaponHardpoint());
                 // 2000-10-12 MODIFIED BY S.G. THIS IS TO SAY WE TOOK A TRACER GUN SHOT
                 // 2000-10-27 ADDED BY S.G.
@@ -628,7 +636,7 @@ int GroundClass::GunTrack(void)
         if (fire)
         {
             needKeepAlive = TRUE;
-            SoundPos.Sfx(SFX_MCGUN, 0, 1.0, 0);
+            SoundPos.Sfx(GroundGunSfx(Gun), 0, 1.0, 0);
             // MonoPrint( "Ground Unit Firing tracers at %s, flying = %d, rounds = %d, unlim = %d\n",
             //    target->OnGround() ? "Ground Unit" : "Air Unit",
             //    Gun->numFlying,

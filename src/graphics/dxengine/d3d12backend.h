@@ -129,7 +129,13 @@ public:
     void EnsureFrameStarted(unsigned long argbClear = 0xFF000000)
     {
         if (!m_bRecording)
+        {
+            // Artscout - 2026: only a renderer-opened frame may get the FP16 scene; the menu's explicit
+            // BeginFrame + BlitBitmap565 draws with an 8-bit PSO onto the back buffer.
+            m_hdrBeginAllowed = true;
             BeginFrame(argbClear);
+            m_hdrBeginAllowed = false;
+        }
     }
     // The scene depth-stencil (D32) CPU handle, for the renderer's OMSetRenderTargets. ptr==0 if none.
     unsigned __int64 DepthDsvPtr() const;
@@ -239,6 +245,23 @@ public:
     {
         return m_msaaSamples > 1 && m_pMsaaColorTex != 0;
     }
+
+    // Artscout - 2026: HDR scene + GT7 tone mapping (g_bToneMapGT7; RENDER-LIGHTING.md "HDR + GT7").
+    // A frame opened through EnsureFrameStarted (flat) or BeginEyeFrame (per-eye VR) renders its scene into
+    // an owned R16G16B16A16_FLOAT target instead of the back buffer / eye image, so additive light, glows
+    // and specular are no longer clipped at 1 by the render target. ToneMapSceneGT7 is called ONCE, at the
+    // 3D -> 2D boundary (otwloop, before the HUD), and applies GT7 in place; OutputHdrScene then copies the
+    // (display-referred) FP16 image into the back buffer / eye image. Menus (explicit BeginFrame), view
+    // instancing and any frame the hook never reaches stay on the old path or a plain clamp.
+    //   CurrentRtvFormat() is what the renderer bakes into its PSOs -- FP16 while the HDR scene is the bound
+    // target, the back-buffer format for everything else (RTT atlases, menu, back buffer after output).
+    int CurrentRtvFormat() const;
+    bool HdrSceneActive() const
+    {
+        return m_pHdrCur != 0;
+    }
+    bool ToneMapSceneGT7(); // in-place GT7 at the 3D/2D boundary; false if not an HDR frame
+    void OutputHdrScene(); // FP16 -> back buffer / eye image; ends the HDR frame (idempotent)
 
     // Artscout - 2026: #13 volumetric clouds -- the scene depth, readable as t2 so the cloud raymarch can clamp
     // itself against the world instead of leaning on the rasterizer's depth test (which cannot work for a volume
@@ -425,6 +448,47 @@ private:
     void
     BindMsaaScene(unsigned long argb, int w,
                   int h); // bind+clear the MSAA scene target (from Begin*Frame)
+    // Artscout - 2026: HDR scene targets (see CurrentRtvFormat). Separate sets for the desktop and the XR
+    // eyes (different sizes, both live in a VR frame) so they never resize each other every frame -- a
+    // resize is a WaitForGpu. Each set is EXACTLY the scene size: the eye depth is, and D3D wants the RTV
+    // and DSV to agree. Two eye sets, picked by size (LRU), so quad views (periphery + focus) do not
+    // rebuild on every eye -- the same scheme as m_eyeDepth.
+    struct HdrTargets
+    {
+        ID3D12Resource* color; // 1x FP16 scene target (non-MSAA) -- RTV slot 0
+        ID3D12Resource* msaa; // Nx FP16 scene target (flat MSAA) -- RTV slot 1
+        ID3D12Resource* copy; // 1x FP16 the passes read (resolve/copy of the scene)
+        ID3D12DescriptorHeap* rtvHeap; // [0] color, [1] msaa
+        ID3D12DescriptorHeap* srvHeap; // shader-visible, [0] copy
+        int w, h, samples; // at rest: color/msaa in RENDER_TARGET, copy in PIXEL_SHADER_RESOURCE
+        unsigned lru;
+    };
+    HdrTargets m_hdrFlat, m_hdrEye[2];
+    unsigned m_hdrEyeLru;
+    HdrTargets* m_pHdrCur; // this frame's HDR set, or 0 when the scene is not FP16
+    unsigned __int64 m_hdrSceneRtvPtr; // the FP16 RTV bound as the scene (color or msaa)
+    unsigned __int64 m_hdrOutRtvPtr; // where OutputHdrScene writes (back buffer / eye image)
+    int m_hdrSceneSamples;
+    bool m_hdrToneMapped; // GT7 already ran this frame
+    bool m_hdrBeginAllowed; // BeginFrame came via EnsureFrameStarted (a renderer frame, not a menu blit)
+    ID3D12RootSignature* m_pHdrRS;
+    struct ID3D10Blob* m_pHdrVS; // compiled once; PSOs are built per (format, samples)
+    struct ID3D10Blob* m_pHdrPS;
+    ID3D12PipelineState* m_pHdrPso[4];
+    int m_hdrPsoFmt[4], m_hdrPsoSamples[4];
+    bool m_hdrPipelineFailed;
+    unsigned m_hdrStatFrames, m_hdrStatToneMapped, m_hdrStatTick;
+    bool EnsureHdrTargets(HdrTargets& t, int w, int h, int samples);
+    HdrTargets& HdrEyeSlot(int w, int h);
+    void ReleaseHdrTargets(HdrTargets& t);
+    bool EnsureHdrPipeline();
+    ID3D12PipelineState* HdrPso(int fmt, int samples);
+    void HdrSnapshotScene(); // scene -> copy (resolve if MSAA), copy left in PIXEL_SHADER_RESOURCE
+    void HdrDraw(unsigned __int64 rtvPtr, int fmt, int samples, int w, int h,
+                 float mode);
+    bool BeginHdrScene(HdrTargets& t, int w, int h, int samples,
+                       unsigned __int64 outRtvPtr, unsigned long argb,
+                       unsigned __int64 dsvPtr); // dsvPtr 0 = no depth
     D3D12Texture*
         m_pMenuRtt; // #DX12 п.5 A1 -- in-scene VR menu color RTT (owned)
     ID3D12Resource*

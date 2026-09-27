@@ -133,6 +133,15 @@ def parse(path):
 
 # --- turning the script into English -----------------------------------------
 
+# Actions whose handler in `ReadScriptedTriggerFile` is commented out in this
+# tree, so a script that uses them gets no effect at all. Worth saying out
+# loud, because they read like real orders.
+DEAD_ACTIONS = {
+    "SET_TEMPO": "the handler is commented out in cmpevent.cpp",
+    "CHANGE_PRIORITIES": "the handler is commented out in cmpevent.cpp",
+}
+
+
 def _team(idx, teams):
     try:
         name = teams[int(idx)]
@@ -143,6 +152,13 @@ def _team(idx, teams):
 
 def describe(node, teams, place):
     """One node as a sentence. `place(campId)` names an objective."""
+    text = _describe(node, teams, place)
+    if node.verb in DEAD_ACTIONS:
+        text += " \u2014 no effect in this build"
+    return text
+
+
+def _describe(node, teams, place):
     v, a = node.verb, node.args
 
     if v == "IF_CONTROLLED" and len(a) >= 3:
@@ -217,6 +233,112 @@ def describe(node, teams, place):
     return (v.replace("_", " ").lower() + (" " + " ".join(a) if a else "")).strip()
 
 
+def controlled_targets(body):
+    """Every place a `#IF_CONTROLLED` names, with its team, mode and polarity.
+
+    `#IF_CONTROLLED` is the only condition in the vocabulary that names a
+    place, so it is the only one that can be drawn on a map. `negated` marks a
+    condition sitting in an `#ELSE` branch -- the team must *not* hold the
+    place, which is how Korea's `save1` allied win is written -- and `endgame`
+    marks one on the path to an `#END_GAME`, i.e. one that decides the campaign
+    rather than firing a front-line event. `count` is how many ids that one
+    condition listed, which is what makes "any of 3" meaningful.
+    """
+    out = []
+
+    def walk(nodes, negated):
+        reaches_end = False
+        for node in nodes:
+            if node.verb == "END_GAME":
+                reaches_end = True
+                continue
+            if node.verb not in CONDITIONS:
+                continue
+            sub = walk(node.children, negated)
+            sub_else = (walk(node.orelse, not negated)
+                        if node.orelse is not None else False)
+            if node.verb == "IF_CONTROLLED" and len(node.args) >= 3:
+                team = int(node.args[0]) if node.args[0].isdigit() else 0
+                mode = node.args[1].upper()
+                ids = [int(a) for a in node.args[2:] if a.lstrip("-").isdigit()]
+                for cid in ids:
+                    out.append({"campId": cid, "team": team, "mode": mode,
+                                "negated": negated, "count": len(ids),
+                                "endgame": sub or sub_else,
+                                "line": node.line})
+            reaches_end = reaches_end or sub or sub_else
+        return reaches_end
+
+    walk(body, False)
+    return out
+
+
+def condition_counts(body):
+    """How many of each condition verb a script uses, by verb."""
+    out = {}
+
+    def walk(nodes):
+        for node in nodes:
+            if node.verb in CONDITIONS:
+                out[node.verb] = out.get(node.verb, 0) + 1
+                walk(node.children)
+                if node.orelse is not None:
+                    walk(node.orelse)
+
+    walk(body)
+    return out
+
+
+def event_usage(init, body):
+    """How each campaign event is used: fired, reset, pre-set and tested.
+
+    An event that is written but never tested by an `#IF_EVENT_PLAYED` does
+    nothing except play whatever movie sits beside the write: the flag is a
+    latch nothing reads, which is easy to miss when authoring a script. The
+    endgame events are exempt -- they are fired immediately before an
+    `#END_GAME`, so nothing is meant to test them.
+    """
+    out = {}
+    keys = {"DO_EVENT": "fired", "RESET_EVENT": "reset", "SET_EVENT": "set",
+            "IF_EVENT_PLAYED": "tested"}
+
+    def has_endgame(nodes):
+        for n in nodes:
+            if n.verb == "END_GAME":
+                return True
+            if n.children and has_endgame(n.children):
+                return True
+            if n.orelse and has_endgame(n.orelse):
+                return True
+        return False
+
+    def walk(nodes, endgame):
+        for n in nodes:
+            key = keys.get(n.verb)
+            if key and n.args and n.args[0].lstrip("-").isdigit():
+                rec = out.setdefault(int(n.args[0]),
+                                     {"fired": 0, "reset": 0, "set": 0,
+                                      "tested": 0, "endgame": 0})
+                rec[key] += 1
+                if endgame and key == "fired":
+                    rec["endgame"] += 1
+            if n.children:
+                walk(n.children, endgame or has_endgame(n.children))
+            if n.orelse is not None:
+                walk(n.orelse, endgame or has_endgame(n.orelse))
+
+    walk(init, False)
+    walk(body, False)
+    return out
+
+
+def write_only_events(init, body):
+    """Event ids that are set or cleared but never tested, endgames aside."""
+    return sorted(i for i, u in event_usage(init, body).items()
+                  if not u["tested"] and not u["endgame"]
+                  and (u["fired"] or u["reset"] or u["set"]))
+
+
 def endgames(body, teams, place):
     """Every way the campaign can end, with the conditions that reach it.
 
@@ -261,6 +383,7 @@ def outline(body, teams, place, depth=0):
             "kind": "condition" if is_cond else (
                 "endgame" if node.verb == "END_GAME" else "action"),
             "verb": node.verb,
+            "args": list(node.args),
             "text": describe(node, teams, place),
             "comment": node.comment,
             "line": node.line,

@@ -534,6 +534,53 @@ void NavigationSystem::ExecIls(void)
 // NavigationSystem::GetILSAttribute
 //---------------------------------------------------------------
 
+// Artscout - 2026: the ILS marker beacons.
+//
+// FF has no marker transmitters in its data, and the MRK BCN lamp's callback (CBEMarkerBeacon) has
+// been an empty stub since 2004 for that reason. The tuned ILS already carries what is needed to place
+// them: the threshold (front) and the inbound course. The outer marker sits 4.5 nm out and the middle
+// marker 3,500 ft out, the textbook spacing. A marker's beam is a fan pointing straight up, so the
+// stretch of approach over which it is heard grows with height -- about 0.6 x height for the outer,
+// 0.4 x for the middle, with sensible floors and caps. That gives roughly ten seconds of outer marker
+// and three of middle at a normal approach speed and glidepath, which is what they sound like.
+int NavigationSystem::GetMarkerBeacon(void)
+{
+    AircraftClass* ac = SimDriver.GetPlayerAircraft();
+
+    if (not ac or mpCurrentIls.rwyidx == 0 or mpCurrentIls.vuID == FalconNullId)
+        return 0;
+
+    const float hdg = (float)mpCurrentIls.heading * DTR;
+    const float dx = mpCurrentIls.frontx - ac->XPos();
+    const float dy = mpCurrentIls.fronty - ac->YPos();
+
+    // x is north and y east, and heading is the inbound course, so this is the distance still to fly
+    // to the threshold along the course (positive on the approach side) and the offset across it.
+    const float along = dx * (float)cos(hdg) + dy * (float)sin(hdg);
+    const float across = -dx * (float)sin(hdg) + dy * (float)cos(hdg);
+    const float height = mpCurrentIls.z - ac->ZPos(); // z is positive down
+
+    if (height <= 0.0f)
+        return 0;
+
+    const float outerDist = 4.5f * 6076.1f;
+    const float middleDist = 3500.0f;
+
+    float outerHalf = 0.6f * height;
+    outerHalf = (outerHalf < 800.0f) ? 800.0f : (outerHalf > 2500.0f) ? 2500.0f : outerHalf;
+
+    float middleHalf = 0.4f * height;
+    middleHalf = (middleHalf < 250.0f) ? 250.0f : (middleHalf > 800.0f) ? 800.0f : middleHalf;
+
+    if ((float)fabs(along - outerDist) < outerHalf and (float)fabs(across) < 6000.0f)
+        return 1;
+
+    if ((float)fabs(along - middleDist) < middleHalf and (float)fabs(across) < 3000.0f)
+        return 2;
+
+    return 0;
+}
+
 BOOL NavigationSystem::GetILSAttribute(Attribute attribute, float* value)
 {
 

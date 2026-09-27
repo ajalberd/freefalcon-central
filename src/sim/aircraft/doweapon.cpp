@@ -77,21 +77,41 @@ void AircraftClass::DoWeapons()
 
     if (Guns)
     {
+        // Artscout - 2026: the gun's own sound. An aircraft whose data still names the stock Vulcan
+        // (ids 25/26/27, the readin defaults) gets the sound for its gun's calibre instead -- a MiG-29's
+        // GSh-301 no longer sounds like an F-16's M61. Rotary guns and aircraft with their own gun
+        // sounds in their data keep what they have. The calibre loop doubles as the start: it is a
+        // burst's steady section, so starting on it is seamless.
+        int gunStart = af->auxaeroData->sndGunStart;
+        int gunLoop = af->auxaeroData->sndGunLoop;
+        int gunEnd = af->auxaeroData->sndGunEnd;
+
+        if (gunStart == 25 and gunLoop == 26 and gunEnd == 27) // readin.cpp defaults (vulstrte/vulloope/vulende)
+        {
+            const int calLoop = GunCalibreSfx(Guns, false);
+
+            if (calLoop)
+            {
+                gunStart = gunLoop = calLoop;
+                gunEnd = GunCalibreSfx(Guns, true);
+            }
+        }
+
         Guns->Exec(&fireFlag, dmx, &platformAngles, targetList, not isDigital);
 
         if (fireFlag)
         {
             if (isDigital)
                 //TJL 11/08/03 Say good bye to the annoying bump sound ;)
-                SoundPos.Sfx(af->auxaeroData->sndGunLoop);
+                SoundPos.Sfx(gunLoop);
 
             else if (IsFiring())
             {
                 if (not SoundPos.IsPlaying(
-                        af->auxaeroData->sndGunStart)) // MLR 2003-11-19
+                        gunStart)) // MLR 2003-11-19
                 {
                     // MonoPrint("Vulcan Loop Sound: Playing\n" );
-                    SoundPos.Sfx(af->auxaeroData->sndGunLoop);
+                    SoundPos.Sfx(gunLoop);
                 }
                 else
                 {
@@ -104,7 +124,7 @@ void AircraftClass::DoWeapons()
                     // so, we get the following line....
                     vulcDist -= 60000.0f * SimLibMajorFrameTime;
                     vulcDist = max(0.0f, vulcDist);
-                    SoundPos.Sfx(af->auxaeroData->sndGunLoop);
+                    SoundPos.Sfx(gunLoop);
                 }
             }
 
@@ -112,7 +132,7 @@ void AircraftClass::DoWeapons()
             {
                 if (not isDigital)
                 {
-                    SoundPos.Sfx(af->auxaeroData->sndGunStart);
+                    SoundPos.Sfx(gunStart);
                     // F4PlaySound( SFX_DEF[ SFX_VULCAN_START ].handle );
                     // MonoPrint("Vulcan Start Sound: Playing\n" );
                 }
@@ -134,7 +154,7 @@ void AircraftClass::DoWeapons()
                 if (not isDigital)
                 {
                     vulcDist = 20000.0f;
-                    SoundPos.Sfx(af->auxaeroData->sndGunEnd);
+                    SoundPos.Sfx(gunEnd);
                 }
 
                 // send stop firing message

@@ -3614,14 +3614,20 @@ int ReadScriptedBriefFile(char *filename, _TCHAR *current_line, C_Window *win,
             //JAM 17Nov03
             {
                 char szTemp[256];
+                // Artscout - 2026 (FRONTS): the weather over the target, which
+                // with fronts is not necessarily the weather at home.
+                int cond = ((WeatherClass *)realWeather)
+                               ->ConditionAtGrid(mec->tx, mec->ty);
 
-                if (realWeather->weatherCondition == SUNNY)
+                szTemp[0] = 0;
+
+                if (cond == SUNNY)
                     sprintf(szTemp, "Sunny ");
-                else if (realWeather->weatherCondition == FAIR)
+                else if (cond == FAIR)
                     sprintf(szTemp, "Fair ");
-                else if (realWeather->weatherCondition == POOR)
+                else if (cond == POOR)
                     sprintf(szTemp, "Poor ");
-                else if (realWeather->weatherCondition == INCLEMENT)
+                else if (cond == INCLEMENT)
                     sprintf(szTemp, "Inclement ");
 
                 _tcscat(current_line, szTemp);
@@ -3659,8 +3665,10 @@ int ReadScriptedBriefFile(char *filename, _TCHAR *current_line, C_Window *win,
 
                 //sprintf(szTemp,"Clouds:           %d",-realWeather->stratusZ/1000);
                 //_tcscat(current_line,szTemp);
+                // Artscout - 2026 (FRONTS): at the target, as CLOUD_TYPE
                 AddNumberToBuffer(
-                    FloatToInt32(-((WeatherClass *)realWeather)->stratusZ /
+                    FloatToInt32(((WeatherClass *)realWeather)
+                                         ->CloudBaseAtGrid(mec->tx, mec->ty) /
                                      1000.0f +
                                  0.5f),
                     current_line);

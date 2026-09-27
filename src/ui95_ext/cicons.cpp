@@ -86,14 +86,17 @@ C_MapIcon::C_MapIcon() : C_Control()
     scale_ = 1.0f;
     LastTime_ = 0;
     CurTime_ = 0;
+    ShadeByStatus_ = false;
 }
 
 C_MapIcon::C_MapIcon(char **stream) : C_Control(stream)
 {
+    ShadeByStatus_ = false;
 }
 
 C_MapIcon::C_MapIcon(FILE *fp) : C_Control(fp)
 {
+    ShadeByStatus_ = false;
 }
 
 C_MapIcon::~C_MapIcon()
@@ -721,7 +724,41 @@ void C_MapIcon::Draw(SCREEN *surface, UI95_RECT *cliprect)
                         }
                     }
 
-                    cur->Icon->Draw(surface, cliprect);
+                    // Artscout - 2026: objective icons darken with damage, so a flattened target
+                    // reads at a glance without the damage overlay. Brightness 1 at full health
+                    // down to g_fCampMapIconMin at 0. The UI blend computes
+                    // image * (front/100)^2 when back is 0 (UIColorTable is v*p/100, applied
+                    // twice), so front = 100*sqrt(brightness); a negative back percent asks
+                    // O_Output::Draw for exactly that (see ooutput.cpp).
+                    {
+                        extern bool g_bCampMapIconHealth;
+                        extern float g_fCampMapIconMin;
+                        long st = cur->Status;
+                        const bool shade = ShadeByStatus_ and g_bCampMapIconHealth and
+                                           st >= 0 and st < 100;
+
+                        if (shade)
+                        {
+                            float mn = g_fCampMapIconMin;
+                            mn = (mn < 0.0f) ? 0.0f : (mn > 1.0f) ? 1.0f : mn;
+                            const float bright = mn + (1.0f - mn) * (float)st * 0.01f;
+                            long front = (long)(100.0f * sqrtf(bright) + 0.5f);
+                            front = (front < 1) ? 1 : (front > 99) ? 99 : front;
+                            cur->Icon->SetFlags(cur->Icon->GetFlags() bitor C_BIT_TRANSLUCENT);
+                            cur->Icon->SetFrontPerc(front);
+                            cur->Icon->SetBackPerc(-1);
+                        }
+
+                        cur->Icon->Draw(surface, cliprect);
+
+                        if (shade)
+                        {
+                            cur->Icon->SetFlags(cur->Icon->GetFlags() bitand
+                                                compl C_BIT_TRANSLUCENT);
+                            cur->Icon->SetFrontPerc(100);
+                            cur->Icon->SetBackPerc(0);
+                        }
+                    }
 
                     if (not(GetFlags() bitand C_BIT_NOLABEL))
                     {
@@ -760,8 +797,10 @@ BOOL C_MapIcon::UpdateInfo(MAPICONLIST *icon, float x, float y, long newstatus,
     if (not icon)
         return (FALSE);
 
+    // Artscout - 2026: a Status change alone now counts too. Objectives never move, so their status
+    // (damage) was never stored after the icon was added -- and the objective icons darken by it.
     if (icon->worldx not_eq x or icon->worldy not_eq y or
-        icon->state not_eq newstate)
+        icon->state not_eq newstate or icon->Status not_eq newstatus)
     {
         if (icon->Status not_eq newstatus)
         {

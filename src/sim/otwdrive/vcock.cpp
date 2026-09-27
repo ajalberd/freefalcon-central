@@ -1,4 +1,5 @@
 #include "graphics/include/canvas3d.h"
+#include "graphics/include/fflog.h" // Artscout - 2026: TEMPORARY, SimLogPitPoint
 #include "graphics/dxengine/openxrbackend.h" // VR: HMD head-tracking (independent of TrackIR)
 #include "graphics/dxengine/d3d12backend.h" // #DX12 A2: neutral eye size (SceneW/H) for the VR hit-test under D3D12
 #include "graphics/dxengine/common/irenderer.h" // #DX12 A3: neutral g_pRenderer (IRenderer) + full ScreenVertex for the controller model
@@ -54,6 +55,7 @@ extern int curColorIdx;
 //MI for ICP stuff
 extern bool g_bRealisticAvionics;
 #include "navsystem.h"
+#include "hmcs.h" // Artscout - 2026: JHMCS symbology
 
 //Wombat778 3D Cockpit variables
 //extern bool g_b3DClickableCockpit;
@@ -1713,6 +1715,26 @@ void OTWDriverClass::VCock_HeadCalc(void)
         headOrigin.z += Ho.z;
     }
 
+    // Artscout - 2026: seat height (SimSeatUp/SimSeatDown, moved in AirframeClass::CockpitSounds). A
+    // body-frame offset exactly like the turbulence above: headPan so the RTT displays keep their
+    // parallax, headOrigin (through ownshipRot) for the camera. z is down in the body frame, hence the
+    // minus. Everything downstream -- the per-eye VR paths included -- builds on these two.
+    {
+        extern float g_fSeatHeight;
+
+        if (g_fSeatHeight not_eq 0.0f)
+        {
+            Tpoint seat, seatW;
+            seat.x = seat.y = 0.0f;
+            seat.z = -g_fSeatHeight;
+            headPan.z += seat.z;
+            MatrixMult(&OTWDriver.ownshipRot, &seat, &seatW);
+            headOrigin.x += seatW.x;
+            headOrigin.y += seatW.y;
+            headOrigin.z += seatW.z;
+        }
+    }
+
     // VR head-tracking (independent of TrackIR / mUseHeadTracking): override the head look
     // angles from the HMD orientation. Runs every 3D frame here, just before the pit draw
     // (VCock_DrawThePit) builds the head matrix from eyePan/eyeTilt/eyeHeadRoll.
@@ -3002,6 +3024,292 @@ static void PitLamp(DrawableBSP *pit, bool powered, int comp, UInt32 on)
         pit->SetSwitchMask(comp, powered ? on : 0);
 }
 
+// Artscout - 2026: the HMCS knob's visible body. The pit model has no geometry on the blank plate below
+// CMDS where the SimHmcsKnobUp/Down hotspot sits, so a small knob is drawn there at runtime: a 16-sided
+// cylinder, a light cap with a pointer at the current detent, four detent ticks on the plate and an
+// "HMCS" legend painted on the plate to its left, lit like a shadowed pit surface (see Col below).
+// Same route as the VR hands (camera-centric points -> TransformCameraCentricPoint ->
+// DrawColorTrisScreen), so it lands at the right depth in each eye; it runs after the pit flush, so it
+// is an overlay (nothing in the pit can hide it). It is placed from the hotspot's own 3dbuttons.dat
+// entry, so a pit without that entry never shows it.
+//
+// kHmcsKnobNormal is the plate's normal in MODEL units (x fwd, y right, z down) measured with pitray.py
+// on the root F-16 pit (LOD 4105). A pit that adds the hotspot somewhere else needs its own.
+static const float kHmcsKnobNormal[3] = {-0.703f, 0.146f, -0.696f};
+
+static void DrawHmcsKnob(RenderOTW* renderer, const Tpoint& headPan, Trotation& headMatrix, int curEye)
+{
+    extern int g_nHmcsLevel;
+    extern IRenderer* g_pRenderer;
+
+    // The hotspot's index, re-found only when the list changes under it (a different pit loaded).
+    static InputFunctionType up = FindFunctionFromString((char*)"SimHmcsKnobUp");
+    static int bi = -1;
+    auto& list = OTWDriver.Button3DList;
+
+    if (not up)
+        return;
+
+    if (bi < 0 or bi >= list.numbuttons or list.buttons[bi].function not_eq up)
+    {
+        bi = -1;
+
+        for (int i = 0; i < list.numbuttons; i++)
+            if (list.buttons[i].function == up)
+            {
+                bi = i;
+                break;
+            }
+    }
+
+    if (bi < 0 or not g_pRenderer)
+        return;
+
+    const float sc = B3D_POSITION_SCALING;
+
+    // This eye's IPD offset in button units along the HEAD's right axis -- the cursor's convention
+    // (VrRayIpd scale, VrHeadRelCursorIpd), so the knob fuses at the same depth as the cursor on it.
+    Tpoint ipdOfs = {0.0f, 0.0f, 0.0f};
+
+    if (curEye >= 0 and g_pOpenXRBackend)
+    {
+        extern float g_fVrRayIpd;
+        extern bool g_bVrHeadRelCursorIpd;
+        Tpoint bv = {0.0f, g_pOpenXRBackend->GetEyeLateralOffsetFeet(curEye) * sc * g_fVrRayIpd, 0.0f};
+
+        if (g_bVrHeadRelCursorIpd)
+            MatrixMult(&headMatrix, &bv, &ipdOfs);
+        else
+            ipdOfs = bv;
+    }
+
+    // Model-frame geometry. Button = model * -sc; camera-centric = button + headPan * sc (+ IPD).
+    const Tpoint& L = list.buttons[bi].loc;
+    const float C[3] = {L.x / -sc, L.y / -sc, L.z / -sc};
+    float n[3] = {kHmcsKnobNormal[0], kHmcsKnobNormal[1], kHmcsKnobNormal[2]};
+    float nl = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+    n[0] /= nl, n[1] /= nl, n[2] /= nl;
+    // a = "up the panel" (forward projected onto it), b = to the pilot's right on the panel.
+    float a[3] = {1.0f - n[0] * n[0], -n[0] * n[1], -n[0] * n[2]};
+    float al = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+    a[0] /= al, a[1] /= al, a[2] /= al;
+    float b[3] = {a[1] * n[2] - a[2] * n[1], a[2] * n[0] - a[0] * n[2], a[0] * n[1] - a[1] * n[0]};
+
+    if (b[1] < 0.0f)
+        b[0] = -b[0], b[1] = -b[1], b[2] = -b[2];
+
+    // Eye in the model frame: the camera-centric origin, mapped back (button = model * -sc).
+    const float E[3] = {(headPan.x * sc + ipdOfs.x) / sc, (headPan.y * sc + ipdOfs.y) / sc,
+                        (headPan.z * sc + ipdOfs.z) / sc};
+
+    auto M = [&](float u, float v, float h, float out[3])
+    {
+        for (int k = 0; k < 3; k++)
+            out[k] = C[k] + a[k] * v + b[k] * u + n[k] * h;
+    };
+    auto Proj = [&](const float m[3], ThreeDVertex* vx) -> bool
+    {
+        Tpoint p = {m[0] * -sc + headPan.x * sc + ipdOfs.x, m[1] * -sc + headPan.y * sc + ipdOfs.y,
+                    m[2] * -sc + headPan.z * sc + ipdOfs.z};
+        renderer->TransformCameraCentricPoint(&p, vx);
+        return vx->csZ < -1.0f; // in front (csZ is negative in front here, as for the hands)
+    };
+    auto Facing = [&](const float m[3], const float nn[3]) -> float
+    {
+        float d[3] = {E[0] - m[0], E[1] - m[1], E[2] - m[2]};
+        float dl = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        return (dl > 1e-6f) ? (d[0] * nn[0] + d[1] * nn[1] + d[2] * nn[2]) / dl : 0.0f;
+    };
+    // Light it the way the pit shader lights a pit surface IN SHADOW (FFObjectLighting in ffemu.hlsl,
+    // FF_COCKPIT branch): the scene ambient scaled by the sun's level, plus the flood/instrument fill
+    // falling off with distance from the eye. The sun's own term is left out on purpose -- in the shader it
+    // is multiplied by the cockpit shadow map, which lives on the GPU, and this console sits under the
+    // canopy sill, so "shadowed" is what the plate around the knob usually is. The one case it misses is
+    // direct sun on the plate, where the knob reads darker than the panel; making the knob real pit
+    // geometry (lit, shadowed and depth-tested by the engine) is the complete fix.
+    float lit[3];
+    {
+        extern GpuLightCPU g_d3d11Sun;
+        extern float g_d3d11Amb[4];
+        extern float g_fPitFillReach;
+        float sunLvl = 0.299f * g_d3d11Sun.Color[0] + 0.587f * g_d3d11Sun.Color[1] + 0.114f * g_d3d11Sun.Color[2];
+        float ambScale = max(0.06f, min(1.0f, sunLvl));
+        float fill[3] = {0.0f, 0.0f, 0.0f};
+
+        if (OTWDriver.pCockpitManager)
+            OTWDriver.pCockpitManager->GetCockpitFill(fill);
+
+        float dx = C[0] - E[0], dy = C[1] - E[1], dz = C[2] - E[2];
+        float reach = (g_fPitFillReach > 0.0f) ? g_fPitFillReach : 0.0f;
+        float fall = (reach > 0.0f) ? max(0.0f, min(1.0f, 1.0f - sqrtf(dx * dx + dy * dy + dz * dz) / reach)) : 0.0f;
+
+        for (int k = 0; k < 3; k++)
+            lit[k] = min(1.0f, g_d3d11Amb[k] * ambScale + fill[k] * fall);
+    }
+    auto Col = [&](float r, float g, float bl) -> unsigned
+    {
+        unsigned rr = (unsigned)(min(1.0f, r * lit[0]) * 255.0f);
+        unsigned gg = (unsigned)(min(1.0f, g * lit[1]) * 255.0f);
+        unsigned bb = (unsigned)(min(1.0f, bl * lit[2]) * 255.0f);
+        return 0xFF000000u | (rr << 16) | (gg << 8) | bb;
+    };
+
+    static std::vector<ScreenVertex> tl;
+    tl.clear();
+    auto Tri = [&](const float q0[3], const float q1[3], const float q2[3], unsigned col)
+    {
+        ThreeDVertex v[3];
+
+        if (not Proj(q0, &v[0]) or not Proj(q1, &v[1]) or not Proj(q2, &v[2]))
+            return;
+
+        for (int k = 0; k < 3; k++)
+        {
+            ScreenVertex s;
+            s.sx = v[k].x;
+            s.sy = v[k].y;
+            s.sz = 0.0f;
+            s.rhw = 1.0f;
+            s.color = col;
+            s.specular = 0;
+            s.tu0 = s.tv0 = s.tu1 = s.tv1 = 0.0f;
+            tl.push_back(s);
+        }
+    };
+    auto Quad = [&](const float q0[3], const float q1[3], const float q2[3], const float q3[3], unsigned col)
+    {
+        Tri(q0, q1, q2, col);
+        Tri(q0, q2, q3, col);
+    };
+
+    const float R = 0.032f, H = 0.028f; // model units (feet): about the CMDS knobs' size
+    const int SEG = 16;
+    const float detent[4] = {-120.0f, -40.0f, 40.0f, 120.0f}; // off, dim, mid, bright; 0 = up the panel
+    float p0[3], p1[3], p2[3], p3[3];
+
+    // Legend "HMCS", painted on the plate to the LEFT of the knob, reading along b like the CMDS legends.
+    // Block letters built from strokes in the plate's own plane, so it foreshortens with the panel and sits
+    // at its depth in each eye -- the bitmap screen font can do neither, and the panel's own lettering is
+    // texture, not a font we can reach. Glyphs live in a unit box (x right, y up); strokes get square caps.
+    {
+        const float LH = 0.016f;                  // letter height, model units (feet)
+        const float LW = 0.70f * LH, GAP = 0.30f * LH, T = 0.19f * LH; // width, spacing, stroke
+        const float right = -0.066f;              // right edge of the word: clear of the -120 deg tick
+        const float u0 = right - (4.0f * LW + 3.0f * GAP), v0 = -0.5f * LH;
+        const unsigned lc = Col(0.92f, 0.92f, 0.92f);
+
+        auto Stroke = [&](float ox, float x0, float y0, float x1, float y1)
+        {
+            float ua = ox + x0 * LW, va = v0 + y0 * LH, ub = ox + x1 * LW, vb = v0 + y1 * LH;
+            float du = ub - ua, dv = vb - va, l = sqrtf(du * du + dv * dv);
+
+            if (l < 1e-6f)
+                return;
+
+            du /= l, dv /= l;
+            float hu = -dv * 0.5f * T, hv = du * 0.5f * T;      // half-width, across the stroke
+            float cu = du * 0.5f * T, cv = dv * 0.5f * T;       // square cap, along it
+            float q0[3], q1[3], q2[3], q3[3];
+            M(ua - cu - hu, va - cv - hv, 0.0f, q0);
+            M(ub + cu - hu, vb + cv - hv, 0.0f, q1);
+            M(ub + cu + hu, vb + cv + hv, 0.0f, q2);
+            M(ua - cu + hu, va - cv + hv, 0.0f, q3);
+            Quad(q0, q1, q2, q3, lc);
+        };
+        // Elliptical arc, angles in degrees (0 = +x, 90 = +y), as short strokes.
+        auto Arc = [&](float ox, float cx, float cy, float rx, float ry, float a0, float a1)
+        {
+            const int n = 7;
+
+            for (int i = 0; i < n; i++)
+            {
+                float t0 = (a0 + (a1 - a0) * i / n) * DTR, t1 = (a0 + (a1 - a0) * (i + 1) / n) * DTR;
+                Stroke(ox, cx + rx * cosf(t0), cy + ry * sinf(t0), cx + rx * cosf(t1), cy + ry * sinf(t1));
+            }
+        };
+        // Stroke centrelines sit half a stroke inside the box so the outer edges land on it.
+        const float e = 0.5f * T / LW, f = 0.5f * T / LH;
+        float ox = u0;
+        // H
+        Stroke(ox, e, f, e, 1 - f);
+        Stroke(ox, 1 - e, f, 1 - e, 1 - f);
+        Stroke(ox, e, 0.5f, 1 - e, 0.5f);
+        ox += LW + GAP;
+        // M
+        Stroke(ox, e, f, e, 1 - f);
+        Stroke(ox, e, 1 - f, 0.5f, 0.38f);
+        Stroke(ox, 0.5f, 0.38f, 1 - e, 1 - f);
+        Stroke(ox, 1 - e, 1 - f, 1 - e, f);
+        ox += LW + GAP;
+        // C
+        Arc(ox, 0.5f, 0.5f, 0.5f - e, 0.5f - f, 40.0f, 320.0f);
+        ox += LW + GAP;
+        // S: upper bowl round the left, lower bowl round the right
+        Arc(ox, 0.5f, 0.75f - 0.5f * f, 0.5f - e, 0.25f - 0.5f * f, 20.0f, 270.0f);
+        Arc(ox, 0.5f, 0.25f + 0.5f * f, 0.5f - e, 0.25f - 0.5f * f, 90.0f, -160.0f);
+    }
+
+    // Layer order instead of a depth sort: legend and plate ticks, then the sides facing the eye, then the
+    // cap and pointer. The knob is convex, so its visible faces never overlap one another.
+    for (int d = 0; d < 4; d++)
+    {
+        float t = detent[d] * DTR, su = sinf(t), cv = cosf(t), pu = cv * 0.003f, pv = -su * 0.003f;
+        M(su * 0.042f - pu, cv * 0.042f - pv, 0.0f, p0);
+        M(su * 0.042f + pu, cv * 0.042f + pv, 0.0f, p1);
+        M(su * 0.056f + pu, cv * 0.056f + pv, 0.0f, p2);
+        M(su * 0.056f - pu, cv * 0.056f - pv, 0.0f, p3);
+        Quad(p0, p1, p2, p3, Col(0.85f, 0.85f, 0.85f));
+    }
+
+    for (int s = 0; s < SEG; s++)
+    {
+        float t0 = 2.0f * PI * s / SEG, t1 = 2.0f * PI * (s + 1) / SEG, tm = 0.5f * (t0 + t1);
+        float sn[3];
+
+        for (int k = 0; k < 3; k++)
+            sn[k] = a[k] * cosf(tm) + b[k] * sinf(tm);
+
+        M(R * sinf(tm), R * cosf(tm), 0.5f * H, p0);
+        float f = Facing(p0, sn);
+
+        if (f <= 0.0f)
+            continue;
+
+        M(R * sinf(t0), R * cosf(t0), 0.0f, p0);
+        M(R * sinf(t1), R * cosf(t1), 0.0f, p1);
+        M(R * sinf(t1), R * cosf(t1), H, p2);
+        M(R * sinf(t0), R * cosf(t0), H, p3);
+        float g = 0.30f + 0.35f * f;
+        Quad(p0, p1, p2, p3, Col(g, g, g * 1.03f));
+    }
+
+    M(0.0f, 0.0f, H, p0);
+
+    if (Facing(p0, n) > 0.0f)
+    {
+        for (int s = 0; s < SEG; s++)
+        {
+            float t0 = 2.0f * PI * s / SEG, t1 = 2.0f * PI * (s + 1) / SEG;
+            M(0.0f, 0.0f, H, p0);
+            M(R * sinf(t0), R * cosf(t0), H, p1);
+            M(R * sinf(t1), R * cosf(t1), H, p2);
+            Tri(p0, p1, p2, Col(0.78f, 0.80f, 0.82f));
+        }
+
+        int lvl = max(0, min(3, g_nHmcsLevel));
+        float t = detent[lvl] * DTR, su = sinf(t), cv = cosf(t), pu = cv * 0.004f, pv = -su * 0.004f;
+        M(-pu, -pv, H + 0.0005f, p0);
+        M(pu, pv, H + 0.0005f, p1);
+        M(su * R * 0.92f + pu, cv * R * 0.92f + pv, H + 0.0005f, p2);
+        M(su * R * 0.92f - pu, cv * R * 0.92f - pv, H + 0.0005f, p3);
+        Quad(p0, p1, p2, p3, Col(0.08f, 0.08f, 0.08f));
+    }
+
+    if (not tl.empty())
+        g_pRenderer->DrawColorTrisScreen(tl.data(), (int)tl.size(), NULL, 1, 0);
+
+}
+
 void OTWDriverClass::VCock_Exec(void)
 {
 #if 1
@@ -3244,9 +3552,39 @@ void OTWDriverClass::VCock_Exec(void)
                 g_pRenderer->SetCockpitFill(fill[0], fill[1], fill[2]);
         }
 
+        // Artscout - 2026: the light the RTT canvases composite at (VirtualDisplay::DrawRttQuad). Self-lit
+        // displays run from DisplayNightLevel in the dark up to full brightness in daylight, so an MFD
+        // stops glaring at night; the BRT rockers still scale the picture on top. Surfaces -- the
+        // kneeboard -- take the same light the 2D pit art is tinted by: environment plus flood.
+        {
+            extern float g_rttEmissiveLight, g_rttSurfaceLight[3];
+            extern float g_fDisplayNightLevel;
+
+            float env = TheTimeOfDay.GetLightLevel();
+            env = (env < 0.0f) ? 0.0f : (env > 1.0f) ? 1.0f : env;
+
+            float night = g_fDisplayNightLevel;
+            night = (night < 0.0f) ? 0.0f : (night > 1.0f) ? 1.0f : night;
+            g_rttEmissiveLight = night + (1.0f - night) * env;
+
+            float surface[3] = {env, env, env};
+            float instrument[3];
+
+            if (pCockpitManager)
+                pCockpitManager->ComputeLightFactors(surface, instrument);
+
+            for (int i = 0; i < 3; i++)
+                g_rttSurfaceLight[i] = surface[i];
+        }
+
         //******************************************
         // New 3D cockpit Lights
         //******************************************
+        // Artscout - 2026: MRK BCN -- blue over the outer marker, amber over the middle, from the same
+        // placement the marker tones use (NavigationSystem::GetMarkerBeacon).
+        PitLamp(vrCockpit, pitPowered, COMP_3DPIT_MRK_BCN,
+                gNavigationSys ? (UInt32)gNavigationSys->GetMarkerBeacon() : 0);
+
         // Caution Panel lights
         PitLamp(vrCockpit, pitPowered,
                 COMP_3DPIT_FAULT_COL1_1,
@@ -5197,7 +5535,12 @@ void OTWDriverClass::VCock_Exec(void)
         }
 
         if (vHUDrenderer)
+        {
+            extern bool g_bRttLightExempt;
+            g_bRttLightExempt = true; // the HUD dims itself (HudClass::SetLightLevel)
             vHUDrenderer->DrawRttQuad();
+            g_bRttLightExempt = false;
+        }
 
         if (hudGlass)
         {
@@ -5241,6 +5584,18 @@ void OTWDriverClass::VCock_Exec(void)
 
         }
 
+        // Artscout - 2026: MFD sun glare -- only the two MFD composites below reflect the sun (DrawRttQuad
+        // adds a veil where the pit shadow map says the sun reaches the glass). The HUD is collimated light,
+        // the DED/RWR/PFL are left as they were.
+        {
+            extern bool g_bRttGlare;
+            extern float g_rttGlareScale;
+            extern Trotation g_rttGlareRot;
+            g_bRttGlare = true;
+            g_rttGlareScale = 1.0f / RTT_POSITION_SCALING;
+            g_rttGlareRot = OTWDriver.ownshipRot;
+        }
+
         if (g_b3dMFDLeft)
         {
             // Artscout - 2026: composite via MFDClass so THIS MFD's atlas zone/3D-panel canvas are
@@ -5260,6 +5615,10 @@ void OTWDriverClass::VCock_Exec(void)
             {
                 MfdDisplay[1]->DrawRttComposite();
             }
+        }
+        {
+            extern bool g_bRttGlare;
+            g_bRttGlare = false; // Artscout - 2026: MFD glare disarmed after the MFDs
         }
         g_rttCanvasFwd =
             0.0f; // Artscout - 2026 (VR DX12 quad): reset the DED/PFL/MFD forward-push
@@ -5840,6 +6199,100 @@ void OTWDriverClass::VCock_Exec(void)
                 }
                 gTimeLastMouseMove = vuxRealTime;
             }
+        }
+    }
+
+    // Artscout - 2026: TEMPORARY -- SimLogPitPoint. Logs the current aim ray (mouse or controller) in
+    // model units so a point on the cockpit can be found offline by intersecting it with the pit model's
+    // own triangles (how the MRK BCN lamp is being placed). The ray lives in the camera-centric button
+    // frame: the eye at the origin and every hotspot shifted by headPan * B3D_POSITION_SCALING. So the eye
+    // in the plain button frame is -headPan * sc, and the model frame is the button frame / -569 (see the
+    // 3dbuttons.dat header). The snapped hotspot, if any, is logged too, to validate the conversion.
+    {
+        extern bool g_bLogPitPoint;
+
+        if (g_bLogPitPoint)
+        {
+            g_bLogPitPoint = false;
+            char line[400];
+
+            if (g_vrRayActive)
+            {
+                const float sc = B3D_POSITION_SCALING;
+                Tpoint eyeB = {g_vrRayOrigin.x - headPan.x * sc, g_vrRayOrigin.y - headPan.y * sc,
+                               g_vrRayOrigin.z - headPan.z * sc};
+                const int b = g_vrCursorAnchorButton;
+                const Tpoint loc = (b >= 0 and b < Button3DList.numbuttons) ? Button3DList.buttons[b].loc
+                                                                             : Tpoint{0.0f, 0.0f, 0.0f};
+                sprintf_s(line,
+                          "PITPOINT eyeModel %.4f %.4f %.4f dirModel %.5f %.5f %.5f button %d loc %.1f %.1f %.1f\n",
+                          eyeB.x / -sc, eyeB.y / -sc, eyeB.z / -sc, -g_vrRayDir.x, -g_vrRayDir.y, -g_vrRayDir.z,
+                          b, loc.x, loc.y, loc.z);
+                FFDebugLog(line);
+                sprintf_s(line, "PITPOINT anchorModel %.4f %.4f %.4f snapped %d\n",
+                          (g_vrCursorAnchor.x - headPan.x * sc) / -sc, (g_vrCursorAnchor.y - headPan.y * sc) / -sc,
+                          (g_vrCursorAnchor.z - headPan.z * sc) / -sc, (int)g_vrCursorAnchorSnapped);
+            }
+            else if (not xrPick)
+            {
+                // FLAT: the ray through the 2D mouse cursor. One eye, so the cursor lies exactly on the panel
+                // and a single click places the point (VR needs one per eye, averaged). Rather than re-derive
+                // the projection's axes and signs, find the direction that PROJECTS onto the cursor with the
+                // same camera the hit-test uses: d = fwd + u*right + v*up is ~affine in pixels, so a few
+                // Newton steps on (u,v) with a finite-difference Jacobian land on it to well under a pixel.
+                renderer->SetFOV(GetFOV());
+                renderer->SetCamera(&headOrigin, &headMatrix);
+                const Tpoint c1 = {headMatrix.M11, headMatrix.M21, headMatrix.M31};
+                const Tpoint c2 = {headMatrix.M12, headMatrix.M22, headMatrix.M32};
+                const Tpoint c3 = {headMatrix.M13, headMatrix.M23, headMatrix.M33};
+                auto Proj = [&](float u, float v, float* px, float* py)
+                {
+                    Tpoint d = {(c1.x + u * c2.x + v * c3.x) * 1000.0f, (c1.y + u * c2.y + v * c3.y) * 1000.0f,
+                                (c1.z + u * c2.z + v * c3.z) * 1000.0f};
+                    ThreeDVertex t;
+                    renderer->TransformCameraCentricPoint(&d, &t);
+                    *px = t.x;
+                    *py = t.y;
+                };
+                float u = 0.0f, v = 0.0f, err = 0.0f;
+
+                for (int it = 0; it < 6; it++)
+                {
+                    const float h = 0.01f;
+                    float x0, y0, xu, yu, xv, yv;
+                    Proj(u, v, &x0, &y0);
+                    Proj(u + h, v, &xu, &yu);
+                    Proj(u, v + h, &xv, &yv);
+                    float ex = (float)gxPos - x0, ey = (float)gyPos - y0;
+                    err = sqrtf(ex * ex + ey * ey);
+                    float a = (xu - x0) / h, b = (xv - x0) / h, cc = (yu - y0) / h, dd = (yv - y0) / h;
+                    float det = a * dd - b * cc;
+
+                    if (fabsf(det) < 1e-6f or err < 0.05f)
+                        break;
+
+                    u += (dd * ex - b * ey) / det;
+                    v += (a * ey - cc * ex) / det;
+                }
+
+                const float sc = B3D_POSITION_SCALING;
+                Tpoint dir = {c1.x + u * c2.x + v * c3.x, c1.y + u * c2.y + v * c3.y, c1.z + u * c2.z + v * c3.z};
+                float n = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+                // Same output frame as the VR line above: the eye sits at the camera-centric origin, so in the
+                // plain button frame it is -headPan*sc, and model = button / -sc. dir is NOT negated like the VR one: the solve starts from
+                // the head's forward column, so it is already in the model sense (x forward). The button frame is
+                // its mirror (ICP at X = -740), and the perspective divide cannot tell d from -d, which is how the
+                // first cut of this logged the ray backwards.
+                sprintf_s(line,
+                          "PITPOINT eyeModel %.4f %.4f %.4f dirModel %.5f %.5f %.5f button -1 loc 0 0 0 flat mouse %d %d resid %.2fpx\n",
+                          headPan.x, headPan.y, headPan.z, dir.x / n, dir.y / n, dir.z / n, gxPos, gyPos, err);
+            }
+            else
+            {
+                sprintf_s(line, "PITPOINT no aim ray this frame (VR mouse/controller pointing only)\n");
+            }
+
+            FFDebugLog(line);
         }
     }
 
@@ -6516,13 +6969,47 @@ void OTWDriverClass::VCock_Exec(void)
     vcInfo.vFTITrenderer->Line(x1, y1, x2, y2);
 #endif
 
+    // Artscout - 2026: JHMCS (hmcs.h/hmcs.cpp). Symbology is projected per eye at optical infinity with
+    // THIS view's own camera -- the same per-eye setup the cursor uses (VrSetEyeCam), or the flat pit's
+    // perspective -- so it fuses in the headset instead of floating at the screen centre in one depth.
+    // Quad-views: focus views only, for the same low-res-periphery/seam reason as the cursor ring.
+    // The HMCS knob (DrawHmcsKnob) is part of the pit, so it draws in every view, like the hands.
+    {
+        const bool cueing = Hmcs_Cueing(otwPlatform.get());
+        const bool knob = Hmcs_Equipped(SimDriver.GetPlayerAircraft());
+
+        if (cueing or knob)
+        {
+            int curEye = -1;
+
+            if (xrPick)
+            {
+                curEye = max(0, g_pOpenXRBackend->CurrentEye());
+                VrSetEyeCam(curEye);
+            }
+            else
+            {
+                renderer->SetFOV(GetFOV());
+                renderer->SetCamera(&headOrigin, &headMatrix);
+            }
+
+            if (knob)
+                DrawHmcsKnob(renderer, headPan, headMatrix, curEye);
+
+            if (cueing and not(xrPick and g_pOpenXRBackend->IsQuadViews() and curEye < 2))
+                Hmcs_Draw(renderer, &headMatrix);
+        }
+    }
+
     // 2001-01-31 ADDED BY S.G. SO HMS EQUIPPED PLANE HAS TWO GREEN CONCENTRIC CIRCLE IN PADLOCK VIEW
+    // Artscout - 2026: kept for g_nHmcs 0 (and anywhere the HMCS is not cueing); the HMCS above replaces it.
     VehicleClassDataType* vc =
         (VehicleClassDataType*)
             Falcon4ClassTable[otwPlatform->Type() - VU_LAST_ENTITY_TYPE]
                 .dataPtr;
 
-    if (vc and vc->Flags bitand 0x20000000)
+    if (vc and vc->Flags bitand 0x20000000 and
+        not Hmcs_Cueing(otwPlatform.get()))
     {
         MissileClass* theMissile;
         theMissile = (MissileClass*)(SimDriver.GetPlayerAircraft()

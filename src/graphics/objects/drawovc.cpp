@@ -30,6 +30,10 @@ Drawable2DCloud::Drawable2DCloud() : DrawableObject(1.0f)
     radius = 1.f;
     layerRadius = 0;
     drawClassID = realClouds;
+    // Artscout - 2026: DrawableObject's ctor leaves position uninitialised and nothing calls
+    // Update() (the only writer of position / cloudTexture), so Draw() would build an 80,000 ft quad
+    // from garbage. Zero it here; Draw() also refuses to run until Update() has given it a texture.
+    position.x = position.y = position.z = 0.0f;
 }
 
 Drawable2DCloud::~Drawable2DCloud(void)
@@ -52,6 +56,10 @@ void Drawable2DCloud::Draw(class RenderOTW *renderer, int)
 {
     // if inside an overcast, no draw
     if (realWeather->InsideOvercast())
+        return;
+
+    // Artscout - 2026: never Update()d -> no position, no texture. Nothing to draw.
+    if (not cloudTexture.TexHandle())
         return;
 
     Tpoint ws;

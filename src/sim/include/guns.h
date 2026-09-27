@@ -189,4 +189,11 @@ public:
     WeaponClassDataType *wcPtr; // pointer to weapon class data
 };
 
+// Artscout - 2026: the firing sound for a gun, chosen by its calibre (read from the weapon name, which
+// always starts with it: "30mm GSH-30-2", "12.7mm Quad", "40mm Bofors"). Returns the EXTERNAL loop
+// (end = false) or end (end = true) sound id -- each is linked to its in-cockpit take -- or 0 when the
+// gun keeps the stock sound: rotary guns (M61, GAU-8/12, GSh-N-30, Phalanx) already sound like the
+// Vulcan they are, and heavy guns fire shells with their own boom.
+int GunCalibreSfx(SimWeaponClass *gun, bool end);
+
 #endif

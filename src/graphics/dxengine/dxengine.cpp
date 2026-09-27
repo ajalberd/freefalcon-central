@@ -406,6 +406,49 @@ void CDXEngine::SetSunLight(float Ambient, float Diffuse, float Specular)
     TheSun.dcvSpecular.b = TheSunColour.b * Specular;
 
 #ifndef DEBUG_ENGINE
+    // Artscout - 2026: the sun's COLOUR from the time of day. TheSunColour is a D3D7 leftover that is
+    // white forever, so the sun lit objects (and their specular glint) white at sunset while the
+    // terrain went orange -- and the TOD table keeps Diffuse at 0.45 and Specular at 1.3 right up to
+    // 18:45, so the glint stayed bright too. The table's TextureLighting is what carries the dusk:
+    // (0.75 0.83 0.85) at noon, (0.5 0.35 0.25) at 18:45, (0.25 0.15 0.1) at 19:00.
+    //   Hue:  its chromaticity (divided by its largest channel), blended in by SunTodTint.
+    //         The table is slightly cool at midday (0.88 0.98 1 at noon), white at 07:30.
+    //   Dim:  its brightness relative to SunTodDimRef -- 1 while it is above the reference (all of
+    //         daytime, so the noon LEVEL is unchanged), falling with it as the sun goes down.
+    //         0 = no dimming.
+    // Only the SUN is changed (diffuse + specular, which FlushBuffers and every object light read);
+    // the ambient (sky light) keeps its level and colour.
+    {
+        extern float g_fSunTodTint, g_fSunTodDimRef;
+        Tcolor tl;
+        TheTimeOfDay.GetTextureLightingColor(&tl);
+        float m = tl.r;
+        if (tl.g > m)
+            m = tl.g;
+        if (tl.b > m)
+            m = tl.b;
+        if (m > 1e-4f)
+        {
+            const float k = (g_fSunTodTint < 0.0f) ? 0.0f :
+                            (g_fSunTodTint > 1.0f) ? 1.0f : g_fSunTodTint;
+            float dim = 1.0f;
+            if (g_fSunTodDimRef > 0.0f && m < g_fSunTodDimRef)
+                dim = m / g_fSunTodDimRef;
+            const float hue[3] = {tl.r / m, tl.g / m, tl.b / m};
+            float f[3];
+            for (int c = 0; c < 3; ++c)
+                f[c] = (1.0f + k * (hue[c] - 1.0f)) * dim;
+            TheSun.dcvDiffuse.r *= f[0];
+            TheSun.dcvDiffuse.g *= f[1];
+            TheSun.dcvDiffuse.b *= f[2];
+            TheSun.dcvSpecular.r *= f[0];
+            TheSun.dcvSpecular.g *= f[1];
+            TheSun.dcvSpecular.b *= f[2];
+        }
+    }
+#endif
+
+#ifndef DEBUG_ENGINE
     TheTimeOfDay.GetLightDirection((Tpoint *)&LightDir);
     LightDir.x = -LightDir.x;
     LightDir.y = -LightDir.y;
@@ -2080,11 +2123,41 @@ bool CDXEngine::RenderPitShadowMap(void)
 
     // The pit model's own extent, in model units (the same units the vertex data uses; the pit draws
     // at scale 1 under the DX engine -- see COCKPIT-OVERHAUL.md).
-    const float minX = objInst->ParentObject->minX, maxX = objInst->ParentObject->maxX;
-    const float minY = objInst->ParentObject->minY, maxY = objInst->ParentObject->maxY;
-    const float minZ = objInst->ParentObject->minZ, maxZ = objInst->ParentObject->maxZ;
+    //   Artscout - 2026: the parent record's box is STALE and must not be trusted as the fit. For the
+    // F-16CJ pit it claims x -21.1..1.1 y +-9.3 z -7.3..3.2, while LOD 4105's own vertices span
+    // x -52.3..14.3 y +-15.5 z -8.2..3.9 (tools/models/lodbounds.py) -- everything ahead of x = 1.1,
+    // i.e. the glare shield, the instrument panel and the MFDs, was outside the fitted map. The real
+    // bounds are the whole jet (wings and tail ride the pit LOD for the view out), far too big for one
+    // 1024 map. So fit a box of +-PitShadowFitReach around the model origin instead -- the origin is
+    // the pilot's eye (the MFDs sit 2 ft ahead, 1 ft down, centred), and the occluders that matter
+    // (canopy bow and frame, glare shield, seat, rails) are all within a few feet of it. 0 = the old
+    // parent-record box.
+    extern float g_fPitShadowFitReach;
+    float minX = objInst->ParentObject->minX, maxX = objInst->ParentObject->maxX;
+    float minY = objInst->ParentObject->minY, maxY = objInst->ParentObject->maxY;
+    float minZ = objInst->ParentObject->minZ, maxZ = objInst->ParentObject->maxZ;
+    if (g_fPitShadowFitReach > 0.0f)
+    {
+        minX = minY = minZ = -g_fPitShadowFitReach;
+        maxX = maxY = maxZ = g_fPitShadowFitReach;
+    }
     if (maxX - minX < 1.0e-3f || maxY - minY < 1.0e-3f || maxZ - minZ < 1.0e-3f)
         return false;
+    {
+        // Once per session: the box the shadow map is fitted to. The "[GLARE] mfd" corners
+        // (DrawRttQuad) should fall inside it, or the MFD glass is outside the map.
+        static bool s_said = false;
+        if (!s_said)
+        {
+            char ln[200];
+            _snprintf(ln, sizeof(ln),
+                      "[GLARE] pit shadow fit x %.2f..%.2f y %.2f..%.2f z %.2f..%.2f\n", minX,
+                      maxX, minY, maxY, minZ, maxZ);
+            ln[sizeof(ln) - 1] = 0;
+            FFDebugLog(ln);
+            s_said = true;
+        }
+    }
 
     // The sun, in the pit's model frame. LightDir is the RAY direction (away from the sun; see
     // SetSunLight), and the item's RotMatrix is the pit's world rotation. Row-vector convention:

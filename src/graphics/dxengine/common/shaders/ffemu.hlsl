@@ -170,6 +170,17 @@ cbuffer cbRender : register(b3)
     // already carries the environment as gAmbient, so this is only the knobs' contribution. MUST
     // match CBRender's cockpitFill in d3d12renderer.cpp.
     float4 gCockpitFill;
+    // Artscout - 2026: MFD sun glare (FF_RTTSOFT, only while an MFD composites -- see DrawRttQuad). The
+    // display's glass in the pit's MODEL frame, so the composite can run the cockpit shadow lookup:
+    //   pos = gGlare0.xyz + s*gGlare1.xyz + t*gGlare2.xyz, s/t from the atlas UV:
+    //   s = (uv.x - gGlare1.w) * gGlare3.w, t = (uv.y - gGlare2.w) * gGlare4.w.
+    // gGlare3.xyz = the glass normal (model), gGlare4.rgb = sun colour * strength * N.L (CPU), gGlare0.w =
+    // 1 when armed. MUST match CBRender's glare in d3d12renderer.cpp.
+    float4 gGlare0;
+    float4 gGlare1;
+    float4 gGlare2;
+    float4 gGlare3;
+    float4 gGlare4;
 };
 
 //============================ Lighting =======================================
@@ -1985,6 +1996,17 @@ float4 PS_Main(VSOut i) : SV_Target
             // but without a hard cut. Tune freely (runtime shader): 1.0 neutral, 2.0 ~as before.
             c.rgb *= t0.rgb * 1.5f;
             c.a    = i.Color.a;
+            // Artscout - 2026: MFD sun glare. A display's own light never changes in shade; what does is
+            // the sunlight its glass reflects, which washes the black out and eats contrast. Added here as
+            // a sun-coloured veil wherever the pit's shadow map says the sun reaches the glass -- crisp in
+            // the canopy-bow shadow, washed in direct sun. The blend is SRC_ALPHA,ONE, so divide by alpha.
+            if (gGlare0.w > 0.5f)
+            {
+                const float2 st = (i.Uv0 - float2(gGlare1.w, gGlare2.w)) * float2(gGlare3.w, gGlare4.w);
+                const float3 posL = gGlare0.xyz + st.x * gGlare1.xyz + st.y * gGlare2.xyz;
+                const float  sun  = CockpitSunShadow(gGlare3.xyz, posL);
+                c.rgb += gGlare4.rgb * sun / max(c.a, 1.0e-3f);
+            }
         }
         else
         {

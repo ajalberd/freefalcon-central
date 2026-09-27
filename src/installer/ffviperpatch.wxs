@@ -209,6 +209,7 @@
       <!-- art\ckptart\ (DED color etc.) -->
       <Component Directory="dCkptart">
         <File Source="res\art\ckptart\3Dckpit.dat" />
+        <File Source="res\art\ckptart\3dbuttons.dat" /> <!-- Artscout - 2026: clickable-pit table (HMCS knob etc.) -->
       </Component>
 
       <!-- Artscout - 2026: whole-folder overlays (wildcard harvest). art\ckptart\controllers\ = VR controller
