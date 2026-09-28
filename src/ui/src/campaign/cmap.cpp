@@ -2946,7 +2946,9 @@ static void RailStampPoint(void *vctx, int route, int index, float simX, float s
     RailSimToOverlay(c, simX, simY, &px, &py);
 
     if (index > 0 and route == c->route)
-        StampOverlayLine(c->overlay, c->w, c->h, c->lx, c->ly, px, py, 2, CAMP_TINT_MAX - 2);
+        // Width 1 = a single overlay pixel (StampOverlayLine's radius is thick / 2, so 2 drew
+        // three pixels -- 1.5 km -- and read as a road-sized band at any zoom).
+        StampOverlayLine(c->overlay, c->w, c->h, c->lx, c->ly, px, py, 1, CAMP_TINT_MAX - 2);
 
     c->route = route;
     c->lx = px;
