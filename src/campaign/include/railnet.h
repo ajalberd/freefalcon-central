@@ -30,4 +30,21 @@ int RailMoveTrain(UnitClass *u);
 bool RailTrainPose(UnitClass *u, int car, float *x, float *y, float *yaw,
                    float *speed);
 
+// Campaign map (UI thread). Both copy out under the module's lock and load
+// rail.txt on first use, so the map can draw the routes even with trains off.
+//
+// Calls fn once per route point, in order; returns how many routes there are.
+typedef void (*RailPointFn)(void *ctx, int route, int index, float simX, float simY);
+int RailVisitRoutes(RailPointFn fn, void *ctx);
+
+struct RailTrainInfo
+{
+    float simX, simY; // lead car
+    int team;
+    int moving;
+};
+
+// Running trains, up to `max`; returns how many were written.
+int RailGetTrains(RailTrainInfo *out, int max);
+
 #endif

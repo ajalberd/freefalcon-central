@@ -89,6 +89,7 @@ static long EditMode;
 // Artscout - 2026: declared out here -- a block-scope extern inside the
 // namespace would name FilterSaveStuff::g_bCampFlotLine, which does not exist.
 extern bool g_bCampFlotLine;
+extern bool g_bCampRailLines; // Artscout - 2026: the Rail lines toggle, saved beside the FLOT
 extern bool ControlsXml_ActiveProfilePath(char *out, int outSize);
 
 namespace FilterSaveStuff
@@ -216,6 +217,8 @@ static void LoadFilters()
             campLayer = v;
         else if (strcmp(line, "flot") == 0)
             g_bCampFlotLine = v not_eq 0;
+        else if (strcmp(line, "rail") == 0)
+            g_bCampRailLines = v not_eq 0;
         else
         {
             for (int i = 0; i < END_OF_ENUM__USED_FOR_SIZE; i++)
@@ -250,6 +253,7 @@ void SaveFilters()
         fprintf(fp, "%s=%d\n", filterNames[i], filterState[i] ? 1 : 0);
 
     fprintf(fp, "layer=%ld\nflot=%d\n", campLayer, g_bCampFlotLine ? 1 : 0);
+    fprintf(fp, "rail=%d\n", g_bCampRailLines ? 1 : 0);
     fclose(fp);
 }
 } // namespace FilterSaveStuff, end Retro 26/10/03
@@ -758,6 +762,23 @@ void MenuToggleFlotCB(long, short, C_Base *)
         return;
 
     g_bCampFlotLine = menu->GetItemState(MID_CAMP_FLOT) ? true : false;
+
+    gMapMgr->ShowCampaignOverlay(campLayer);
+    gMapMgr->DrawMap();
+    FilterSaveStuff::SaveFilters();
+}
+
+// Artscout - 2026: the Rail lines toggle -- the FLOT's twin (railnet.cpp routes and trains).
+void MenuToggleRailCB(long, short, C_Base *)
+{
+    using namespace FilterSaveStuff;
+
+    C_PopupList *menu = gPopupMgr->GetMenu(MAP_POP);
+
+    if (not menu or not gMapMgr)
+        return;
+
+    g_bCampRailLines = menu->GetItemState(MID_CAMP_RAIL) ? true : false;
 
     gMapMgr->ShowCampaignOverlay(campLayer);
     gMapMgr->DrawMap();
@@ -2012,6 +2033,7 @@ void SetMapSettings()
         {
             extern bool g_bCampFlotLine;
             menu->SetItemState(MID_CAMP_FLOT, g_bCampFlotLine ? 1 : 0);
+            menu->SetItemState(MID_CAMP_RAIL, g_bCampRailLines ? 1 : 0);
 
             if (gMapMgr)
                 gMapMgr->ShowCampaignOverlay(campLayer);
@@ -3401,6 +3423,17 @@ void HookupCampaignMenus()
             {
                 menu->SetCallback(MID_CAMP_FLOT, MenuToggleFlotCB);
                 menu->SetItemState(MID_CAMP_FLOT, g_bCampFlotLine ? 1 : 0);
+            }
+        }
+
+        // Artscout - 2026: Rail lines, beside the FLOT and for the same reason always present.
+        {
+            static _TCHAR lblRail[] = "Rail lines";
+
+            if (menu->AddItem(MID_CAMP_RAIL, C_TYPE_TOGGLE, lblRail, 0))
+            {
+                menu->SetCallback(MID_CAMP_RAIL, MenuToggleRailCB);
+                menu->SetItemState(MID_CAMP_RAIL, g_bCampRailLines ? 1 : 0);
             }
         }
 

@@ -40,6 +40,7 @@
 #include "ttypes.h"
 #include "camplist.h" // Artscout - 2026: AllObjList, for the campaign overlays
 #include "find.h"
+#include "railnet.h" // Artscout - 2026: railway routes and trains
 
 enum
 {
@@ -2916,6 +2917,83 @@ static void StampFlotLine(BYTE *overlay, long w, long h)
     }
 }
 
+// Artscout - 2026: railway routes and the trains on them (railnet.cpp; rail.txt from
+// tools/campaign-editor/osm_rail.py). A toggle like the FLOT: it composites over whichever layer
+// is live, in that layer's hue, a notch below full strength so the FLOT still reads over it.
+// Route points are continuous campaign km (sim feet / GRID_SIZE_FT), unlike the integer cells
+// CampGridToOverlay takes, so they are converted here with the same scale.
+struct RailStampCtx
+{
+    BYTE *overlay;
+    long w, h;
+    float sx, sy;
+    int route;
+    long lx, ly;
+    long points;
+};
+
+static void RailSimToOverlay(const RailStampCtx *c, float simX, float simY, long *px, long *py)
+{
+    extern short Map_Max_Y;
+    *px = static_cast<long>(simY / GRID_SIZE_FT * c->sx);
+    *py = static_cast<long>((Map_Max_Y - simX / GRID_SIZE_FT) * c->sy);
+}
+
+static void RailStampPoint(void *vctx, int route, int index, float simX, float simY)
+{
+    RailStampCtx *c = static_cast<RailStampCtx *>(vctx);
+    long px, py;
+    RailSimToOverlay(c, simX, simY, &px, &py);
+
+    if (index > 0 and route == c->route)
+        StampOverlayLine(c->overlay, c->w, c->h, c->lx, c->ly, px, py, 2, CAMP_TINT_MAX - 2);
+
+    c->route = route;
+    c->lx = px;
+    c->ly = py;
+    c->points++;
+}
+
+static void StampRailLines(BYTE *overlay, long w, long h)
+{
+    extern short Map_Max_X;
+    extern short Map_Max_Y;
+    extern bool g_bRailMapAllTrains;
+    extern bool g_bLogCampMenu;
+
+    RailStampCtx c = {overlay, w, h,
+                      (Map_Max_X > 0) ? (float)w / (float)Map_Max_X : 2.0f,
+                      (Map_Max_Y > 0) ? (float)h / (float)Map_Max_Y : 2.0f,
+                      -1, 0, 0, 0};
+    const int routes = RailVisitRoutes(RailStampPoint, &c);
+
+    // Trains: your own side's always; the enemy's only with RailMapAllTrains (a test aid) --
+    // once spotted they are on the map anyway, as an ordinary Supply battalion icon.
+    RailTrainInfo trains[32];
+    const int n = RailGetTrains(trains, 32);
+    const int mine = FalconLocalSession ? FalconLocalSession->GetTeam() : -1;
+    int drawn = 0;
+
+    for (int i = 0; i < n; i++)
+    {
+        if (trains[i].team not_eq mine and not g_bRailMapAllTrains)
+            continue;
+
+        long px, py;
+        RailSimToOverlay(&c, trains[i].simX, trains[i].simY, &px, &py);
+        StampOverlayDisc(overlay, w, h, px, py, 6, CAMP_TINT_MAX);
+        drawn++;
+    }
+
+    if (g_bLogCampMenu)
+    {
+        _TCHAR ln[160];
+        sprintf(ln, "[RAIL] %d routes, %ld points, %d trains running, %d drawn\n", routes,
+                c.points, n, drawn);
+        FFDebugLog(ln);
+    }
+}
+
 void C_Map::ShowCampaignOverlay(long which)
 {
     F4CSECTIONHANDLE *Leave;
@@ -2936,8 +3014,10 @@ void C_Map::ShowCampaignOverlay(long which)
     // With every layer off and the FLOT on there is still an overlay to build -- just this one
     // thing in it.
     const bool flot = g_bCampFlotLine and FLOTList and AllObjList;
+    extern bool g_bCampRailLines;
+    const bool rail = g_bCampRailLines and AllObjList;
 
-    if (which == CAMP_OVERLAY_OFF and not flot)
+    if (which == CAMP_OVERLAY_OFF and not flot and not rail)
     {
         Map_->NoOverlay();
         // Artscout - 2026: the overlay is stamped one byte per base-map pixel; the detail
@@ -3378,6 +3458,10 @@ void C_Map::ShowCampaignOverlay(long which)
             }
         }
     }
+
+    // Rail under the FLOT, over the layer.
+    if (rail)
+        StampRailLines(overlay, w, h);
 
     // Last, so it reads over whatever layer is underneath rather than being buried by it. The
     // front is the one line you want to keep your bearings by while looking at something else.

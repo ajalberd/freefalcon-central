@@ -2830,6 +2830,7 @@ void DoTacticalLoop(int startup)
         UpdateTeamStatistics();
         RepairObjectives();
         StandardRebuild();
+        RailCampaignTick(1); // Artscout - 2026: trains in tactical engagements too (railnet.cpp)
         lastStage = stage;
         lastCheck = 0;
     }
@@ -2845,6 +2846,8 @@ void DoTacticalLoop(int startup)
     // Do any stage actions on change
     if (stage not_eq lastStage)
     {
+        RailCampaignTick(0); // Artscout - 2026: respawn trains, follow the front
+
         switch (stage)
         {
         case STAGE_1:

@@ -963,6 +963,10 @@ bool g_bCampMapIconHealth =
     true; // Artscout - 2026: objective icons on the campaign map darken with damage (status 100 = as drawn, 0 = CampMapIconMin brightness), so a flattened target reads at a glance without switching the damage overlay on. 0 = stock icons.
 float g_fCampMapIconMin =
     0.35f; // Artscout - 2026: brightness of a 0%-status objective icon (1 = never darkens). Linear in status between this and 1.
+bool g_bCampRailLines =
+    true; // Artscout - 2026: the campaign map draws the railway routes from the theater's rail.txt (map right-click -> Rail lines). A toggle like the FLOT: it composites over whichever layer is live. Nothing is drawn if the theater has no rail.txt. This is the state it starts in; the menu row is always there. "CampRailLines".
+bool g_bRailMapAllTrains =
+    false; // Artscout - 2026: test aid -- the Rail lines layer marks every running train, not only your own side's. Enemy trains otherwise appear only once spotted, as an ordinary Supply battalion icon. "RailMapAllTrains".
 bool g_bRailTrains =
     false; // Artscout - 2026: run trains on the rail routes in the theater's terrain folder (rail.txt, from tools/campaign-editor/osm_rail.py). Each configured route gets one Supply battalion flagged as a train (U_TRAIN) that shuttles between a friendly supply hub and a point short of the front; it can be spotted, bombed and killed like any ground unit, and another comes after RailRespawnHours. Off by default because the trains are real units and are written into saves. "RailTrains".
 char g_strRailTrainLines[0x100] =
@@ -1694,6 +1698,8 @@ static ConfigOption<bool> BoolOpts[] = {
     {"CampMapIconHealth",
      &g_bCampMapIconHealth}, // Artscout - 2026: darken objective icons by damage
     {"RailTrains", &g_bRailTrains}, // Artscout - 2026: trains on the rail routes (railnet.cpp)
+    {"CampRailLines", &g_bCampRailLines}, // Artscout - 2026: campaign map draws the rail routes
+    {"RailMapAllTrains", &g_bRailMapAllTrains}, // Artscout - 2026: mark enemy trains too (test aid)
     {"PitShadow",
      &g_bPitShadow}, // Artscout - 2026: cockpit sun shadows (depth-only pit replay + PS lookup)
     {"ToneMapGT7",

@@ -52,6 +52,7 @@ struct Train
 {
     int route;
     VU_ID id;
+    int team;
     float sRear, sFront;
     double t0;            // game time the current cycle started, seconds
     bool running;         // t0 and the termini are set
@@ -630,7 +631,7 @@ void RailCampaignTick(int startup)
 
             if (not rec)
             {
-                Train fresh = {ri, FalconNullId, 0.0F, 0.0F, 0.0, false, -1.0, false};
+                Train fresh = {ri, FalconNullId, 0, 0.0F, 0.0F, 0.0, false, -1.0, false};
                 g_trains.push_back(fresh);
                 rec = &g_trains.back();
             }
@@ -701,7 +702,10 @@ void RailCampaignTick(int startup)
                 skip = true;
             }
             else
+            {
                 t.noTermini = false;
+                t.team = tm.team;
+            }
         }
 
         if (not skip and u)
@@ -807,4 +811,45 @@ bool RailTrainPose(UnitClass *u, int car, float *x, float *y, float *yaw, float 
         *yaw += 3.14159265F;
 
     return true;
+}
+
+int RailVisitRoutes(RailPointFn fn, void *ctx)
+{
+    std::lock_guard<std::mutex> hold(g_lock);
+
+    if (not LoadRoutes())
+        return 0;
+
+    for (int ri = 0; ri < (int)g_routes.size(); ri++)
+    {
+        const Route &r = g_routes[ri];
+
+        for (int i = 0; i < (int)r.x.size(); i++)
+            fn(ctx, ri, i, r.x[i], r.y[i]);
+    }
+
+    return (int)g_routes.size();
+}
+
+int RailGetTrains(RailTrainInfo *out, int max)
+{
+    std::lock_guard<std::mutex> hold(g_lock);
+    int n = 0;
+    double now = GameSeconds();
+
+    for (const Train &t : g_trains)
+    {
+        if (n >= max or not t.running or t.id == FalconNullId or t.route < 0 or
+            t.route >= (int)g_routes.size())
+            continue;
+
+        float dir, speed, yaw;
+        float s = TrainS(t, now, &dir, &speed);
+        PointAt(g_routes[t.route], s, &out[n].simX, &out[n].simY, &yaw);
+        out[n].team = t.team;
+        out[n].moving = speed > 0.0F;
+        n++;
+    }
+
+    return n;
 }

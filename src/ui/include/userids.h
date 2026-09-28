@@ -2309,6 +2309,8 @@ enum
     MID_CAMP_PKG_SEP = 86157,
     MID_CAMP_PKG_SQ_FIRST = 86160,
     MID_CAMP_PKG_SQ_LAST = 86171,
+    // Artscout - 2026: "Rail lines" -- a toggle like the FLOT (railnet.cpp routes on the map).
+    MID_CAMP_RAIL = 86180,
     MID_UNITS_SQUAD_SQUADRON = 86049,
     MID_UNITS_SQUAD_PACKAGE = 86050,
     MID_OFF = 86100,
