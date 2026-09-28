@@ -13,9 +13,14 @@
 // function of game time, so the campaign thread and the sim thread agree on
 // where it is without handing state to each other.
 //
-// Off unless g_bRailTrains is set. See WIP-NOTES.md, "Rail from OSM".
+// Off unless g_bRailTrains is set. See RAIL.md.
 
 class UnitClass;
+
+// The "Train" unit class: land / unit / battalion / STYPE_UNIT_SUPPLY / this sptype. A copy of
+// the 16-KrAz Supply battalion (class 77) appended to the theater's FALCON4.ct and FALCON4.UCD,
+// and listed in teunits.lst so the TE editor offers it. Any unit of this class is a train.
+#define RAIL_TRAIN_SPTYPE 20
 
 // Campaign thread, at startup and every campaign stage (5 min): load the
 // routes, adopt or spawn one train per configured route, and move its termini

@@ -130,17 +130,25 @@ Off unless `set g_bRailTrains 1` is in `FFViper.cfg`.
 - After a load, a train in the save is picked up again by projecting it onto
   the nearest route.
 - Every decision goes to `FFDebug.log` as `rail: ...` lines.
+- **The Train class.** A unit class of its own: land / unit / battalion /
+  Supply / sptype 20 (`RAIL_TRAIN_SPTYPE`), a copy of the 16-KrAz Supply
+  battalion appended to `FALCON4.ct` and `FALCON4.UCD` and listed in
+  `teunits.lst`. `tools/campaign-editor/install_train_class.py` puts it into
+  an install (idempotent, backs up first). The engine reads those tables only
+  from the theater's `objectdir` (`terrdata\objects` for every Korea theater);
+  the per-campaign `specialdbdir` copies are the editor's and are kept equal.
+  Automatic trains spawn as this class; a theater without it falls back to
+  the Supply battalion. Any Train-class unit becomes a train -- identified by
+  class, so an ordinary Supply battalion is never taken over.
 - **Tactical engagements:** the tick runs from `DoTacticalLoop` too. Place a
   train yourself: right-click the map, **Add Battalion**, Equipment
-  **Arty/Rocket** (that is where `teunits.lst` files Supply), Unit Type
-  **Supply**, and drop it within 3 km of a rail line. The editor normally
-  snaps a new battalion to the nearest objective (a road junction or a town,
-  often kilometres off the track); a Supply battalion dropped on a line now
-  stays where it was dropped. When the TE runs it becomes the nearest line's
-  train (`EnlistPlacedTrains`), for the side you gave it,
-  even on a line not in `g_sRailTrainLines` -- but such a line gets no
-  automatic train and no replacement. In a campaign nothing is enlisted:
-  Supply battalions there are the campaign's own.
+  **Arty/Rocket** (where `teunits.lst` files Supply), Unit Type **Train**.
+  The editor normally snaps a new battalion to the nearest objective (a road
+  junction or a town, often kilometres off the track); a Train stays exactly
+  where it is dropped, and the log says how far that is from a line. Within
+  3 km, it becomes the nearest line's train when the TE runs, for the side
+  you gave it, even on a line not in `g_sRailTrainLines` -- but such a line
+  gets no automatic train and no replacement. Further out, it stays put.
 - **Campaign map:** right-click, **Rail lines** (a toggle beside the FLOT)
   draws the routes and marks your own trains; `g_bRailMapAllTrains 1` marks
   every train. The marks move only when the overlay is rebuilt (toggling

@@ -3171,35 +3171,35 @@ void tactical_create_battalion(long, short hittype, C_Base *)
 
     new_battalion->SetOwner(gSelectedTeam);
 
-    // Artscout - 2026: a Supply battalion dropped on a rail line becomes that line's train when the
-    // engagement runs (railnet.cpp, EnlistPlacedTrains). Snapping it to the nearest objective, as
-    // below, lands it on a road junction or in a town kilometres off the track -- so on a line it
-    // stays exactly where it was dropped. Everything else snaps as it always has.
-    bool onRail = false;
+    // Artscout - 2026: a Train (the Supply sptype RAIL_TRAIN_SPTYPE class, railnet.h) becomes the
+    // nearest rail line's train when the engagement runs (railnet.cpp, EnlistPlacedTrains).
+    // Snapping it to the nearest objective, as below, lands it on a road junction or in a town
+    // kilometres off the track, so a Train always stays exactly where it was dropped.
+    // Everything else snaps as it always has.
+    const bool isTrain = table_of_equipment[gLastUnitType].stype == STYPE_UNIT_SUPPLY and
+                         table_of_equipment[gLastUnitType].sptype == RAIL_TRAIN_SPTYPE;
 
-    if (table_of_equipment[gLastUnitType].stype == STYPE_UNIT_SUPPLY)
+    if (isTrain)
     {
         vector at;
         ConvertGridToSim(MapX, MapY, &at);
         const float km = RailDistanceKm(at.x, at.y);
-        onRail = km >= 0.0F and km < 3.0F;
-
         char ln[200];
 
         if (km < 0.0F)
-            sprintf(ln, "rail: TE placement -- no rail.txt for this theater; Supply battalion snapped as usual\n");
-        else if (onRail)
-            sprintf(ln, "rail: TE placement -- Supply battalion kept where dropped, %.1f km from a rail line; "
-                        "it becomes that line's train when the engagement runs\n", km);
+            sprintf(ln, "rail: TE placement -- Train placed, but this theater has no rail.txt\n");
+        else if (km < 3.0F)
+            sprintf(ln, "rail: TE placement -- Train placed %.1f km from a rail line; "
+                        "it runs on that line when the engagement starts\n", km);
         else
-            sprintf(ln, "rail: TE placement -- Supply battalion %.1f km from the nearest rail line (needs < 3); "
-                        "snapped to the nearest objective as usual, not a train\n", km);
+            sprintf(ln, "rail: TE placement -- Train placed %.1f km from the nearest rail line "
+                        "(needs < 3); it will stay put\n", km);
 
         FFDebugLog(ln);
     }
 
     // Snap battalion to nearest objective
-    o = onRail ? NULL : FindValidObjective(new_battalion, gLastBattalionObjID, MapX, MapY);
+    o = isTrain ? NULL : FindValidObjective(new_battalion, gLastBattalionObjID, MapX, MapY);
 
     if (o)
     {

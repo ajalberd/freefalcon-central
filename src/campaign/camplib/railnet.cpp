@@ -556,13 +556,27 @@ Unit SpawnTrain(const Route &r, const Termini &tm)
     if (not o or IsHostile(tm.team, o->GetTeam()))
         return nullptr;
 
-    // Supply battalion, sptype 1: sixteen KrAz T-255B trucks in the Korea
-    // class table, our boxcars until the train has models of its own.
-    Unit u = NewUnit(DOMAIN_LAND, TYPE_BATTALION, STYPE_UNIT_SUPPLY, 1, NULL);
+    // The Train class (RAIL_TRAIN_SPTYPE): sixteen KrAz T-255B trucks, our boxcars until the
+    // train has models of its own. A theater without it gets the Supply battalion it was
+    // copied from.
+    Unit u = NewUnit(DOMAIN_LAND, TYPE_BATTALION, STYPE_UNIT_SUPPLY, RAIL_TRAIN_SPTYPE, NULL);
 
     if (not u)
     {
-        Log("rail: no Supply battalion class in this theater -- no train on %s",
+        static bool warned = false;
+
+        if (not warned)
+            Log("rail: no Train class (Supply sptype %d) in this theater's FALCON4.ct -- "
+                "trains are plain Supply battalions",
+                RAIL_TRAIN_SPTYPE);
+
+        warned = true;
+        u = NewUnit(DOMAIN_LAND, TYPE_BATTALION, STYPE_UNIT_SUPPLY, 1, NULL);
+    }
+
+    if (not u)
+    {
+        Log("rail: no Supply battalion class in this theater either -- no train on %s",
             r.name.c_str());
         return nullptr;
     }
@@ -581,20 +595,21 @@ Unit SpawnTrain(const Route &r, const Termini &tm)
     return u;
 }
 
-// Tactical engagement: a Supply battalion placed on a rail line (TE editor, right-click the map,
-// Add Battalion, Equipment "Arty/Rocket", Unit Type "Supply") becomes that line's train. TE only --
-// in a campaign the Supply battalions are the campaign's own and must not be taken over.
+bool IsTrainClass(Unit u)
+{
+    return u->GetSType() == STYPE_UNIT_SUPPLY and u->GetSPType() == RAIL_TRAIN_SPTYPE;
+}
+
+// A unit of the Train class that is not running yet -- placed in the TE editor (Add Battalion,
+// Equipment "Arty/Rocket", Unit Type "Train"), or written into a scenario -- becomes the nearest
+// line's train. Identified by class, so an ordinary Supply battalion is never taken over.
 void EnlistPlacedTrains()
 {
-    if (FalconLocalGame->GetGameType() not_eq game_TacticalEngagement)
-        return;
-
     VuListIterator it(AllUnitList);
 
     for (Unit u = GetFirstUnit(&it); u; u = GetNextUnit(&it))
     {
-        if (not u->IsBattalion() or u->IsTrain() or u->IsDead() or
-            u->GetSType() not_eq STYPE_UNIT_SUPPLY)
+        if (not u->IsBattalion() or u->IsTrain() or u->IsDead() or not IsTrainClass(u))
             continue;
 
         // The nearest line, not the first within reach: lines meet at junctions.
@@ -618,8 +633,18 @@ void EnlistPlacedTrains()
             u->SetTrain(1);
             u->SetDontPlan(1);
             u->SetScripted(1);
-            Log("rail: Supply battalion %d placed %.1f km from the %s -- it is that line's train",
+            Log("rail: Train %d placed %.1f km from the %s -- it is that line's train",
                 u->GetCampID(), bestOff / GRID_SIZE_FT, best->name.c_str());
+        }
+        else
+        {
+            // Flag it anyway: a train with no line gets no position from here, so it stays
+            // where it is instead of being driven down the roads by the ground planner.
+            u->SetTrain(1);
+            u->SetDontPlan(1);
+            u->SetScripted(1);
+            Log("rail: Train %d is more than %.0f km from every rail line -- it stays put",
+                u->GetCampID(), ENLIST_REACH_FT / GRID_SIZE_FT);
         }
     }
 }
