@@ -280,7 +280,18 @@ OpenStreetMap instead:
 ```
 python osm_rail.py                       # Korea, into terrdata\korea\rail.json
 python osm_rail.py --theater <tdf> --out somewhere.json
+python osm_rail.py --resnap              # no download: re-run the land pass on rail.json
 ```
+
+**Keeping the lines off the sea.** The fit is good to about a kilometre, so a
+line hugging a coast (the Pyongra Line round Hamhung) kept landing on sea
+tiles. After fitting, `keep_on_land` moves any point on open sea to just inside
+the nearest land cell. The routes are densified first, so a long straight
+segment can't cut across a bay, and simplified again afterwards. Only broad
+water counts: `sea_mask` floods through anything joined to the map edge, river
+mouths included, so a point moves only when at least 40% of the 5×5 km around
+it is water, and a rail bridge over a river stays put. In Korea it moved 274
+points, the furthest by 3 km.
 
 It fetches rail (running lines only: anything with a `service` tag, meaning
 yards, sidings and spurs, is left out) and coastline from the public Overpass

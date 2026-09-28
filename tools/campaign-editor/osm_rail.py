@@ -59,6 +59,10 @@ def main():
                     help='only this OSM line (its name:en), e.g. "Gyeongbu Line";'
                          ' repeat for several')
     ap.add_argument("--out", help="write here instead of <terrain>/rail.json")
+    ap.add_argument("--resnap", action="store_true",
+                    help="no download: take the rail.json already in the terrain "
+                         "folder, pull it off open sea, rebuild the routes and "
+                         "rail.txt")
     args = ap.parse_args()
 
     ws = TheaterWorkspace(args.gamedir, args.theater)
@@ -66,19 +70,28 @@ def main():
     if terr is None:
         raise SystemExit("no renderable terrain for %s (numpy missing?)"
                          % args.theater)
-    doc, debug = rail.build_theater(
-        terr, any_objectives(ws), ws.name_table(),
-        rail.AIRBASES[args.airbases], CACHE, refresh=args.refresh,
-        line=args.line)
-    doc["theater"] = args.theater
-
     out = args.out or os.path.join(terr.dir, rail.FILENAME)
+
+    if args.resnap:
+        src = os.path.join(terr.dir, rail.FILENAME)
+        with open(src, encoding="utf-8") as f:
+            doc = json.load(f)
+        rail.keep_on_land(doc, terr)
+        debug = None
+    else:
+        doc, debug = rail.build_theater(
+            terr, any_objectives(ws), ws.name_table(),
+            rail.AIRBASES[args.airbases], CACHE, refresh=args.refresh,
+            line=args.line)
+        doc["theater"] = args.theater
+
     with open(out, "w", encoding="utf-8") as f:
         json.dump(doc, f, separators=(",", ":"))
-    dbg = debug_path(terr.dir)
-    os.makedirs(os.path.dirname(dbg), exist_ok=True)
-    with open(dbg, "w", encoding="utf-8") as f:
-        json.dump(debug, f, separators=(",", ":"))
+    if debug is not None:
+        dbg = debug_path(terr.dir)
+        os.makedirs(os.path.dirname(dbg), exist_ok=True)
+        with open(dbg, "w", encoding="utf-8") as f:
+            json.dump(debug, f, separators=(",", ":"))
     game = os.path.join(os.path.dirname(out), rail.GAME_FILENAME)
     rail.write_game_file(doc, game)
     for r in doc["routes"]:

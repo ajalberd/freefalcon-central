@@ -742,6 +742,98 @@ def build_routes(lines):
     return routes
 
 
+SHORE_INSET_KM = 0.3     # how far inside the land cell a point pulled off the sea lands
+SEA_WINDOW = 2           # cells each side: a 5x5 km window...
+SEA_BROAD = 0.4          # ...at least this much water = open sea, not a river crossing
+SNAP_REACH = 5           # cells searched for land around a point at sea
+
+
+class LandKeeper:
+    """Moves route points that sit on open sea onto the nearest land.
+
+    The fit is good to about a kilometre, and a line that hugs a coast (the
+    Pyongra Line round Hamhung) keeps landing on sea tiles. Only broad water
+    counts: sea_mask floods through anything joined to the map edge, river
+    mouths included, and a real rail bridge crosses those -- so a point is
+    moved only when at least SEA_BROAD of the 5x5 km around it is water.
+    """
+
+    def __init__(self, sea):
+        self.sea = sea
+        h, w = sea.shape
+        pad = np.pad(sea.astype(np.float32), SEA_WINDOW)
+        k = 2 * SEA_WINDOW + 1
+        acc = np.zeros((h, w), np.float32)
+        for dy in range(k):
+            for dx in range(k):
+                acc += pad[dy:dy + h, dx:dx + w]
+        self.broad = sea & (acc / (k * k) >= SEA_BROAD)
+        self.moved = 0
+        self.worst = 0.0
+
+    def at_sea(self, x, y):
+        h, w = self.sea.shape
+        ix, iy = int(x), int(y)
+        return 0 <= ix < w and 0 <= iy < h and bool(self.broad[iy, ix])
+
+    def to_land(self, x, y):
+        """Nearest point just inside a land cell, or None if none in reach."""
+        h, w = self.sea.shape
+        ix, iy = int(x), int(y)
+        best = None
+        for cy in range(max(0, iy - SNAP_REACH), min(h, iy + SNAP_REACH + 1)):
+            for cx in range(max(0, ix - SNAP_REACH), min(w, ix + SNAP_REACH + 1)):
+                if self.sea[cy, cx]:
+                    continue
+                # Nearest point of that land cell, then pulled toward its centre.
+                px = min(max(x, cx + SHORE_INSET_KM), cx + 1 - SHORE_INSET_KM)
+                py = min(max(y, cy + SHORE_INSET_KM), cy + 1 - SHORE_INSET_KM)
+                d = math.hypot(px - x, py - y)
+                if best is None or d < best[0]:
+                    best = (d, px, py)
+        return best
+
+    def fix(self, pts, densify_km=None):
+        """Points of one polyline, with any at sea moved ashore."""
+        out = []
+        for i, (x, y) in enumerate(pts):
+            if densify_km and i:
+                px, py = pts[i - 1]
+                n = int(math.hypot(x - px, y - py) / densify_km)
+                for k in range(1, n + 1):
+                    t = k / (n + 1.0)
+                    out.append([px + (x - px) * t, py + (y - py) * t])
+            out.append([x, y])
+        for p in out:
+            if self.at_sea(p[0], p[1]):
+                land = self.to_land(p[0], p[1])
+                if land:
+                    self.moved += 1
+                    self.worst = max(self.worst, land[0])
+                    p[0], p[1] = land[1], land[2]
+        return out
+
+
+def keep_on_land(doc, terr, log=print):
+    """Pull lines and routes off open sea; rebuilds the routes. In place."""
+    keeper = LandKeeper(sea_mask(water_mask(terr)))
+    for ln in doc.get("lines", ()):
+        # Vertices only: a line's `seg` flags are one per segment.
+        ln["pts"] = [[round(x, 3), round(y, 3)] for x, y in keeper.fix(ln["pts"])]
+    routes = build_routes(doc.get("lines", ()))
+    for r in routes:
+        # Densified, so a long straight segment cannot cut across a bay,
+        # then simplified again.
+        pts = np.array(keeper.fix(r["pts"], densify_km=0.25), float)
+        pts, _ = simplify(pts, "-" * (len(pts) - 1), 0.05)
+        r["pts"] = [[round(float(x), 3), round(float(y), 3)] for x, y in pts]
+        r["km"] = round(_path_len(r["pts"]), 1)
+    doc["routes"] = routes
+    log("kept on land: %d points moved off open sea, furthest %.2f km"
+        % (keeper.moved, keeper.worst))
+    return keeper.moved
+
+
 def write_game_file(doc, path):
     """rail.txt: what the game reads (it has no JSON parser).
 
@@ -877,6 +969,7 @@ def build_theater(terr, objectives, name_table, airbases, cache_dir,
         "control": control,
         "trackKm": round(km, 1),
         "lines": lines,
-        "routes": build_routes(lines),
+        "routes": [],
     }
+    keep_on_land(doc, terr, log)
     return doc, {"coast": debug_coast(coast, proj, w, h)}

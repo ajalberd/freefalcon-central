@@ -1264,7 +1264,21 @@ def test_rail():
     check(ends == [(0, 0), (100, 0)], "route ends %r, want (0,0) and (100,0)" % ends)
     check(abs(rail._path_len(route) - 100) < 0.1,
           "route is %.1f km, want 100" % rail._path_len(route))
-    print("  ok    merge, simplify, clip, fit, shore distance, route stitching")
+
+    # Keeping lines off the sea: open sea east of x = 20, plus a one-cell river
+    # at x = 8 joined to it (sea_mask would flood it). A point just offshore is
+    # pulled ashore; a point on the river crossing is left alone.
+    sea = np.zeros((40, 40), bool)
+    sea[:, 20:] = True
+    sea[:, 8] = True
+    keeper = rail.LandKeeper(sea)
+    moved = keeper.fix([[20.6, 10.5]])[0]
+    check(moved[0] < 20.0 and not sea[int(moved[1]), int(moved[0])],
+          "offshore point not moved ashore: %r" % (moved,))
+    kept = keeper.fix([[8.5, 10.5]])[0]
+    check(kept == [8.5, 10.5], "river crossing point was moved: %r" % (kept,))
+    print("  ok    merge, simplify, clip, fit, shore distance, route stitching, "
+          "keep on land")
 
 
 def test_script_annotations(ws, camp, campaign_file):
