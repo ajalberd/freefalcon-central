@@ -7,6 +7,7 @@ campaign editor's Rail overlay reads it (and, later, the game will).
 
     python osm_rail.py
     python osm_rail.py --line "Gyeongbu Line"      # one line, to try it out
+    python osm_rail.py --line "Honam Line" --line "Pyongui Line"   # several
     python osm_rail.py --gamedir C:\\FreeFalcon6 --theater terrdata\\theaterdefinition\\korea.tdf
 
 See ffcamp/rail.py for how the fit works. OSM data is ODbL; the file keeps
@@ -54,8 +55,9 @@ def main():
                     help="which table of real airbase positions to fit to")
     ap.add_argument("--refresh", action="store_true",
                     help="download again instead of using the cache")
-    ap.add_argument("--line", metavar="NAME",
-                    help='only this OSM line (its name:en), e.g. "Gyeongbu Line"')
+    ap.add_argument("--line", metavar="NAME", action="append",
+                    help='only this OSM line (its name:en), e.g. "Gyeongbu Line";'
+                         ' repeat for several')
     ap.add_argument("--out", help="write here instead of <terrain>/rail.json")
     args = ap.parse_args()
 

@@ -157,7 +157,7 @@ def fetch_line(name, bbox, cache_dir, refresh=False, log=print):
                         % ((slug,) + tuple(bbox)))
     if refresh or not os.path.isfile(path):
         log("fetching line %r" % name)
-        elements = _query("line", bbox, log, tries=3, name=name)
+        elements = _query("line", bbox, log, tries=8, name=name)
         with open(path + ".part", "w", encoding="utf-8") as f:
             json.dump({"elements": elements}, f)
         os.replace(path + ".part", path)
@@ -713,11 +713,18 @@ def build_theater(terr, objectives, name_table, airbases, cache_dir,
             math.ceil(max(c[1] for c in corners) + 0.3))
     log("theater box %.0f..%.0fN %.0f..%.0fE" % (bbox[0], bbox[2], bbox[1], bbox[3]))
 
-    rail = load_ways(fetch_line(line, bbox, cache_dir, refresh, log) if line
-                     else fetch("rail", bbox, cache_dir, refresh, log))
+    if line:
+        paths = []
+        for name in ([line] if isinstance(line, str) else line):
+            got = fetch_line(name, bbox, cache_dir, refresh, log)
+            if not load_ways(got):
+                raise ValueError("OSM has no railway ways named %r" % name)
+            paths += got
+        rail = load_ways(paths)
+    else:
+        rail = load_ways(fetch("rail", bbox, cache_dir, refresh, log))
     if not rail:
-        raise ValueError("OSM returned no railway ways%s"
-                         % (" named %r" % line if line else ""))
+        raise ValueError("OSM returned no railway ways")
     coast = load_ways(fetch("coast", bbox, cache_dir, refresh, log))
     log("%d coastline ways, %d railway ways" % (len(coast), len(rail)))
 
