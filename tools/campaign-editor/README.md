@@ -269,6 +269,59 @@ a place on the map. In every shipped theater all 85 stations match an
 objective and all 85 of those are airbases. Selecting an airbase shows its
 channel, range and ILS frequency in the detail pane.
 
+### Where the rail comes from
+
+Nowhere in the shipped data. The engine has the hooks (a `Rail` movement
+type, `PATH_RAILOK`, Railroad and Rail-terminal objectives, a rail bit in
+every `.thr` cell, a `COVERAGE_RAIL` tile path type), but every installed
+theater leaves all of them empty. `osm_rail.py` builds the lines from
+OpenStreetMap instead:
+
+```
+python osm_rail.py                       # Korea, into terrdata\korea\rail.json
+python osm_rail.py --theater <tdf> --out somewhere.json
+```
+
+It fetches rail (running lines only: anything with a `service` tag, meaning
+yards, sidings and spurs, is left out) and coastline from the public Overpass
+server. Downloads are split into 2° tiles, and a tile the server times out on
+is quartered, down to 0.25°. Every tile is cached under
+`%TEMP%\ffcamp-rail`, so a second run is offline.
+
+**The fit is the hard part.** Falcon's own lat/long formula
+(`ApproxLatLong`, origin from `Theater.map`) is 45–195 km out in Korea: the
+theater is drawn about 1.25× wide east–west and Japan is squeezed in. So
+`ffcamp/rail.py` fits the projection instead:
+
+1. affine, from real airbase coordinates (`rail.AIRBASES`) to the airbase
+   objectives (outliers dropped). That alone is about 5 km RMS, because the
+   airbases were placed by hand.
+2. polynomial, orders 1 to 3, refined so the OSM coastline lies on the
+   terrain's own shoreline (the edge of the blue ground tiles connected to the
+   map border). The airbases stay in the fit as a light pull, so a straight
+   coast cannot slide along itself.
+
+Korea, first run (2026-09-27): the airbase fit alone puts the median OSM
+coast point 1.48 km from the terrain's shore; the refined fit puts it at
+1.06 km, which is about the resolution of a 1 km tile edge. Orders 2 and 3
+did not beat order 1. The Gyeongbu Line checked by eye lands in central
+Seoul, follows the Nakdong valley beside the river and ends in Busan.
+
+`--line "Gyeongbu Line"` builds a single line (matched on OSM `name:en`), which
+is how to try the pipeline before the whole network. The public server throws
+504s under load and 429s when rate-limited. A 504 splits the tile; a 429
+waits 60 s and asks again, because splitting would only send more requests.
+
+Objective grid indices are cell centres (`GridToSim` adds half a cell), so the
+airbases enter the fit at +0.5 km. The output is in continuous km, the frame
+the terrain tiles are drawn in.
+
+The map's **Rail** button draws the lines: main lines gold, branches orange,
+others grey, bridges white, tunnels dashed. **Rail fit** shows what the fit was
+checked against: the projected coastline in cyan (it should trace the terrain's
+shore) and, for each airbase, a pink line from Falcon's position to the fitted
+real one. OSM data is ODbL; `rail.json` carries the attribution line.
+
 ### Where the icons come from
 
 Each unit and objective type carries an `IconIndex`, and following it takes

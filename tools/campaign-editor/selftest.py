@@ -19,7 +19,7 @@ import threading
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ffcamp import (campdb, campfile, entities, lzss,  # noqa: E402
-                    names, objectives, records, tacan, terrain,
+                    names, objectives, rail, records, tacan, terrain,
                     theater, triggers, uiart, camptext, weather,
                     workspace)
 
@@ -1202,6 +1202,59 @@ def test_dead_actions():
     print("  ok    %s" % ", ".join(sorted(triggers.DEAD_ACTIONS)))
 
 
+def test_rail():
+    """OSM ways merge end to end, keep bridge/tunnel runs, and the fit holds."""
+    print("Rail (OSM) geometry")
+    if rail.np is None:
+        print("  skip  numpy missing")
+        return
+    np = rail.np
+    main = {"railway": "rail", "usage": "main", "name": "Test Line"}
+    bridge = dict(main, bridge="yes")
+    # Three pieces of one line, the middle one a bridge and stored backwards,
+    # plus a branch meeting at a junction (three ways at one node: no merge).
+    ways = [(main, [(0.0, 0.0), (0.0, 1.0)]),
+            (bridge, [(0.0, 2.0), (0.0, 1.0)]),
+            (main, [(0.0, 2.0), (0.0, 3.0)]),
+            (dict(main, usage="branch"), [(0.0, 3.0), (1.0, 3.0)]),
+            (main, [(0.0, 3.0), (0.0, 4.0)])]
+    merged = rail.merge_ways(ways)
+    mains = [m for m in merged if m["cls"][0] == "main"]
+    check(len(merged) == 3, "expected 3 lines after merging, got %d" % len(merged))
+    longest = max(mains, key=lambda m: len(m["pts"]))
+    check(len(longest["pts"]) == 4 and longest["seg"] in ("-b-", "-b-"[::-1]),
+          "bridge run lost in merge: %r" % longest["seg"])
+
+    xy = np.array([[0, 0], [1, 0.01], [2, 0], [3, 0], [4, 0]], float)
+    out, seg = rail.simplify(xy, "--b-", 0.05)
+    check(len(out) == 4 and seg == "-b-",
+          "simplify must keep the bridge ends: %d pts %r" % (len(out), seg))
+    parts = rail.clip(np.array([[-1, 5], [1, 5], [2, 5], [5, 5]], float),
+                      "---", 3, 10)
+    check(len(parts) == 1 and len(parts[0][0]) == 2, "clip kept %r" % parts)
+
+    # A known affine map is recovered exactly from four points.
+    proj = rail.Projection(37.0, 127.0, 1)
+    lat = np.array([36.0, 36.0, 38.0, 38.0, 37.0])
+    lon = np.array([126.0, 128.0, 126.0, 128.0, 127.0])
+    u, v = proj.plane(lat, lon)
+    gx, gy = 400 + 600 * u + 10 * v, 450 + 500 * v
+    proj.fit_points(lat, lon, gx, gy)
+    fx, fy = proj(lat, lon)
+    check(float(np.abs(fx - gx).max() + np.abs(fy - gy).max()) < 1e-6,
+          "affine fit does not reproduce its own points")
+    back = proj.inverse(float(gx[4]), float(gy[4]))
+    check(abs(back[0] - 37.0) + abs(back[1] - 127.0) < 1e-6,
+          "inverse is off: %r" % (back,))
+
+    # Distance field: a straight shore at x = 10 km.
+    sea = np.zeros((32, 32), bool)
+    sea[:, 10:] = True
+    d = rail.shore_distance(rail.sea_mask(sea), cap=16)
+    check(abs(float(d[5, 2]) - 7.0) < 1e-6, "shore distance %r" % d[5, 2])
+    print("  ok    merge, simplify, clip, fit, shore distance")
+
+
 def test_script_annotations(ws, camp, campaign_file):
     """Events written but never tested, and the endgames that are exempt."""
     label = "%s/%s" % (os.path.basename(camp), campaign_file)
@@ -1458,6 +1511,7 @@ def main():
     test_lzss()
     test_specs()
     test_dead_actions()
+    test_rail()
     test_weather_model()
     test_weather_editor_view()
     if not os.path.isdir(gamedir):

@@ -96,6 +96,8 @@ const M = {
   gameIcons: true,       // the campaign map's symbols, or plain markers
   base: 'terrain',       // 'terrain' (ground imagery) or 'kneemap'
   showTacan: true,
+  showRail: true,
+  showRailFit: false,
   view: {scale: 1, ox: 0, oy: 0},
   hiddenTeams: new Set(),
   hiddenKinds: new Set(),
@@ -481,6 +483,9 @@ async function mapPanel(file) {
     g.lineWidth = 1;
     g.strokeRect(M.view.ox, M.view.oy, w, h);
 
+    // Track under everything that stands on the ground.
+    if (M.showRail) drawRailLines(g, r, toScreen, M.view.scale);
+
     // Objectives first, so units sit on top of them. A script target draws
     // even when its category is below its zoom threshold -- the handful of
     // places that decide the war should be findable zoomed out.
@@ -510,6 +515,7 @@ async function mapPanel(file) {
     }
 
     if (M.showTacan) drawTacan(g, r);
+    if (M.showRailFit) drawRailFit(g, r, toScreen);
 
     if (data.bullseye && data.bullseye[0]) {
       const [bx, by] = toScreen(data.bullseye[0], data.bullseye[1]);
@@ -1038,6 +1044,32 @@ async function mapPanel(file) {
 
   // --- toolbar -------------------------------------------------------------
 
+  // Rail loads after the map (it is a separate file), so its toggles are
+  // filled in when it arrives, and only if this theater has one.
+  const railButtons = el('span', {style: 'display:contents'});
+  function refreshRailButtons() {
+    railButtons.textContent = '';
+    if (!RAIL.data) return;
+    const tip = railSummary();
+    railButtons.appendChild(el('button', {
+      class: 'btn btn-sm' + (M.showRail ? ' on' : ''), title: tip,
+      onclick: e => {
+        M.showRail = !M.showRail;
+        e.target.classList.toggle('on', M.showRail);
+        draw();
+      }}, 'Rail'));
+    railButtons.appendChild(el('button', {
+      class: 'btn btn-sm' + (M.showRailFit ? ' on' : ''),
+      title: 'How the OSM data was placed: projected coastline (cyan) and ' +
+             'airbases, Falcon position to fitted real position (pink)',
+      onclick: e => {
+        M.showRailFit = !M.showRailFit;
+        e.target.classList.toggle('on', M.showRailFit);
+        draw();
+      }}, 'Rail fit'));
+  }
+  refreshRailButtons();
+
   const toolbar = el('div', {class: 'toolbar'}, [
     el('span', {class: 'stat', text:
       data.units.length.toLocaleString() + ' units  ·  ' +
@@ -1075,6 +1107,7 @@ async function mapPanel(file) {
             draw();
           }}, 'TACAN')
       : null,
+    railButtons,
     el('button', {class: 'btn btn-sm', onclick: () => { fit(); draw(); }}, 'Fit'),
     el('button', {class: 'btn btn-sm', onclick: () => zoomAt(0.5, 0.5, 1.4)}, '+'),
     el('button', {class: 'btn btn-sm', onclick: () => zoomAt(0.5, 0.5, 1 / 1.4)}, '−'),
@@ -1118,6 +1151,7 @@ async function mapPanel(file) {
   }
   loadIcons(draw);
   loadTerrain(draw);
+  loadRail(() => { refreshRailButtons(); draw(); });
   if (ICONS.ready) draw();
 
   return wrap;

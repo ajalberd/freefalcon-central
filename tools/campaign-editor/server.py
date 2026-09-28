@@ -29,8 +29,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 from ffcamp import (campfile, camptext, entities, objectives,  # noqa: E402
-                    records, teams as teamdata, terrain, theater,
+                    rail, records, teams as teamdata, terrain, theater,
                     triggers, uiart, weather, workspace)
+import osm_rail  # noqa: E402
 
 # CountryListEnum, campaign/include/team.h. classInfo_[VU_OWNER] carries this,
 # and in the shipped campaigns the country index and the team index coincide.
@@ -2313,6 +2314,29 @@ def api_terrain(q, _body):
     }
 
 
+def api_rail(q, _body):
+    """The theater's railway lines (rail.json from osm_rail.py), if built.
+
+    `debug=1` adds the projected OSM coastline the fit was checked against.
+    """
+    ws = _ws(q)
+    t = ws.terrain()
+    path = os.path.join(t.dir, rail.FILENAME) if t else None
+    if not path or not os.path.isfile(path):
+        return {"available": False,
+                "reason": "no %s in the terrain folder -- run osm_rail.py"
+                          % rail.FILENAME}
+    with open(path, encoding="utf-8") as f:
+        doc = json.load(f)
+    doc["available"] = True
+    if (q.get("debug") or [""])[0] == "1":
+        dbg = osm_rail.debug_path(t.dir)
+        if os.path.isfile(dbg):
+            with open(dbg, encoding="utf-8") as f:
+                doc["debug"] = json.load(f)
+    return doc
+
+
 def _text_shared_with(ws):
     """Other theaters whose artdir resolves to the same lcktxtrc.irc.
 
@@ -2655,6 +2679,7 @@ ROUTES_GET = {
     "/api/placeable": api_placeable,
     "/api/icons": api_icons,
     "/api/terrain": api_terrain,
+    "/api/rail": api_rail,
     "/api/triggers": api_triggers,
     "/api/weather": api_weather,
     "/api/progress": api_progress,
