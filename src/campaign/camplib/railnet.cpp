@@ -28,6 +28,8 @@ extern int g_nRailTrainDwell;
 extern int g_nRailFrontStandoff;
 extern int g_nRailRunKm;
 extern int g_nRailRespawnHours;
+extern int g_nRailTrainLoad;
+extern int g_nRailRailheadKm;
 extern char FalconTerrainDataDir[];
 
 namespace
@@ -60,6 +62,7 @@ struct Train
     bool running;         // t0 and the termini are set
     double deadSince;     // game seconds when the train was found dead (< 0 = not dead)
     bool noTermini;       // last termini search failed (logged once)
+    double lastDelivery;  // game seconds of the last railhead arrival it delivered for
 };
 
 // vuxGameTime in seconds, as a double: the cycle maths subtract times, and an
@@ -595,6 +598,113 @@ Unit SpawnTrain(const Route &r, const Termini &tm)
     return u;
 }
 
+// ---------------------------------------------------------------- supply
+
+// A trainload for the railhead: when a train finishes an outbound run it hands supply and fuel
+// to its own side's battalions near the forward terminus, nearest first, each up to what it is
+// short of. It is drawn from the team's national pools -- the same money road supply spends in
+// SupplyUnits (supply.cpp) -- so rail does not create supply, it delivers it: one hop at the
+// intact-node loss (2%, as NodeSupplyLoss) instead of a road journey through every node and
+// bridge on the way. A train killed on the way never arrives, and a damaged one carries what its
+// surviving cars can (the load scales with vehicles left).
+void MaybeDeliver(const Route &r, Train &t, Unit train, double now)
+{
+    if (g_nRailTrainLoad <= 0)
+        return;
+
+    // The timetable: arrivals at the front are t0 + dwell + run + k * period.
+    const float v = SpeedFps();
+    const double dwell = DwellSec();
+    const double run = fabsf(t.sFront - t.sRear) / v;
+    const double period = 2.0 * (run + dwell);
+
+    if (period <= 0.0)
+        return;
+
+    const double first = t.t0 + dwell + run;
+
+    if (now < first)
+        return;
+
+    const double arrived = first + floor((now - first) / period) * period;
+
+    // Half a period of slack: re-basing the cycle when the ends move can nudge the last arrival
+    // later, and one arrival must not pay out twice.
+    if (arrived <= t.lastDelivery + period * 0.5)
+        return;
+
+    t.lastDelivery = arrived;
+
+    const int team = train->GetTeam();
+    const int full = train->GetFullstrengthVehicles();
+    const int left = train->GetTotalVehicles();
+    const float strength = full > 0 ? (float)left / (float)full : 1.0F;
+    const int load = (int)(g_nRailTrainLoad * strength);
+    int supply = load < (int)TeamInfo[team]->GetSupplyAvail() ? load : (int)TeamInfo[team]->GetSupplyAvail();
+    int fuel = load < (int)TeamInfo[team]->GetFuelAvail() ? load : (int)TeamInfo[team]->GetFuelAvail();
+
+    // Who is near the railhead and short of something, nearest first.
+    float hx, hy, yaw;
+    PointAt(r, t.sFront, &hx, &hy, &yaw);
+    const float reach = (g_nRailRailheadKm > 0 ? g_nRailRailheadKm : 1) * GRID_SIZE_FT;
+
+    struct Need
+    {
+        Unit u;
+        float d;
+        int s, f;
+    };
+
+    std::vector<Need> needs;
+    VuListIterator it(AllUnitList);
+
+    for (Unit u = GetFirstUnit(&it); u; u = GetNextUnit(&it))
+    {
+        if (u->GetTeam() not_eq team or not u->IsBattalion() or u->IsDead() or u->IsTrain())
+            continue;
+
+        const float d = hypotf(u->XPos() - hx, u->YPos() - hy);
+
+        if (d > reach)
+            continue;
+
+        Need n = {u, d, u->GetUnitSupplyNeed(FALSE), u->GetUnitFuelNeed(FALSE)};
+
+        if (n.s > 0 or n.f > 0)
+            needs.push_back(n);
+    }
+
+    for (size_t i = 1; i < needs.size(); i++) // nearest first (a handful of units)
+        for (size_t j = i; j > 0 and needs[j].d < needs[j - 1].d; j--)
+            std::swap(needs[j], needs[j - 1]);
+
+    // Take from the pools only what is handed over, less the one hop's 2% in transit.
+    int gaveS = 0, gaveF = 0, units = 0;
+
+    for (const Need &n : needs)
+    {
+        const int s = n.s < supply - gaveS ? n.s : supply - gaveS;
+        const int f = n.f < fuel - gaveF ? n.f : fuel - gaveF;
+
+        if (s <= 0 and f <= 0)
+            break;
+
+        n.u->SupplyUnit(s > 0 ? s * 98 / 100 : 0, f > 0 ? f * 98 / 100 : 0);
+        gaveS += s > 0 ? s : 0;
+        gaveF += f > 0 ? f : 0;
+        units++;
+    }
+
+    TeamInfo[team]->SetSupplyAvail(TeamInfo[team]->GetSupplyAvail() - gaveS);
+    TeamInfo[team]->SetFuelAvail(TeamInfo[team]->GetFuelAvail() - gaveF);
+
+    Log("rail: %s -- train %d reached the railhead (%d of %d cars): %d supply, %d fuel to %d "
+        "unit(s) within %d km; %d short of something there; pools now %d / %d",
+        r.name.c_str(), train->GetCampID(), left, full, gaveS, gaveF, units, g_nRailRailheadKm,
+        (int)needs.size(), (int)TeamInfo[team]->GetSupplyAvail(),
+        (int)TeamInfo[team]->GetFuelAvail());
+}
+
 bool IsTrainClass(Unit u)
 {
     return u->GetSType() == STYPE_UNIT_SUPPLY and u->GetSPType() == RAIL_TRAIN_SPTYPE;
@@ -719,7 +829,7 @@ void RailCampaignTick(int startup)
 
             if (not rec)
             {
-                Train fresh = {ri, FalconNullId, 0, 0.0F, 0.0F, 0.0, false, -1.0, false};
+                Train fresh = {ri, FalconNullId, 0, 0.0F, 0.0F, 0.0, false, -1.0, false, 0.0};
                 g_trains.push_back(fresh);
                 rec = &g_trains.back();
             }
@@ -820,6 +930,13 @@ void RailCampaignTick(int startup)
                 outbound = true;
             }
 
+            // Did it reach the railhead since the last look? Checked on the timetable it has been
+            // running, before the ends move and the cycle is re-based.
+            if (t.running)
+                MaybeDeliver(r, t, u, now);
+            else
+                t.lastDelivery = now; // starts running now: nothing owed for arrivals before this
+
             bool moved = not t.running or fabsf(tm.sFront - t.sFront) > GRID_SIZE_FT or
                          fabsf(tm.sRear - t.sRear) > GRID_SIZE_FT;
             t.sRear = tm.sRear;
@@ -844,6 +961,7 @@ void RailCampaignTick(int startup)
                 t.sFront = tm.sFront;
                 t.t0 = now; // start of a cycle: loading at the hub
                 t.running = true;
+                t.lastDelivery = now;
                 Log("rail: %s -- spawned train %d for team %d: %.0f km %s to %d km short of the front",
                     r.name.c_str(), u->GetCampID(), tm.team,
                     fabsf(tm.sFront - tm.sRear) / GRID_SIZE_FT,

@@ -976,6 +976,8 @@ int g_nRailTrainDwell = 20; // Artscout - 2026: minutes a train waits at each en
 int g_nRailFrontStandoff = 10; // Artscout - 2026: how far short of hostile ground a train turns round, km. "RailFrontStandoff".
 int g_nRailRunKm = 160; // Artscout - 2026: longest run from hub to front, km; the hub is the furthest friendly supply source within it. "RailRunKm".
 int g_nRailRespawnHours = 12; // Artscout - 2026: campaign hours before a destroyed train is replaced. "RailRespawnHours".
+int g_nRailTrainLoad = 120; // Artscout - 2026: supply and fuel a full train delivers per arrival at the railhead, in the units GetUnitSupplyNeed counts (a 30-vehicle battalion at 40% supply is short 18). Drawn from the team's national pools, scaled by the train's surviving cars, 2% lost in transit; handed to its own side's battalions within RailRailheadKm of the forward terminus, nearest first. 0 = trains carry nothing. "RailTrainLoad".
+int g_nRailRailheadKm = 25; // Artscout - 2026: how far from the forward terminus a battalion can be and still draw from an arriving train, km. "RailRailheadKm".
 int g_nPathDamageCost =
     100; // Artscout - 2026: damage feeds ground ROUTE cost (GetObjectiveMovementCost, path.cpp). Link costs are baked from terrain at campaign build, so a half-dropped bridge or cratered road junction was as cheap to plan through as an intact one; only a 0% bridge was blocked. At 100, entering a damaged road/junction/rail node costs up to x2 and a damaged bridge up to x4, scaling linearly with objective status (repair re-opens it on its own); capped below "impassable". The planner-side twin of SupplyInterdiction. 0 = stock. "PathDamageCost".
 int g_nSupplyInterdiction =
@@ -2133,6 +2135,8 @@ static ConfigOption<int> IntOpts[] = {
     {"RailFrontStandoff", &g_nRailFrontStandoff}, // Artscout - 2026: km short of the front
     {"RailRunKm", &g_nRailRunKm}, // Artscout - 2026: longest hub-to-front run
     {"RailRespawnHours", &g_nRailRespawnHours}, // Artscout - 2026: replacement delay
+    {"RailTrainLoad", &g_nRailTrainLoad}, // Artscout - 2026: supply + fuel per railhead arrival
+    {"RailRailheadKm", &g_nRailRailheadKm}, // Artscout - 2026: delivery radius at the railhead
     {"PathDamageCost",
      &g_nPathDamageCost}, // Artscout - 2026: damaged roads/bridges cost more to ROUTE through (0 = stock)
     {"SupplyInterdiction",

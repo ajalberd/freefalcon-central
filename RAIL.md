@@ -51,12 +51,19 @@ engine's own test, `ObjectiveClass::IsSupplySource()` (city, port, depot or
 army base, not front-line or second-line). These are exactly the objectives
 the supply engine starts its deliveries from (`FindNearestSupplySource`).
 
-**Not done yet: the train does not carry supply.** v0 is the moving part only.
-The natural next step (Phase 3 below) is to make a railhead a supply source
-while the train that serves it is alive: units near the front terminus draw
-from it with rail's low per-hop loss, and a dead train or a dropped bridge
-cuts that off. It uses the pools and rationing that exist; it does not invent
-a second economy.
+**The train carries supply (2026-09-28, compiles and links, not yet seen in a
+campaign).** Each time a train finishes an outbound run it delivers a trainload
+at the forward terminus (`MaybeDeliver`, `railnet.cpp`): `RailTrainLoad` (120)
+supply and the same in fuel, scaled by its surviving cars, **drawn from the
+team's national pools** -- the money road supply spends in `SupplyUnits` -- and
+handed to its own side's battalions within `RailRailheadKm` (25 km) of the
+railhead, nearest first, each up to what `GetUnitSupplyNeed` /
+`GetUnitFuelNeed` says it is short of, through the unit's own `SupplyUnit`.
+Rail does not create supply; it delivers it with one hop's 2% loss instead of
+a road journey through every node and bridge. A train killed on the way never
+arrives. Arrivals are read off the timetable (`t0 + dwell + run + k * period`),
+so it pays once per arrival however the campaign ticks fall. Every delivery is
+a `rail:` log line with what was handed over and what the pools hold after.
 
 ### Will rails interact with bridges? Can we make our own?
 
@@ -154,8 +161,8 @@ Off unless `set g_bRailTrains 1` is in `FFViper.cfg`.
   every train. The marks move only when the overlay is rebuilt (toggling
   any layer).
 
-What it deliberately does not do yet: draw track in 3D, carry supply, stop
-at bridges, carry units.
+What it deliberately does not do yet: draw track in 3D, stop at bridges,
+carry units.
 
 ### Config
 
@@ -168,6 +175,10 @@ at bridges, carry units.
 | `g_nRailFrontStandoff` | 10 | km short of hostile ground |
 | `g_nRailRunKm` | 160 | longest hub-to-front run |
 | `g_nRailRespawnHours` | 12 | campaign hours before a destroyed train is replaced |
+| `g_nRailTrainLoad` | 120 | supply and fuel per railhead arrival, from the national pools (0 = carries nothing) |
+| `g_nRailRailheadKm` | 25 | delivery radius around the forward terminus |
+| `g_bCampRailLines` | 1 | campaign map starts with Rail lines on |
+| `g_bRailMapAllTrains` | 0 | mark every train on the map, not just your own (test aid) |
 
 ### Turning it off again
 
@@ -180,12 +191,13 @@ position to go to).
 
 ## Phases
 
-1. **v0: a train that moves** (this branch). Check it in game first.
-2. **Draw the track.** On the campaign map first (cheap, and it is where you
-   plan the strike), then in 3D.
-3. **Bridges cut the line.** Bind OSM bridge segments to the nearest bridge
+1. **v0: a train that moves.** Done; seen riding the line in 3D.
+2. **Draw the track.** Campaign map done (Rail lines toggle); 3D not yet.
+3. **The Train class.** Done: its own unit class and TE entry; identified by
+   class (`install_train_class.py` puts it into an install).
+4. **Rail supply.** Done in code: a trainload per railhead arrival, from the
+   national pools. That makes a train worth killing. Not yet seen in play.
+5. **Bridges cut the line.** Bind OSM bridge segments to the nearest bridge
    objective; a dropped bridge becomes a terminus.
-4. **Rail supply.** A served railhead becomes a supply source. That makes a
-   train worth killing.
-5. **Troop trains.** `LoadUnit`/`UnloadUnit` through the GTM.
-6. **Own models.** A locomotive and wagons instead of KrAz trucks.
+6. **Troop trains.** `LoadUnit`/`UnloadUnit` through the GTM.
+7. **Own models.** A locomotive and wagons instead of KrAz trucks.
