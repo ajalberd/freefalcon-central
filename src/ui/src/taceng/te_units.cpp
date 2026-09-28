@@ -45,6 +45,7 @@
 #include "shi/float.h"
 #include "msginc/campdatamsg.h"
 #include "fflog.h" // Artscout - 2026: report why BuildMission refused
+#include "railnet.h" // Artscout - 2026: Supply battalions dropped on a rail line stay there
 
 enum
 {
@@ -3170,8 +3171,22 @@ void tactical_create_battalion(long, short hittype, C_Base *)
 
     new_battalion->SetOwner(gSelectedTeam);
 
+    // Artscout - 2026: a Supply battalion dropped on a rail line becomes that line's train when the
+    // engagement runs (railnet.cpp, EnlistPlacedTrains). Snapping it to the nearest objective, as
+    // below, lands it on a road junction or in a town kilometres off the track -- so on a line it
+    // stays exactly where it was dropped. Everything else snaps as it always has.
+    bool onRail = false;
+
+    if (table_of_equipment[gLastUnitType].stype == STYPE_UNIT_SUPPLY)
+    {
+        vector at;
+        ConvertGridToSim(MapX, MapY, &at);
+        const float km = RailDistanceKm(at.x, at.y);
+        onRail = km >= 0.0F and km < 3.0F;
+    }
+
     // Snap battalion to nearest objective
-    o = FindValidObjective(new_battalion, gLastBattalionObjID, MapX, MapY);
+    o = onRail ? NULL : FindValidObjective(new_battalion, gLastBattalionObjID, MapX, MapY);
 
     if (o)
     {

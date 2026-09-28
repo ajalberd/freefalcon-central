@@ -37,6 +37,7 @@ const float CAR_SPACING_FT = 70.0F;        // one KrAz and a gap
 const float SAMPLE_FT = 2.0F * GRID_SIZE_FT; // ownership sampled every 2 km
 const float HUB_REACH_FT = 4.0F * GRID_SIZE_FT; // a hub this close counts as on the line
 const float MIN_RUN_FT = 20.0F * GRID_SIZE_FT;  // less friendly track than this: no train
+const float ENLIST_REACH_FT = 3.0F * GRID_SIZE_FT; // a TE Supply battalion this close to a line is its train
 
 // A route in sim feet: x north, y east (the sim's own axes), s = distance
 // along it from the first point.
@@ -596,20 +597,29 @@ void EnlistPlacedTrains()
             u->GetSType() not_eq STYPE_UNIT_SUPPLY)
             continue;
 
+        // The nearest line, not the first within reach: lines meet at junctions.
+        const Route *best = nullptr;
+        float bestOff = ENLIST_REACH_FT;
+
         for (const Route &r : g_routes)
         {
             float off;
             Project(r, u->XPos(), u->YPos(), &off);
 
-            if (off < 1.5F * GRID_SIZE_FT)
+            if (off < bestOff)
             {
-                u->SetTrain(1);
-                u->SetDontPlan(1);
-                u->SetScripted(1);
-                Log("rail: Supply battalion %d placed on the %s -- it is that line's train",
-                    u->GetCampID(), r.name.c_str());
-                break;
+                bestOff = off;
+                best = &r;
             }
+        }
+
+        if (best)
+        {
+            u->SetTrain(1);
+            u->SetDontPlan(1);
+            u->SetScripted(1);
+            Log("rail: Supply battalion %d placed %.1f km from the %s -- it is that line's train",
+                u->GetCampID(), bestOff / GRID_SIZE_FT, best->name.c_str());
         }
     }
 }
@@ -905,4 +915,25 @@ int RailGetTrains(RailTrainInfo *out, int max)
     }
 
     return n;
+}
+
+float RailDistanceKm(float simX, float simY)
+{
+    std::lock_guard<std::mutex> hold(g_lock);
+
+    if (not LoadRoutes())
+        return -1.0F;
+
+    float best = -1.0F;
+
+    for (const Route &r : g_routes)
+    {
+        float off;
+        Project(r, simX, simY, &off);
+
+        if (best < 0.0F or off < best)
+            best = off;
+    }
+
+    return best < 0.0F ? best : best / GRID_SIZE_FT;
 }

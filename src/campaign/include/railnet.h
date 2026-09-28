@@ -47,4 +47,8 @@ struct RailTrainInfo
 // Running trains, up to `max`; returns how many were written.
 int RailGetTrains(RailTrainInfo *out, int max);
 
+// Distance in km from a sim position to the nearest rail line; -1 if the theater has none.
+// The TE editor uses it to leave a Supply battalion where it was dropped on a line.
+float RailDistanceKm(float simX, float simY);
+
 #endif

@@ -133,8 +133,11 @@ Off unless `set g_bRailTrains 1` is in `FFViper.cfg`.
 - **Tactical engagements:** the tick runs from `DoTacticalLoop` too. Place a
   train yourself: right-click the map, **Add Battalion**, Equipment
   **Arty/Rocket** (that is where `teunits.lst` files Supply), Unit Type
-  **Supply**, and drop it within 1.5 km of a rail line. When the TE runs it
-  becomes that line's train (`EnlistPlacedTrains`), for the side you gave it,
+  **Supply**, and drop it within 3 km of a rail line. The editor normally
+  snaps a new battalion to the nearest objective (a road junction or a town,
+  often kilometres off the track); a Supply battalion dropped on a line now
+  stays where it was dropped. When the TE runs it becomes the nearest line's
+  train (`EnlistPlacedTrains`), for the side you gave it,
   even on a line not in `g_sRailTrainLines` -- but such a line gets no
   automatic train and no replacement. In a campaign nothing is enlisted:
   Supply battalions there are the campaign's own.
