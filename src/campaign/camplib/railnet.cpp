@@ -722,7 +722,8 @@ void RailCampaignTick(int startup)
             {
                 t.id = u->Id();
                 t.running = false;
-                Log("rail: %s -- picked up train %d from the save", r.name.c_str(),
+                Log("rail: %s -- found train %d already on the line (placed, or from a save)",
+                    r.name.c_str(),
                     u->GetCampID());
             }
         }

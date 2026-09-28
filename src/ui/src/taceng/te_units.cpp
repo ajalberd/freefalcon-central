@@ -3183,6 +3183,19 @@ void tactical_create_battalion(long, short hittype, C_Base *)
         ConvertGridToSim(MapX, MapY, &at);
         const float km = RailDistanceKm(at.x, at.y);
         onRail = km >= 0.0F and km < 3.0F;
+
+        char ln[200];
+
+        if (km < 0.0F)
+            sprintf(ln, "rail: TE placement -- no rail.txt for this theater; Supply battalion snapped as usual\n");
+        else if (onRail)
+            sprintf(ln, "rail: TE placement -- Supply battalion kept where dropped, %.1f km from a rail line; "
+                        "it becomes that line's train when the engagement runs\n", km);
+        else
+            sprintf(ln, "rail: TE placement -- Supply battalion %.1f km from the nearest rail line (needs < 3); "
+                        "snapped to the nearest objective as usual, not a train\n", km);
+
+        FFDebugLog(ln);
     }
 
     // Snap battalion to nearest objective
