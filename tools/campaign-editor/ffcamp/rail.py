@@ -634,6 +634,130 @@ def line_km(line):
     return float(np.hypot(*np.diff(p, axis=0).T).sum())
 
 
+# -- routes: one continuous polyline per named line, for trains ---------------
+
+GAME_FILENAME = "rail.txt"
+JOIN_KM = 0.5       # piece ends closer than this are the same place
+
+
+def _path_len(pts):
+    p = np.asarray(pts, float)
+    return float(np.hypot(*np.diff(p, axis=0).T).sum())
+
+
+def build_route(pieces):
+    """The longest end-to-end run through one named line's pieces.
+
+    A line arrives as many pieces: OSM splits it at every junction, and a
+    double-track line is two parallel sets. Treat piece ends as graph nodes
+    (ends within JOIN_KM are one node), pieces as edges weighted by length,
+    keep the biggest connected part, and walk its diameter -- farthest node
+    from anywhere, then farthest from that. A train needs one track to run
+    on, not the whole web. Returns [[x, y], ...] or None.
+    """
+    import heapq
+    ends = []                                   # node positions
+    edges = []                                  # (a, b, pts, length)
+
+    def node(p):
+        for i, q in enumerate(ends):
+            if math.hypot(p[0] - q[0], p[1] - q[1]) < JOIN_KM:
+                return i
+        ends.append(p)
+        return len(ends) - 1
+
+    for pts in pieces:
+        if len(pts) < 2:
+            continue
+        a, b = node(pts[0]), node(pts[-1])
+        if a != b:
+            edges.append((a, b, pts, _path_len(pts)))
+    if not edges:
+        return None
+    adj = {}
+    for k, (a, b, _p, ln) in enumerate(edges):
+        adj.setdefault(a, []).append((b, ln, k))
+        adj.setdefault(b, []).append((a, ln, k))
+
+    def dijkstra(src):
+        dist, prev = {src: 0.0}, {}
+        heap = [(0.0, src)]
+        while heap:
+            d, u = heapq.heappop(heap)
+            if d > dist[u]:
+                continue
+            for v, ln, k in adj.get(u, ()):
+                nd = d + ln
+                if nd < dist.get(v, float("inf")):
+                    dist[v], prev[v] = nd, (u, k)
+                    heapq.heappush(heap, (nd, v))
+        return dist, prev
+
+    # Biggest component by track length: start from each unseen node.
+    seen, best = set(), None
+    for start in adj:
+        if start in seen:
+            continue
+        dist, _ = dijkstra(start)
+        seen.update(dist)
+        comp_len = sum(ln for a, b, _p, ln in edges if a in dist)
+        if best is None or comp_len > best[0]:
+            best = (comp_len, start)
+    # The two nodes furthest apart on the map, then the shortest track
+    # between them. Not the longest shortest path: a parallel track that
+    # joins only at one end (Seoul, on the Gyeongbu Line) makes that path
+    # run up to the junction and back down the spur. Not "dead ends" only
+    # either: both tracks of a double line end on the Busan node, so the
+    # real terminus has two pieces meeting at it.
+    comp, _ = dijkstra(best[1])
+    tips = list(comp)
+    far, other = max(((a, b) for a in tips for b in tips),
+                     key=lambda ab: math.hypot(ends[ab[0]][0] - ends[ab[1]][0],
+                                               ends[ab[0]][1] - ends[ab[1]][1]))
+    dist, prev = dijkstra(far)
+
+    out = [ends[other]]
+    u = other
+    while u != far:
+        pu, k = prev[u]
+        a, b, pts, _ln = edges[k]
+        seg = pts if a == pu else pts[::-1]     # walk from pu to u...
+        out = [list(p) for p in seg] + out[1:]  # ...prepending, so it ends at `other`
+        u = pu
+    return out
+
+
+def build_routes(lines):
+    """{name: route points} for every named line."""
+    by_name = {}
+    for ln in lines:
+        if ln.get("name"):
+            by_name.setdefault(ln["name"], []).append(ln["pts"])
+    routes = []
+    for name in sorted(by_name):
+        pts = build_route(by_name[name])
+        if pts and len(pts) >= 2:
+            routes.append({"name": name, "pts": pts,
+                           "km": round(_path_len(pts), 1)})
+    return routes
+
+
+def write_game_file(doc, path):
+    """rail.txt: what the game reads (it has no JSON parser).
+
+        ffrail 1
+        route <npts> <name to end of line>
+        <x km> <y km>            one per point, campaign km, x east, y north
+    """
+    with open(path, "w", encoding="ascii", errors="replace", newline="\n") as f:
+        f.write("ffrail 1\n")
+        f.write("# %s\n" % doc.get("attribution", ATTRIBUTION))
+        for r in doc.get("routes", ()):
+            f.write("route %d %s\n" % (len(r["pts"]), r["name"]))
+            for x, y in r["pts"]:
+                f.write("%.3f %.3f\n" % (x, y))
+
+
 # -- the whole pipeline --------------------------------------------------------
 
 FORMAT = "ffrail/1"
@@ -753,5 +877,6 @@ def build_theater(terr, objectives, name_table, airbases, cache_dir,
         "control": control,
         "trackKm": round(km, 1),
         "lines": lines,
+        "routes": build_routes(lines),
     }
     return doc, {"coast": debug_coast(coast, proj, w, h)}

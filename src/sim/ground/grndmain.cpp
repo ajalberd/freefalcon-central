@@ -41,6 +41,7 @@
 //JAM 24Nov03
 #include "weather.h"
 #include "aiinput.h"
+#include "railnet.h"
 #ifdef USE_SH_POOLS
 MEM_POOL GroundClass::pool;
 #endif
@@ -952,14 +953,34 @@ int GroundClass::Exec(void)
         // allowSamFire = TRUE;
         //}
 
-        // Move and update delta;
-        gai->Move_Towards_Dest();
+        // Artscout - 2026: a train's cars ride its rail route (railnet.cpp) instead of steering
+        // toward a formation slot. The delta is set too, so engine sound and dust follow speed.
+        float railX, railY, railYaw, railSpeed;
+        UnitClass *railUnit = (UnitClass *)GetCampaignObject();
 
-        // edg: always insure that our Z position is valid for the entity.
-        // the draw pointer should have this value
-        // KCK NOTE: The Z we have is actually LAST FRAME's Z. Probably not a big deal.
-        SetPosition(XPos() + XDelta() * SimLibMajorFrameTime,
-                    YPos() + YDelta() * SimLibMajorFrameTime, groundZ);
+        if (railUnit and railUnit->IsBattalion() and railUnit->IsTrain() and
+            RailTrainPose(railUnit, vehicleInUnit, &railX, &railY, &railYaw, &railSpeed))
+        {
+            if (SimLibMajorFrameTime > 0.0F)
+            {
+                SetDelta((railX - XPos()) / SimLibMajorFrameTime,
+                         (railY - YPos()) / SimLibMajorFrameTime, 0.0F);
+            }
+
+            SetPosition(railX, railY, OTWDriver.GetApproxGroundLevel(railX, railY));
+            SetYPR(railYaw, 0.0F, 0.0F);
+        }
+        else
+        {
+            // Move and update delta;
+            gai->Move_Towards_Dest();
+
+            // edg: always insure that our Z position is valid for the entity.
+            // the draw pointer should have this value
+            // KCK NOTE: The Z we have is actually LAST FRAME's Z. Probably not a big deal.
+            SetPosition(XPos() + XDelta() * SimLibMajorFrameTime,
+                        YPos() + YDelta() * SimLibMajorFrameTime, groundZ);
+        }
 
         // do firing
         // this also does weapon keep alive

@@ -72,6 +72,7 @@
 #endif
 #include "aircrft.h"
 #include "misseval.h"
+#include "railnet.h"
 //#define KEV_DEBUG 1
 //#define _TIMEDEBUG
 
@@ -2932,12 +2933,15 @@ void DoCampaignLoop(int startup)
         for (t = 1; t < NUM_TEAMS; t++)
             TeamInfo[t]->SelectAirActions();
 
+        RailCampaignTick(1); // Artscout - 2026: trains (railnet.cpp; off unless RailTrains)
         lastStage = stage;
     }
 
     // Do any stage actions on change
     if (stage not_eq lastStage)
     {
+        RailCampaignTick(0); // Artscout - 2026: respawn trains, follow the front
+
         switch (stage)
         {
         case STAGE_1:

@@ -65,6 +65,9 @@
     <ClCompile Include="PtData.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="railnet.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Relation.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

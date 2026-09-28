@@ -1252,7 +1252,19 @@ def test_rail():
     sea[:, 10:] = True
     d = rail.shore_distance(rail.sea_mask(sea), cap=16)
     check(abs(float(d[5, 2]) - 7.0) < 1e-6, "shore distance %r" % d[5, 2])
-    print("  ok    merge, simplify, clip, fit, shore distance")
+    # Route stitching, with both traps the Gyeongbu Line set: a double track
+    # whose two tracks end on one terminus node (so the terminus is not a
+    # dead end), and a parallel spur that joins only at the far end (so the
+    # longest shortest path runs out and back down it).
+    pieces = [[[0, 0], [50, 0]], [[0, 0], [50, 0.004]],     # double track
+              [[50, 0], [100, 0]],                             # single on to the end
+              [[100, 0], [70, 0.3]]]                           # spur back from the end
+    route = rail.build_route(pieces)
+    ends = sorted([tuple(route[0]), tuple(route[-1])])
+    check(ends == [(0, 0), (100, 0)], "route ends %r, want (0,0) and (100,0)" % ends)
+    check(abs(rail._path_len(route) - 100) < 0.1,
+          "route is %.1f km, want 100" % rail._path_len(route))
+    print("  ok    merge, simplify, clip, fit, shore distance, route stitching")
 
 
 def test_script_annotations(ws, camp, campaign_file):

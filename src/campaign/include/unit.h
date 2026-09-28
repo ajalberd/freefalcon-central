@@ -37,6 +37,7 @@ enum MissionTypeEnum;
 #define U_PARENT 0x20
 #define U_ENGAGED 0x40
 #define U_B1 0x80
+#define U_TRAIN U_B1 // Artscout - 2026: a rail train (railnet.cpp). U_B1 was defined and never used; it is saved with the unit
 #define U_SCRIPTED 0x100 // Mission/Route scripted- Don't run planning AI
 #define U_COMMANDO                                                             \
     0x200 // Act like a commando (hit commando sites and kill ourselves after x time)
@@ -411,6 +412,7 @@ public:
     void SetScripted(int p);
     void SetCommando(int c);
     void SetMoving(int p);
+    void SetTrain(int p); // Artscout - 2026: railnet.cpp
     void SetRefused(int r);
     void SetHasECM(int e);
     void SetCargo(int c);
@@ -460,6 +462,10 @@ public:
     int Scripted() const
     {
         return (int)unit_flags bitand U_SCRIPTED;
+    }
+    int IsTrain() const
+    {
+        return (int)unit_flags bitand U_TRAIN;
     }
     int Commando() const
     {

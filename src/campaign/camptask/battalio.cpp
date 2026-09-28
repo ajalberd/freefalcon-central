@@ -55,6 +55,8 @@ extern VU_ID_NUMBER lastVolatileId;
 extern unsigned char SHOWSTATS;
 #endif
 
+#include "railnet.h" // Artscout - 2026: trains
+
 #ifdef DEBUG
 extern int gDumping;
 extern char OrderStr[GORD_LAST][15];
@@ -522,6 +524,13 @@ int BattalionClass::MoveUnit(CampaignTime time)
 #endif
 
     haveWeaps = -1;
+
+    // Artscout - 2026: a train runs on its rail route, not where the ground planner would send
+    // it (railnet.cpp). It has no objective to hold and must not go looking for one.
+    if (IsTrain())
+    {
+        return RailMoveTrain(this);
+    }
 
     // Check if we have a valid objective
     lo = GetUnitObjective();

@@ -329,6 +329,7 @@
     <ClCompile Include="Path.cpp" />
     <ClCompile Include="persist.cpp" />
     <ClCompile Include="PtData.cpp" />
+    <ClCompile Include="railnet.cpp" />
     <ClCompile Include="Relation.cpp" />
     <ClCompile Include="Team.cpp" />
     <ClCompile Include="Unit.cpp" />
@@ -337,6 +338,7 @@
   <ItemGroup>
     <ClInclude Include="..\..\sim\include\atcbrain.h" />
     <ClInclude Include="..\include\aiinput.h" />
+    <ClInclude Include="..\include\railnet.h" />
     <ClInclude Include="..\include\airunit.h" />
     <ClInclude Include="..\include\asearch.h" />
     <ClInclude Include="..\include\campbase.h" />

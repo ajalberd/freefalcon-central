@@ -963,6 +963,15 @@ bool g_bCampMapIconHealth =
     true; // Artscout - 2026: objective icons on the campaign map darken with damage (status 100 = as drawn, 0 = CampMapIconMin brightness), so a flattened target reads at a glance without switching the damage overlay on. 0 = stock icons.
 float g_fCampMapIconMin =
     0.35f; // Artscout - 2026: brightness of a 0%-status objective icon (1 = never darkens). Linear in status between this and 1.
+bool g_bRailTrains =
+    false; // Artscout - 2026: run trains on the rail routes in the theater's terrain folder (rail.txt, from tools/campaign-editor/osm_rail.py). Each configured route gets one Supply battalion flagged as a train (U_TRAIN) that shuttles between a friendly supply hub and a point short of the front; it can be spotted, bombed and killed like any ground unit, and another comes after RailRespawnHours. Off by default because the trains are real units and are written into saves. "RailTrains".
+char g_strRailTrainLines[0x100] =
+    ""; // Artscout - 2026: which routes get a train, comma-separated name prefixes, case-insensitive ("Pyongbu Line,Gyeongbu"). Empty = "Pyongbu" (Pyongyang to Kaesong, the North's supply line to the DMZ). "RailTrainLines".
+int g_nRailTrainSpeed = 50; // Artscout - 2026: train speed, km/h. "RailTrainSpeed".
+int g_nRailTrainDwell = 20; // Artscout - 2026: minutes a train waits at each end (loading at the hub, unloading at the front). "RailTrainDwell".
+int g_nRailFrontStandoff = 10; // Artscout - 2026: how far short of hostile ground a train turns round, km. "RailFrontStandoff".
+int g_nRailRunKm = 160; // Artscout - 2026: longest run from hub to front, km; the hub is the furthest friendly supply source within it. "RailRunKm".
+int g_nRailRespawnHours = 12; // Artscout - 2026: campaign hours before a destroyed train is replaced. "RailRespawnHours".
 int g_nPathDamageCost =
     100; // Artscout - 2026: damage feeds ground ROUTE cost (GetObjectiveMovementCost, path.cpp). Link costs are baked from terrain at campaign build, so a half-dropped bridge or cratered road junction was as cheap to plan through as an intact one; only a 0% bridge was blocked. At 100, entering a damaged road/junction/rail node costs up to x2 and a damaged bridge up to x4, scaling linearly with objective status (repair re-opens it on its own); capped below "impassable". The planner-side twin of SupplyInterdiction. 0 = stock. "PathDamageCost".
 int g_nSupplyInterdiction =
@@ -1684,6 +1693,7 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bObjPixelLight}, // Artscout - 2026: per-pixel object lighting (small lamps stop washing whole panels)
     {"CampMapIconHealth",
      &g_bCampMapIconHealth}, // Artscout - 2026: darken objective icons by damage
+    {"RailTrains", &g_bRailTrains}, // Artscout - 2026: trains on the rail routes (railnet.cpp)
     {"PitShadow",
      &g_bPitShadow}, // Artscout - 2026: cockpit sun shadows (depth-only pit replay + PS lookup)
     {"ToneMapGT7",
@@ -2112,6 +2122,11 @@ static ConfigOption<int> IntOpts[] = {
      &g_nCampMapTerrainLod}, // Artscout - 2026: terrain LOD the campaign map is built from (0 = finest)
     {"CampMapDetailTiles",
      &g_nCampMapDetailTiles}, // Artscout - 2026: decoded ground tiles the detail layer keeps resident
+    {"RailTrainSpeed", &g_nRailTrainSpeed}, // Artscout - 2026: km/h
+    {"RailTrainDwell", &g_nRailTrainDwell}, // Artscout - 2026: minutes at each end
+    {"RailFrontStandoff", &g_nRailFrontStandoff}, // Artscout - 2026: km short of the front
+    {"RailRunKm", &g_nRailRunKm}, // Artscout - 2026: longest hub-to-front run
+    {"RailRespawnHours", &g_nRailRespawnHours}, // Artscout - 2026: replacement delay
     {"PathDamageCost",
      &g_nPathDamageCost}, // Artscout - 2026: damaged roads/bridges cost more to ROUTE through (0 = stock)
     {"SupplyInterdiction",
@@ -2239,6 +2254,7 @@ static ConfigOption<int> IntOpts[] = {
 
 static ConfigOption<char> StringOpts[] = {
     {"MasterServerName", &g_strMasterServerName[0]},
+    {"RailTrainLines", &g_strRailTrainLines[0]}, // Artscout - 2026: routes that get a train
     {"SoundDevice", &g_strSoundDevice[0]}, // OpenAL output device substring ("" = default)
     {"ServerName", &g_strServerName[0]},
     {"ServerLocation", &g_strServerLocation[0]},

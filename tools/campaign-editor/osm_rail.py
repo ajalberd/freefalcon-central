@@ -79,7 +79,12 @@ def main():
     os.makedirs(os.path.dirname(dbg), exist_ok=True)
     with open(dbg, "w", encoding="utf-8") as f:
         json.dump(debug, f, separators=(",", ":"))
-    print("wrote %s (%.1f MB)" % (out, os.path.getsize(out) / 1e6))
+    game = os.path.join(os.path.dirname(out), rail.GAME_FILENAME)
+    rail.write_game_file(doc, game)
+    for r in doc["routes"]:
+        print("  route %-28s %6.1f km" % (r["name"], r["km"]))
+    print("wrote %s (%.1f MB) and %s" % (out, os.path.getsize(out) / 1e6,
+                                         rail.GAME_FILENAME))
 
 
 if __name__ == "__main__":
