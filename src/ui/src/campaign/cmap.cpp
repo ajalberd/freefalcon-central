@@ -3342,7 +3342,10 @@ void C_Map::ShowCampaignOverlay(long which)
                              static_cast<BYTE>(1 + lost * (CAMP_TINT_MAX - 1) / 100));
         }
     }
-    else
+    // Artscout - 2026: named, not a bare else. With no layer selected but the FLOT or Rail lines
+    // on, `which` is CAMP_OVERLAY_OFF and still gets this far -- and a bare else drew the whole
+    // Production layer (every producer as a disc) under a map that said no layer was on.
+    else if (which == CAMP_OVERLAY_PRODUCTION)
     {
         // Who actually makes the stuff, sized against the biggest producer in the theater, so one
         // refinery carrying a third of the fuel stands out from a dozen small ones. GetObjectiveDataRate
