@@ -79,8 +79,8 @@ Two routes, in order of cost:
 
 ### Can rails be bombed and repaired?
 
-- **The train: yes, now.** It is an ordinary Supply battalion (class 77, six
-  KrAz trucks as boxcars). It takes damage in the sim car by car and dies
+- **The train: yes, now.** It is an ordinary Supply battalion (class 77,
+  sixteen KrAz trucks as boxcars). It takes damage in the sim car by car and dies
   when its vehicles do. Whether the air tasking manager picks it as a target
   on its own, like other spotted ground units, is **not checked yet**; a
   player-planned strike on it should work like one on any battalion. A new train spawns at the hub after
@@ -130,9 +130,21 @@ Off unless `set g_bRailTrains 1` is in `FFViper.cfg`.
 - After a load, a train in the save is picked up again by projecting it onto
   the nearest route.
 - Every decision goes to `FFDebug.log` as `rail: ...` lines.
+- **Tactical engagements:** the tick runs from `DoTacticalLoop` too. Place a
+  train yourself: right-click the map, **Add Battalion**, Equipment
+  **Arty/Rocket** (that is where `teunits.lst` files Supply), Unit Type
+  **Supply**, and drop it within 1.5 km of a rail line. When the TE runs it
+  becomes that line's train (`EnlistPlacedTrains`), for the side you gave it,
+  even on a line not in `g_sRailTrainLines` -- but such a line gets no
+  automatic train and no replacement. In a campaign nothing is enlisted:
+  Supply battalions there are the campaign's own.
+- **Campaign map:** right-click, **Rail lines** (a toggle beside the FLOT)
+  draws the routes and marks your own trains; `g_bRailMapAllTrains 1` marks
+  every train. The marks move only when the overlay is rebuilt (toggling
+  any layer).
 
-What it deliberately does not do yet: draw track, carry supply, stop at
-bridges, carry units.
+What it deliberately does not do yet: draw track in 3D, carry supply, stop
+at bridges, carry units.
 
 ### Config
 

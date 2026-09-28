@@ -17,6 +17,7 @@
 #include "classtbl.h"
 #include "cmpclass.h"
 #include "falcsess.h"
+#include "falcgame.h"
 #include "fflog.h"
 #include "railnet.h"
 
@@ -554,8 +555,8 @@ Unit SpawnTrain(const Route &r, const Termini &tm)
     if (not o or IsHostile(tm.team, o->GetTeam()))
         return nullptr;
 
-    // Supply battalion, sptype 1: six KrAz T-255B trucks in the Korea class
-    // table, our boxcars until the train has models of its own.
+    // Supply battalion, sptype 1: sixteen KrAz T-255B trucks in the Korea
+    // class table, our boxcars until the train has models of its own.
     Unit u = NewUnit(DOMAIN_LAND, TYPE_BATTALION, STYPE_UNIT_SUPPLY, 1, NULL);
 
     if (not u)
@@ -578,6 +579,40 @@ Unit SpawnTrain(const Route &r, const Termini &tm)
     u->SetScripted(1); // keeps the ground tasking manager's hands off it
     return u;
 }
+
+// Tactical engagement: a Supply battalion placed on a rail line (TE editor, right-click the map,
+// Add Battalion, Equipment "Arty/Rocket", Unit Type "Supply") becomes that line's train. TE only --
+// in a campaign the Supply battalions are the campaign's own and must not be taken over.
+void EnlistPlacedTrains()
+{
+    if (FalconLocalGame->GetGameType() not_eq game_TacticalEngagement)
+        return;
+
+    VuListIterator it(AllUnitList);
+
+    for (Unit u = GetFirstUnit(&it); u; u = GetNextUnit(&it))
+    {
+        if (not u->IsBattalion() or u->IsTrain() or u->IsDead() or
+            u->GetSType() not_eq STYPE_UNIT_SUPPLY)
+            continue;
+
+        for (const Route &r : g_routes)
+        {
+            float off;
+            Project(r, u->XPos(), u->YPos(), &off);
+
+            if (off < 1.5F * GRID_SIZE_FT)
+            {
+                u->SetTrain(1);
+                u->SetDontPlan(1);
+                u->SetScripted(1);
+                Log("rail: Supply battalion %d placed on the %s -- it is that line's train",
+                    u->GetCampID(), r.name.c_str());
+                break;
+            }
+        }
+    }
+}
 } // namespace
 
 // ---------------------------------------------------------------- UnitClass
@@ -598,8 +633,9 @@ void UnitClass::SetTrain(int p)
 
 // ---------------------------------------------------------------- entry points
 
-// Locking: g_routes only changes inside LoadRoutes, and only this (campaign)
-// thread calls that, so the tick reads routes without the lock. Train records
+// Locking: g_routes only changes inside LoadRoutes when the theater changes
+// (the campaign map may also call it, but by then the routes are loaded and it
+// returns at once), so the tick reads routes without the lock. Train records
 // are copied out under the lock, worked on, and written back, so the objective
 // scans in FindTermini never hold up the sim thread's per-car RailTrainPose.
 void RailCampaignTick(int startup)
@@ -615,13 +651,30 @@ void RailCampaignTick(int startup)
     }
 
     double now = GameSeconds();
+    EnlistPlacedTrains();
 
     for (int ri = 0; ri < (int)g_routes.size(); ri++)
     {
         const Route &r = g_routes[ri];
 
-        if (not RouteWanted(r))
-            continue;
+        // A route not in RailTrainLines still runs a train someone placed on it (TE), but
+        // gets no automatic one and no replacement when it dies.
+        const bool wanted = RouteWanted(r);
+
+        if (not wanted)
+        {
+            bool have;
+            {
+                std::lock_guard<std::mutex> hold(g_lock);
+                Train *rec = FindTrainByRoute(ri);
+                have = rec and rec->id not_eq FalconNullId;
+            }
+            float ignored;
+            std::vector<VU_ID> none;
+
+            if (not have and not AdoptTrain(r, none, &ignored))
+                continue;
+        }
 
         Train t;
         std::vector<VU_ID> claimed;
@@ -743,7 +796,7 @@ void RailCampaignTick(int startup)
                     tm.hub ? "from a supply hub" : "from the end of friendly track",
                     g_nRailFrontStandoff);
         }
-        else if (not skip)
+        else if (not skip and wanted)
         {
             u = SpawnTrain(r, tm);
 
