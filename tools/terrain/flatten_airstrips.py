@@ -476,6 +476,22 @@ def main():
         print("dry run: nothing written. Add --write to back up and apply.")
         return
 
+    # Windows will not let a file that another process has open be rewritten -- the game, or
+    # the campaign editor's server (it maps the terrain). Find out before touching anything.
+    busy = []
+    for lvl in levels:
+        if lvl.copied:
+            for path in (lvl.lpath, lvl.opath):
+                try:
+                    with open(path, "r+b"):
+                        pass
+                except OSError:
+                    busy.append(os.path.basename(path))
+    if busy:
+        raise SystemExit("cannot write %s: another program has it open. Close the game and the "
+                         "campaign editor (tools/campaign-editor/server.py), then run this again. "
+                         "Nothing was changed." % ", ".join(busy))
+
     man = backup(terrain_dir)
     for lvl in levels:
         if lvl.copied:
