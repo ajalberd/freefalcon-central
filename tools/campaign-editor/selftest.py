@@ -1264,6 +1264,13 @@ def test_rail():
     check(ends == [(0, 0), (100, 0)], "route ends %r, want (0,0) and (100,0)" % ends)
     check(abs(rail._path_len(route) - 100) < 0.1,
           "route is %.1f km, want 100" % rail._path_len(route))
+    # Bridge/tunnel flags ride along, reversed with a piece walked backwards.
+    fl_pieces = [[[0, 0], [10, 0], [20, 0]], [[40, 0], [30, 0], [20, 0]]]
+    fl_route, fl = rail.build_route(fl_pieces, ["b-", "t-"])
+    if fl_route[0] != [0, 0]:
+        fl_route, fl = fl_route[::-1], fl[::-1]
+    check(fl == "b--t" and len(fl) == len(fl_route) - 1,
+          "route flags %r, want 'b--t'" % fl)
 
     # Keeping lines off the sea: open sea east of x = 20, plus a one-cell river
     # at x = 8 joined to it (sea_mask would flood it). A point just offshore is
@@ -1277,6 +1284,14 @@ def test_rail():
           "offshore point not moved ashore: %r" % (moved,))
     kept = keeper.fix([[8.5, 10.5]])[0]
     check(kept == [8.5, 10.5], "river crossing point was moved: %r" % (kept,))
+    # A bridge point out over open sea stays put; densified segments keep
+    # their flag.
+    br_pts, br_fl = keeper.fix([[18.5, 10.5], [20.6, 10.5], [22.5, 10.5]],
+                               densify_km=1.0, seg="bb")
+    check(any(p == [20.6, 10.5] for p in br_pts),
+          "bridge point over the sea was moved: %r" % (br_pts,))
+    check(len(br_fl) == len(br_pts) - 1 and set(br_fl) == {"b"},
+          "densified bridge flags %r for %d points" % (br_fl, len(br_pts)))
     print("  ok    merge, simplify, clip, fit, shore distance, route stitching, "
           "keep on land")
 

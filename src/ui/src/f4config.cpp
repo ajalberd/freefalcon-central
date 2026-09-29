@@ -978,6 +978,10 @@ int g_nRailRunKm = 160; // Artscout - 2026: longest run from hub to front, km; t
 int g_nRailRespawnHours = 12; // Artscout - 2026: campaign hours before a destroyed train is replaced. "RailRespawnHours".
 int g_nRailTrainLoad = 120; // Artscout - 2026: supply and fuel a full train delivers per arrival at the railhead, in the units GetUnitSupplyNeed counts (a 30-vehicle battalion at 40% supply is short 18). Drawn from the team's national pools, scaled by the train's surviving cars, 2% lost in transit; handed to its own side's battalions within RailRailheadKm of the forward terminus, nearest first. 0 = trains carry nothing. "RailTrainLoad".
 int g_nRailRailheadKm = 25; // Artscout - 2026: how far from the forward terminus a battalion can be and still draw from an arriving train, km. "RailRailheadKm".
+bool g_bRailBridgeCuts =
+    true; // Artscout - 2026: a dropped bridge cuts the railway. Each OSM rail bridge of RailBridgeMinM or longer is bound to the nearest bridge objective within RailBridgeBindKm (Korea has no rail bridges of its own), and is down while that objective is at 0% or has any destroyed feature. A train keeps to its own side; with no enemy beyond, the broken bridge becomes its forward terminus; cut off from every hub, it carries nothing. Repair reopens the line on its own. "RailBridgeCuts".
+int g_nRailBridgeBindKm = 2; // Artscout - 2026: how far a bridge objective may be from the middle of a rail bridge and still stand for it, km. "RailBridgeBindKm".
+int g_nRailBridgeMinM = 80; // Artscout - 2026: shortest OSM rail bridge that counts as a river crossing, metres; shorter ones (culverts, overpasses) are ignored. "RailBridgeMinM".
 bool g_bRailTrack =
     false; // Artscout - 2026: draw the railway track in 3D (sim/otwdrive/drawrail.cpp) -- a plain-colour ballast strip with two rails, following the ground, on the rail.txt routes within RailTrackRangeKm of the camera. Pilot (RAIL.md, "Drawing the track in 3D"): off by default until it has been seen not to flicker against the terrain. "RailTrack".
 bool g_bRailTrackLog =
@@ -1710,6 +1714,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"RailTrains", &g_bRailTrains}, // Artscout - 2026: trains on the rail routes (railnet.cpp)
     {"CampRailLines", &g_bCampRailLines}, // Artscout - 2026: campaign map draws the rail routes
     {"RailMapAllTrains", &g_bRailMapAllTrains}, // Artscout - 2026: mark enemy trains too (test aid)
+    {"RailBridgeCuts", &g_bRailBridgeCuts}, // Artscout - 2026: a dropped bridge cuts the railway
     {"RailTrack", &g_bRailTrack}, // Artscout - 2026: draw the track strip in 3D (pilot)
     {"ParticlesLast", &g_bParticlesLast}, // Artscout - 2026: GPU particles after the DX2D quads (clouds over dust)
     {"RailTrackLog", &g_bRailTrackLog}, // Artscout - 2026: log track pieces and ground mismatch
@@ -2148,6 +2153,8 @@ static ConfigOption<int> IntOpts[] = {
     {"RailRespawnHours", &g_nRailRespawnHours}, // Artscout - 2026: replacement delay
     {"RailTrainLoad", &g_nRailTrainLoad}, // Artscout - 2026: supply + fuel per railhead arrival
     {"RailRailheadKm", &g_nRailRailheadKm}, // Artscout - 2026: delivery radius at the railhead
+    {"RailBridgeBindKm", &g_nRailBridgeBindKm}, // Artscout - 2026: bridge objective reach for a rail bridge
+    {"RailBridgeMinM", &g_nRailBridgeMinM}, // Artscout - 2026: shortest rail bridge that counts
     {"RailTrackRangeKm", &g_nRailTrackRangeKm}, // Artscout - 2026: track strip draw range
     {"CloudDepthAlpha", &g_nCloudDepthAlpha}, // Artscout - 2026: cumulus cores write depth above this alpha %
     {"PathDamageCost",

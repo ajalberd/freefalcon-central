@@ -30,6 +30,9 @@ extern int g_nRailRunKm;
 extern int g_nRailRespawnHours;
 extern int g_nRailTrainLoad;
 extern int g_nRailRailheadKm;
+extern bool g_bRailBridgeCuts;
+extern int g_nRailBridgeBindKm;
+extern int g_nRailBridgeMinM;
 extern char FalconTerrainDataDir[];
 
 namespace
@@ -40,15 +43,32 @@ const float SAMPLE_FT = 2.0F * GRID_SIZE_FT; // ownership sampled every 2 km
 const float HUB_REACH_FT = 4.0F * GRID_SIZE_FT; // a hub this close counts as on the line
 const float MIN_RUN_FT = 20.0F * GRID_SIZE_FT;  // less friendly track than this: no train
 const float ENLIST_REACH_FT = 3.0F * GRID_SIZE_FT; // a TE Supply battalion this close to a line is its train
+const float CUT_STANDOFF_FT = 1.0F * GRID_SIZE_FT; // a railhead at a dropped bridge stops this far short
+
+// A rail bridge long enough to be a river crossing, and the bridge objective whose
+// status is its status (Korea has no rail bridges of its own: the nearest road bridge
+// stands in, so the ATM's strikes, bomb damage and repair all reach the line).
+struct Span
+{
+    float s0, s1;  // along the route
+    VU_ID obj;     // FalconNullId = nothing close enough
+    float bindFt;  // how far that objective is from the middle of the span
+    bool down;     // last seen at 0% or with a destroyed span
+};
 
 // A route in sim feet: x north, y east (the sim's own axes), s = distance
-// along it from the first point.
+// along it from the first point. seg[i] is the flag of the segment from point i
+// to i + 1 ('-', 'b' bridge, 't' tunnel); the last entry is '-'.
 struct Route
 {
     std::string name;
     std::vector<float> x, y, s;
+    std::vector<char> seg;
+    std::vector<Span> bridges;
     float len;
 };
+
+bool g_bridgesBound = false;
 
 // One per configured route. `s` runs from sRear to sFront; the pair can be
 // either way round along the route.
@@ -63,6 +83,8 @@ struct Train
     double deadSince;     // game seconds when the train was found dead (< 0 = not dead)
     bool noTermini;       // last termini search failed (logged once)
     double lastDelivery;  // game seconds of the last railhead arrival it delivered for
+    bool stranded;        // a dropped bridge between it and every hub: no deliveries
+    bool halted;          // no run long enough left (logged once); parked where it stood
 };
 
 // vuxGameTime in seconds, as a double: the cycle maths subtract times, and an
@@ -100,6 +122,7 @@ bool LoadRoutes()
     g_loadedDir = FalconTerrainDataDir;
     g_routes.clear();
     g_trains.clear();
+    g_bridgesBound = false;
 
     char path[_MAX_PATH];
     sprintf_s(path, "%s\\rail.txt", FalconTerrainDataDir);
@@ -113,9 +136,11 @@ bool LoadRoutes()
 
     char line[512];
 
-    if (not fgets(line, sizeof line, f) or strncmp(line, "ffrail 1", 8))
+    // Version 2 adds a bridge/tunnel flag after each point; version 1 files still load, all plain.
+    if (not fgets(line, sizeof line, f) or
+        (strncmp(line, "ffrail 1", 8) and strncmp(line, "ffrail 2", 8)))
     {
-        Log("rail: %s is not an ffrail 1 file", path);
+        Log("rail: %s is not an ffrail 1 or 2 file", path);
         fclose(f);
         return false;
     }
@@ -139,9 +164,13 @@ bool LoadRoutes()
         for (int i = 0; i < n and fgets(line, sizeof line, f); i++)
         {
             float kx, ky;
+            char flag = '-';
 
-            if (sscanf_s(line, "%f %f", &kx, &ky) not_eq 2)
+            if (sscanf_s(line, "%f %f %c", &kx, &ky, &flag, 1) < 2)
                 break;
+
+            if (flag not_eq 'b' and flag not_eq 't')
+                flag = '-';
 
             // Campaign km, x east / y north -> sim feet, x north / y east.
             float sx = ky * GRID_SIZE_FT, sy = kx * GRID_SIZE_FT;
@@ -152,17 +181,58 @@ bool LoadRoutes()
             r.x.push_back(sx);
             r.y.push_back(sy);
             r.s.push_back(r.len);
+            r.seg.push_back(flag);
         }
 
         if (r.x.size() >= 2)
+        {
+            r.seg.back() = '-';
+
+            // Bridge runs long enough to be river crossings; the rest are culverts and
+            // overpasses, which nothing in the campaign stands for.
+            const float minFt = (g_nRailBridgeMinM > 0 ? g_nRailBridgeMinM : 0) * 3.2808F;
+
+            for (size_t i = 0; i + 1 < r.x.size();)
+            {
+                if (r.seg[i] not_eq 'b')
+                {
+                    i++;
+                    continue;
+                }
+
+                size_t j = i;
+
+                while (j + 1 < r.x.size() and r.seg[j] == 'b')
+                    j++;
+
+                if (r.s[j] - r.s[i] >= minFt)
+                {
+                    Span sp = {r.s[i], r.s[j], FalconNullId, 0.0F, false};
+                    r.bridges.push_back(sp);
+                }
+
+                i = j;
+            }
+
             g_routes.push_back(r);
+        }
     }
 
     fclose(f);
     Log("rail: %d routes from %s", (int)g_routes.size(), path);
 
     for (const Route &r : g_routes)
-        Log("rail:   %-28s %6.1f km", r.name.c_str(), r.len / GRID_SIZE_FT);
+    {
+        float tunnel = 0.0F;
+
+        for (size_t i = 0; i + 1 < r.x.size(); i++)
+            if (r.seg[i] == 't')
+                tunnel += r.s[i + 1] - r.s[i];
+
+        Log("rail:   %-28s %6.1f km, %d bridges of %d m or more, %.1f km in tunnels",
+            r.name.c_str(), r.len / GRID_SIZE_FT, (int)r.bridges.size(), g_nRailBridgeMinM,
+            tunnel / GRID_SIZE_FT);
+    }
 
     return not g_routes.empty();
 }
@@ -226,6 +296,123 @@ float Project(const Route &r, float x, float y, float *off)
 GridIndex GridOf(float simCoord)
 {
     return (GridIndex)(simCoord / GRID_SIZE_FT);
+}
+
+// What the track is at distance s: the flag, and on a bridge or in a tunnel the
+// whole run of that flag (points i0..i1) around it.
+char TrackAt(const Route &r, float s, size_t *i0, size_t *i1)
+{
+    s = s < 0.0F ? 0.0F : (s > r.len ? r.len : s);
+    size_t lo = 0, hi = r.s.size() - 1;
+
+    while (hi - lo > 1)
+    {
+        size_t mid = (lo + hi) / 2;
+
+        if (r.s[mid] <= s)
+            lo = mid;
+        else
+            hi = mid;
+    }
+
+    const char k = r.seg[lo];
+    size_t a = lo, b = lo + 1;
+
+    while (a > 0 and r.seg[a - 1] == k)
+        a--;
+
+    while (b + 1 < r.x.size() and r.seg[b] == k)
+        b++;
+
+    if (i0)
+        *i0 = a;
+
+    if (i1)
+        *i1 = b;
+
+    return k;
+}
+
+// ---------------------------------------------------------------- bridges
+
+// Bind every route's bridge spans to the nearest bridge objective within
+// RailBridgeBindKm of the span's middle. Once per load, on the campaign thread;
+// the objectives are scanned before the lock is taken.
+void BindBridges()
+{
+    struct Near
+    {
+        VU_ID id;
+        float x, y;
+    };
+    std::vector<Near> objs;
+    VuListIterator it(AllObjList);
+
+    for (Objective o = GetFirstObjective(&it); o; o = GetNextObjective(&it))
+    {
+        if (o->GetType() == TYPE_BRIDGE)
+        {
+            Near n = {o->Id(), o->XPos(), o->YPos()};
+            objs.push_back(n);
+        }
+    }
+
+    const float reach = (g_nRailBridgeBindKm > 0 ? g_nRailBridgeBindKm : 0) * GRID_SIZE_FT;
+    std::lock_guard<std::mutex> hold(g_lock);
+
+    if (g_bridgesBound)
+        return;
+
+    g_bridgesBound = true;
+
+    for (Route &r : g_routes)
+    {
+        int bound = 0;
+
+        for (Span &sp : r.bridges)
+        {
+            float mx, my, yaw, best = reach;
+            PointAt(r, 0.5F * (sp.s0 + sp.s1), &mx, &my, &yaw);
+            sp.obj = FalconNullId;
+
+            for (const Near &n : objs)
+            {
+                const float d = hypotf(n.x - mx, n.y - my);
+
+                if (d <= best)
+                {
+                    best = d;
+                    sp.obj = n.id;
+                    sp.bindFt = d;
+                }
+            }
+
+            if (sp.obj not_eq FalconNullId)
+                bound++;
+        }
+
+        Log("rail: %s -- %d of its %d bridges stand on a bridge objective within %d km (%d "
+            "bridge objectives in the theater)",
+            r.name.c_str(), bound, (int)r.bridges.size(), g_nRailBridgeBindKm, (int)objs.size());
+    }
+}
+
+// A bridge objective is down for the railway at 0%, or as soon as any of its
+// features is destroyed: one span in the river cuts the track even while the
+// status average says the bridge is still mostly standing.
+bool BridgeDown(Objective o)
+{
+    if (not o)
+        return false;
+
+    if (o->GetObjectiveStatus() == 0)
+        return true;
+
+    for (int f = 0; f < o->GetTotalFeatures(); f++)
+        if (o->GetFeatureStatus(f) == VIS_DESTROYED)
+            return true;
+
+    return false;
 }
 
 // ---------------------------------------------------------------- motion
@@ -325,6 +512,8 @@ struct Termini
     int team;
     float sRear, sFront;
     Objective hub;
+    bool frontAtCut; // the forward terminus is a dropped bridge, not the front line
+    bool stranded;   // cut off from any supply hub by a dropped bridge: runs, carries nothing
 };
 
 // Where a train on this route should shuttle, for `team` (-1 = whichever team
@@ -334,12 +523,36 @@ struct Termini
 // RailFrontStandoff; the rear is the friendly supply source (IsSupplySource:
 // city, port, depot, army base, not on the front) furthest back along the run
 // within RailRunKm.
-Termini FindTermini(const Route &r, int team)
+//
+// A dropped bridge (`down`, one flag per r.bridges entry) is a wall: the run
+// stops short of it. With `sNow` >= 0 (where the train is) the run holding the
+// train is chosen over a longer one beyond a broken bridge, so a train never
+// jumps across the river; with no enemy past either end, the broken bridge is
+// the forward terminus, CUT_STANDOFF short of it.
+Termini FindTermini(const Route &r, int team, float sNow, const std::vector<char> &down)
 {
-    Termini out = {false, team, 0.0F, 0.0F, nullptr};
+    Termini out = {false, team, 0.0F, 0.0F, nullptr, false, false};
     int n = (int)(r.len / SAMPLE_FT) + 1;
     std::vector<int> owner(n);
+    std::vector<char> cut(n, 0);
     int count[NUM_TEAMS] = {0};
+
+    // Samples on or next to a dropped bridge, at least the one nearest its middle.
+    for (size_t k = 0; k < r.bridges.size() and k < down.size(); k++)
+    {
+        if (not down[k])
+            continue;
+
+        const Span &sp = r.bridges[k];
+        const int mid = (int)(0.5F * (sp.s0 + sp.s1) / SAMPLE_FT + 0.5F);
+
+        for (int i = 0; i < n; i++)
+            if (i * SAMPLE_FT >= sp.s0 - CUT_STANDOFF_FT and i * SAMPLE_FT <= sp.s1 + CUT_STANDOFF_FT)
+                cut[i] = 1;
+
+        if (mid >= 0 and mid < n)
+            cut[mid] = 1;
+    }
 
     for (int i = 0; i < n; i++)
     {
@@ -366,12 +579,15 @@ Termini FindTermini(const Route &r, int team)
     if (team <= 0)
         return out;
 
-    // Longest run of samples not hostile to the team.
+    // Runs of samples neither hostile to the team nor on a dropped bridge: the one
+    // holding the train (or nearest it), else the longest.
     int bestA = -1, bestB = -1;
+    float bestGap = 1e30F;
+    const int nowI = sNow >= 0.0F ? (int)(sNow / SAMPLE_FT + 0.5F) : -1;
 
     for (int i = 0; i < n;)
     {
-        if (IsHostile(team, owner[i]))
+        if (IsHostile(team, owner[i]) or cut[i])
         {
             i++;
             continue;
@@ -379,10 +595,23 @@ Termini FindTermini(const Route &r, int team)
 
         int j = i;
 
-        while (j + 1 < n and not IsHostile(team, owner[j + 1]))
+        while (j + 1 < n and not IsHostile(team, owner[j + 1]) and not cut[j + 1])
             j++;
 
-        if (bestA < 0 or j - i > bestB - bestA)
+        bool take;
+
+        if (nowI >= 0)
+        {
+            const float gap = (float)(nowI < i ? i - nowI : (nowI > j ? nowI - j : 0));
+            take = bestA < 0 or gap < bestGap or (gap == bestGap and j - i > bestB - bestA);
+
+            if (take)
+                bestGap = gap;
+        }
+        else
+            take = bestA < 0 or j - i > bestB - bestA;
+
+        if (take)
         {
             bestA = i;
             bestB = j;
@@ -400,12 +629,17 @@ Termini FindTermini(const Route &r, int team)
         sB = r.len;
 
     // Which end faces the enemy? The one with hostile ground just past it;
-    // if both or neither, the one nearer any hostile objective.
-    bool hostA = bestA > 0, hostB = bestB < n - 1;
+    // if both or neither, the one nearer any hostile objective. A dropped
+    // bridge past an end is not the enemy, but with the enemy past neither end
+    // it is where the supplies go.
+    bool cutA = bestA > 0 and cut[bestA - 1], cutB = bestB < n - 1 and cut[bestB + 1];
+    bool hostA = bestA > 0 and not cutA, hostB = bestB < n - 1 and not cutB;
     bool frontIsB;
 
     if (hostA not_eq hostB)
         frontIsB = hostB;
+    else if (not hostA and cutA not_eq cutB)
+        frontIsB = cutB;
     else
     {
         float ax, ay, bx, by, yaw, dA = 1e30F, dB = 1e30F;
@@ -427,7 +661,10 @@ Termini FindTermini(const Route &r, int team)
         frontIsB = dB < dA;
     }
 
-    float standoff = (g_nRailFrontStandoff > 0 ? g_nRailFrontStandoff : 0) * GRID_SIZE_FT;
+    // The cut samples already stop CUT_STANDOFF short of a dropped bridge.
+    const bool frontAtCut = frontIsB ? cutB : cutA;
+    float standoff =
+        frontAtCut ? 0.0F : (g_nRailFrontStandoff > 0 ? g_nRailFrontStandoff : 0) * GRID_SIZE_FT;
     float runMax = (g_nRailRunKm > 20 ? g_nRailRunKm : 20) * GRID_SIZE_FT;
     float sign = frontIsB ? 1.0F : -1.0F; // direction of the front along s
     float front = frontIsB ? sB - standoff : sA + standoff;
@@ -474,6 +711,9 @@ Termini FindTermini(const Route &r, int team)
     out.sFront = front;
     out.sRear = rear;
     out.hub = hub;
+    out.frontAtCut = frontAtCut;
+    // Behind it a dropped bridge and no supply hub on this side: nothing to carry.
+    out.stranded = not hub and (frontIsB ? cutA : cutB);
     return out;
 }
 
@@ -798,9 +1038,42 @@ void RailCampaignTick(int startup)
     double now = GameSeconds();
     EnlistPlacedTrains();
 
+    if (not g_bridgesBound)
+        BindBridges();
+
     for (int ri = 0; ri < (int)g_routes.size(); ri++)
     {
         const Route &r = g_routes[ri];
+
+        // Which of its bridges are down right now; say so when that changes.
+        std::vector<char> down(r.bridges.size(), 0);
+
+        for (size_t k = 0; k < r.bridges.size(); k++)
+        {
+            const Span &sp = r.bridges[k];
+
+            if (sp.obj == FalconNullId)
+                continue;
+
+            Objective o = (Objective)vuDatabase->Find(sp.obj);
+            down[k] = (g_bRailBridgeCuts and BridgeDown(o)) ? 1 : 0;
+
+            if ((down[k] not_eq 0) not_eq sp.down)
+            {
+                _TCHAR name[80] = {0};
+
+                if (o)
+                    o->GetName(name, 79, FALSE);
+
+                Log("rail: %s -- bridge at km %.1f (%s, objective %d, %.1f km off, %d%%) is %s",
+                    r.name.c_str(), 0.5F * (sp.s0 + sp.s1) / GRID_SIZE_FT, name,
+                    o ? o->GetCampID() : -1, sp.bindFt / GRID_SIZE_FT,
+                    o ? o->GetObjectiveStatus() : -1,
+                    down[k] ? "DOWN: the line is cut there" : "back up: the line is open");
+                std::lock_guard<std::mutex> hold(g_lock);
+                g_routes[ri].bridges[k].down = down[k] not_eq 0;
+            }
+        }
 
         // A route not in RailTrainLines still runs a train someone placed on it (TE), but
         // gets no automatic one and no replacement when it dies.
@@ -829,7 +1102,8 @@ void RailCampaignTick(int startup)
 
             if (not rec)
             {
-                Train fresh = {ri, FalconNullId, 0, 0.0F, 0.0F, 0.0, false, -1.0, false, 0.0};
+                Train fresh = {ri,    FalconNullId, 0,   0.0F,  0.0F, 0.0, false,
+                               -1.0,  false,        0.0, false, false};
                 g_trains.push_back(fresh);
                 rec = &g_trains.back();
             }
@@ -885,11 +1159,22 @@ void RailCampaignTick(int startup)
             }
         }
 
-        Termini tm = {false, -1, 0.0F, 0.0F, nullptr};
+        Termini tm = {false, -1, 0.0F, 0.0F, nullptr, false, false};
+
+        // Where the train is now, so the termini keep it on its own side of a dropped bridge.
+        float sNow = -1.0F;
+
+        if (u and adoptS >= 0.0F)
+            sNow = adoptS;
+        else if (u and t.running)
+        {
+            float dir, speed;
+            sNow = TrainS(t, now, &dir, &speed);
+        }
 
         if (not skip)
         {
-            tm = FindTermini(r, u ? u->GetTeam() : -1);
+            tm = FindTermini(r, u ? u->GetTeam() : -1, sNow, down);
 
             if (not tm.ok)
             {
@@ -899,10 +1184,23 @@ void RailCampaignTick(int startup)
 
                 t.noTermini = true;
                 skip = true;
+
+                // A running train whose stretch has become too short (a bridge dropped
+                // either side of it) stops where it is instead of running on across the gap.
+                if (u and t.running and sNow >= 0.0F and not t.halted)
+                {
+                    t.sRear = t.sFront = sNow;
+                    SetPhase(t, sNow, true, now);
+                    t.halted = true;
+                    t.lastDelivery = now;
+                    Log("rail: %s -- train %d halted at km %.1f", r.name.c_str(), u->GetCampID(),
+                        sNow / GRID_SIZE_FT);
+                }
             }
             else
             {
                 t.noTermini = false;
+                t.halted = false;
                 t.team = tm.team;
             }
         }
@@ -932,22 +1230,34 @@ void RailCampaignTick(int startup)
 
             // Did it reach the railhead since the last look? Checked on the timetable it has been
             // running, before the ends move and the cycle is re-based.
-            if (t.running)
+            // A stranded train (a dropped bridge between it and every hub) carries nothing.
+            if (t.running and not t.stranded)
                 MaybeDeliver(r, t, u, now);
             else
                 t.lastDelivery = now; // starts running now: nothing owed for arrivals before this
 
             bool moved = not t.running or fabsf(tm.sFront - t.sFront) > GRID_SIZE_FT or
-                         fabsf(tm.sRear - t.sRear) > GRID_SIZE_FT;
+                         fabsf(tm.sRear - t.sRear) > GRID_SIZE_FT or tm.stranded not_eq t.stranded;
             t.sRear = tm.sRear;
             t.sFront = tm.sFront;
+            t.stranded = tm.stranded;
             SetPhase(t, s, outbound, now);
 
             if (moved or startup)
-                Log("rail: %s -- train %d runs %.0f km %s to %d km short of the front",
-                    r.name.c_str(), u->GetCampID(), fabsf(tm.sFront - tm.sRear) / GRID_SIZE_FT,
-                    tm.hub ? "from a supply hub" : "from the end of friendly track",
-                    g_nRailFrontStandoff);
+            {
+                char where[64];
+
+                if (tm.frontAtCut)
+                    sprintf_s(where, "to %d km short of a dropped bridge",
+                              (int)(CUT_STANDOFF_FT / GRID_SIZE_FT));
+                else
+                    sprintf_s(where, "to %d km short of the front", g_nRailFrontStandoff);
+
+                Log("rail: %s -- train %d runs %.0f km %s %s%s", r.name.c_str(), u->GetCampID(),
+                    fabsf(tm.sFront - tm.sRear) / GRID_SIZE_FT,
+                    tm.hub ? "from a supply hub" : "from the end of friendly track", where,
+                    tm.stranded ? " -- STRANDED behind a dropped bridge, carrying nothing" : "");
+            }
         }
         else if (not skip and wanted)
         {
@@ -962,11 +1272,14 @@ void RailCampaignTick(int startup)
                 t.t0 = now; // start of a cycle: loading at the hub
                 t.running = true;
                 t.lastDelivery = now;
-                Log("rail: %s -- spawned train %d for team %d: %.0f km %s to %d km short of the front",
+                t.stranded = tm.stranded;
+                t.halted = false;
+                Log("rail: %s -- spawned train %d for team %d: %.0f km %s to %d km short of %s",
                     r.name.c_str(), u->GetCampID(), tm.team,
                     fabsf(tm.sFront - tm.sRear) / GRID_SIZE_FT,
                     tm.hub ? "from a supply hub" : "from the end of friendly track",
-                    g_nRailFrontStandoff);
+                    tm.frontAtCut ? (int)(CUT_STANDOFF_FT / GRID_SIZE_FT) : g_nRailFrontStandoff,
+                    tm.frontAtCut ? "a dropped bridge" : "the front");
             }
         }
 
@@ -994,7 +1307,8 @@ int RailMoveTrain(UnitClass *u)
     return 0;
 }
 
-bool RailTrainPose(UnitClass *u, int car, float *x, float *y, float *yaw, float *speed)
+bool RailTrainPose(UnitClass *u, int car, float *x, float *y, float *yaw, float *speed,
+                   RailTrackAt *at)
 {
     if (not u or not u->IsTrain())
         return false;
@@ -1012,12 +1326,69 @@ bool RailTrainPose(UnitClass *u, int car, float *x, float *y, float *yaw, float 
     // Cars stay in one order along the track (hub side of the lead), so the
     // consist never jumps at a terminus; it only turns round.
     float towardRear = t->sFront >= t->sRear ? -1.0F : 1.0F;
-    PointAt(r, s + towardRear * car * CAR_SPACING_FT, x, y, yaw);
+    const float sCar = s + towardRear * car * CAR_SPACING_FT;
+    PointAt(r, sCar, x, y, yaw);
 
     if (dir < 0.0F)
         *yaw += 3.14159265F;
 
+    if (at)
+    {
+        size_t i0, i1;
+        at->kind = TrackAt(r, sCar, &i0, &i1);
+        at->ax = r.x[i0];
+        at->ay = r.y[i0];
+        at->bx = r.x[i1];
+        at->by = r.y[i1];
+        const float runLen = r.s[i1] - r.s[i0];
+        at->t = runLen > 0.0F ? (sCar - r.s[i0]) / runLen : 0.0F;
+        at->t = at->t < 0.0F ? 0.0F : (at->t > 1.0F ? 1.0F : at->t);
+    }
+
     return true;
+}
+
+int RailVisitTrack(RailTrackPointFn fn, void *ctx)
+{
+    std::lock_guard<std::mutex> hold(g_lock);
+
+    if (not LoadRoutes())
+        return 0;
+
+    for (int ri = 0; ri < (int)g_routes.size(); ri++)
+    {
+        const Route &r = g_routes[ri];
+
+        for (int i = 0; i < (int)r.x.size(); i++)
+            fn(ctx, ri, i, r.x[i], r.y[i], r.seg[i]);
+    }
+
+    return (int)g_routes.size();
+}
+
+int RailGetBridges(RailBridgeInfo *out, int max)
+{
+    std::lock_guard<std::mutex> hold(g_lock);
+    int n = 0;
+
+    for (const Route &r : g_routes)
+    {
+        for (const Span &sp : r.bridges)
+        {
+            if (n >= max)
+                return n;
+
+            if (sp.obj == FalconNullId)
+                continue;
+
+            float yaw;
+            PointAt(r, 0.5F * (sp.s0 + sp.s1), &out[n].simX, &out[n].simY, &yaw);
+            out[n].down = sp.down ? 1 : 0;
+            n++;
+        }
+    }
+
+    return n;
 }
 
 int RailVisitRoutes(RailPointFn fn, void *ctx)

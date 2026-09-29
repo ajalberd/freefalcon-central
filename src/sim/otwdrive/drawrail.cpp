@@ -59,9 +59,15 @@ public:
     virtual void Draw(class RenderOTW *renderer, int LOD);
 
 private:
+    // A route point: position, the flag of the segment starting here ('-', 'b' bridge,
+    // 't' tunnel), distance along the route, and the first/last point of the run of
+    // that flag it belongs to (a bridge's deck is level between the ground at those two).
     struct P
     {
         float x, y;
+        char f;
+        float s;
+        int run0, run1;
     };
 
     std::vector<std::vector<P>> routes;
@@ -69,15 +75,41 @@ private:
     DWORD lastLog;
     int drawsPerEye[5]; // flat, then VR views 0..3
 
-    static void Collect(void *ctx, int route, int index, float x, float y)
+    static void Collect(void *ctx, int route, int index, float x, float y, char f)
     {
         std::vector<std::vector<P>> &r = *static_cast<std::vector<std::vector<P>> *>(ctx);
 
         if (index == 0 or route >= (int)r.size())
             r.resize(route + 1);
 
-        P p = {x, y};
+        P p = {x, y, f, 0.0F, 0, 0};
         r[route].push_back(p);
+    }
+
+    // Distances along each route and the flag runs, once after loading.
+    void Index()
+    {
+        for (std::vector<P> &r : routes)
+        {
+            for (size_t i = 1; i < r.size(); i++)
+                r[i].s = r[i - 1].s + hypotf(r[i].x - r[i - 1].x, r[i].y - r[i - 1].y);
+
+            for (size_t i = 0; i + 1 < r.size();)
+            {
+                size_t j = i;
+
+                while (j + 1 < r.size() - 1 and r[j + 1].f == r[i].f)
+                    j++;
+
+                for (size_t k = i; k <= j; k++)
+                {
+                    r[k].run0 = (int)i;
+                    r[k].run1 = (int)(j + 1); // the point where the run ends
+                }
+
+                i = j + 1;
+            }
+        }
     }
 
     // One quad of the strip between two pieces, offset `off` feet sideways, `w` wide, handed to
@@ -132,7 +164,8 @@ void DrawableRail::Draw(RenderOTW *renderer, int)
 
     if (not loaded)
     {
-        RailVisitRoutes(Collect, &routes);
+        RailVisitTrack(Collect, &routes);
+        Index();
         loaded = true;
     }
 
@@ -144,6 +177,7 @@ void DrawableRail::Draw(RenderOTW *renderer, int)
     // Ballast: grey-brown; rails: dark steel. Scaled by the light so night is dark.
     const DWORD ballast = Colour(0.46F * light, 0.42F * light, 0.36F * light);
     const DWORD steel = Colour(0.16F * light, 0.15F * light, 0.14F * light);
+    const DWORD deckColour = Colour(0.36F * light, 0.36F * light, 0.37F * light); // concrete
 
     // Which VR eye (or -1 for flat) this pass is for -- tallied for RailTrackLog, since the
     // first cut showed in one eye only.
@@ -162,7 +196,8 @@ void DrawableRail::Draw(RenderOTW *renderer, int)
             const float dx = b.x - a.x, dy = b.y - a.y;
             const float len = sqrtf(dx * dx + dy * dy);
 
-            if (len < 1.0F)
+            // Nothing to see in a tunnel.
+            if (len < 1.0F or a.f == 't')
                 continue;
 
             // Skip segments whose nearest point is out of range.
@@ -179,6 +214,19 @@ void DrawableRail::Draw(RenderOTW *renderer, int)
             Tpoint prev;
             float pz0 = 0, pz1 = 0, pzc = 0;
 
+            // A bridge's deck: level between the ground at the two ends of its run.
+            const bool bridge = a.f == 'b';
+            float deckA = 0.0F, deckB = 0.0F, runS0 = 0.0F, runLen = 1.0F;
+
+            if (bridge)
+            {
+                const P &r0 = route[a.run0], &r1 = route[a.run1];
+                deckA = OTWDriver.GetGroundLevel(r0.x, r0.y);
+                deckB = OTWDriver.GetGroundLevel(r1.x, r1.y);
+                runS0 = r0.s;
+                runLen = r1.s - r0.s > 1.0F ? r1.s - r0.s : 1.0F;
+            }
+
             for (int k = 0; k <= n; k++)
             {
                 Tpoint cur;
@@ -191,14 +239,24 @@ void DrawableRail::Draw(RenderOTW *renderer, int)
                 // Ground under both edges and the centre: on a hillside a flat strip would dig
                 // into the uphill side and float on the other.
                 const float hw = BALLAST_W * 0.5F;
-                const float z0 = OTWDriver.GetGroundLevel(cur.x - px * hw, cur.y - py * hw);
-                const float z1 = OTWDriver.GetGroundLevel(cur.x + px * hw, cur.y + py * hw);
-                const float zc = OTWDriver.GetGroundLevel(cur.x, cur.y);
+                float z0 = OTWDriver.GetGroundLevel(cur.x - px * hw, cur.y - py * hw);
+                float z1 = OTWDriver.GetGroundLevel(cur.x + px * hw, cur.y + py * hw);
+                float zc = OTWDriver.GetGroundLevel(cur.x, cur.y);
+
+                if (bridge)
+                {
+                    // Level across, never below the ground (z is down: the smaller z is higher).
+                    const float deck = deckA + (deckB - deckA) * (a.s + s - runS0) / runLen;
+                    zc = deck < zc ? deck : zc;
+                    z0 = z1 = zc;
+                }
+
                 cur.z = zc;
 
                 if (k > 0 and inRange)
                 {
-                    Quad(prev, cur, px, py, 0.0F, BALLAST_W, LIFT_FT, pz0, pz1, z0, z1, ballast);
+                    Quad(prev, cur, px, py, 0.0F, BALLAST_W, LIFT_FT, pz0, pz1, z0, z1,
+                         bridge ? deckColour : ballast);
                     Quad(prev, cur, px, py, -GAUGE * 0.5F, RAIL_W, RAIL_LIFT_FT, pzc, pzc, zc, zc,
                          steel);
                     Quad(prev, cur, px, py, GAUGE * 0.5F, RAIL_W, RAIL_LIFT_FT, pzc, pzc, zc, zc,

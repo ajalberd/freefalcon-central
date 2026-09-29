@@ -2987,11 +2987,33 @@ static void StampRailLines(BYTE *overlay, long w, long h)
         drawn++;
     }
 
+    // Rail bridges that stand on a bridge objective (a dropped one cuts the line): a small dot
+    // each, and an X over one that is down. Rail bridges are the same for both sides, like the
+    // routes, so they are all shown. Empty until the campaign tick has bound them.
+    static RailBridgeInfo bridges[1024];
+    const int nb = RailGetBridges(bridges, 1024);
+    int cuts = 0;
+
+    for (int i = 0; i < nb; i++)
+    {
+        long px, py;
+        RailSimToOverlay(&c, bridges[i].simX, bridges[i].simY, &px, &py);
+
+        if (bridges[i].down)
+        {
+            StampOverlayLine(overlay, w, h, px - 4, py - 4, px + 4, py + 4, 1, CAMP_TINT_MAX);
+            StampOverlayLine(overlay, w, h, px - 4, py + 4, px + 4, py - 4, 1, CAMP_TINT_MAX);
+            cuts++;
+        }
+        else
+            StampOverlayDisc(overlay, w, h, px, py, 2, CAMP_TINT_MAX - 2);
+    }
+
     if (g_bLogCampMenu)
     {
-        _TCHAR ln[160];
-        sprintf(ln, "[RAIL] %d routes, %ld points, %d trains running, %d drawn\n", routes,
-                c.points, n, drawn);
+        _TCHAR ln[200];
+        sprintf(ln, "[RAIL] %d routes, %ld points, %d trains running, %d drawn, %d bridges, %d down\n",
+                routes, c.points, n, drawn, nb, cuts);
         FFDebugLog(ln);
     }
 }

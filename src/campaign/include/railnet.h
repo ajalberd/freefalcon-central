@@ -30,10 +30,21 @@ void RailCampaignTick(int startup);
 // BattalionClass::MoveUnit for a train. Returns what MoveUnit returns.
 int RailMoveTrain(UnitClass *u);
 
+// What the track is at a point: kind '-' plain, 'b' bridge, 't' tunnel (the
+// flags rail.txt carries from OSM). On a bridge, the whole bridge run goes from
+// (ax, ay) to (bx, by) and the point is t (0..1) of the way along it -- the deck
+// is level between the ground at the two ends, not the river bed under it.
+struct RailTrackAt
+{
+    char kind;
+    float ax, ay, bx, by, t;
+};
+
 // Where car `car` of this train sits right now (sim feet, yaw in radians,
-// speed in ft/s). False if the unit is not a train this module is running.
+// speed in ft/s), and optionally what the track is there. False if the unit is
+// not a train this module is running.
 bool RailTrainPose(UnitClass *u, int car, float *x, float *y, float *yaw,
-                   float *speed);
+                   float *speed, RailTrackAt *at = nullptr);
 
 // Campaign map (UI thread). Both copy out under the module's lock and load
 // rail.txt on first use, so the map can draw the routes even with trains off.
@@ -41,6 +52,22 @@ bool RailTrainPose(UnitClass *u, int car, float *x, float *y, float *yaw,
 // Calls fn once per route point, in order; returns how many routes there are.
 typedef void (*RailPointFn)(void *ctx, int route, int index, float simX, float simY);
 int RailVisitRoutes(RailPointFn fn, void *ctx);
+
+// The same walk with each point's track flag (of the segment that starts there:
+// '-', 'b' or 't'; the last point's is '-'). For the 3D track strip.
+typedef void (*RailTrackPointFn)(void *ctx, int route, int index, float simX, float simY,
+                                 char flag);
+int RailVisitTrack(RailTrackPointFn fn, void *ctx);
+
+// Rail bridges bound to a bridge objective (a dropped one cuts the line), for
+// the campaign map. `down` = the objective is at 0% or has a destroyed span.
+struct RailBridgeInfo
+{
+    float simX, simY; // middle of the rail bridge
+    int down;
+};
+
+int RailGetBridges(RailBridgeInfo *out, int max);
 
 struct RailTrainInfo
 {

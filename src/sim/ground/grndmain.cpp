@@ -956,10 +956,11 @@ int GroundClass::Exec(void)
         // Artscout - 2026: a train's cars ride its rail route (railnet.cpp) instead of steering
         // toward a formation slot. The delta is set too, so engine sound and dust follow speed.
         float railX, railY, railYaw, railSpeed;
+        RailTrackAt railAt;
         UnitClass *railUnit = (UnitClass *)GetCampaignObject();
 
         if (railUnit and railUnit->IsBattalion() and railUnit->IsTrain() and
-            RailTrainPose(railUnit, vehicleInUnit, &railX, &railY, &railYaw, &railSpeed))
+            RailTrainPose(railUnit, vehicleInUnit, &railX, &railY, &railYaw, &railSpeed, &railAt))
         {
             if (SimLibMajorFrameTime > 0.0F)
             {
@@ -967,14 +968,32 @@ int GroundClass::Exec(void)
                          (railY - YPos()) / SimLibMajorFrameTime, 0.0F);
             }
 
-            // On the rail top when the track strip is drawn (0 otherwise); the drawable snaps
-            // to the ground itself, so it gets the same lift.
-            const float railLift = DrawRailTopFt();
-            SetPosition(railX, railY, OTWDriver.GetGroundLevel(railX, railY) - railLift);
+            // On the rail top when the track strip is drawn (0 otherwise). On a bridge, on the
+            // deck: level between the ground at the bridge's two ends, never below the ground
+            // (z is down, so the higher of the two is the smaller z). The drawable snaps to the
+            // ground itself, so it gets the same lift.
+            const float groundZ = OTWDriver.GetGroundLevel(railX, railY);
+            float railLift = DrawRailTopFt();
+
+            if (railAt.kind == 'b')
+            {
+                const float za = OTWDriver.GetGroundLevel(railAt.ax, railAt.ay);
+                const float zb = OTWDriver.GetGroundLevel(railAt.bx, railAt.by);
+                const float deck = za + (zb - za) * railAt.t;
+
+                if (groundZ > deck)
+                    railLift += groundZ - deck;
+            }
+
+            SetPosition(railX, railY, groundZ - railLift);
             SetYPR(railYaw, 0.0F, 0.0F);
 
             if (drawPointer and drawPointer->GetClass() == DrawableObject::GroundVehicle)
+            {
                 ((DrawableGroundVehicle *)drawPointer)->SetLift(railLift);
+                // Out of sight in a tunnel.
+                ((DrawableGroundVehicle *)drawPointer)->SetInhibitFlag(railAt.kind == 't');
+            }
         }
         else
         {

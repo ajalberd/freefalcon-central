@@ -161,8 +161,30 @@ Off unless `set g_bRailTrains 1` is in `FFViper.cfg`.
   every train. The marks move only when the overlay is rebuilt (toggling
   any layer).
 
-What it deliberately does not do yet: draw track in 3D, stop at bridges,
-carry units.
+- **Bridges cut the line** (2026-09-28, built, not yet seen in play).
+  `rail.txt` is format 2: each point carries the flag of the segment that
+  starts there (`-`, `b` bridge, `t` tunnel), carried from OSM through route
+  stitching and the land pass (a point with bridge on both sides is never
+  pulled ashore). On load, every bridge run of `RailBridgeMinM` (80 m) or more
+  is a span; the first campaign tick binds each to the nearest `TYPE_BRIDGE`
+  objective within `RailBridgeBindKm` (2 km) of its middle and logs how many
+  per line. A span is **down** while its objective is at 0% or has any
+  destroyed feature (one span in the river is enough). Each tick logs a
+  change either way with the objective's name, id, distance and status.
+  - Down spans are walls in `FindTermini`: the run holding the train is kept
+    (it never jumps the river); with no enemy past either end, the broken
+    bridge is the forward terminus, 1 km short.
+  - Cut off from every supply hub (a down bridge behind it, no hub on its
+    side): it still shuttles but is **stranded** and delivers nothing.
+  - Its stretch too short to run: **halted** where it stands.
+  - Repair reopens the line on its own (status-driven).
+  - Campaign map (Rail lines): a dot on every bound bridge, an X on a down one.
+- **3D:** no strip in tunnels and train cars hidden there; across a bridge
+  the strip is a level concrete-grey deck between the ground at the bridge's
+  two ends (never below the ground) and the cars ride it.
+
+What it deliberately does not do yet: carry units; tunnels do not protect a
+train from bombs (its sim position is on the ground above).
 
 ### Config
 
@@ -179,6 +201,12 @@ carry units.
 | `g_nRailRailheadKm` | 25 | delivery radius around the forward terminus |
 | `g_bCampRailLines` | 1 | campaign map starts with Rail lines on |
 | `g_bRailMapAllTrains` | 0 | mark every train on the map, not just your own (test aid) |
+| `g_bRailBridgeCuts` | 1 | a dropped bridge cuts the line |
+| `g_nRailBridgeBindKm` | 2 | how far a bridge objective may be from a rail bridge and still stand for it |
+| `g_nRailBridgeMinM` | 80 | shortest OSM rail bridge that counts (culverts and overpasses are ignored) |
+| `g_bRailTrack` | 0 | draw the track strip in 3D |
+| `g_bRailTrackLog` | 0 | log `RAILTRACK:` lines (pieces drawn, ground mismatch, draws per eye) |
+| `g_nRailTrackRangeKm` | 8 | how far from the camera the strip is drawn |
 
 ### Turning it off again
 
@@ -205,7 +233,9 @@ option 3 planned** for bridges.
    height under both edges and the centre, a 16 ft ballast quad plus two
    rail quads lifted 1.5-2 ft, colours scaled by the light level. Off unless
    `g_bRailTrack 1`; `g_bRailTrackLog 1` logs `RAILTRACK:` lines (pieces, and
-   exact vs approximate ground). Not yet: tunnels, bridges, fog, texture.
+   exact vs approximate ground). Seen in game 2026-09-28 after the move to
+   DX2D (below). Tunnels skipped and bridges drawn as a level deck since
+   format 2. Not yet: fog, texture.
 3. **Real 3D objects.** Planned, for bridges first (see the recon below).
 
 ### Recon for option 2 (the strip)
@@ -254,7 +284,7 @@ option 3 planned** for bridges.
   the ATM/damage/repair loop as is; (b) new bridge objectives (theater
   objective list + features + relink via `LinkCampaignObjectives`) where no
   road bridge is close. (a) first.
-- Routes do not carry the bridge/tunnel flags yet (`build_route` concatenates
+- (Done 2026-09-28: routes carry the flags, `rail.txt` format 2.) Was: routes did not carry the bridge/tunnel flags (`build_route` concatenated
   piece points only); the game file needs them for both the strip (no strip
   in tunnels, a deck over bridges, trains hidden in tunnels) and option 3.
 - No rail models exist in `KoreaObj`; sleepers/poles as objects would be
@@ -263,12 +293,15 @@ option 3 planned** for bridges.
 ## Phases
 
 1. **v0: a train that moves.** Done; seen riding the line in 3D.
-2. **Draw the track.** Campaign map done (Rail lines toggle); 3D not yet.
+2. **Draw the track.** Campaign map done (Rail lines toggle); 3D strip seen
+   in game (both eyes, occluded by vehicles and the cockpit), with tunnels
+   and bridge decks.
 3. **The Train class.** Done: its own unit class and TE entry; identified by
    class (`install_train_class.py` puts it into an install).
 4. **Rail supply.** Done in code: a trainload per railhead arrival, from the
    national pools. That makes a train worth killing. Not yet seen in play.
-5. **Bridges cut the line.** Bind OSM bridge segments to the nearest bridge
-   objective; a dropped bridge becomes a terminus.
+5. **Bridges cut the line.** Built 2026-09-28, not yet seen in play: OSM
+   bridge spans bound to the nearest bridge objective; a dropped bridge becomes
+   a terminus, strands a train cut off from its hub, shows as an X on the map.
 6. **Troop trains.** `LoadUnit`/`UnloadUnit` through the GTM.
 7. **Own models.** A locomotive and wagons instead of KrAz trucks.

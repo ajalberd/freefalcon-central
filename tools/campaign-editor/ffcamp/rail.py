@@ -645,7 +645,7 @@ def _path_len(pts):
     return float(np.hypot(*np.diff(p, axis=0).T).sum())
 
 
-def build_route(pieces):
+def build_route(pieces, segs=None):
     """The longest end-to-end run through one named line's pieces.
 
     A line arrives as many pieces: OSM splits it at every junction, and a
@@ -654,6 +654,10 @@ def build_route(pieces):
     keep the biggest connected part, and walk its diameter -- farthest node
     from anywhere, then farthest from that. A train needs one track to run
     on, not the whole web. Returns [[x, y], ...] or None.
+
+    With `segs` (one flag string per piece, one flag per segment: '-' plain,
+    'b' bridge, 't' tunnel) returns (points, flags) instead, the flags walked
+    along with the points.
     """
     import heapq
     ends = []                                   # node positions
@@ -666,16 +670,17 @@ def build_route(pieces):
         ends.append(p)
         return len(ends) - 1
 
-    for pts in pieces:
+    for i, pts in enumerate(pieces):
         if len(pts) < 2:
             continue
         a, b = node(pts[0]), node(pts[-1])
+        seg = segs[i] if segs and segs[i] else "-" * (len(pts) - 1)
         if a != b:
-            edges.append((a, b, pts, _path_len(pts)))
+            edges.append((a, b, pts, _path_len(pts), seg))
     if not edges:
         return None
     adj = {}
-    for k, (a, b, _p, ln) in enumerate(edges):
+    for k, (a, b, _p, ln, _s) in enumerate(edges):
         adj.setdefault(a, []).append((b, ln, k))
         adj.setdefault(b, []).append((a, ln, k))
 
@@ -700,7 +705,7 @@ def build_route(pieces):
             continue
         dist, _ = dijkstra(start)
         seen.update(dist)
-        comp_len = sum(ln for a, b, _p, ln in edges if a in dist)
+        comp_len = sum(ln for a, b, _p, ln, _s in edges if a in dist)
         if best is None or comp_len > best[0]:
             best = (comp_len, start)
     # The two nodes furthest apart on the map, then the shortest track
@@ -716,15 +721,17 @@ def build_route(pieces):
                                                ends[ab[0]][1] - ends[ab[1]][1]))
     dist, prev = dijkstra(far)
 
-    out = [ends[other]]
+    out, flags = [ends[other]], ""
     u = other
     while u != far:
         pu, k = prev[u]
-        a, b, pts, _ln = edges[k]
-        seg = pts if a == pu else pts[::-1]     # walk from pu to u...
-        out = [list(p) for p in seg] + out[1:]  # ...prepending, so it ends at `other`
+        a, b, pts, _ln, seg = edges[k]
+        fwd = a == pu
+        run = pts if fwd else pts[::-1]         # walk from pu to u...
+        out = [list(p) for p in run] + out[1:]  # ...prepending, so it ends at `other`
+        flags = (seg if fwd else seg[::-1]) + flags
         u = pu
-    return out
+    return (out, flags) if segs is not None else out
 
 
 def build_routes(lines):
@@ -732,13 +739,21 @@ def build_routes(lines):
     by_name = {}
     for ln in lines:
         if ln.get("name"):
-            by_name.setdefault(ln["name"], []).append(ln["pts"])
+            pts = ln["pts"]
+            by_name.setdefault(ln["name"], []).append(
+                (pts, ln.get("seg") or "-" * (len(pts) - 1)))
     routes = []
     for name in sorted(by_name):
-        pts = build_route(by_name[name])
-        if pts and len(pts) >= 2:
-            routes.append({"name": name, "pts": pts,
-                           "km": round(_path_len(pts), 1)})
+        got = build_route([p for p, _s in by_name[name]],
+                          [sg for _p, sg in by_name[name]])
+        if not got:
+            continue
+        pts, seg = got
+        if len(pts) >= 2:
+            route = {"name": name, "pts": pts, "km": round(_path_len(pts), 1)}
+            if set(seg) != {"-"}:
+                route["seg"] = seg
+            routes.append(route)
     return routes
 
 
@@ -793,25 +808,37 @@ class LandKeeper:
                     best = (d, px, py)
         return best
 
-    def fix(self, pts, densify_km=None):
-        """Points of one polyline, with any at sea moved ashore."""
-        out = []
+    def fix(self, pts, densify_km=None, seg=None):
+        """Points of one polyline, with any at sea moved ashore.
+
+        With `seg` (one flag per segment) returns (points, flags): densified
+        segments keep their flag, and a point with a bridge on both sides is
+        never moved -- a bridge across a wide river mouth is meant to be over
+        water.
+        """
+        out, flags = [], []
         for i, (x, y) in enumerate(pts):
             if densify_km and i:
                 px, py = pts[i - 1]
+                f = seg[i - 1] if seg else "-"
                 n = int(math.hypot(x - px, y - py) / densify_km)
                 for k in range(1, n + 1):
                     t = k / (n + 1.0)
                     out.append([px + (x - px) * t, py + (y - py) * t])
+                    flags.append(f)
+            if i:
+                flags.append(seg[i - 1] if seg else "-")
             out.append([x, y])
-        for p in out:
-            if self.at_sea(p[0], p[1]):
+        for i, p in enumerate(out):
+            on_bridge = (0 < i < len(out) - 1 and flags[i - 1] == "b" and
+                         flags[i] == "b")
+            if not on_bridge and self.at_sea(p[0], p[1]):
                 land = self.to_land(p[0], p[1])
                 if land:
                     self.moved += 1
                     self.worst = max(self.worst, land[0])
                     p[0], p[1] = land[1], land[2]
-        return out
+        return (out, "".join(flags)) if seg is not None else out
 
 
 def keep_on_land(doc, terr, log=print):
@@ -824,9 +851,14 @@ def keep_on_land(doc, terr, log=print):
     for r in routes:
         # Densified, so a long straight segment cannot cut across a bay,
         # then simplified again.
-        pts = np.array(keeper.fix(r["pts"], densify_km=0.25), float)
-        pts, _ = simplify(pts, "-" * (len(pts) - 1), 0.05)
+        seg = r.get("seg") or "-" * (len(r["pts"]) - 1)
+        pts, seg = keeper.fix(r["pts"], densify_km=0.25, seg=seg)
+        pts, seg = simplify(np.array(pts, float), seg, 0.05)
         r["pts"] = [[round(float(x), 3), round(float(y), 3)] for x, y in pts]
+        if set(seg) != {"-"}:
+            r["seg"] = seg
+        else:
+            r.pop("seg", None)
         r["km"] = round(_path_len(r["pts"]), 1)
     doc["routes"] = routes
     log("kept on land: %d points moved off open sea, furthest %.2f km"
@@ -837,17 +869,23 @@ def keep_on_land(doc, terr, log=print):
 def write_game_file(doc, path):
     """rail.txt: what the game reads (it has no JSON parser).
 
-        ffrail 1
+        ffrail 2
         route <npts> <name to end of line>
-        <x km> <y km>            one per point, campaign km, x east, y north
+        <x km> <y km> <flag>     one per point, campaign km, x east, y north;
+                                 flag of the segment starting here: - plain,
+                                 b bridge, t tunnel (the last point's is -)
+
+    Version 1 had no flag column; the game reads both.
     """
     with open(path, "w", encoding="ascii", errors="replace", newline="\n") as f:
-        f.write("ffrail 1\n")
+        f.write("ffrail 2\n")
         f.write("# %s\n" % doc.get("attribution", ATTRIBUTION))
         for r in doc.get("routes", ()):
-            f.write("route %d %s\n" % (len(r["pts"]), r["name"]))
-            for x, y in r["pts"]:
-                f.write("%.3f %.3f\n" % (x, y))
+            pts = r["pts"]
+            seg = r.get("seg") or "-" * (len(pts) - 1)
+            f.write("route %d %s\n" % (len(pts), r["name"]))
+            for i, (x, y) in enumerate(pts):
+                f.write("%.3f %.3f %s\n" % (x, y, seg[i] if i < len(seg) else "-"))
 
 
 # -- the whole pipeline --------------------------------------------------------
