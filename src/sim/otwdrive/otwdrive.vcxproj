@@ -315,6 +315,7 @@
     <ClCompile Include="addobj.cpp" />
     <ClCompile Include="cockpit.cpp" />
     <ClCompile Include="DrawObjs.cpp" />
+    <ClCompile Include="drawrail.cpp" />
     <ClCompile Include="External.cpp" />
     <ClCompile Include="eyeFly.cpp" />
     <ClCompile Include="Menus.cpp" />

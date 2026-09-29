@@ -978,6 +978,11 @@ int g_nRailRunKm = 160; // Artscout - 2026: longest run from hub to front, km; t
 int g_nRailRespawnHours = 12; // Artscout - 2026: campaign hours before a destroyed train is replaced. "RailRespawnHours".
 int g_nRailTrainLoad = 120; // Artscout - 2026: supply and fuel a full train delivers per arrival at the railhead, in the units GetUnitSupplyNeed counts (a 30-vehicle battalion at 40% supply is short 18). Drawn from the team's national pools, scaled by the train's surviving cars, 2% lost in transit; handed to its own side's battalions within RailRailheadKm of the forward terminus, nearest first. 0 = trains carry nothing. "RailTrainLoad".
 int g_nRailRailheadKm = 25; // Artscout - 2026: how far from the forward terminus a battalion can be and still draw from an arriving train, km. "RailRailheadKm".
+bool g_bRailTrack =
+    false; // Artscout - 2026: draw the railway track in 3D (sim/otwdrive/drawrail.cpp) -- a plain-colour ballast strip with two rails, following the ground, on the rail.txt routes within RailTrackRangeKm of the camera. Pilot (RAIL.md, "Drawing the track in 3D"): off by default until it has been seen not to flicker against the terrain. "RailTrack".
+bool g_bRailTrackLog =
+    false; // Artscout - 2026: every 10 s, log how many track pieces were drawn and how far the exact ground lookup the strip uses is from the approximate one, for chasing flicker. "RailTrackLog".
+int g_nRailTrackRangeKm = 8; // Artscout - 2026: how far from the camera the track strip is drawn, km (1..30). "RailTrackRangeKm".
 int g_nPathDamageCost =
     100; // Artscout - 2026: damage feeds ground ROUTE cost (GetObjectiveMovementCost, path.cpp). Link costs are baked from terrain at campaign build, so a half-dropped bridge or cratered road junction was as cheap to plan through as an intact one; only a 0% bridge was blocked. At 100, entering a damaged road/junction/rail node costs up to x2 and a damaged bridge up to x4, scaling linearly with objective status (repair re-opens it on its own); capped below "impassable". The planner-side twin of SupplyInterdiction. 0 = stock. "PathDamageCost".
 int g_nSupplyInterdiction =
@@ -1702,6 +1707,8 @@ static ConfigOption<bool> BoolOpts[] = {
     {"RailTrains", &g_bRailTrains}, // Artscout - 2026: trains on the rail routes (railnet.cpp)
     {"CampRailLines", &g_bCampRailLines}, // Artscout - 2026: campaign map draws the rail routes
     {"RailMapAllTrains", &g_bRailMapAllTrains}, // Artscout - 2026: mark enemy trains too (test aid)
+    {"RailTrack", &g_bRailTrack}, // Artscout - 2026: draw the track strip in 3D (pilot)
+    {"RailTrackLog", &g_bRailTrackLog}, // Artscout - 2026: log track pieces and ground mismatch
     {"PitShadow",
      &g_bPitShadow}, // Artscout - 2026: cockpit sun shadows (depth-only pit replay + PS lookup)
     {"ToneMapGT7",
@@ -2137,6 +2144,7 @@ static ConfigOption<int> IntOpts[] = {
     {"RailRespawnHours", &g_nRailRespawnHours}, // Artscout - 2026: replacement delay
     {"RailTrainLoad", &g_nRailTrainLoad}, // Artscout - 2026: supply + fuel per railhead arrival
     {"RailRailheadKm", &g_nRailRailheadKm}, // Artscout - 2026: delivery radius at the railhead
+    {"RailTrackRangeKm", &g_nRailTrackRangeKm}, // Artscout - 2026: track strip draw range
     {"PathDamageCost",
      &g_nPathDamageCost}, // Artscout - 2026: damaged roads/bridges cost more to ROUTE through (0 = stock)
     {"SupplyInterdiction",

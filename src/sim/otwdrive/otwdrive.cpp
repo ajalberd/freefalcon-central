@@ -2108,6 +2108,12 @@ void OTWDriverClass::Enter(void)
                      PlayerOptions.MaxTerrainLevel(), 4,
                      DisplayOptions.bZBuffering);
 
+    // Artscout - 2026: the railway track strip (drawrail.cpp; off unless RailTrack).
+    {
+        extern void DrawRailCreate();
+        DrawRailCreate();
+    }
+
     bKeepClean = FALSE; // JB 010616
 
     // set the special effects detail level
@@ -2890,6 +2896,12 @@ int OTWDriverClass::Exit(void)
     }
 
     F4EnterCriticalSection(cs_update); // JB 010616
+
+    // Artscout - 2026: the rail strip is ours to free; the display lists only unlink objects.
+    {
+        extern void DrawRailDestroy();
+        DrawRailDestroy();
+    }
 
     if (viewPoint)
     {

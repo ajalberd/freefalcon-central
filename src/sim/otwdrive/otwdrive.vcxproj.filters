@@ -23,6 +23,9 @@
     <ClCompile Include="DrawObjs.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="drawrail.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="External.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
