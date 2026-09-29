@@ -136,7 +136,7 @@ picks its Recon row (popup rows are not controls; the offset is the stock menu l
 
 ## Open / next
 
-- **Integer / sharp scaling of the present** (asked 2026-09-29): nearest at a non-integer scale
+- **Sharp scaling: done** (`UiFilter`, default 1; `-uifilter`). Was: nearest at a non-integer scale
   (1.77) doubles some pixels and not others. Plan: the "sharp bilinear" pixel-art filter in the
   menu blit (crisp texels, one blended pixel at each seam), as a knob.
 - **DPI awareness**: still none. On a scaled desktop Windows bitmap-stretches the window again.

@@ -12,6 +12,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Script,
     [string]$UiSize = "",
     [string]$UiScale = "",
+    [string]$UiFilter = "",
     [switch]$Deploy,
     [string]$Install = "C:\FreeFalcon6",
     [string]$Png = "",
@@ -47,6 +48,7 @@ $ffStart = if (Test-Path $ffLog) { (Get-Item $ffLog).Length } else { 0 }
 $argList = "-nomovie -window -uitest $Script"
 if ($UiSize) { $argList += " -uisize $UiSize" }
 if ($UiScale) { $argList += " -uiscale $UiScale" }
+if ($UiFilter -ne "") { $argList += " -uifilter $UiFilter" }
 $p = Start-Process -FilePath $exe -ArgumentList $argList -WorkingDirectory $Install -PassThru
 if (-not $p.WaitForExit($TimeoutSec * 1000)) {
     Stop-Process -Id $p.Id -Force

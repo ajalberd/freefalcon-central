@@ -1072,6 +1072,7 @@ bool g_bHiResUI = true; // false = 800x600, true = 1024x768
 // the menus more room. Also "-uisize WxH" on the command line. See UI-OVERHAUL.md.
 int g_nUiWidth = 0; // -1 = fill the desktop work area
 int g_nUiHeight = 0;
+int g_nUiFilter = 1; // menu magnification filter (D3D12): 1 = sharp bilinear (crisp texels), 0 = plain bilinear
 float g_fReconZoomRate = 6.0f; // recon zoom, % per unit of panner offset (-5..5) per tick; 0 = stock linear
 float g_fUiScale = 1.0f; // menu magnification: the layout is UiWidth/UiScale wide, drawn UiScale times bigger; 0 = auto (layout 768 tall)
 bool g_bUiAdapt = true; // fit the stock layout to a larger surface (ui95/cadapt.cpp); 0 = stock rects
@@ -2193,6 +2194,7 @@ static ConfigOption<int> IntOpts[] = {
     {"BWCheckDeltaTime", &g_nBWCheckDeltaTime}, // 2002-04-12 MN
     {"VUMaxDeltaTime", &g_nVUMaxDeltaTime}, // 2002-04-12 MN
     {"UiWidth", &g_nUiWidth}, // Artscout - 2026: menu surface size, 0 = 1024x768
+    {"UiFilter", &g_nUiFilter}, // Artscout - 2026: 1 = sharp bilinear menu scaling, 0 = plain
     {"UiHeight", &g_nUiHeight},
     {"ACMIOptionsPopupHiResX", &g_nACMIOptionsPopupHiResX},
     {"ACMIOptionsPopupHiResY", &g_nACMIOptionsPopupHiResY},

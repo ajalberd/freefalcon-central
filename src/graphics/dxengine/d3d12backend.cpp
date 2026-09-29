@@ -2282,13 +2282,30 @@ bool D3D12Backend::EnsureQuadPipeline()
         "  VSOut o; float2 uv = float2((id << 1) & 2, id & 2);\n"
         "  o.uv = uv; o.pos = float4(uv * float2(2,-2) + float2(-1,1), 0, 1); "
         "return o; }\n"
-        "float4 PSMain(VSOut i) : SV_TARGET { return gTex.Sample(gSmp, i.uv); "
+        // Artscout - 2026: SHARP is the pixel-art "sharp bilinear" filter for the magnified menu
+        // (UiScale): each source texel stays a flat block and only the one output pixel across a
+        // texel seam blends, so a non-integer scale (1.77) neither blurs like bilinear nor doubles
+        // some pixels and not others like nearest. 1:1 reproduces the image exactly; shrinking falls
+        // back to plain bilinear. g_nUiFilter 0 = plain bilinear throughout.
+        "float4 PSMain(VSOut i) : SV_TARGET {\n"
+        "#if SHARP\n"
+        "  float w, h; gTex.GetDimensions(w, h); float2 sz = float2(w, h);\n"
+        "  float2 pix = i.uv * sz; float2 seam = floor(pix + 0.5);\n"
+        "  float2 d = max(fwidth(pix), 1e-5);\n"
+        "  pix = seam + clamp((pix - seam) / d, -0.5, 0.5);\n"
+        "  return gTex.Sample(gSmp, pix / sz);\n"
+        "#else\n"
+        "  return gTex.Sample(gSmp, i.uv);\n"
+        "#endif\n"
         "}\n";
+
+    extern int g_nUiFilter;
+    const D3D_SHADER_MACRO kDefs[] = {{"SHARP", g_nUiFilter == 1 ? "1" : "0"}, {NULL, NULL}};
 
     ID3DBlob* vs = 0;
     ID3DBlob* ps = 0;
     ID3DBlob* err = 0;
-    if (FAILED(D3DCompile(kSrc, strlen(kSrc), "quad", 0, 0, "VSMain", "vs_5_0",
+    if (FAILED(D3DCompile(kSrc, strlen(kSrc), "quad", kDefs, 0, "VSMain", "vs_5_0",
                           0, 0, &vs, &err)))
     {
         D12Log("[D3D12] VS compile failed: %s\n",
@@ -2302,7 +2319,7 @@ bool D3D12Backend::EnsureQuadPipeline()
         err->Release();
         err = 0;
     }
-    if (FAILED(D3DCompile(kSrc, strlen(kSrc), "quad", 0, 0, "PSMain", "ps_5_0",
+    if (FAILED(D3DCompile(kSrc, strlen(kSrc), "quad", kDefs, 0, "PSMain", "ps_5_0",
                           0, 0, &ps, &err)))
     {
         D12Log("[D3D12] PS compile failed: %s\n",

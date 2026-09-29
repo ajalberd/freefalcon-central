@@ -1305,6 +1305,16 @@ void ParseCommandLine(LPSTR cmdLine)
                     sscanf_s(size, "%dx%d", &g_nUiWidth, &g_nUiHeight);
             }
 
+            if (not _strnicmp(arg, "-uifilter", 9))
+            {
+                // -uifilter N: menu magnification filter for this run (1 sharp, 0 plain bilinear)
+                extern int g_nUiFilter;
+                const char *f = strtok(NULL, " ");
+
+                if (f)
+                    g_nUiFilter = atoi(f);
+            }
+
             if (not _strnicmp(arg, "-uiscale", 8))
             {
                 // -uiscale S: menu magnification for this run, over the cfg's UiScale
