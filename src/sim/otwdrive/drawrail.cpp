@@ -250,6 +250,11 @@ void DrawableRail::Draw(RenderOTW *renderer, int)
 DrawableRail *gRailDrawable = nullptr;
 } // namespace
 
+float DrawRailTopFt()
+{
+    return g_bRailTrack ? RAIL_LIFT_FT : 0.0F;
+}
+
 // OTWDriverClass::Enter, once the viewpoint exists.
 void DrawRailCreate()
 {

@@ -967,8 +967,14 @@ int GroundClass::Exec(void)
                          (railY - YPos()) / SimLibMajorFrameTime, 0.0F);
             }
 
-            SetPosition(railX, railY, OTWDriver.GetApproxGroundLevel(railX, railY));
+            // On the rail top when the track strip is drawn (0 otherwise); the drawable snaps
+            // to the ground itself, so it gets the same lift.
+            const float railLift = DrawRailTopFt();
+            SetPosition(railX, railY, OTWDriver.GetGroundLevel(railX, railY) - railLift);
             SetYPR(railYaw, 0.0F, 0.0F);
+
+            if (drawPointer and drawPointer->GetClass() == DrawableObject::GroundVehicle)
+                ((DrawableGroundVehicle *)drawPointer)->SetLift(railLift);
         }
         else
         {

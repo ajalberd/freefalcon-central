@@ -26,6 +26,7 @@ DrawableGroundVehicle::DrawableGroundVehicle(int ID, Tpoint *pos, float heading,
 {
     // Store this objects properties
     drivingOn = NULL;
+    lift = 0.0f;
     drawClassID = GroundVehicle;
 
     // Initialize our position and orientation values
@@ -98,7 +99,7 @@ void DrawableGroundVehicle::Draw(class RenderOTW *renderer, int LOD)
             // COBRA - RED - Little Offset to avoid ZBuffering conflict
             position.z = renderer->viewpoint->GetGroundLevel(
                              position.x, position.y, &normal) -
-                         .1f;
+                         .1f - lift;
         }
 
         previousLOD = LOD;

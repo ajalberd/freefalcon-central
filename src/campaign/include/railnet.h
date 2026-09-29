@@ -56,4 +56,8 @@ int RailGetTrains(RailTrainInfo *out, int max);
 // The TE editor uses it to leave a Supply battalion where it was dropped on a line.
 float RailDistanceKm(float simX, float simY);
 
+// Height in feet of the rail top above the ground when the 3D track strip is drawn (drawrail.cpp),
+// 0 when it is off: train cars ride on it rather than sink into it.
+float DrawRailTopFt();
+
 #endif

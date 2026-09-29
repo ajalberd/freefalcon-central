@@ -78,6 +78,11 @@ static DWORD TimeToPurgeAll = 0L;
 static DWORD PurgeAllTimeInc = max(g_nPSPurgeInterval * 10, 600000);
 static char ErrorMessage[128];
 
+// Artscout - 2026: ParticlesLast (f4config.cpp) and the hook CDXEngine::FlushBuffers runs after
+// the DX2D quads (dxengine.cpp).
+extern bool g_bParticlesLast;
+extern void (*g_pfnFlushAfterDX2D)(void);
+
 bool g_bNoParticleSys = 0;
 BOOL gParticleSysGreenMode = 0;
 Tcolor gParticleSysLitColor = {1, 1, 1};
@@ -6113,7 +6118,19 @@ void DrawableParticleSys::PS_Exec(class RenderOTW *renderer)
     // Artscout - 2026: #VFX Phase 2 -- flush the GPU-instanced billboard buckets that
     // PS_PolyRun accumulated this frame (one DrawParticlesInstanced per atlas). Done here,
     // during the world draw, while the renderer still holds the world camera's view/proj.
-    PS_FlushGpuParticles();
+    // With ParticlesLast the flush waits for CDXEngine::FlushBuffers, just after the DX2D quads:
+    // the cumulus puffs flush there too and neither writes depth, so drawn first the dust had a
+    // cloud behind it painted over it. The scene's FlushPolyLists follows DrawScene on the same
+    // camera. If a second PS_Exec comes before that flush, flush the first one here as before.
+    if (g_bParticlesLast)
+    {
+        if (g_pfnFlushAfterDX2D)
+            PS_FlushGpuParticles();
+
+        g_pfnFlushAfterDX2D = PS_FlushGpuParticles;
+    }
+    else
+        PS_FlushGpuParticles();
 
     //STOP_PROFILE("New PS");
 }

@@ -53,6 +53,17 @@ public:
         previousLOD = -1;
     };
 
+    // Artscout - 2026: feet to sit above the ground lookup -- a train car rides on the rail strip
+    // (drawrail.cpp), not in it. 0 for everything else.
+    void SetLift(float ft)
+    {
+        if (ft not_eq lift)
+        {
+            lift = ft;
+            previousLOD = -1;
+        }
+    };
+
     virtual void Draw(class RenderOTW *renderer, int LOD);
 
     float GetHeading(void)
@@ -66,6 +77,7 @@ protected:
     float cosYaw;
     float sinYaw;
     DrawableBridge *drivingOn;
+    float lift;
 };
 
 #endif // _DRAWGRND_H_

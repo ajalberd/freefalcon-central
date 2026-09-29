@@ -2461,6 +2461,11 @@ void CDXEngine::DrawLightSprites(void)
 }
 
 extern DWORD LODsLoaded;
+
+// Artscout - 2026: ParticlesLast -- set by DrawableParticleSys::PS_Exec to its GPU particle flush,
+// run once by the next FlushBuffers just after the DX2D quads (see there), then cleared.
+void (*g_pfnFlushAfterDX2D)(void) = NULL;
+
 // *************** This function is the REAL SCENE DRAW FUNCTION *********************
 // it flushes all requested Drawsand draws all poly types
 void CDXEngine::FlushBuffers(void)
@@ -2551,6 +2556,16 @@ void CDXEngine::FlushBuffers(void)
 
     // Flush Dynamic Buffers bitand sorted objects
     FlushDynamicObjects();
+
+    // Artscout - 2026: ParticlesLast -- the GPU particles (dust, smoke columns) after the DX2D
+    // quads above: the cumulus puffs are DX2D quads, and without depth writes on either side a
+    // cloud drawn after a dust plume painted over it even when it was behind.
+    if (g_pfnFlushAfterDX2D)
+    {
+        void (*flush)(void) = g_pfnFlushAfterDX2D;
+        g_pfnFlushAfterDX2D = NULL;
+        flush();
+    }
 
     // Artscout - 2026: the lamps' visible sources -- after the object pass, BEFORE the light list is
     // reset (the sprites are built from that list). See DrawLightSprites.

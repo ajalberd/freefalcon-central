@@ -983,6 +983,8 @@ bool g_bRailTrack =
 bool g_bRailTrackLog =
     false; // Artscout - 2026: every 10 s, log how many track pieces were drawn and how far the exact ground lookup the strip uses is from the approximate one, for chasing flicker. "RailTrackLog".
 int g_nRailTrackRangeKm = 8; // Artscout - 2026: how far from the camera the track strip is drawn, km (1..30). "RailTrackRangeKm".
+bool g_bParticlesLast =
+    true; // Artscout - 2026: draw the GPU particles (dust, smoke columns, explosions) after the DX2D world quads -- the cumulus puffs, smoke trails and the rail strip -- instead of partway through the scene. Neither writes depth, so whichever draws last paints over the other: with the particles first, a cloud behind a dust plume drew over it. Costs the rarer case, a puff between the eye and the plume. 0 = the old order. "ParticlesLast".
 int g_nPathDamageCost =
     100; // Artscout - 2026: damage feeds ground ROUTE cost (GetObjectiveMovementCost, path.cpp). Link costs are baked from terrain at campaign build, so a half-dropped bridge or cratered road junction was as cheap to plan through as an intact one; only a 0% bridge was blocked. At 100, entering a damaged road/junction/rail node costs up to x2 and a damaged bridge up to x4, scaling linearly with objective status (repair re-opens it on its own); capped below "impassable". The planner-side twin of SupplyInterdiction. 0 = stock. "PathDamageCost".
 int g_nSupplyInterdiction =
@@ -1708,6 +1710,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"CampRailLines", &g_bCampRailLines}, // Artscout - 2026: campaign map draws the rail routes
     {"RailMapAllTrains", &g_bRailMapAllTrains}, // Artscout - 2026: mark enemy trains too (test aid)
     {"RailTrack", &g_bRailTrack}, // Artscout - 2026: draw the track strip in 3D (pilot)
+    {"ParticlesLast", &g_bParticlesLast}, // Artscout - 2026: GPU particles after the DX2D quads (clouds over dust)
     {"RailTrackLog", &g_bRailTrackLog}, // Artscout - 2026: log track pieces and ground mismatch
     {"PitShadow",
      &g_bPitShadow}, // Artscout - 2026: cockpit sun shadows (depth-only pit replay + PS lookup)
