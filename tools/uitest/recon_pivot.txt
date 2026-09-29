@@ -1,0 +1,31 @@
+# Campaign map -> right-click an objective -> Recon. Shots of the popup and of the recon screen.
+timeout 200
+waitwin UI_MAIN_SCREEN 60000
+wait 1000
+click CP_MAIN_CTRL
+waitwin CS_SELECT_WIN 20000
+wait 2000
+click SINGLE_COMMIT_CTRL
+waitwin STRAT_WIN 150000
+wait 2000
+click OK STRAT_WIN
+waitgone STRAT_WIN 10000
+wait 2000
+rclickicon CP_PUA_MAP 20
+wait 1500
+windows
+shot popup
+layout popup
+clickin OBJECTIVE_POP 30 41
+waitwin RECON_WIN 15000
+wait 3000
+click RECON_OVERHEAD
+wait 1500
+text SLANT_RANGE
+wshot pivot_a
+layout pivot
+hold ZOOMER -12 600
+wait 1500
+text SLANT_RANGE
+wshot pivot_b
+quit
