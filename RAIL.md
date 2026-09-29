@@ -199,7 +199,13 @@ option 3 planned** for bridges.
    tile), so a line through a tile needs a unique copy of it: ~4,000 new
    tiles for ~4,000 km of route, >100 MB, near the library's limit, clashing
    with the BMS tile mods, and one or two texels wide at 256 px/km anyway.
-2. **A strip that sits on the ground, drawn near the camera.** The pilot.
+2. **A strip that sits on the ground, drawn near the camera.** The pilot:
+   `DrawableRail` (`sim/otwdrive/drawrail.cpp`, 2026-09-28, links, not yet
+   seen): 100 ft pieces within `RailTrackRangeKm` (8) of the camera, ground
+   height under both edges and the centre, a 16 ft ballast quad plus two
+   rail quads lifted 1.5-2 ft, colours scaled by the light level. Off unless
+   `g_bRailTrack 1`; `g_bRailTrackLog 1` logs `RAILTRACK:` lines (pieces, and
+   exact vs approximate ground). Not yet: tunnels, bridges, fog, texture.
 3. **Real 3D objects.** Planned, for bridges first (see the recon below).
 
 ### Recon for option 2 (the strip)
