@@ -210,11 +210,19 @@ option 3 planned** for bridges.
 
 ### Recon for option 2 (the strip)
 
-- `DrawableTrail` (`graphics/objects/drawsgmt.cpp`) is the model: world-space
-  quads built as `ThreeDVertex`, `renderer->TransformPoint` /
-  `TransformPointToView`, `renderer->DrawSquare(v0..v3, CULL_ALLOW_ALL)`,
-  state set with `renderer->context.RestoreState(STATE_...)`. These are the
-  CPU-transformed Render3D prims, not the DX-engine model path.
+- **Do not use the Render3D quads** (`renderer->TransformPoint` +
+  `renderer->DrawSquare`), even though `DrawableTrail` still has a branch
+  that does. Tried 2026-09-28: under D3D12 they come out as a flat overlay --
+  **left eye only, drawn over everything, cockpit included**. (Likewise
+  `Render3DFlatTri` rasterises a plain 2D triangle with no depth.)
+- **Use DX2D**: `TheDXEngine.DX2D_AddQuad(LAYER_GROUND, 0, &worldCentre,
+  D3DDYNVERTEX[4] offsets-from-centre, radius, texHandle)`
+  (`graphics/dxengine/dx2dengine.cpp`) -- what smoke trails
+  (`PS_SubTrailRun`) and the particle fallback use. World space; the engine
+  subtracts the camera and frustum-culls on the sphere; flushed through the
+  GPU renderer's `BeginDynamic2D` pipeline (alpha-blend, depth test, **no
+  depth write**). Texture 0 = the renderer's default. Shares a 65,536-vertex
+  per-frame buffer with trails (`MAX_2D_VERTICES`).
 - Drawables join the frame with `OTWDriver.InsertObject` / `viewPoint->
   InsertObject`. `ObjectDisplayList::UpdateMetrics` (`objects/objlist.cpp`)
   sorts by `max(|dx|,|dy|) - Radius()` and `DrawBeyond` draws far to near,
