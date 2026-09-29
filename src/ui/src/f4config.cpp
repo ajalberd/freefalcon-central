@@ -1070,10 +1070,10 @@ float g_fFormationBurnerDistance =
 bool g_bHiResUI = true; // false = 800x600, true = 1024x768
 // Artscout - 2026: menu surface/window size (UI95_GetSurfaceSize). 0 = 1024x768; larger values give
 // the menus more room. Also "-uisize WxH" on the command line. See UI-OVERHAUL.md.
-int g_nUiWidth = 0;
+int g_nUiWidth = 0; // -1 = fill the desktop work area
 int g_nUiHeight = 0;
 float g_fReconZoomRate = 6.0f; // recon zoom, % per unit of panner offset (-5..5) per tick; 0 = stock linear
-float g_fUiScale = 1.0f; // menu magnification: the layout is UiWidth/UiScale wide, drawn UiScale times bigger
+float g_fUiScale = 1.0f; // menu magnification: the layout is UiWidth/UiScale wide, drawn UiScale times bigger; 0 = auto (layout 768 tall)
 bool g_bUiAdapt = true; // fit the stock layout to a larger surface (ui95/cadapt.cpp); 0 = stock rects
 // Extra .scf files whose windows pin to the surface edges and fill it, on top of the built-in map
 // screens (kEdgesFiles in ui95/cadapt.cpp: campaign, recon, TE). Base names, ';'-separated.

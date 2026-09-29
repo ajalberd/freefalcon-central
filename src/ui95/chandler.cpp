@@ -34,17 +34,41 @@ volatile bool g_bUiTestLButtonHeld = false; // set only by the -uitest harness's
 // UiScale, never smaller than the stock layout, and the present stretches it back over the window.
 // So UiScale 1 gives more room at stock pixel size, and UiScale 1.5 at 2560x1440 gives a 1707x960
 // layout drawn half as big again. See UI-OVERHAUL.md.
+// The desktop's work area (screen less the taskbar), and the client size a bordered window filling
+// it gets. UiWidth/UiHeight -1 mean "that".
+void UI95_GetWorkArea(RECT *outer, int *clientW, int *clientH)
+{
+    RECT work = {0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
+    SystemParametersInfo(SPI_GETWORKAREA, 0, &work, 0);
+    RECT frame = {0, 0, 0, 0};
+    AdjustWindowRect(&frame, WS_OVERLAPPEDWINDOW, FALSE);
+    *outer = work;
+    *clientW = (work.right - work.left) - (frame.right - frame.left);
+    *clientH = (work.bottom - work.top) - (frame.bottom - frame.top);
+}
+
 void UI95_GetWindowSize(int *w, int *h)
 {
     const int minW = g_bHiResUI ? 1024 : 800, minH = g_bHiResUI ? 768 : 600;
-    *w = g_nUiWidth > 0 ? g_nUiWidth : minW;
-    *h = g_nUiHeight > 0 ? g_nUiHeight : minH;
+    RECT outer;
+    int dw, dh;
+    UI95_GetWorkArea(&outer, &dw, &dh);
+    *w = g_nUiWidth > 0 ? g_nUiWidth : g_nUiWidth < 0 ? dw : minW;
+    *h = g_nUiHeight > 0 ? g_nUiHeight : g_nUiHeight < 0 ? dh : minH;
 }
 
 void UI95_GetSurfaceSize(int *w, int *h)
 {
     const int minW = g_bHiResUI ? 1024 : 800, minH = g_bHiResUI ? 768 : 600;
-    const float scale = g_fUiScale >= 1.0f ? g_fUiScale : 1.0f;
+    float scale = g_fUiScale >= 1.0f ? g_fUiScale : 1.0f;
+
+    if (g_fUiScale == 0.0f)
+    {
+        // Auto: the scale that makes the layout exactly stock height, so all the extra is width.
+        int ww, wh;
+        UI95_GetWindowSize(&ww, &wh);
+        scale = wh > minH ? (float)wh / minH : 1.0f;
+    }
     int ww, wh;
     UI95_GetWindowSize(&ww, &wh);
     *w = (int)(ww / scale + 0.5f);

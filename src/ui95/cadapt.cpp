@@ -29,6 +29,7 @@
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
+#include <map>
 #include "chandler.h"
 #include "cbitmap.h"
 #include "ctile.h"
@@ -154,6 +155,9 @@ namespace
 {
 const long kStageW = 1024, kStageH = 768;
 const long kTopBar = 33, kBottomBar = 727; // the shells' bars: 0..32 and 728..767
+// A title-bar item starts at the top of the stage; something that merely ends above y 33 is body
+// (munitions' "FLIGHT: COWBOY1" pair straddles the bar's edge, and the value alone was pulled up).
+const long kTopBarStart = 6;
 const long kSnap = 8; // how near an edge counts as touching it
 
 enum Rule
@@ -237,7 +241,7 @@ const char *const kEdgesFiles[] = {
     "cp_main", "cp_mspua", "cp_sua", "cp_tool", "cp_miss",   // campaign map
     "rec_eye", "rec_list",                                   // recon
     "tacpmain", "tacptool", "tac_smap", "tac_air", "tac_psua", "tac_team", // TE play map
-    "tacemain", "tacetool",                                  // TE editor
+    "tacemain", "tacetool", "tac_eair",                      // TE editor (tac_eair: its map pane)
     NULL,
 };
 
@@ -302,14 +306,33 @@ bool IsBackdrop(C_Base *c, long ow, long oh)
 
 // ---- EDGES: rules relative to each container (the campaign map screen) ----
 
-void PlaceEdges(bool bars, bool stretch, long ow, long oh, long gw, long gh, long *x, long *y, long *w, long *h)
+// Where a container's top and bottom "edges" are, in its own coordinates. A container that starts
+// at the stage top or reaches the bottom bar treats the bars as its edges, as windows do: recon's
+// 3D pane client (0,32 1024x696 in a 768-tall shell) and the TE editor's map (32..728 in a window
+// 0..728) sit exactly between them and must fill, not centre or slide.
+struct Frame
 {
-    const bool topBar = bars and *y + *h <= kTopBar;
-    const bool bottomBar = bars and *y >= kBottomBar;
+    bool bars; // stage-tall: its top 32 / bottom 40 px hold bar items
+    long nearY, farY;
+};
+
+Frame FrameOf(long stageTop, long h)
+{
+    Frame f;
+    f.bars = stageTop <= 2 and h >= kStageH - 2;
+    f.nearY = stageTop <= 2 ? kTopBar - stageTop : kSnap;
+    f.farY = stageTop + h >= kBottomBar ? kBottomBar - stageTop : h - kSnap;
+    return f;
+}
+
+void PlaceEdges(const Frame &fr, bool stretch, long ow, long oh, long gw, long gh, long *x, long *y, long *w,
+                long *h)
+{
+    (void)oh;
+    const bool topBar = fr.bars and *y <= kTopBarStart and *y + *h <= kTopBar;
+    const bool bottomBar = fr.bars and *y >= kBottomBar;
     Rule rx = Classify(*x, *x + *w, kSnap, ow - kSnap);
-    // In a stage-tall shell the bars are the edges, as for windows: recon's 3D pane client
-    // (0,32 1024x696) sits exactly between them and must fill, not centre.
-    Rule ry = Classify(*y, *y + *h, bars ? kTopBar : kSnap, bars ? kBottomBar : oh - kSnap);
+    Rule ry = Classify(*y, *y + *h, fr.nearY, fr.farY);
 
     if (topBar or bottomBar)
     {
@@ -323,8 +346,9 @@ void PlaceEdges(bool bars, bool stretch, long ow, long oh, long gw, long gh, lon
     Apply(ry, gh, stretch, y, h);
 }
 
-void EdgesControl(C_Base *c, bool bars, long ow, long oh, long gw, long gh)
+void EdgesControl(C_Base *c, const Frame &fr, long ow, long oh, long gw, long gh)
 {
+    const bool bars = fr.bars;
     long x = c->GetX(), y = c->GetY(), w = c->GetW(), h = c->GetH();
 
     if (w > ow + kSnap or h > oh + kSnap)
@@ -347,7 +371,7 @@ void EdgesControl(C_Base *c, bool bars, long ow, long oh, long gw, long gh)
         return;
     }
 
-    PlaceEdges(bars, CanStretch(c) and not IsPicture(c), ow, oh, gw, gh, &x, &y, &w, &h);
+    PlaceEdges(fr, CanStretch(c) and not IsPicture(c), ow, oh, gw, gh, &x, &y, &w, &h);
 
     if (x != c->GetX() or y != c->GetY())
         c->SetXY(x, y);
@@ -382,6 +406,12 @@ void AdaptEdges(C_Window *win, long gw, long gh, Rule *rxOut, Rule *ryOut)
         if (ry == FILL)
             ry = PIN_NEAR;
     }
+
+    // A window at least half the stage wide that touches one side is the main pane beside a panel
+    // (the TE editor's map at 328..1024, right of the team panel): it keeps its inner edge and
+    // grows to the surface edge. Windows hanging past the stage (CP_TOOLBAR is 548 + 1024) are not.
+    if (ow >= kStageW / 2 and ox >= -2 and ox + ow <= kStageW + kSnap and (rx == PIN_NEAR or rx == PIN_FAR))
+        rx = FILL;
     long x = ox, y = oy, w = ow, h = oh;
     Apply(rx, gw, true, &x, &w);
     Apply(ry, gh, true, &y, &h);
@@ -401,7 +431,8 @@ void AdaptEdges(C_Window *win, long gw, long gh, Rule *rxOut, Rule *ryOut)
     if (wgw == 0 and wgh == 0)
         return; // moved, not grown: the contents come along unchanged
 
-    const bool bars = oh == kStageH;
+    const Frame wf = FrameOf(oy, oh);
+    Frame cf[WIN_MAX_CLIENTS];
     long cgw[WIN_MAX_CLIENTS], cgh[WIN_MAX_CLIENTS], cow[WIN_MAX_CLIENTS], coh[WIN_MAX_CLIENTS];
 
     for (int i = 0; i < WIN_MAX_CLIENTS; ++i)
@@ -410,7 +441,8 @@ void AdaptEdges(C_Window *win, long gw, long gh, Rule *rxOut, Rule *ryOut)
         long cx = cr.left, cy = cr.top, cw = cr.right - cr.left, ch = cr.bottom - cr.top;
         cow[i] = cw;
         coh[i] = ch;
-        PlaceEdges(bars, true, ow, oh, wgw, wgh, &cx, &cy, &cw, &ch);
+        cf[i] = FrameOf(oy + cr.top, ch);
+        PlaceEdges(wf, true, ow, oh, wgw, wgh, &cx, &cy, &cw, &ch);
         cgw[i] = cw - cow[i];
         cgh[i] = ch - coh[i];
         win->VX_[i] += cx - cr.left; // a client's controls are drawn relative to VX_/VY_
@@ -434,11 +466,11 @@ void AdaptEdges(C_Window *win, long gw, long gh, Rule *rxOut, Rule *ryOut)
             continue;
 
         if (c->GetFlags() bitand C_BIT_ABSOLUTE)
-            EdgesControl(c, bars, ow, oh, wgw, wgh);
+            EdgesControl(c, wf, ow, oh, wgw, wgh);
         else
         {
             const int i = c->GetClient() < WIN_MAX_CLIENTS ? c->GetClient() : 0;
-            EdgesControl(c, bars and coh[i] == kStageH, cow[i], coh[i], cgw[i], cgh[i]);
+            EdgesControl(c, cf[i], cow[i], coh[i], cgw[i], cgh[i]);
         }
     }
 }
@@ -456,9 +488,14 @@ struct Box
 
 // A control with no size yet is sized later by code (the theater picture is an empty button until a
 // theater is chosen), so where it sits says nothing: it is body, not bar.
+bool InTopBar(const Box &b)
+{
+    return b.y <= kTopBarStart and b.y + b.h <= kTopBar;
+}
+
 bool InBar(const Box &b)
 {
-    return b.w > 0 and b.h > 0 and (b.y + b.h <= kTopBar or b.y >= kBottomBar);
+    return b.w > 0 and b.h > 0 and (InTopBar(b) or b.y >= kBottomBar);
 }
 
 Box StagePlace(Box b, bool stretch, long gw, long gh)
@@ -470,7 +507,7 @@ Box StagePlace(Box b, bool stretch, long gw, long gh)
         return b;
     }
 
-    const bool top = b.y + b.h <= kTopBar, bottom = b.y >= kBottomBar;
+    const bool top = InTopBar(b), bottom = b.y >= kBottomBar;
     const bool spanX = b.x <= kSnap and b.x + b.w >= kStageW - kSnap;
     const bool spanY = b.y <= kSnap and b.y + b.h >= kStageH - kSnap;
     Rule rx, ry;
@@ -518,6 +555,14 @@ void Grow(Box *u, bool *any, const Box &b)
     u->h = btm - u->y;
 }
 
+// Per adapted STAGE window, what an absolute control added after parse needs to be placed: the
+// stock origin, the new origin and the growth. (The munitions loadout grid is built this way.)
+struct LateInfo
+{
+    long ox, oy, nx, ny, gw, gh;
+};
+std::map<C_Window *, LateInfo> sLate;
+
 void AdaptStage(C_Window *win, long sw, long sh, long gw, long gh, bool *fullOut)
 {
     const long ox = win->GetX(), oy = win->GetY(), ow = win->GetW(), oh = win->GetH();
@@ -525,8 +570,10 @@ void AdaptStage(C_Window *win, long sw, long sh, long gw, long gh, bool *fullOut
     const Box body = {ox + gw / 2, oy + gh / 2, ow, oh};
     *fullOut = full;
 
-    // Clients, in stage coordinates. A client covering the whole window is just "the window": its
-    // controls are placed one by one. Any other client moves as a unit and carries its controls.
+    // Clients, in stage coordinates. A client spanning the window on either axis is really "the
+    // window" (munitions' main client is 0,0 1024x728 -- the window less its bottom bar): its
+    // controls are placed one by one, and its clip reaches every edge it touched so bar items stay
+    // visible. Any other client moves as a unit and carries its controls.
     Box cOld[WIN_MAX_CLIENTS], cNew[WIN_MAX_CLIENTS];
     bool whole[WIN_MAX_CLIENTS];
     Box u = {0, 0, 0, 0};
@@ -537,9 +584,22 @@ void AdaptStage(C_Window *win, long sw, long sh, long gw, long gh, bool *fullOut
         const UI95_RECT &cr = win->ClientArea_[i];
         cOld[i].x = ox + cr.left, cOld[i].y = oy + cr.top;
         cOld[i].w = cr.right - cr.left, cOld[i].h = cr.bottom - cr.top;
-        whole[i] = cr.left <= 0 and cr.top <= 0 and cr.right >= ow and cr.bottom >= oh;
+        whole[i] = (cr.left <= 0 and cr.right >= ow) or (cr.top <= 0 and cr.bottom >= oh);
 
-        if (not whole[i])
+        if (whole[i])
+        {
+            // Each edge reaches the surface edge (or bar) it touched on the stage, else rides with it.
+            const Box &o = cOld[i];
+            long l = o.x <= kSnap ? o.x : o.x + gw / 2;
+            long t = o.y <= kTopBar ? o.y : o.y + gh / 2;
+            long r = o.x + o.w >= kStageW - kSnap ? o.x + o.w + gw : o.x + o.w + gw / 2;
+            long b = o.y + o.h >= kBottomBar - kSnap ? o.y + o.h + gh : o.y + o.h + gh / 2;
+            cNew[i].x = l, cNew[i].y = t, cNew[i].w = r - l, cNew[i].h = b - t;
+
+            if (not full)
+                Grow(&u, &any, cNew[i]); // the window must hold its clip
+        }
+        else
         {
             cNew[i] = StagePlace(cOld[i], true, gw, gh);
 
@@ -637,6 +697,13 @@ void AdaptStage(C_Window *win, long sw, long sh, long gw, long gh, bool *fullOut
     // so controls added to it later, which measure from the stock window, land on the body.
     const long bdx = body.x - nw.x, bdy = body.y - nw.y;
 
+    // Absolute controls added later ignore that origin: remember how to place them (UI95_AdaptLateControl).
+    if (bdx or bdy)
+    {
+        LateInfo li = {ox, oy, nw.x, nw.y, gw, gh};
+        sLate[win] = li;
+    }
+
     if (nw.w != ow or nw.h != oh)
     {
         win->ResizeSurface((short)nw.w, (short)nw.h);
@@ -650,7 +717,7 @@ void AdaptStage(C_Window *win, long sw, long sh, long gw, long gh, bool *fullOut
     {
         UI95_RECT &cr = win->ClientArea_[i];
         const long oldLeft = cr.left, oldTop = cr.top, oldW = cr.right - cr.left, oldH = cr.bottom - cr.top;
-        Box to = whole[i] ? Box{nw.x, nw.y, nw.w, nw.h} : cNew[i];
+        const Box &to = cNew[i];
         cr.left = to.x - nw.x, cr.top = to.y - nw.y;
         cr.right = cr.left + to.w, cr.bottom = cr.top + to.h;
         win->VX_[i] += whole[i] ? bdx : cr.left - oldLeft;
@@ -762,4 +829,30 @@ void UI95_AdaptWindow(C_Window *win, const char *file)
                   full ? " (shell)" : "", file ? file : "");
 
     FFDebugLog(line);
+}
+
+// Called by C_Window::AddControl/AddControlTop. Code builds some controls after the window was
+// parsed and adapted, positioned in stock window coordinates. Non-absolute ones follow their client's
+// scroll origin, which already carries the body offset; absolute ones do not, so place them here
+// exactly as a parsed control would have been.
+void UI95_AdaptLateControl(C_Window *win, C_Base *c)
+{
+    if (not win or not c or not(c->GetFlags() bitand C_BIT_ABSOLUTE))
+        return;
+
+    std::map<C_Window *, LateInfo>::const_iterator it = sLate.find(win);
+
+    if (it == sLate.end())
+        return;
+
+    const LateInfo &li = it->second;
+    Box b = {li.ox + c->GetX(), li.oy + c->GetY(), c->GetW(), c->GetH()};
+    const Box to = StagePlace(b, false, li.gw, li.gh); // never stretch: code sized it on purpose
+    c->SetXY(to.x - li.nx, to.y - li.ny);
+}
+
+// Called by C_Window::Cleanup: a freed window's address may be reused by the next one.
+void UI95_ForgetWindow(C_Window *win)
+{
+    sLate.erase(win);
 }

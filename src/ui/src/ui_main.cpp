@@ -1583,6 +1583,19 @@ int UI_Startup()
     UI95_GetSurfaceSize(&uiW, &uiH);
     UI95_GetWindowSize(&winW, &winH);
 
+    // A window filling the desktop (UiWidth/UiHeight -1) sits at the work area's corner, not the
+    // usual 40,40, or it would hang off the bottom-right.
+    extern int g_nUiWidth, g_nUiHeight;
+
+    if (g_nUiWidth < 0 or g_nUiHeight < 0)
+    {
+        RECT work;
+        int dw, dh;
+        UI95_GetWorkArea(&work, &dw, &dh);
+        FalconDisplay.xOffset = work.left;
+        FalconDisplay.yOffset = work.top;
+    }
+
     // M.N. Large UI
     if (g_bHiResUI)
     {

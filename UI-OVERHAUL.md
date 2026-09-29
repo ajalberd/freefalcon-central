@@ -19,10 +19,11 @@ not inferred, unless marked **unverified**.
 
 | cfg | command line | what |
 |---|---|---|
-| `set g_nUiWidth 2560` / `set g_nUiHeight 1440` | `-uisize 2560x1440` | menu window client size; 0 = 1024x768 (stock) |
-| `set g_fUiScale 1.5` | `-uiscale 1.5` | magnification. The layout surface is window / scale, never below 1024x768 |
+| `set g_nUiWidth 2560` / `set g_nUiHeight 1440` | `-uisize 2560x1440` | menu window client size; 0 = 1024x768 (stock); -1 (or `-uisize desktop`) = fill the desktop work area |
+| `set g_fUiScale 1.5` | `-uiscale 1.5` | magnification. The layout surface is window / scale, never below 1024x768; 0 = auto (layout exactly 768 tall) |
 | `set g_bUiAdapt 0` | | turn the layout adaptation off (stock rects on a bigger surface) |
-| `set g_sUiAdaptEdges "cp_main;..."` | | `.scf` files laid out by EDGES (see below); default the campaign map screen |
+| `set g_sUiAdaptEdges "foo;bar"` | | extra `.scf` files laid out by EDGES, on top of the built-in map screens (`kEdgesFiles` in `cadapt.cpp`: campaign, recon, TE play and editor) |
+| `set g_fReconZoomRate 6` | | recon zoom, % per unit of panner offset per tick; 0 = stock linear |
 
 Stock behaviour is unchanged when none are set.
 
@@ -87,7 +88,17 @@ A campaign run takes ~12 s; a screen run ~6 s. A campaign commit writes no save 
 - **Code adds controls after parse** (the campaign-select squadron list, at positions measured from
   the stock window). A window must never shrink below its stock body, and when it grows to reach a
   bar, its whole-window client's `VX_/VY_` carry the body offset so later controls land right.
-  Controls added with `C_BIT_ABSOLUTE` after parse would not follow: **unverified** whether any exist.
+  **Absolute ones exist too** (the munitions loadout grid): `C_Window::AddControl`/`AddControlTop`
+  call `UI95_AdaptLateControl`, which places them by the same STAGE rules from the window's recorded
+  stock and new origins; `C_Window::Cleanup` forgets the window.
+- **A client that spans the window on one axis is the window** (munitions' main client is
+  0,0 1024x728, the window less its bottom bar). Its controls are placed one by one, and its clip
+  reaches every edge it touched; moving it as a unit left its controls without the stage shift.
+- **A title-bar item starts at the top** (y <= 6 and ends by 33); text that merely ends above the
+  bar's edge is body (munitions' FLIGHT: value was pulled into the bar away from its label).
+- **Recon's pivot** is found by `recon_pivot.txt` + `pivot.py`: a zoom pair of the overhead view is
+  one image magnified about the pivot. It caught `SceneW()` reporting the back buffer while the
+  viewer's RTT was bound.
 - **Some controls have no size at parse** (`UI_THEATER_IMAGE` is an empty button until a theater
   is chosen, then 1024x768). A 0x0 box is body, not bar.
 - **Some "tiles" are pictures.** The logbook background is a `[TILE]` of one 1024-wide photo;

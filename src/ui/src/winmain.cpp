@@ -1299,7 +1299,9 @@ void ParseCommandLine(LPSTR cmdLine)
                 extern int g_nUiWidth, g_nUiHeight;
                 const char *size = strtok(NULL, " ");
 
-                if (size)
+                if (size and not _stricmp(size, "desktop"))
+                    g_nUiWidth = g_nUiHeight = -1; // fill the desktop work area
+                else if (size)
                     sscanf_s(size, "%dx%d", &g_nUiWidth, &g_nUiHeight);
             }
 
