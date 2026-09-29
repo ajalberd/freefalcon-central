@@ -1,0 +1,18 @@
+# Main menu -> TE -> pick the first training mission -> commit -> whatever TE opens next.
+timeout 200
+waitwin UI_MAIN_SCREEN 60000
+wait 1000
+click TE_MAIN_CTRL
+waitwin TAC_MISSION_WIN 20000
+wait 2000
+clickat TRAINLIST_TREE 60 10
+wait 2000
+shot te_load
+layout te_load
+click SINGLE_COMMIT_CTRL
+wait 15000
+windows
+shot te_play
+wshot te_play_window
+layout te_play
+quit

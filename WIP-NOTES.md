@@ -34,6 +34,12 @@ here.**
 - `CAMPAIGN-MAP-PALETTE.md` — **Israel ships Korea's colour table byte-identical**, so its
   desert quantises into a temperate palette and the map reads washed pale green.
   `TMap::ColorTable` cannot be assumed to describe the ground; the tiles can.
+- `UI-OVERHAUL.md` — branch `ui-adaptive`. **The menus now fill any window** (`UiWidth/
+  UiHeight/UiScale`, `-uisize desktop -uiscale 0`), adapted at load by `ui95/cadapt.cpp`: map
+  screens (campaign, recon, TE) fill and pin, every other screen keeps its stock block centred
+  with bars edge to edge. **`-uitest <script>` is a harness Claude runs itself**
+  (`tools\uitest\run.ps1`, `sweep.ps1`): it clicks through the real mouse path and dumps shots
+  and layout JSON. It deploys as `FFViper-ui.exe`, never over the rail build.
 - `WEATHER-FRONTS.md` — **weather now varies across the theater** (moving fronts and
   random patches over the Setup condition, `g_nWeatherFronts`), built and deployed but
   **not flown**. Read its `FRONTS:` log lines first. The Python port in the editor must
@@ -563,7 +569,7 @@ The 4.32 art is the better base; upscaling does not close the gap for FF6.
 | **Damage feeds route cost (2026-09-27, compiles, not flown)** | `GetObjectiveMovementCost` scales the ground cost of entering a damaged road/junction/rail node (up to x2) or bridge (up to x4) by objective status; `PathDamageCost` (100, 0 = stock). Watch whether columns detour around a half-dropped bridge. See `CAMPAIGN-SUPPLY-ENGINE.md`. |
 | **Objective icons shaded by health (2026-09-27, compiles, not seen)** | Objective icon sets darken linearly with status down to `CampMapIconMin` (0.35); `CampMapIconHealth 0` = stock. Two stock bugs fixed on the way: `AddObjective` seeded every icon with status 0, and `C_MapIcon::UpdateInfo` never stored a status change for an icon that had not moved -- so objective icons never learned their status at all. Darkening uses UI95's own blend with back = 0 (`O_Output`: negative `bperc_`). |
 | Pale circles on the campaign map | Pre-dates this work. Ruled out: Logistics overlays, threat rings (`ShowCircles` is inside `#if 0`), the terrain basemap, the waypoint list. Cheap test: zoom — map imagery scales, drawn marks do not. |
-| Menu is fixed-resolution | UI95 is not a layout engine — absolute pixel rects from `.scf` with art authored to match. Routes: scale the composited surface, or re-author every resource. |
+| Menu is fixed-resolution | Fixed on branch `ui-adaptive`; open items in `UI-OVERHAUL.md`. |
 
 ---
 

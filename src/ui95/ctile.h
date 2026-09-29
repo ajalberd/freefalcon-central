@@ -47,6 +47,20 @@ public:
 
         return (NULL);
     }
+    // Artscout - 2026: draw the image once to fill a w x h box (O_Output::COVER_*) instead of
+    // repeating it -- for "tiles" whose image is really a full-screen picture (UI95_AdaptWindow).
+    void SetCover(short mode, long w, long h)
+    {
+        if (not Image_)
+            return;
+
+        Image_->SetCover(mode);
+        SetWH(w, h);
+    }
+    short GetCover()
+    {
+        return Image_ ? Image_->GetCover() : 0;
+    }
     // Free Function
     void Cleanup(void);
     void SetDefaultFlags()

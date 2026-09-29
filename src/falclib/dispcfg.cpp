@@ -5,6 +5,7 @@
 #include "falcuser.h"
 #include "falclib/include/playerop.h"
 #include "falclib/include/dispopts.h"
+#include "graphics/include/fflog.h"
 #include <commctrl.h>
 #ifndef _WIN32
 #include "ff_window.h" // #104: ffplatform::Window (SDL3) -- the native render window on Linux
@@ -290,7 +291,11 @@ void FalconDisplayConfiguration::EnterMode(DisplayMode newMode, int theDevice,
 
 #ifdef _WIN32
     // RV - RED - Sim window in windowed mode, always centered
-    if (newMode == Sim and not displayFullScreen)
+    if (newMode == Sim and mSimFitted and DisplayOptions.bWindowed)
+    {
+        // SimFitWindow: already the right size; leave the window where it is.
+    }
+    else if (newMode == Sim and not displayFullScreen)
     {
 
         int wx = GetSystemMetrics(SM_CXSCREEN);
@@ -443,6 +448,50 @@ void FalconDisplayConfiguration::ToggleFullScreen(void)
     EnterMode(currentMode);
 }
 
+// SimFitWindow: size the flat-screen sim to what it will be shown in -- the menu window's client area
+// (windowed) or its monitor (borderless) -- so the back buffer is not stretched to another shape.
+// DisplayOptions keeps the chosen size for this session only; LeaveSimWindowMode puts it back, so the
+// options file never sees it. In VR the headset sets the eye sizes and the window is a mirror: skip.
+void FalconDisplayConfiguration::FitSimToWindow(bool windowed)
+{
+    extern bool g_bSimFitWindow;
+    extern bool g_bUseOpenXR;
+
+    if (mSimFitted or not g_bSimFitWindow or g_bUseOpenXR or not appWin)
+        return;
+
+#ifdef _WIN32
+    RECT r;
+
+    if (windowed)
+        GetClientRect(appWin, &r);
+    else
+    {
+        MONITORINFO mi = {sizeof(mi)};
+        if (not GetMonitorInfo(MonitorFromWindow(appWin, MONITOR_DEFAULTTOPRIMARY), &mi))
+            return;
+        r = mi.rcMonitor;
+    }
+
+    const int w = r.right - r.left;
+    const int h = r.bottom - r.top;
+
+    if (w < 640 or h < 480 or w > 16384 or h > 16384)
+        return;
+
+    mFitSavedW = DisplayOptions.DispWidth;
+    mFitSavedH = DisplayOptions.DispHeight;
+    mSimFitted = true;
+    DisplayOptions.DispWidth = (unsigned short)w;
+    DisplayOptions.DispHeight = (unsigned short)h;
+    SetSimMode(w, h, depth[Sim]);
+    char line[128];
+    sprintf_s(line, "SimFitWindow: %dx%d (%s), options say %dx%d", w, h, windowed ? "window" : "monitor",
+              mFitSavedW, mFitSavedH);
+    FFDebugLog(line);
+#endif
+}
+
 // #33: enter the 3D-session window mode (windowed or borderless fullscreen). The shared app
 // window is restyled IN PLACE (no DestroyWindow/MakeWindow -> avoids the #41 enter/exit hang
 // area); the swap chain is left untouched and DXGI stretches the back buffer to the client
@@ -474,7 +523,12 @@ void FalconDisplayConfiguration::EnterSimWindowMode(bool windowed)
     const int sw = GetSystemMetrics(SM_CXSCREEN);
     const int sh = GetSystemMetrics(SM_CYSCREEN);
 
-    if (windowed)
+    if (windowed and mSimFitted)
+    {
+        // SimFitWindow: the sim was sized to this window; keep its style and place.
+        displayFullScreen = false;
+    }
+    else if (windowed)
     {
         // Windowed: client = chosen 3D resolution, centered and clamped to the desktop.
         RECT rect = {0, 0, width[Sim], height[Sim]};
@@ -541,4 +595,12 @@ void FalconDisplayConfiguration::LeaveSimWindowMode()
 
     displayFullScreen = mSavedFullScreen;
     mInSimWinMode = false;
+
+    if (mSimFitted)
+    {
+        DisplayOptions.DispWidth = mFitSavedW;
+        DisplayOptions.DispHeight = mFitSavedH;
+        SetSimMode(mFitSavedW, mFitSavedH, depth[Sim]);
+        mSimFitted = false;
+    }
 }

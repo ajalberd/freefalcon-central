@@ -237,6 +237,8 @@ void C_Window::Cleanup()
 {
     CONTROLLIST *cur, *last;
 
+    UI95_ForgetWindow(this); // Artscout - 2026: cadapt.cpp's late-control record
+
     if (Controls_ and not(Flags_ bitand C_BIT_NOCLEANUP))
     {
         cur = Controls_;
@@ -1038,6 +1040,7 @@ void C_Window::AddControlTop(C_Base *NewControl)
     cnt->Control_ = NewControl;
     cnt->Prev = NULL;
     cnt->Next = NULL;
+    UI95_AdaptLateControl(this, NewControl); // Artscout - 2026: no-op unless adapted (cadapt.cpp)
 
     Leave = UI_Enter(this);
 
@@ -1105,6 +1108,7 @@ void C_Window::AddControl(C_Base *NewControl)
 #endif
     cnt->Control_ = NewControl;
     cnt->Next = NULL;
+    UI95_AdaptLateControl(this, NewControl); // Artscout - 2026: no-op unless adapted (cadapt.cpp)
 
     Leave = UI_Enter(this);
 

@@ -2374,12 +2374,54 @@ void VulkanBackend::BlitBitmap565(const void* pSrc565, int srcW, int srcH)
             VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT);
 
+    // Artscout - 2026: UiFilter 1 = sharp bilinear, as the D3D12 menu shader does it: nearest up to the
+    // largest whole multiple that fits, then linear for the fraction left. Texels stay crisp and only
+    // the seam between two of them is blended. Plain linear blurs every texel across ~2 pixels.
+    extern int g_nUiFilter;
+    const int dstW = (int)m->scExtent.width, dstH = (int)m->scExtent.height;
+    const int k = dstW / srcW < dstH / srcH ? dstW / srcW : dstH / srcH;
+    VkImage mid = VK_NULL_HANDLE;
+    void* midMem = nullptr;
+
+    if (g_nUiFilter == 1 && k >= 2)
+    {
+        VkImageCreateInfo mi = ci;
+        mi.format = m->scFormat;
+        mi.extent = {(uint32_t)(srcW * k), (uint32_t)(srcH * k), 1};
+        mi.tiling = VK_IMAGE_TILING_OPTIMAL;
+        mi.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        mi.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        if (vkCreateImage(m->device, &mi, nullptr, &mid) != VK_SUCCESS)
+            mid = VK_NULL_HANDLE;
+        else if (!FF_VmaAllocImageMemory(mid, &midMem))
+        {
+            vkDestroyImage(m->device, mid, nullptr);
+            mid = VK_NULL_HANDLE; // plain linear this frame
+        }
+    }
+
     VkImageBlit blit{};
     blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     blit.srcOffsets[1] = {srcW, srcH, 1};
     blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    blit.dstOffsets[1] = {(int)m->scExtent.width, (int)m->scExtent.height, 1};
-    vkCmdBlitImage(c, stage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+
+    if (mid)
+    {
+        barrier(mid, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+                VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT);
+        blit.dstOffsets[1] = {srcW * k, srcH * k, 1};
+        vkCmdBlitImage(c, stage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mid,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
+        barrier(mid, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        blit.srcOffsets[1] = {srcW * k, srcH * k, 1};
+    }
+
+    blit.dstOffsets[1] = {dstW, dstH, 1};
+    vkCmdBlitImage(c, mid ? mid : stage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                    m->scImages[imgIdx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
                    &blit, VK_FILTER_LINEAR);
 
@@ -2418,6 +2460,12 @@ void VulkanBackend::BlitBitmap565(const void* pSrc565, int srcW, int srcH)
     vkWaitForFences(m->device, 1, &m->fenceInFlight[slot], VK_TRUE, UINT64_MAX);
     vkDestroyImage(m->device, stage, nullptr);
     FF_VmaFree((void*)stageMem);
+
+    if (mid)
+    {
+        vkDestroyImage(m->device, mid, nullptr);
+        FF_VmaFree(midMem);
+    }
 }
 
 // Artscout - 2026 (#107 VR-Vulkan menu): blit a 565 UI surface into each per-view XR swapchain image (full-eye

@@ -1,0 +1,16 @@
+# Main menu -> TE -> Saved tab -> New: the TE editor screen.
+timeout 200
+waitwin UI_MAIN_SCREEN 60000
+wait 1000
+click TE_MAIN_CTRL
+waitwin TAC_MISSION_WIN 20000
+wait 1500
+click TAC_LOAD_CTRL
+wait 1500
+click TAC_NEW_MISSION
+wait 10000
+windows
+shot te_new
+wshot te_new_window
+layout te_new
+quit

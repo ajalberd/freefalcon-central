@@ -33,6 +33,7 @@
 #include "graphics/dxengine/openxrbackend.h" // VR (OpenXR) -- clean teardown on exit
 #include "dialog.h" // Campaign tool includes
 #include "dispcfg.h"
+#include "uitest.h"
 #include "dispopts.h"
 #include "ehandler.h"
 #include "entity.h"
@@ -297,6 +298,7 @@ LRESULT CALLBACK SimWndProc(HWND hwnd, UINT message, WPARAM wParam,
                             LPARAM lParam);
 static void CtrlAltDelMask(int state);
 static void ParseCommandLine(LPSTR cmdLine);
+static int sRendererOverride = -1; // Artscout - 2026: "-renderer dx12|vulkan"; -1 = the saved option
 static void SystemLevelExit(void);
 static void SystemLevelInit(void);
 struct __declspec(uuid("41C27D56-3A03-4E9D-BE01-3423126C3983")) GameSpyUplink;
@@ -559,6 +561,21 @@ signed int PASCAL handle_WinMain(HINSTANCE h_instance,
     SetCrashHandlerFilter(FFCrashFilter);
 
 #ifdef _WIN32
+    // Artscout - 2026: DPI aware, before any window exists. Unaware, a scaled desktop (125%, 150%)
+    // reports a smaller screen and Windows bitmap-stretches the whole window on top of our own
+    // menu magnification (UiScale). Per-monitor v2 where the OS has it (Windows 10 1703+).
+    {
+        // Both by name: the project's WINVER predates them.
+        typedef BOOL(WINAPI * SetCtxFn)(HANDLE);
+        typedef BOOL(WINAPI * SetAwareFn)(void);
+        HMODULE user = GetModuleHandleA("user32.dll");
+        SetCtxFn setCtx = user ? (SetCtxFn)GetProcAddress(user, "SetProcessDpiAwarenessContext") : NULL;
+        SetAwareFn setAware = user ? (SetAwareFn)GetProcAddress(user, "SetProcessDPIAware") : NULL;
+
+        if ((not setCtx or not setCtx((HANDLE)-4)) and setAware) // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+            setAware();
+    }
+
     // render-port: don't break/crash on CRT debug checks (invalid parameter, asserts).
     // STL iterator checks disabled via _ITERATOR_DEBUG_LEVEL=0 (in all projects).
     _set_invalid_parameter_handler([](const wchar_t *, const wchar_t *,
@@ -699,6 +716,9 @@ signed int PASCAL handle_WinMain(HINSTANCE h_instance,
         extern bool
             g_bUseVulkan; // #104: render backend (0=DX12 / 1=Vulkan) from the graphics options
         g_bUseVulkan = (DisplayOptions.nRenderer == 1);
+
+        if (sRendererOverride >= 0)
+            g_bUseVulkan = sRendererOverride == 1; // "-renderer dx12|vulkan", this run only
         g_bUseOpenXR = DisplayOptions.bUseOpenXR;
         g_bUseQuadViews = DisplayOptions.bUseQuadViews;
         g_bMsaaEnable = DisplayOptions.bMsaaEnable;
@@ -708,6 +728,9 @@ signed int PASCAL handle_WinMain(HINSTANCE h_instance,
             DisplayOptions
                 .bAnisotropicFiltering; // Artscout - 2026: aniso on/off + level -> samplers
         g_nAnisoSamples = DisplayOptions.nAnisotropicSamples;
+
+        if (UiTest_Requested())
+            g_bUseOpenXR = false; // a scripted UI run is a desktop run, whatever the saved options say
     }
 
     FalconDisplay.Setup(gLangIDNum);
@@ -1285,6 +1308,47 @@ void ParseCommandLine(LPSTR cmdLine)
 
             if (stricmp(arg, "-usersc") == 0)
                 _LOAD_ART_RESOURCES_ = 1;
+
+            if (not stricmp(arg, "-renderer"))
+            {
+                const char *r = strtok(NULL, " ");
+                sRendererOverride = r ? (not _strnicmp(r, "vulkan", 2) ? 1 : 0) : -1;
+            }
+
+            if (not stricmp(arg, "-uitest"))
+                UiTest_SetScript(strtok(NULL, " ")); // the script, relative to <exe dir>\uitest
+
+            if (not _strnicmp(arg, "-uisize", 7))
+            {
+                // -uisize WxH: menu surface size for this run, over the cfg's UiWidth/UiHeight
+                extern int g_nUiWidth, g_nUiHeight;
+                const char *size = strtok(NULL, " ");
+
+                if (size and not _stricmp(size, "desktop"))
+                    g_nUiWidth = g_nUiHeight = -1; // fill the desktop work area
+                else if (size)
+                    sscanf_s(size, "%dx%d", &g_nUiWidth, &g_nUiHeight);
+            }
+
+            if (not _strnicmp(arg, "-uifilter", 9))
+            {
+                // -uifilter N: menu magnification filter for this run (1 sharp, 0 plain bilinear)
+                extern int g_nUiFilter;
+                const char *f = strtok(NULL, " ");
+
+                if (f)
+                    g_nUiFilter = atoi(f);
+            }
+
+            if (not _strnicmp(arg, "-uiscale", 8))
+            {
+                // -uiscale S: menu magnification for this run, over the cfg's UiScale
+                extern float g_fUiScale;
+                const char *scale = strtok(NULL, " ");
+
+                if (scale)
+                    g_fUiScale = (float)atof(scale);
+            }
 
             if (_strnicmp(arg, "-nomovie", 8) == 0)
                 intro_movie = false;

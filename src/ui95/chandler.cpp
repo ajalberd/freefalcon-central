@@ -26,6 +26,103 @@ void SaveScreenShot();
 extern bool g_bCheckBltStatusBeforeFlip;
 // M.N. 2001-11-13
 extern bool g_bHiResUI;
+extern int g_nUiWidth, g_nUiHeight;
+extern float g_fUiScale;
+volatile bool g_bUiTestLButtonHeld = false; // set only by the -uitest harness's "hold"
+
+// Artscout - 2026: the menu window is UiWidth x UiHeight; the ui95 surface is that divided by
+// UiScale, never smaller than the stock layout, and the present stretches it back over the window.
+// So UiScale 1 gives more room at stock pixel size, and UiScale 1.5 at 2560x1440 gives a 1707x960
+// layout drawn half as big again. See UI-OVERHAUL.md.
+// The desktop's work area (screen less the taskbar), and the client size a bordered window filling
+// it gets. UiWidth/UiHeight -1 mean "that".
+void UI95_GetWorkArea(RECT *outer, int *clientW, int *clientH)
+{
+    RECT work = {0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
+    SystemParametersInfo(SPI_GETWORKAREA, 0, &work, 0);
+    RECT frame = {0, 0, 0, 0};
+    AdjustWindowRect(&frame, WS_OVERLAPPEDWINDOW, FALSE);
+    *outer = work;
+    *clientW = (work.right - work.left) - (frame.right - frame.left);
+    *clientH = (work.bottom - work.top) - (frame.bottom - frame.top);
+}
+
+// In VR the headset panel, not the desktop window, is what you look at: the layout is VrUiWidth x
+// VrUiHeight at scale 1 (the desktop window mirrors it at that size), and the panel's angular size
+// is set in the XR layer (VrUiHeightDeg). 0 = follow the desktop knobs.
+static bool VrLayout(int *w, int *h)
+{
+    extern bool g_bUseOpenXR;
+    extern int g_nVrUiWidth, g_nVrUiHeight;
+
+    if (not g_bUseOpenXR or g_nVrUiWidth <= 0 or g_nVrUiHeight <= 0)
+        return false;
+
+    *w = max(g_nVrUiWidth, g_bHiResUI ? 1024 : 800);
+    *h = max(g_nVrUiHeight, g_bHiResUI ? 768 : 600);
+    return true;
+}
+
+void UI95_GetWindowSize(int *w, int *h)
+{
+    const int minW = g_bHiResUI ? 1024 : 800, minH = g_bHiResUI ? 768 : 600;
+
+    if (VrLayout(w, h))
+        return;
+
+    RECT outer;
+    int dw, dh;
+    UI95_GetWorkArea(&outer, &dw, &dh);
+    *w = g_nUiWidth > 0 ? g_nUiWidth : g_nUiWidth < 0 ? dw : minW;
+    *h = g_nUiHeight > 0 ? g_nUiHeight : g_nUiHeight < 0 ? dh : minH;
+}
+
+void UI95_GetSurfaceSize(int *w, int *h)
+{
+    const int minW = g_bHiResUI ? 1024 : 800, minH = g_bHiResUI ? 768 : 600;
+
+    if (VrLayout(w, h))
+        return;
+
+    float scale = g_fUiScale >= 1.0f ? g_fUiScale : 1.0f;
+
+    if (g_fUiScale == 0.0f)
+    {
+        // Auto: the scale that makes the layout exactly stock height, so all the extra is width.
+        int ww, wh;
+        UI95_GetWindowSize(&ww, &wh);
+        scale = wh > minH ? (float)wh / minH : 1.0f;
+    }
+    int ww, wh;
+    UI95_GetWindowSize(&ww, &wh);
+    *w = (int)(ww / scale + 0.5f);
+    *h = (int)(wh / scale + 0.5f);
+
+    if (*w < minW)
+        *w = minW;
+
+    if (*h < minH)
+        *h = minH;
+}
+
+// Window client pixels -> surface pixels, for every mouse message (the present stretches the
+// surface over the whole client, so this is a plain proportion of the client's real size).
+static void ClientToSurface(HWND hwnd, long *x, long *y)
+{
+    RECT rc;
+    int sw, sh;
+
+    if (not GetClientRect(hwnd, &rc) or rc.right <= 0 or rc.bottom <= 0)
+        return;
+
+    UI95_GetSurfaceSize(&sw, &sh);
+
+    if (rc.right == sw and rc.bottom == sh)
+        return;
+
+    *x = (long)((long long)*x * sw / rc.right);
+    *y = (long)((long long)*y * sh / rc.bottom);
+}
 
 extern void Transmit(int com);
 
@@ -116,13 +213,8 @@ void C_Handler::Setup(HWND hwnd, ImageBuffer *, ImageBuffer *Primary)
     // PrimaryRect_=PrimaryRect;
     AppWindow_ = hwnd;
 
-    int dispXres = 800, dispYres = 600;
-
-    if (g_bHiResUI)
-    {
-        dispXres = 1024;
-        dispYres = 768;
-    }
+    int dispXres, dispYres;
+    UI95_GetSurfaceSize(&dispXres, &dispYres);
 
     // OW V2
 #if 1
@@ -1238,11 +1330,9 @@ void C_Handler::Update()
 
     if (gScreenShotEnabled and gUI_TakeScreenShot == 1)
     {
-        // Copy Front_ surface to a secondary buffer
-        int xsize = 800;
-
-        if (g_bHiResUI)
-            xsize = 1024;
+        // Copy Front_ surface to a secondary buffer (sized by UI95_GetSurfaceSize in UI_Startup)
+        int xsize, ysize;
+        UI95_GetSurfaceSize(&xsize, &ysize);
 
         //memcpy(gScreenShotBuffer,surface_.mem,surface_.width * surface_.height * sizeof(WORD));
         // MN somehow this D3D stuff for surface_.width creates a width of 1024 for an 800x600 UI...
@@ -2210,6 +2300,28 @@ long C_Handler::EventHandler(HWND hwnd, UINT message, WPARAM wParam,
 
     HandlingMessage = message;
 
+    // Artscout - 2026: every client-coordinate mouse message below reads LOWORD/HIWORD(lParam) as
+    // surface pixels; when the window is not the surface's size, map it once here.
+    switch (message)
+    {
+    case WM_MOUSEMOVE:
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
+    case WM_LBUTTONDBLCLK:
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_RBUTTONDBLCLK:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+    case WM_MBUTTONDBLCLK:
+    {
+        long mx = (short)LOWORD(lParam), my = (short)HIWORD(lParam);
+        ClientToSurface(hwnd, &mx, &my);
+        lParam = MAKELPARAM((WORD)mx, (WORD)my);
+        break;
+    }
+    }
+
     switch (message)
     {
         // sfr: added mouse wheel
@@ -2232,6 +2344,7 @@ long C_Handler::EventHandler(HWND hwnd, UINT message, WPARAM wParam,
         p.x = LOWORD(lParam);
         p.y = HIWORD(lParam);
         ScreenToClient(hwnd, &p);
+        ClientToSurface(hwnd, &p.x, &p.y);
         MouseX = (WORD)p.x;
         MouseY = (WORD)p.y;
         overme = GetWindow(MouseX, MouseY);
@@ -2909,7 +3022,11 @@ long C_Handler::EventHandler(HWND hwnd, UINT message, WPARAM wParam,
 
             if (Grab_.Control_ and not InTimer)
             {
-                if (GetAsyncKeyState(VK_LBUTTON))
+                // Artscout - 2026: the -uitest harness holds the button by flag, since a posted
+                // WM_LBUTTONDOWN never reaches GetAsyncKeyState (uitest.cpp "hold").
+                extern volatile bool g_bUiTestLButtonHeld;
+
+                if (GetAsyncKeyState(VK_LBUTTON) or g_bUiTestLButtonHeld)
                 {
                     InTimer = 1;
                     Grab_.Control_->Process(Grab_.ID_, C_TYPE_REPEAT);

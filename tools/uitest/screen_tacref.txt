@@ -1,0 +1,10 @@
+# Main menu -> tacref, one shot and layout of whatever it opens.
+timeout 90
+waitwin UI_MAIN_SCREEN 60000
+wait 1000
+click TACREF_CTRL
+wait 5000
+windows
+shot tacref
+layout tacref
+quit

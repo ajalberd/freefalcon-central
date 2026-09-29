@@ -586,7 +586,7 @@ static void EnsureMenuGpuFrame()
 // D3D12 applies the rect immediately (viewport + scissor); Vulkan registers it as the RTT zone and
 // its renderer then applies it to the object path while leaving the 2D screen path on the full
 // extent. Either way the object draws land in the pane.
-static void ConfineGpuViewportToPane(const UI95_RECT *vp)
+static void ConfineGpuViewportToPane(const UI95_RECT *vp, bool toBackBuffer)
 {
     extern bool g_bUseGpu;
     extern IRenderBackend *g_pRenderBackend;
@@ -594,14 +594,23 @@ static void ConfineGpuViewportToPane(const UI95_RECT *vp)
     if (not g_bUseGpu or not g_pRenderBackend or not vp)
         return;
 
-    const int w = static_cast<int>(vp->right - vp->left);
-    const int h = static_cast<int>(vp->bottom - vp->top);
+    // Artscout - 2026: the pane is in ui95 surface pixels. The off-screen RTT is surface-sized, so it
+    // needs nothing; only a draw straight to the back buffer (ReconRtt 0), which is UiScale times the
+    // surface, is scaled. Do NOT use SceneW() to tell them apart: it still reports the back buffer
+    // while the viewer's RTT is bound, and scaling by it put recon's pivot at pane centre x UiScale
+    // (measured: +17.5%/+19% of the pane at 1.35, tools/uitest/recon_pivot.txt).
+    ImageBuffer *front = gMainHandler->GetFront();
+    const int fw = front ? front->targetXres() : 0, fh = front ? front->targetYres() : 0;
+    const double kx = (toBackBuffer and fw > 0) ? (double)g_pRenderBackend->SceneW() / fw : 1.0;
+    const double ky = (toBackBuffer and fh > 0) ? (double)g_pRenderBackend->SceneH() / fh : 1.0;
+    const int x0 = static_cast<int>(vp->left * kx + 0.5), y0 = static_cast<int>(vp->top * ky + 0.5);
+    const int w = static_cast<int>(vp->right * kx + 0.5) - x0;
+    const int h = static_cast<int>(vp->bottom * ky + 0.5) - y0;
 
     if (w < 1 or h < 1)
         return;
 
-    g_pRenderBackend->SetViewportRect(static_cast<int>(vp->left),
-                                      static_cast<int>(vp->top), w, h);
+    g_pRenderBackend->SetViewportRect(x0, y0, w, h);
 
     // Artscout - 2026: the companion datum to the [MENUVIEW] Viewport line -- that one prints the
     // pane the viewer COMPUTED, this one the rect the GPU was actually narrowed to for the draw.
@@ -612,7 +621,7 @@ static void ConfineGpuViewportToPane(const UI95_RECT *vp)
         {
             char b2[160];
             sprintf(b2, "[MENUVIEW] pane viewport -> (%d,%d %dx%d) scene=%dx%d\n",
-                    (int)vp->left, (int)vp->top, w, h,
+                    x0, y0, w, h,
                     g_pRenderBackend->SceneW(), g_pRenderBackend->SceneH());
             FFDebugLog(b2);
         }
@@ -737,7 +746,7 @@ BOOL C_3dViewer::View3d(long ID)
             // Artscout - 2026: StartFrame just bound the RTT, and that bind widens the device
             // viewport back to the whole target. The model is placed by that viewport, so narrow it
             // to the viewer's pane again before the draw. See ConfineGpuViewportToPane.
-            ConfineGpuViewportToPane(&viewport);
+            ConfineGpuViewportToPane(&viewport, m_pRTT == NULL);
             // and the 3D display
             rend3d_->StartDraw();
 
@@ -804,7 +813,7 @@ BOOL C_3dViewer::ViewOTW()
         // so narrow it to the pane. Left alone when the ground is the CPU screen-path rings, which
         // are already in pane pixels. See ConfineGpuViewportToPane / ViewerSceneIsObjectPath.
         if (ViewerSceneIsObjectPath())
-            ConfineGpuViewportToPane(&viewport);
+            ConfineGpuViewportToPane(&viewport, m_pRTT == NULL);
         rendOTW_->StartDraw();
         rendOTW_->DrawScene(&zeroPos_, &currentRot_);
 
@@ -851,7 +860,7 @@ BOOL C_3dViewer::ViewGreyOTW()
         // Artscout - 2026: as in ViewOTW -- the scene is placed by the device viewport, which
         // StartFrame's RTT bind widened to the whole target. See ConfineGpuViewportToPane.
         if (ViewerSceneIsObjectPath())
-            ConfineGpuViewportToPane(&viewport);
+            ConfineGpuViewportToPane(&viewport, m_pRTT == NULL);
         rendOTW_->StartDraw();
         rendOTW_->PreLoadScene(&zeroPos_, &currentRot_);
         rendOTW_->DrawScene(&zeroPos_, &currentRot_);

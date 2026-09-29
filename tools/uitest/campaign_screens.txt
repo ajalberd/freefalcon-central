@@ -1,0 +1,46 @@
+# Campaign map -> Start Campaign -> intel -> first flight -> each toolbar screen in turn (ATO, flight plan, briefing; the briefing covers the
+# toolbar, so it goes last). One campaign load for all of them; each shot is taken
+# with whatever the previous button left open, so read them with the "windows" list beside them.
+timeout 480
+waitwin UI_MAIN_SCREEN 60000
+wait 1000
+click CP_MAIN_CTRL
+waitwin CS_SELECT_WIN 20000
+wait 2000
+click SINGLE_COMMIT_CTRL
+waitwin STRAT_WIN 150000
+wait 2000
+click OK STRAT_WIN
+waitgone STRAT_WIN 10000
+waitwin STARTCAMP_WIN 150000
+wait 2000
+click START_CAMP STARTCAMP_WIN
+waitgone STARTCAMP_WIN 20000
+wait 20000
+wshot c_started
+click INTEL_MAIN_CTRL
+wait 4000
+windows
+wshot c_intel
+layout c_intel
+click MISSION_MAIN_CTRL
+wait 3000
+clickat MISSION_LIST_TREE 40 8
+wait 2000
+wshot c_picked
+click ATO_BUTTON
+wait 4000
+windows
+wshot c_ato
+layout c_ato
+click FLIGHT_PLAN_BUTTON
+wait 4000
+windows
+wshot c_plan
+layout c_plan
+click BRIEF_BUTTON
+wait 4000
+windows
+wshot c_brief
+layout c_brief
+quit

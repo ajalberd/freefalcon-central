@@ -2799,14 +2799,11 @@ void SaveTargaCB(long, short hittype, C_Base *control)
 
         //end EmptyFilenameSaveFix
 
-        // MN 020104 HiResUI support
-        int w = 800, h = 600;
-
-        if (g_bHiResUI)
-        {
-            w = 1024;
-            h = 768;
-        }
+        // MN 020104 HiResUI support; Artscout - 2026: whatever size the surface is
+        int w, h;
+        UI95_GetSurfaceSize(&w, &h);
+        TgaHeader.Width = TgaHeaderHiRes.Width = (WORD)w;
+        TgaHeader.Height = TgaHeaderHiRes.Height = (WORD)h;
 
         // convert Mem to 555 format
         for (i = 0; i < w * h; i++)

@@ -128,6 +128,9 @@
     <ClCompile Include="cwindow.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="cadapt.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="imagersc.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

@@ -1,0 +1,22 @@
+# Main menu -> TE -> Saved tab -> New -> the editor's victory conditions, then mission builder.
+timeout 240
+waitwin UI_MAIN_SCREEN 60000
+wait 1000
+click TE_MAIN_CTRL
+waitwin TAC_MISSION_WIN 20000
+wait 1500
+click TAC_LOAD_CTRL
+wait 1500
+click TAC_NEW_MISSION
+wait 10000
+click VC_MAIN_CTRL
+wait 4000
+windows
+wshot te_vc
+layout te_vc
+click BUILDER_MAIN_CTRL
+wait 4000
+windows
+wshot te_builder
+layout te_builder
+quit

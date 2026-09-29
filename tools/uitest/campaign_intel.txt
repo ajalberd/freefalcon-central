@@ -1,0 +1,52 @@
+# Campaign -> Start Campaign -> intel tab -> each intel toolbar screen (OOB, force levels, J-STARS,
+# squadron, Sierra Hotel), each over whatever the one before left open.
+timeout 480
+waitwin UI_MAIN_SCREEN 60000
+wait 1000
+click CP_MAIN_CTRL
+waitwin CS_SELECT_WIN 20000
+wait 2000
+click SINGLE_COMMIT_CTRL
+waitwin STRAT_WIN 150000
+wait 2000
+click OK STRAT_WIN
+waitgone STRAT_WIN 10000
+waitwin STARTCAMP_WIN 150000
+wait 2000
+click START_CAMP STARTCAMP_WIN
+waitgone STARTCAMP_WIN 20000
+wait 20000
+wshot c_started
+click INTEL_MAIN_CTRL
+wait 4000
+windows
+wshot c_intel
+layout c_intel
+click CAMP_OOB_BUTTON
+wait 5000
+windows
+wshot i_oob
+layout i_oob
+click CLOSE_WINDOW OOB_WIN
+wait 1500
+click FORCE_LEVELS_BUTTON
+wait 5000
+windows
+wshot i_force
+layout i_force
+click CAMP_HISTORY_BUTTON
+wait 5000
+windows
+wshot i_jstars
+layout i_jstars
+click SQUADRON_BUTTON
+wait 5000
+windows
+wshot i_squadron
+layout i_squadron
+click SIERRA_HOTEL
+wait 5000
+windows
+wshot i_sierra
+layout i_sierra
+quit

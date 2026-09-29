@@ -59,6 +59,11 @@ $manifest = [ordered]@{
     'art/cp_pkg_scf.lst'                         = "repo:src/installer/res/art/cp_pkg_scf.lst"
     'art/resource/uiskin_ff4.irc'                = "repo:src/installer/res/art/resource/uiskin_ff4.irc"
 
+    # Artscout - 2026: the clickable F-16 pit's hotspot table. The JHMCS knob, the switches added
+    # from BMS 4.32 (FLCS reset, DBU, overheat, ground jettison, ...) and the per-control switch
+    # sounds all live here, not in the exe; the MSI already shipped it, the ZIP did not.
+    'art/ckptart/3dbuttons.dat'                  = "repo:src/installer/res/art/ckptart/3dbuttons.dat"
+
     'registry/FreeFalcon6-registry.reg'          = "repo:tools/registry/FreeFalcon6-registry.reg"
     'registry/install-registry.bat'              = "repo:tools/registry/install-registry.bat"
 

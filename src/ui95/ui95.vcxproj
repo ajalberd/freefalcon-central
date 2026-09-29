@@ -355,6 +355,7 @@
     <ClCompile Include="ctile.cpp" />
     <ClCompile Include="ctree.cpp" />
     <ClCompile Include="cwindow.cpp" />
+    <ClCompile Include="cadapt.cpp" />
     <ClCompile Include="imagersc.cpp" />
     <ClCompile Include="ooutput.cpp" />
     <ClCompile Include="soundrsc.cpp" />

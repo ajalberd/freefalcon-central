@@ -1101,6 +1101,28 @@ float g_fFormationBurnerDistance =
 //float g_fHitChanceAir = 3.5F; // Only added to test out the best value. 6 seems to high (CampLIB/unit.cpp)
 //float g_fHitChanceGround = 2.0F; // moved into Falcon4.aii in campaign\save folder
 bool g_bHiResUI = true; // false = 800x600, true = 1024x768
+// Artscout - 2026: menu surface/window size (UI95_GetSurfaceSize). 0 = 1024x768; larger values give
+// the menus more room. Also "-uisize WxH" on the command line. See UI-OVERHAUL.md.
+int g_nUiWidth = 0; // -1 = fill the desktop work area
+int g_nUiHeight = 0;
+// Artscout - 2026 (VR UI): in a headset the menu layout is VrUiWidth x VrUiHeight (0 = follow UiWidth/
+// UiHeight/UiScale), shown on a curved panel VrUiHeightDeg tall at VrUiRadius m; its width follows the
+// aspect (1920x768 at 45 deg is ~120 deg round). VrUiCylinder 0 = the old flat quad.
+int g_nVrUiWidth = 1920;
+int g_nVrUiHeight = 768;
+float g_fVrUiRadius = 2.0f;
+float g_fVrUiHeightDeg = 45.0f;
+bool g_bVrUiCylinder = true;
+int g_nUiFilter = 1; // menu magnification filter (D3D12): 1 = sharp bilinear (crisp texels), 0 = plain bilinear
+float g_fReconZoomRate = 6.0f; // recon zoom, % per unit of panner offset (-5..5) per tick; 0 = stock linear
+float g_fUiScale = 1.0f; // menu magnification: the layout is UiWidth/UiScale wide, drawn UiScale times bigger; 0 = auto (layout 768 tall)
+// Artscout - 2026: the flat-screen sim renders at the window's own size (windowed) or the monitor's
+// (borderless), instead of DispWidth x DispHeight stretched to it. Not saved; VR is left alone.
+bool g_bSimFitWindow = true;
+bool g_bUiAdapt = true; // fit the stock layout to a larger surface (ui95/cadapt.cpp); 0 = stock rects
+// Extra .scf files whose windows pin to the surface edges and fill it, on top of the built-in map
+// screens (kEdgesFiles in ui95/cadapt.cpp: campaign, recon, TE). Base names, ';'-separated.
+char g_strUiAdaptEdges[0x40] = "";
 bool g_bAWACSFuel =
     false; // for debug, shows fuel of flight in UI when AWACSSupport = true
 //bool g_bShowManeuverLabels = true; // for debug, shows currently performed BVR/WVR maneuver in SIM
@@ -1851,6 +1873,9 @@ static ConfigOption<bool> BoolOpts[] = {
     {"RP5DataCompatiblity", &g_bRP5Comp},
     {"ModuleList", &g_bModuleList},
     {"HiResUI", &g_bHiResUI},
+    {"UiAdapt", &g_bUiAdapt}, // Artscout - 2026: fit the stock layout to UiWidth/UiHeight
+    {"SimFitWindow", &g_bSimFitWindow}, // Artscout - 2026: flat-screen sim at the window/monitor size
+    {"VrUiCylinder", &g_bVrUiCylinder}, // Artscout - 2026: curved VR menu panel, 0 = flat quad
     {"AWACSFuel", &g_bAWACSFuel},
     // { "ShowManeuverLabels", &g_bShowManeuverLabels},
     {"FullScreenNVG", &g_bFullScreenNVG},
@@ -2236,6 +2261,11 @@ static ConfigOption<int> IntOpts[] = {
     {"BWMaxDeltaTime", &g_nBWMaxDeltaTime}, // 2002-04-12 MN
     {"BWCheckDeltaTime", &g_nBWCheckDeltaTime}, // 2002-04-12 MN
     {"VUMaxDeltaTime", &g_nVUMaxDeltaTime}, // 2002-04-12 MN
+    {"UiWidth", &g_nUiWidth}, // Artscout - 2026: menu surface size, 0 = 1024x768
+    {"UiFilter", &g_nUiFilter}, // Artscout - 2026: 1 = sharp bilinear menu scaling, 0 = plain
+    {"VrUiWidth", &g_nVrUiWidth}, // Artscout - 2026: VR menu layout size, 0 = desktop knobs
+    {"VrUiHeight", &g_nVrUiHeight},
+    {"UiHeight", &g_nUiHeight},
     {"ACMIOptionsPopupHiResX", &g_nACMIOptionsPopupHiResX},
     {"ACMIOptionsPopupHiResY", &g_nACMIOptionsPopupHiResY},
     {"ACMIOptionsPopupLowResX", &g_nACMIOptionsPopupLowResX},
@@ -2302,6 +2332,7 @@ static ConfigOption<char> StringOpts[] = {
     {"ServerAdminEmail", &g_strServerAdminEmail[0]},
     {"VoiceHostIP", &g_strVoiceHostIP[0]},
     {"WorldName", &g_strWorldName[0]},
+    {"UiAdaptEdges", &g_strUiAdaptEdges[0]}, // Artscout - 2026: map screens that fill the surface
     {"ScrollUpFunction", &g_strScrollUpFunction[0]}, //Wombat778 10-07-2003
     {"ScrollDownFunction", &g_strScrollDownFunction[0]}, //Wombat778 10-07-2003
     {"MiddleButtonFunction",
@@ -2403,6 +2434,10 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fVrTracerBright}, // Artscout - 2026 (VR): tracer brightness multiplier in headset (0..1)
     {"VrMenuScale",
      &g_fVrMenuScale}, // Artscout - 2026 (VR): center + scale the radio/comms/exit menu in the headset
+    {"UiScale", &g_fUiScale}, // Artscout - 2026: menu magnification over UiWidth x UiHeight
+    {"VrUiRadius", &g_fVrUiRadius}, // Artscout - 2026: VR menu panel distance, m
+    {"VrUiHeightDeg", &g_fVrUiHeightDeg}, // Artscout - 2026: VR menu panel height, degrees
+    {"ReconZoomRate", &g_fReconZoomRate}, // Artscout - 2026: recon zoom speed, 0 = stock
     {"MenuScale",
      &g_fMenuScale}, // Artscout - 2026: radio/comms popup menu size on a flat screen, 1.0 = stock
     {"EngineRumbleLevel",
@@ -2767,7 +2802,13 @@ NextLine:
                         char *p2 = strstr(p, "\"");
 
                         if (p2)
-                            strncpy(pOpts->Value, p, p2 - p);
+                        {
+                            // Artscout - 2026: terminate it -- a value shorter than the default
+                            // used to keep the default's tail. (Buffers are at least 0x40.)
+                            const size_t n = min((size_t)(p2 - p), (size_t)0x3f);
+                            strncpy(pOpts->Value, p, n);
+                            pOpts->Value[n] = 0;
+                        }
 
                         goto NextLine;
                     }

@@ -1,0 +1,10 @@
+# Main menu -> acmi, one shot and layout of whatever it opens.
+timeout 90
+waitwin UI_MAIN_SCREEN 60000
+wait 1000
+click ACMI_CTRL
+wait 5000
+windows
+shot acmi
+layout acmi
+quit

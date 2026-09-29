@@ -1,5 +1,5 @@
-FreeFalcon / FFViper -- weather fronts + campaign fixes patch
-=============================================================
+FreeFalcon / FFViper -- HDR, cockpit, destruction, weather fronts patch
+======================================================================
 
 Cumulative: everything from the earlier campaign-planning and night-lighting
 patches is included (described further down).
@@ -35,9 +35,50 @@ NEW IN THIS RELEASE
    and the FLOT line are kept per pilot in config\profiles\<pilot>\campmap.ini
    and come back the next time you run the game.
 
-4. Smaller fixes
+4. HDR rendering with Gran Turismo 7 tone mapping (D3D12)
+   The 3D scene now renders in 16-bit float and Polyphony's GT7 operator
+   rolls highlights off instead of clipping them -- lamps, glows, specular
+   and the afterburner -- while the HUD and instruments are drawn after it,
+   untouched. The sun takes the time of day's colour (orange at sunset, it
+   was white at every hour). Sun on an MFD washes it out unless the canopy
+   bow shades it, and the cockpit shadow map now actually covers the panel.
+   Knobs: ToneMapGT7 (0 = the old 8-bit look), ToneMapExposure, SunTodTint,
+   MfdGlare, PitShadowFitReach.
+
+5. Cockpit
+   - JHMCS helmet cueing: in the 3D pit the helmet line of sight slaves the
+     AIM-9 seeker and replaces the fixed ACM bore line, so you lock what you
+     look at -- HMD, TrackIR and mouse look alike. An HMCS brightness knob
+     sits below the CMDS panel. g_nHmcs 0 restores the old behaviour.
+     New and not yet tested in the air.
+   - More of the F-16 pit is clickable: FLCS reset, digital backup, FLT BIT,
+     overheat test, ground jettison, and more.
+   - Engine sound curves: the placeholder volume/pitch charts every aircraft
+     shipped with are replaced by proper curves, and the second in-cockpit
+     engine layer finally plays. Canopy muffling (CanopyAttenuation), RWR
+     font and a default RWR colour, radio menu size (MenuScale).
+
+6. Destruction
+   A jet that is shot down breaks up again: four pieces fly off, spinning
+   and trailing smoke, and burn or explode where they land, as in Falcon
+   4.0. F-16s use the generic pieces. New and not yet seen in game.
+
+7. Campaign
+   Objective icons on the campaign map darken as they are damaged, and the
+   ground war routes around damaged bridges and road junctions instead of
+   planning through them as if intact (PathDamageCost).
+
+8. Smaller fixes
    The rain sound never played. The flight model asked for the wind at the
    wrong place. FRONTS: lines in FFDebug.log say what the weather is doing.
+
+SOUNDS THIS PATCH EXPECTS BUT CANNOT SHIP
+   The JFS starter, cockpit airflow and gear wind, per-switch clicks,
+   separate canopy open/close loops and calibre-specific gun sounds are
+   wired up in the exe, but the recordings and their sound-table entries
+   live in your install and are not redistributable. Without them those
+   sounds stay silent -- nothing breaks. See CHANGELOG.md in the source for
+   the sound ids and file names each one looks for.
 
 
 WHAT THIS IS

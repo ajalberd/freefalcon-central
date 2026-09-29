@@ -77,6 +77,7 @@ extern bool g_bHiResUI; // M.N. 2001-11-20
 const int numWeatherConditions = INCLEMENT;
 
 #include "sim/include/ivibedata.h"
+#include "uitest.h"
 extern IntellivibeData g_intellivibeData;
 extern void *gSharedIntellivibe;
 
@@ -1576,9 +1577,30 @@ int UI_Startup()
     // OW: Enable UI Hardware acceleration
     // FalconDisplay.EnterMode(FalconDisplayConfiguration::UI);
 
+    // Artscout - 2026: the menu window is UiWidth x UiHeight; the ui95 surface (uiW x uiH) is that over
+    // UiScale, and the present stretches it back over the window.
+    int uiW, uiH, winW, winH;
+    UI95_GetSurfaceSize(&uiW, &uiH);
+    UI95_GetWindowSize(&winW, &winH);
+
+    // A window filling the desktop (UiWidth/UiHeight -1) sits at the work area's corner, not the
+    // usual 40,40, or it would hang off the bottom-right.
+    extern int g_nUiWidth, g_nUiHeight;
+
+    if (g_nUiWidth < 0 or g_nUiHeight < 0)
+    {
+        RECT work;
+        int dw, dh;
+        UI95_GetWorkArea(&work, &dw, &dh);
+        FalconDisplay.xOffset = work.left;
+        FalconDisplay.yOffset = work.top;
+    }
+
     // M.N. Large UI
     if (g_bHiResUI)
     {
+        FalconDisplay.width[FalconDisplayConfiguration::UILarge] = winW;
+        FalconDisplay.height[FalconDisplayConfiguration::UILarge] = winH;
         FalconDisplay.EnterMode(FalconDisplayConfiguration::UILarge,
                                 DisplayOptions.DispVideoCard,
                                 DisplayOptions.DispVideoDriver);
@@ -1611,12 +1633,7 @@ int UI_Startup()
     UpdateWindow(FalconDisplay.appWin);
 
     if (gScreenShotEnabled)
-    {
-        if (g_bHiResUI)
-            gScreenShotBuffer = new WORD[1024l * 768l];
-        else
-            gScreenShotBuffer = new WORD[800l * 600l];
-    }
+        gScreenShotBuffer = new WORD[(size_t)uiW * uiH];
 
     gMainHandler = new C_Handler;
     gMainHandler->Setup(FalconDisplay.appWin, NULL, Primary);
@@ -1630,6 +1647,7 @@ int UI_Startup()
     SetStartupFlags();
 
     LoadMainWindow();
+    UiTest_Start(); // no-op without -uitest
     LoadCommsWindows();
     LoadHelpGuideWindows();
     RealLoadLogbook(); // without daves extra garbage
