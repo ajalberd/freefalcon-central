@@ -72,6 +72,26 @@ def sha256(path):
     return h.hexdigest()
 
 
+def in_use(path):
+    """True if another process has the file open. A shared open (Python's own "r+b")
+    succeeds even while the file is memory-mapped elsewhere, and only the rewrite then
+    fails, so ask Windows for exclusive access instead."""
+    if os.name != "nt":
+        return False
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateFileW.restype = wintypes.HANDLE
+    k32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    GENERIC_RW, OPEN_EXISTING = 0xC0000000, 3
+    h = k32.CreateFileW(path, GENERIC_RW, 0, None, OPEN_EXISTING, 0, None)
+    if h is None or h == wintypes.HANDLE(-1).value:
+        return True
+    k32.CloseHandle(h)
+    return False
+
+
 def level_files(terrain_dir):
     out = []
     for lod in range(LEVELS):
@@ -478,15 +498,8 @@ def main():
 
     # Windows will not let a file that another process has open be rewritten -- the game, or
     # the campaign editor's server (it maps the terrain). Find out before touching anything.
-    busy = []
-    for lvl in levels:
-        if lvl.copied:
-            for path in (lvl.lpath, lvl.opath):
-                try:
-                    with open(path, "r+b"):
-                        pass
-                except OSError:
-                    busy.append(os.path.basename(path))
+    busy = [os.path.basename(p) for lvl in levels if lvl.copied
+            for p in (lvl.lpath, lvl.opath) if in_use(p)]
     if busy:
         raise SystemExit("cannot write %s: another program has it open. Close the game and the "
                          "campaign editor (tools/campaign-editor/server.py), then run this again. "
