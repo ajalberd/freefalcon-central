@@ -4,9 +4,16 @@
 // routes are the ones the trains run on (railnet.cpp, rail.txt). Each frame the segments within
 // RailTrackRangeKm of the camera are cut into short pieces that follow the ground -- heights from
 // OTWDriver.GetGroundLevel, the lookup ground vehicles sit on -- and drawn as a ballast quad with
-// two darker rail quads on top, through the same CPU-transformed Render3D path DrawableTrail
-// uses (TransformPoint, DrawSquare). One drawable with a huge radius, so the display list always
-// puts it in the nearest ring, after the terrain.
+// two darker rail quads on top. One drawable with a huge radius, so the display list always
+// visits it in the nearest ring, after the terrain.
+//
+// The quads go through the DX engine's DX2D world-quad path (TheDXEngine.DX2D_AddQuad, what smoke
+// trails and the particle fallback use): world-space, flushed through the GPU renderer's
+// BeginDynamic2D pipeline -- depth-tested, per eye in VR. The first cut used the legacy
+// Render3D path (TransformPoint + DrawSquare) that DrawableTrail's dead branch still has; under
+// D3D12 those come out as a flat overlay: left eye only and drawn over everything, cockpit
+// included (seen 2026-09-28). DX2D does not write depth, which suits a ground strip: whatever is
+// drawn later (vehicles, cockpit) still covers it.
 //
 // Off unless RailTrack. RailTrackLog reports what was drawn and how far the strip sits from the
 // ground, for the flicker hunt if the terrain mesh and the height lookup disagree.
@@ -17,10 +24,10 @@
 #include "otwdrive.h"
 #include "drawobj.h"
 #include "renderow.h"
-#include "render3d.h"
 #include "tod.h"
-#include "ffstates.h"
 #include "fflog.h"
+#include "graphics/dxengine/dxengine.h"
+#include "graphics/dxengine/openxrbackend.h" // which eye a pass is for, for RailTrackLog
 #include "railnet.h"
 
 extern bool g_bRailTrack;
@@ -44,6 +51,9 @@ public:
     {
         radius = 1.0e9F; // always "distance 0": drawn in the nearest ring every frame
         position.x = position.y = position.z = 0.0F;
+
+        for (int i = 0; i < 5; i++)
+            drawsPerEye[i] = 0;
     }
 
     virtual void Draw(class RenderOTW *renderer, int LOD);
@@ -57,6 +67,7 @@ private:
     std::vector<std::vector<P>> routes;
     bool loaded;
     DWORD lastLog;
+    int drawsPerEye[5]; // flat, then VR views 0..3
 
     static void Collect(void *ctx, int route, int index, float x, float y)
     {
@@ -69,10 +80,12 @@ private:
         r[route].push_back(p);
     }
 
-    // One quad of the strip between two pieces, offset `off` feet sideways, `w` wide.
-    static void Quad(RenderOTW *renderer, const Tpoint &a, const Tpoint &b, float px, float py,
-                     float off, float w, float lift, float za0, float za1, float zb0, float zb1,
-                     float r, float g, float bl)
+    // One quad of the strip between two pieces, offset `off` feet sideways, `w` wide, handed to
+    // DX2D as corners relative to their centre (sim axes: x north, y east, z down). No texture:
+    // the GPU renderer's default white, so the vertex colour is the colour. DX2D frustum-culls
+    // each quad on a sphere of `radius` round its centre.
+    static void Quad(const Tpoint &a, const Tpoint &b, float px, float py, float off, float w,
+                     float lift, float za0, float za1, float zb0, float zb1, DWORD colour)
     {
         Tpoint c[4];
         const float o0 = off - w * 0.5F, o1 = off + w * 0.5F;
@@ -81,20 +94,34 @@ private:
         c[2].x = b.x + px * o1; c[2].y = b.y + py * o1; c[2].z = zb1 - lift;
         c[3].x = b.x + px * o0; c[3].y = b.y + py * o0; c[3].z = zb0 - lift;
 
-        ThreeDVertex v[4];
+        D3DXVECTOR3 centre;
+        centre.x = (c[0].x + c[1].x + c[2].x + c[3].x) * 0.25F;
+        centre.y = (c[0].y + c[1].y + c[2].y + c[3].y) * 0.25F;
+        centre.z = (c[0].z + c[1].z + c[2].z + c[3].z) * 0.25F;
+
+        D3DDYNVERTEX q[4];
+        float r2 = 0.0F;
 
         for (int i = 0; i < 4; i++)
         {
-            renderer->TransformPoint(&c[i], &v[i]);
-            v[i].r = r;
-            v[i].g = g;
-            v[i].b = bl;
-            v[i].a = 1.0F;
-            v[i].u = v[i].v = 0.0F;
-            v[i].q = v[i].csZ * Q_SCALE;
+            q[i].pos.x = c[i].x - centre.x;
+            q[i].pos.y = c[i].y - centre.y;
+            q[i].pos.z = c[i].z - centre.z;
+            q[i].dwColour = colour;
+            q[i].dwSpecular = 0;
+            q[i].tu = q[i].tv = 0.0F;
+            const float d2 = q[i].pos.x * q[i].pos.x + q[i].pos.y * q[i].pos.y +
+                             q[i].pos.z * q[i].pos.z;
+            r2 = d2 > r2 ? d2 : r2;
         }
 
-        renderer->DrawSquare(&v[0], &v[1], &v[2], &v[3], CULL_ALLOW_ALL);
+        TheDXEngine.DX2D_AddQuad(LAYER_GROUND, 0, &centre, q, sqrtf(r2), 0);
+    }
+
+    static DWORD Colour(float r, float g, float b)
+    {
+        const DWORD R = (DWORD)(r * 255.0F), G = (DWORD)(g * 255.0F), B = (DWORD)(b * 255.0F);
+        return 0xFF000000 | (R << 16) | (G << 8) | B; // D3DCOLOR: ARGB
     }
 };
 
@@ -115,10 +142,13 @@ void DrawableRail::Draw(RenderOTW *renderer, int)
     const float light = TheTimeOfDay.GetLightLevel();
 
     // Ballast: grey-brown; rails: dark steel. Scaled by the light so night is dark.
-    const float br = 0.46F * light, bg = 0.42F * light, bb = 0.36F * light;
-    const float rr = 0.16F * light, rg = 0.15F * light, rb = 0.14F * light;
+    const DWORD ballast = Colour(0.46F * light, 0.42F * light, 0.36F * light);
+    const DWORD steel = Colour(0.16F * light, 0.15F * light, 0.14F * light);
 
-    renderer->context.RestoreState(STATE_GOURAUD);
+    // Which VR eye (or -1 for flat) this pass is for -- tallied for RailTrackLog, since the
+    // first cut showed in one eye only.
+    const int eye = g_pOpenXRBackend ? g_pOpenXRBackend->CurrentEye() : -1;
+    drawsPerEye[(eye >= -1 and eye <= 3) ? eye + 1 : 0]++;
 
     int pieces = 0;
     double offSum = 0.0;
@@ -168,12 +198,11 @@ void DrawableRail::Draw(RenderOTW *renderer, int)
 
                 if (k > 0 and inRange)
                 {
-                    Quad(renderer, prev, cur, px, py, 0.0F, BALLAST_W, LIFT_FT, pz0, pz1, z0, z1,
-                         br, bg, bb);
-                    Quad(renderer, prev, cur, px, py, -GAUGE * 0.5F, RAIL_W, RAIL_LIFT_FT, pzc, pzc,
-                         zc, zc, rr, rg, rb);
-                    Quad(renderer, prev, cur, px, py, GAUGE * 0.5F, RAIL_W, RAIL_LIFT_FT, pzc, pzc,
-                         zc, zc, rr, rg, rb);
+                    Quad(prev, cur, px, py, 0.0F, BALLAST_W, LIFT_FT, pz0, pz1, z0, z1, ballast);
+                    Quad(prev, cur, px, py, -GAUGE * 0.5F, RAIL_W, RAIL_LIFT_FT, pzc, pzc, zc, zc,
+                         steel);
+                    Quad(prev, cur, px, py, GAUGE * 0.5F, RAIL_W, RAIL_LIFT_FT, pzc, pzc, zc, zc,
+                         steel);
                     pieces++;
 
                     if (g_bRailTrackLog)
@@ -201,11 +230,19 @@ void DrawableRail::Draw(RenderOTW *renderer, int)
         if (now - lastLog > 10000)
         {
             lastLog = now;
-            char ln[200];
-            sprintf(ln, "RAILTRACK: %d routes, %d pieces within %d km; exact vs approx ground "
-                        "%.1f ft mean, %.1f ft max\n",
-                    (int)routes.size(), pieces, km, pieces ? offSum / pieces : 0.0, offMax);
+            char ln[300];
+            // Draw calls in the last ~10 s by eye: flat (-1), then VR views 0..3. Both eyes
+            // should be close to equal; one near zero means the strip is only visited once a frame.
+            sprintf(ln, "RAILTRACK: %d routes, %d pieces within %d km (this pass, eye %d); exact vs "
+                        "approx ground %.1f ft mean, %.1f ft max; draws by eye flat/0/1/2/3 = "
+                        "%d/%d/%d/%d/%d\n",
+                    (int)routes.size(), pieces, km, eye, pieces ? offSum / pieces : 0.0, offMax,
+                    drawsPerEye[0], drawsPerEye[1], drawsPerEye[2], drawsPerEye[3],
+                    drawsPerEye[4]);
             FFDebugLog(ln);
+
+            for (int i = 0; i < 5; i++)
+                drawsPerEye[i] = 0;
         }
     }
 }
