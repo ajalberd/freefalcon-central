@@ -11,6 +11,7 @@ param(
     [string]$UiScale = "",
     [switch]$Deploy,
     [string[]]$Scripts = @("campaign", "recon", "te", "te_plan", "te_brief", "te_munitions",
+                           "te_new", "te_builder", "campaign_screens", "campaign_intel",
                            "screen_logbook", "screen_tacref", "screen_acmi", "screen_setup", "screen_comms",
                            "screen_theater", "screen_ia", "screen_dogfight")
 )

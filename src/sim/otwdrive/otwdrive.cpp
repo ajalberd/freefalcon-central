@@ -2051,6 +2051,7 @@ void OTWDriverClass::Enter(void)
     TheLoader.WaitLoader();
 
     OTWWin = FalconDisplay.appWin;
+    FalconDisplay.FitSimToWindow(DisplayOptions.bWindowed);
     SetResolution(FalconDisplayConfiguration::Sim);
 
     FalconDisplay.EnterMode(FalconDisplayConfiguration::Sim,

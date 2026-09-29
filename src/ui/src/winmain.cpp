@@ -298,6 +298,7 @@ LRESULT CALLBACK SimWndProc(HWND hwnd, UINT message, WPARAM wParam,
                             LPARAM lParam);
 static void CtrlAltDelMask(int state);
 static void ParseCommandLine(LPSTR cmdLine);
+static int sRendererOverride = -1; // Artscout - 2026: "-renderer dx12|vulkan"; -1 = the saved option
 static void SystemLevelExit(void);
 static void SystemLevelInit(void);
 struct __declspec(uuid("41C27D56-3A03-4E9D-BE01-3423126C3983")) GameSpyUplink;
@@ -560,6 +561,21 @@ signed int PASCAL handle_WinMain(HINSTANCE h_instance,
     SetCrashHandlerFilter(FFCrashFilter);
 
 #ifdef _WIN32
+    // Artscout - 2026: DPI aware, before any window exists. Unaware, a scaled desktop (125%, 150%)
+    // reports a smaller screen and Windows bitmap-stretches the whole window on top of our own
+    // menu magnification (UiScale). Per-monitor v2 where the OS has it (Windows 10 1703+).
+    {
+        // Both by name: the project's WINVER predates them.
+        typedef BOOL(WINAPI * SetCtxFn)(HANDLE);
+        typedef BOOL(WINAPI * SetAwareFn)(void);
+        HMODULE user = GetModuleHandleA("user32.dll");
+        SetCtxFn setCtx = user ? (SetCtxFn)GetProcAddress(user, "SetProcessDpiAwarenessContext") : NULL;
+        SetAwareFn setAware = user ? (SetAwareFn)GetProcAddress(user, "SetProcessDPIAware") : NULL;
+
+        if ((not setCtx or not setCtx((HANDLE)-4)) and setAware) // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+            setAware();
+    }
+
     // render-port: don't break/crash on CRT debug checks (invalid parameter, asserts).
     // STL iterator checks disabled via _ITERATOR_DEBUG_LEVEL=0 (in all projects).
     _set_invalid_parameter_handler([](const wchar_t *, const wchar_t *,
@@ -700,6 +716,9 @@ signed int PASCAL handle_WinMain(HINSTANCE h_instance,
         extern bool
             g_bUseVulkan; // #104: render backend (0=DX12 / 1=Vulkan) from the graphics options
         g_bUseVulkan = (DisplayOptions.nRenderer == 1);
+
+        if (sRendererOverride >= 0)
+            g_bUseVulkan = sRendererOverride == 1; // "-renderer dx12|vulkan", this run only
         g_bUseOpenXR = DisplayOptions.bUseOpenXR;
         g_bUseQuadViews = DisplayOptions.bUseQuadViews;
         g_bMsaaEnable = DisplayOptions.bMsaaEnable;
@@ -1289,6 +1308,12 @@ void ParseCommandLine(LPSTR cmdLine)
 
             if (stricmp(arg, "-usersc") == 0)
                 _LOAD_ART_RESOURCES_ = 1;
+
+            if (not stricmp(arg, "-renderer"))
+            {
+                const char *r = strtok(NULL, " ");
+                sRendererOverride = r ? (not _strnicmp(r, "vulkan", 2) ? 1 : 0) : -1;
+            }
 
             if (not stricmp(arg, "-uitest"))
                 UiTest_SetScript(strtok(NULL, " ")); // the script, relative to <exe dir>\uitest

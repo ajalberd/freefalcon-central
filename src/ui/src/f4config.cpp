@@ -1083,6 +1083,9 @@ bool g_bVrUiCylinder = true;
 int g_nUiFilter = 1; // menu magnification filter (D3D12): 1 = sharp bilinear (crisp texels), 0 = plain bilinear
 float g_fReconZoomRate = 6.0f; // recon zoom, % per unit of panner offset (-5..5) per tick; 0 = stock linear
 float g_fUiScale = 1.0f; // menu magnification: the layout is UiWidth/UiScale wide, drawn UiScale times bigger; 0 = auto (layout 768 tall)
+// Artscout - 2026: the flat-screen sim renders at the window's own size (windowed) or the monitor's
+// (borderless), instead of DispWidth x DispHeight stretched to it. Not saved; VR is left alone.
+bool g_bSimFitWindow = true;
 bool g_bUiAdapt = true; // fit the stock layout to a larger surface (ui95/cadapt.cpp); 0 = stock rects
 // Extra .scf files whose windows pin to the surface edges and fill it, on top of the built-in map
 // screens (kEdgesFiles in ui95/cadapt.cpp: campaign, recon, TE). Base names, ';'-separated.
@@ -1827,6 +1830,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"ModuleList", &g_bModuleList},
     {"HiResUI", &g_bHiResUI},
     {"UiAdapt", &g_bUiAdapt}, // Artscout - 2026: fit the stock layout to UiWidth/UiHeight
+    {"SimFitWindow", &g_bSimFitWindow}, // Artscout - 2026: flat-screen sim at the window/monitor size
     {"VrUiCylinder", &g_bVrUiCylinder}, // Artscout - 2026: curved VR menu panel, 0 = flat quad
     {"AWACSFuel", &g_bAWACSFuel},
     // { "ShowManeuverLabels", &g_bShowManeuverLabels},
@@ -2372,10 +2376,10 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fVrTracerBright}, // Artscout - 2026 (VR): tracer brightness multiplier in headset (0..1)
     {"VrMenuScale",
      &g_fVrMenuScale}, // Artscout - 2026 (VR): center + scale the radio/comms/exit menu in the headset
-    {"UiScale", &g_fUiScale},
+    {"UiScale", &g_fUiScale}, // Artscout - 2026: menu magnification over UiWidth x UiHeight
     {"VrUiRadius", &g_fVrUiRadius}, // Artscout - 2026: VR menu panel distance, m
     {"VrUiHeightDeg", &g_fVrUiHeightDeg}, // Artscout - 2026: VR menu panel height, degrees
-    {"ReconZoomRate", &g_fReconZoomRate}, // Artscout - 2026: recon zoom speed, 0 = stock // Artscout - 2026: menu magnification over UiWidth x UiHeight
+    {"ReconZoomRate", &g_fReconZoomRate}, // Artscout - 2026: recon zoom speed, 0 = stock
     {"MenuScale",
      &g_fMenuScale}, // Artscout - 2026: radio/comms popup menu size on a flat screen, 1.0 = stock
     {"EngineRumbleLevel",

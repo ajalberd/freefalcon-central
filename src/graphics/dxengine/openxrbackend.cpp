@@ -2855,6 +2855,78 @@ static bool XrConvertMenu565ToRGBA(const void* src565, int srcW, int srcH,
 #endif
 }
 
+// Artscout - 2026 (VR UI): the menu panel's layer, shared by the D3D12 (RunMenuFrame) and Vulkan
+// (RunVulkanMenuFrame) paths. Fills *cyl and returns true for a cylinder, else fills *quad.
+static bool XrBuildMenuPanel(XrSwapchain swapchain, XrSpace space, bool cylinderOk, int srcW, int srcH,
+                             XrCompositionLayerQuad* quad, XrCompositionLayerCylinderKHR* cyl)
+{
+    bool useCylinder = false;
+
+    // Size the panel by the angle it fills, not metres. It is VrUiHeightDeg tall at VrUiRadius; its width follows the menu's aspect, so a
+    // wide VR layout (VrUiWidth x VrUiHeight) wraps round the head on a cylinder
+    // (XR_KHR_composition_layer_cylinder) instead of stretching out on a flat quad
+    // whose edges recede. Was a fixed 1.3 m quad at 2.1 m (~35 deg tall).
+    extern float g_fVrUiRadius, g_fVrUiHeightDeg;
+    extern bool g_bVrUiCylinder;
+    const float aspect = (float)srcW / (float)srcH;
+    const float distM = g_fVrUiRadius > 0.3f ? g_fVrUiRadius : 2.0f;
+    const float vDeg = g_fVrUiHeightDeg > 5.0f ? min(g_fVrUiHeightDeg, 120.0f) : 45.0f;
+    const float heightM = 2.0f * distM * tanf(vDeg * 0.5f * 3.14159265f / 180.0f);
+    const float arc = aspect * heightM / distM; // radians of cylinder the width takes
+    XrSwapchainSubImage sub = {};
+    sub.swapchain = swapchain;
+    sub.imageRect.offset.x = 0;
+    sub.imageRect.offset.y = 0;
+    sub.imageRect.extent.width = srcW;
+    sub.imageRect.extent.height = srcH;
+    sub.imageArrayIndex = 0;
+    XrPosef pose;
+    pose.orientation.x = pose.orientation.y = pose.orientation.z = 0.0f;
+    pose.orientation.w = 1.0f;
+    pose.position.x = pose.position.y = pose.position.z = 0.0f;
+
+    // A cylinder past ~300 deg would meet itself; wider than that stays a quad.
+    if (cylinderOk && g_bVrUiCylinder && arc < 5.2f)
+    {
+        // The cylinder's pose is its centre (the viewer's start position); the image
+        // wraps the inside of it, centred on -Z, radius metres away.
+        cyl->layerFlags = 0;
+        cyl->space = space;
+        cyl->eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+        cyl->subImage = sub;
+        cyl->pose = pose;
+        cyl->radius = distM;
+        cyl->centralAngle = arc;
+        cyl->aspectRatio = aspect;
+        useCylinder = true;
+    }
+    else
+    {
+        quad->layerFlags = 0;
+        quad->space = space;
+        quad->eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+        quad->subImage = sub;
+        quad->pose = pose;
+        quad->pose.position.z = -distM;
+        quad->size.width = heightM * aspect;
+        quad->size.height = heightM;
+    }
+
+    static bool logged = false;
+
+    if (!logged)
+    {
+        logged = true;
+        XrDbg("OpenXR: menu panel %s %dx%d, %.2f m at %.2f m (%.0f x %.0f deg)\n",
+              useCylinder ? "cylinder" : "quad", srcW, srcH, heightM, distM,
+              useCylinder ? arc * 180.0f / 3.14159265f
+                          : 2.0f * atanf(heightM * aspect * 0.5f / distM) * 180.0f / 3.14159265f,
+              vDeg);
+    }
+
+    return useCylinder;
+}
+
 //=============================================================================
 // RunMenuFrame -- present the flat 2D UI as a head-locked quad panel.
 //=============================================================================
@@ -2977,69 +3049,8 @@ bool OpenXRBackend::RunMenuFrame(const void* src565, int srcW, int srcH)
                         XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
                     xrReleaseSwapchainImage(p->uiSwapchain, &ri);
 
-                    // Artscout - 2026 (VR UI): size the panel by the angle it fills, not metres. It
-                    // is VrUiHeightDeg tall at VrUiRadius; its width follows the menu's aspect, so a
-                    // wide VR layout (VrUiWidth x VrUiHeight) wraps round the head on a cylinder
-                    // (XR_KHR_composition_layer_cylinder) instead of stretching out on a flat quad
-                    // whose edges recede. Was a fixed 1.3 m quad at 2.1 m (~35 deg tall).
-                    extern float g_fVrUiRadius, g_fVrUiHeightDeg;
-                    extern bool g_bVrUiCylinder;
-                    const float aspect = (float)srcW / (float)srcH;
-                    const float distM = g_fVrUiRadius > 0.3f ? g_fVrUiRadius : 2.0f;
-                    const float vDeg = g_fVrUiHeightDeg > 5.0f ? min(g_fVrUiHeightDeg, 120.0f) : 45.0f;
-                    const float heightM = 2.0f * distM * tanf(vDeg * 0.5f * 3.14159265f / 180.0f);
-                    const float arc = aspect * heightM / distM; // radians of cylinder the width takes
-                    XrSwapchainSubImage sub = {};
-                    sub.swapchain = p->uiSwapchain;
-                    sub.imageRect.offset.x = 0;
-                    sub.imageRect.offset.y = 0;
-                    sub.imageRect.extent.width = srcW;
-                    sub.imageRect.extent.height = srcH;
-                    sub.imageArrayIndex = 0;
-                    XrPosef pose;
-                    pose.orientation.x = pose.orientation.y = pose.orientation.z = 0.0f;
-                    pose.orientation.w = 1.0f;
-                    pose.position.x = pose.position.y = pose.position.z = 0.0f;
-
-                    // A cylinder past ~300 deg would meet itself; wider than that stays a quad.
-                    if (p->cylinderEnabled && g_bVrUiCylinder && arc < 5.2f)
-                    {
-                        // The cylinder's pose is its centre (the viewer's start position); the image
-                        // wraps the inside of it, centred on -Z, radius metres away.
-                        cyl.layerFlags = 0;
-                        cyl.space = p->appSpace;
-                        cyl.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-                        cyl.subImage = sub;
-                        cyl.pose = pose;
-                        cyl.radius = distM;
-                        cyl.centralAngle = arc;
-                        cyl.aspectRatio = aspect;
-                        useCylinder = true;
-                    }
-                    else
-                    {
-                        quad.layerFlags = 0;
-                        quad.space = p->appSpace;
-                        quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-                        quad.subImage = sub;
-                        quad.pose = pose;
-                        quad.pose.position.z = -distM;
-                        quad.size.width = heightM * aspect;
-                        quad.size.height = heightM;
-                    }
-
-                    static bool logged = false;
-
-                    if (!logged)
-                    {
-                        logged = true;
-                        XrDbg("OpenXR: menu panel %s %dx%d, %.2f m at %.2f m (%.0f x %.0f deg)\n",
-                              useCylinder ? "cylinder" : "quad", srcW, srcH, heightM, distM,
-                              useCylinder ? arc * 180.0f / 3.14159265f
-                                          : 2.0f * atanf(heightM * aspect * 0.5f / distM) * 180.0f / 3.14159265f,
-                              vDeg);
-                    }
-
+                    useCylinder = XrBuildMenuPanel(p->uiSwapchain, p->appSpace, p->cylinderEnabled, srcW,
+                                                   srcH, &quad, &cyl);
                     haveLayer = true;
                 }
             }
@@ -5388,7 +5399,7 @@ void OpenXRBackend::Shutdown()
 //=============================================================================
 // RunVulkanMenuFrame -- #107 VR-Vulkan menu/splash headset frame (main thread). Exact peer of the D3D12 RunMenuFrame:
 // convert the cached 565 UI to RGBA (+ a cursor crosshair), upload it into the Vulkan menu-quad swapchain image, and
-// submit it as a WORLD-FIXED head-height quad (2.1 m forward, 1.3 m tall) -- the "cinema screen", not a full-eye blit.
+// submit it as the same world-fixed panel (XrBuildMenuPanel: a cylinder, or a quad) -- not a full-eye blit.
 #ifndef _WIN32
 // #108 Linux VR menu cursor: maps the SDL window mouse position into panel pixels (impl in ffplatform/ff_events.cpp).
 extern "C" bool FF_GetMenuCursorPx(int panelW, int panelH, int* outX,
@@ -5415,6 +5426,8 @@ bool OpenXRBackend::RunVulkanMenuFrame(const void* src565, int srcW, int srcH)
         return false;
 
     XrCompositionLayerQuad quad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+    XrCompositionLayerCylinderKHR cyl = {XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
+    bool useCylinder = false;
     bool haveLayer = false;
     (void)src565;
     const unsigned char* srcSnap = XrMenuSnapshot(srcW, srcH);
@@ -5527,25 +5540,8 @@ bool OpenXRBackend::RunVulkanMenuFrame(const void* src565, int srcW, int srcH)
                     XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
                 xrReleaseSwapchainImage(p->uiSwapchain, &ri);
 
-                const float aspect = (float)srcW / (float)srcH, heightM = 1.3f,
-                            distM = 2.1f;
-                quad.layerFlags = 0;
-                quad.space = p->appSpace;
-                quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-                quad.subImage.swapchain = p->uiSwapchain;
-                quad.subImage.imageRect.offset.x = 0;
-                quad.subImage.imageRect.offset.y = 0;
-                quad.subImage.imageRect.extent.width = srcW;
-                quad.subImage.imageRect.extent.height = srcH;
-                quad.subImage.imageArrayIndex = 0;
-                quad.pose.orientation.x = quad.pose.orientation.y =
-                    quad.pose.orientation.z = 0.0f;
-                quad.pose.orientation.w = 1.0f;
-                quad.pose.position.x = 0.0f;
-                quad.pose.position.y = 0.0f;
-                quad.pose.position.z = -distM;
-                quad.size.width = heightM * aspect;
-                quad.size.height = heightM;
+                useCylinder = XrBuildMenuPanel(p->uiSwapchain, p->appSpace, p->cylinderEnabled,
+                                               srcW, srcH, &quad, &cyl);
                 haveLayer = true;
             }
         }
@@ -5554,7 +5550,7 @@ bool OpenXRBackend::RunVulkanMenuFrame(const void* src565, int srcW, int srcH)
     }
 
     XrCompositionLayerBaseHeader* layers[1] = {
-        (XrCompositionLayerBaseHeader*)&quad};
+        useCylinder ? (XrCompositionLayerBaseHeader*)&cyl : (XrCompositionLayerBaseHeader*)&quad};
     XrFrameEndInfo fei = {XR_TYPE_FRAME_END_INFO};
     fei.displayTime = fs.predictedDisplayTime;
     fei.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;

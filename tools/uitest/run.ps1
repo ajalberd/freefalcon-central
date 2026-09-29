@@ -1,6 +1,6 @@
 # Run one ui95 test script against the installed game and collect what it saw.
 #
-#   tools\uitest\run.ps1 -Script smoke.txt [-UiSize 1365x768] [-Deploy] [-Png <dir>]
+#   tools\uitest\run.ps1 -Script smoke.txt [-UiSize 1365x768] [-Renderer vulkan] [-Deploy] [-Png <dir>]
 #
 # -Deploy copies this worktree's Falcon4___x64_Release\FFViper.exe to <Install>\FFViper-ui.exe first,
 # so the build the install normally runs (FFViper.exe) is never touched. Scripts live in
@@ -13,6 +13,7 @@ param(
     [string]$UiSize = "",
     [string]$UiScale = "",
     [string]$UiFilter = "",
+    [string]$Renderer = "",
     [switch]$Deploy,
     [string]$Install = "C:\FreeFalcon6",
     [string]$Png = "",
@@ -49,6 +50,7 @@ $argList = "-nomovie -window -uitest $Script"
 if ($UiSize) { $argList += " -uisize $UiSize" }
 if ($UiScale) { $argList += " -uiscale $UiScale" }
 if ($UiFilter -ne "") { $argList += " -uifilter $UiFilter" }
+if ($Renderer) { $argList += " -renderer $Renderer" } # dx12 | vulkan, this run only
 $p = Start-Process -FilePath $exe -ArgumentList $argList -WorkingDirectory $Install -PassThru
 if (-not $p.WaitForExit($TimeoutSec * 1000)) {
     Stop-Process -Id $p.Id -Force

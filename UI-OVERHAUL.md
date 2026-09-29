@@ -24,6 +24,9 @@ not inferred, unless marked **unverified**.
 | `set g_bUiAdapt 0` | | turn the layout adaptation off (stock rects on a bigger surface) |
 | `set g_sUiAdaptEdges "foo;bar"` | | extra `.scf` files laid out by EDGES, on top of the built-in map screens (`kEdgesFiles` in `cadapt.cpp`: campaign, recon, TE play and editor) |
 | `set g_fReconZoomRate 6` | | recon zoom, % per unit of panner offset per tick; 0 = stock linear |
+| `set g_nUiFilter 1` | `-uifilter 1` | menu magnification filter: 1 = sharp bilinear (D3D12 shader; Vulkan nearest-then-linear blit), 0 = plain bilinear |
+| `set g_bSimFitWindow 1` | | the flat-screen sim renders at the window's size (windowed) or the monitor's (borderless) instead of `display.xml`'s, for that session only; never in VR |
+| | `-renderer dx12\|vulkan` | renderer for this run only (the harness's `-Renderer`); the saved option is untouched |
 
 Stock behaviour is unchanged when none are set.
 
@@ -146,28 +149,57 @@ picks its Recon row (popup rows are not controls; the offset is the stock menu l
   ~120 deg round at 45 deg tall. Map screens get the extra width; the rest stay centred.
 - First frame logs `OpenXR: menu panel cylinder|quad WxH, H m at R m (arc x height deg)` to
   `openxr_diag.txt`. Seen: `cylinder 1920x768, 1.65 m at 2.00 m (118 x 45 deg)`, facing the viewer
-  (the spec's "centred on -Z from its pose" holds), and Andrew's verdict: "Looks great!". The
-  Vulkan menu path is unchanged (quad).
+  (the spec's "centred on -Z from its pose" holds), and Andrew's verdict: "Looks great!".
+- Vulkan (`RunVulkanMenuFrame`) now builds the same layer through the shared `XrBuildMenuPanel`
+  (was its own 1.3 m quad at 2.1 m). **Unverified in the headset.**
+
+## Round 2 (2026-09-29, desktop 3814x2009 physical, auto scale -> 1458x768)
+
+- **DPI aware** (`handle_WinMain`, per-monitor v2, `SetProcessDPIAware` fallback, both by name). The
+  harness showed what it was hiding: Andrew's "3424x1361" desktop client was *logical*; the real
+  client is **3814x2009**. Unaware, Windows was bitmap-stretching the window on top of UiScale.
+- **Campaign screens reached** (`campaign_screens.txt`, `campaign_intel.txt`): the script must
+  click `START_CAMP` on `STARTCAMP_WIN` (a button, not a loading screen), then `clickat
+  MISSION_LIST_TREE 40 8` picks the first flight. Intel tab, ATO, flight plan, briefing, OOB,
+  force levels, J-STARS, squadron, Sierra Hotel: all fit. The briefing photo stays centred at 1:1
+  (black at the sides); covering it would crop heads.
+- **OOB was torn**: a 400x768 window flush with the stage's right edge, full height, carrying its
+  own bar tabs. Bar pieces split by halves went right; the body only centred. New rule
+  (`AdaptStage`, `side`): a window flush with one side, full height, at most half the stage wide,
+  moves as one piece with that side (late-added controls too, `LateInfo::side`).
+- **TE editor**: victory conditions and mission builder (`te_builder.txt`). Victory conditions
+  (`tac_vc`, `tac_vchd`) joined the EDGES list; under STAGE its pilot photo showed twice and it
+  swallowed the bottom bar (Mission Builder unclickable). Four EDGES rules came with it:
+  - a client that is itself a bar strip (the builder's 696x32 top client) and a window from the
+    top down to the bottom bar (728 tall) get bar rules (`FrameOf`), so their zoom/RESET buttons
+    split by halves instead of centring onto the TE clock;
+  - a stretchable piece at least half its container wide that touches one side (or overhangs it)
+    fills, as windows already did: the victory-conditions map pane, its team list;
+  - a loose narrow piece goes to the half it sits in instead of centring: the team headings.
+- **Munitions header**: "STATUS" (y 21) straddled the top bar and went with the body; a small item
+  starting in the bar and hanging just below it now counts as bar (`InTopBar`). It also has no
+  text at parse time, so no size: an empty *text* is now placed as a point at its anchor (an empty
+  picture is still body).
+- **Sim size** (`SimFitWindow`, `FalconDisplayConfiguration::FitSimToWindow`): before
+  `EnterMode(Sim)`, `DispWidth x DispHeight` is swapped for the window/monitor size and put back in
+  `LeaveSimWindowMode`; a fitted windowed sim keeps the menu window where it is. Logged as
+  `SimFitWindow: WxH (...)` in FFDebug.log. Skipped in VR. **Unverified in flight** (the harness
+  stops at the menus).
+- **Vulkan sharp filter**: two blits, nearest to the largest whole multiple, then linear.
 
 ## Open / next
 
-- **Sharp scaling: done** (`UiFilter`, default 1; `-uifilter`). Was: nearest at a non-integer scale
-  (1.77) doubles some pixels and not others. Plan: the "sharp bilinear" pixel-art filter in the
-  menu blit (crisp texels, one blended pixel at each seam), as a knob.
-- **DPI awareness**: still none. On a scaled desktop Windows bitmap-stretches the window again.
-- **Menu <-> sim window size**: the sim still enters its own DispWidth x DispHeight.
-- **Screens not reached yet**: intel, ATO, OOB, TE mission builder and victory conditions, the
-  campaign planner map (flight plan from the campaign), popups (`gPopupMgr`), ACMI options popup
-  (fixed x,y knobs).
-- **Small leftovers**: the TE editor's team panel keeps its stock height (black below it);
-  munitions' "FLIGHT:" pair sits in the title bar rather than just under it; a few stray pixels in
-  the tacref/TE margins.
-- **Main-menu photo** could cover (`COVER_SCALE`) rather than letterbox; it has no aligned art
-  apart from the logo.
-- **VR**: the menu quad already follows the surface aspect (width = height x aspect, 1.82 m tall
-  at 1.8 m): 4:3 is ~68 deg wide, 16:9 ~84 deg. Next: a VR-only surface size and an
-  `XrCompositionLayerCylinderKHR` (Quest supports `XR_KHR_composition_layer_cylinder`) at
-  ~110-130 deg, the cursor mapped by ray -> u,v; keep the quad as fallback.
+- Done: sharp scaling (both renderers), DPI awareness, the curved VR panel (both renderers), the
+  campaign/TE screens above, OOB, munitions' STATUS line. Sweep of all 18 scripts at desktop auto
+  scale: all DONE, no FAIL, no "wanted" mismatches.
+- **Unverified**: `SimFitWindow` in flight; the Vulkan cylinder and Vulkan sharp blit on screen.
+- **Not reached**: generic popups (`gPopupMgr`), the ACMI options popup (fixed x,y knobs).
+- **Only with a manual UiScale** (layout taller than 768; auto scale never is): the TE editor's
+  team panel keeps its stock 728 height, black below it.
+- **In-flight VR menus** (comms/exit, `RunMenuFrame`'s sim-thread peer at ~4231) are still the
+  old flat quad sized by `VrMenuScale`.
+- **Main-menu and briefing photos** could cover (`COVER_SCALE`) rather than letterbox, at the cost
+  of cropping.
 - Dead weight to delete: the `g_bHiResUI false` / `art1024` branches (`NIGHTFALCON_UI 1`).
 - Fixed on the way: the cfg parser's string values were not terminated (`f4config.cpp`), so a value
   shorter than the default kept the default's tail.

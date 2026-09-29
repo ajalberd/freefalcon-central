@@ -242,6 +242,7 @@ const char *const kEdgesFiles[] = {
     "rec_eye", "rec_list",                                   // recon
     "tacpmain", "tacptool", "tac_smap", "tac_air", "tac_psua", "tac_team", // TE play map
     "tacemain", "tacetool", "tac_eair",                      // TE editor (tac_eair: its map pane)
+    "tac_vc", "tac_vchd",                                    // TE editor: victory conditions, over it
     NULL,
 };
 
@@ -319,7 +320,11 @@ struct Frame
 Frame FrameOf(long stageTop, long h)
 {
     Frame f;
-    f.bars = stageTop <= 2 and h >= kStageH - 2;
+    // Stage-tall, or itself a bar strip: the mission builder's client 1 is its 696x32 top bar, whose
+    // buttons (zoom, RESET) must split by halves like any bar's, or they land on the TE clock.
+    const bool strip = h > 0 and ((stageTop <= 2 and h <= kTopBar) or (stageTop >= kBottomBar and stageTop + h >= kStageH - 2));
+    // A window from the top down to the bottom bar (728 tall, like TAC_EDIT_WIN) still has the top one.
+    f.bars = (stageTop <= 2 and h >= kBottomBar - 2) or strip;
     f.nearY = stageTop <= 2 ? kTopBar - stageTop : kSnap;
     f.farY = stageTop + h >= kBottomBar ? kBottomBar - stageTop : h - kSnap;
     return f;
@@ -341,6 +346,16 @@ void PlaceEdges(const Frame &fr, bool stretch, long ow, long oh, long gw, long g
         if (rx != FILL)
             rx = Halves(*x, *x + *w, ow);
     }
+    else if (stretch and *w >= ow / 2 and ow >= kStageW / 2)
+    {
+        // At least half the container wide: the main pane beside a panel (the victory-conditions map,
+        // 328..1024 of 1024) or a list overhanging the window (its teams, 38..1062). It keeps its
+        // inner edge and grows, as windows do (AdaptEdges).
+        if (rx == PIN_NEAR or rx == PIN_FAR or rx == CENTRE)
+            rx = FILL;
+    }
+    else if (rx == CENTRE and *w < ow / 2 and ow >= kStageW / 2)
+        rx = Halves(*x, *x + *w, ow); // loose items stay with their side (the teams' headings)
 
     Apply(rx, gw, stretch, x, w);
     Apply(ry, gh, stretch, y, h);
@@ -490,7 +505,12 @@ struct Box
 // theater is chosen), so where it sits says nothing: it is body, not bar.
 bool InTopBar(const Box &b)
 {
-    return b.y <= kTopBarStart and b.y + b.h <= kTopBar;
+    if (b.y <= kTopBarStart and b.y + b.h <= kTopBar)
+        return true;
+
+    // A small item that starts in the bar and hangs just below it is the bar's second line (munitions'
+    // "STATUS" under "FLIGHT:"); as body it would slide away from the line above it.
+    return b.y < kTopBar - 8 and b.h <= 20 and b.y + b.h <= kTopBar + 12;
 }
 
 bool InBar(const Box &b)
@@ -498,12 +518,22 @@ bool InBar(const Box &b)
     return b.w > 0 and b.h > 0 and (InTopBar(b) or b.y >= kBottomBar);
 }
 
-Box StagePlace(Box b, bool stretch, long gw, long gh)
+// side >= 0: the piece belongs to a side panel (AdaptStage) and moves across by exactly that much.
+Box StagePlace(Box b, bool stretch, long gw, long gh, long side = -1)
 {
     if (b.w <= 0 or b.h <= 0)
     {
-        b.x += gw / 2;
+        b.x += side >= 0 ? side : gw / 2;
         b.y += gh / 2;
+        return b;
+    }
+
+    if (side >= 0)
+    {
+        const bool spanY = b.y <= kSnap and b.y + b.h >= kStageH - kSnap;
+        const Rule ry = InTopBar(b) ? PIN_NEAR : b.y >= kBottomBar ? PIN_FAR : spanY ? FILL : CENTRE;
+        b.x += side;
+        Apply(ry, gh, stretch, &b.y, &b.h);
         return b;
     }
 
@@ -559,7 +589,7 @@ void Grow(Box *u, bool *any, const Box &b)
 // stock origin, the new origin and the growth. (The munitions loadout grid is built this way.)
 struct LateInfo
 {
-    long ox, oy, nx, ny, gw, gh;
+    long ox, oy, nx, ny, gw, gh, side;
 };
 std::map<C_Window *, LateInfo> sLate;
 
@@ -567,8 +597,22 @@ void AdaptStage(C_Window *win, long sw, long sh, long gw, long gh, bool *fullOut
 {
     const long ox = win->GetX(), oy = win->GetY(), ow = win->GetW(), oh = win->GetH();
     const bool full = ox <= 2 and oy <= 2 and ox + ow >= kStageW - 2 and oy + oh >= kStageH - 2;
-    const Box body = {ox + gw / 2, oy + gh / 2, ow, oh};
     *fullOut = full;
+
+    // A side panel -- flush with one side of the stage, full height, at most half its width, with bar
+    // pieces of its own (the OOB) -- moves across as one piece with that side. Split into halves
+    // like a bar, its tabs would leave its body behind.
+    long side = -1;
+
+    if (not full and oy <= 2 and oy + oh >= kStageH - 2 and ow <= kStageW / 2)
+    {
+        if (ox <= 2)
+            side = 0;
+        else if (ox + ow >= kStageW - 2)
+            side = gw;
+    }
+
+    const Box body = {ox + (side >= 0 ? side : gw / 2), oy + gh / 2, ow, oh};
 
     // Clients, in stage coordinates. A client spanning the window on either axis is really "the
     // window" (munitions' main client is 0,0 1024x728 -- the window less its bottom bar): its
@@ -590,9 +634,9 @@ void AdaptStage(C_Window *win, long sw, long sh, long gw, long gh, bool *fullOut
         {
             // Each edge reaches the surface edge (or bar) it touched on the stage, else rides with it.
             const Box &o = cOld[i];
-            long l = o.x <= kSnap ? o.x : o.x + gw / 2;
+            long l = side >= 0 ? o.x + side : o.x <= kSnap ? o.x : o.x + gw / 2;
             long t = o.y <= kTopBar ? o.y : o.y + gh / 2;
-            long r = o.x + o.w >= kStageW - kSnap ? o.x + o.w + gw : o.x + o.w + gw / 2;
+            long r = side >= 0 ? o.x + o.w + side : o.x + o.w >= kStageW - kSnap ? o.x + o.w + gw : o.x + o.w + gw / 2;
             long b = o.y + o.h >= kBottomBar - kSnap ? o.y + o.h + gh : o.y + o.h + gh / 2;
             cNew[i].x = l, cNew[i].y = t, cNew[i].w = r - l, cNew[i].h = b - t;
 
@@ -601,7 +645,7 @@ void AdaptStage(C_Window *win, long sw, long sh, long gw, long gh, bool *fullOut
         }
         else
         {
-            cNew[i] = StagePlace(cOld[i], true, gw, gh);
+            cNew[i] = StagePlace(cOld[i], true, gw, gh, side);
 
             if (InBar(cOld[i]))
                 Grow(&u, &any, cNew[i]);
@@ -646,6 +690,13 @@ void AdaptStage(C_Window *win, long sw, long sh, long gw, long gh, bool *fullOut
 
         b.x += ox, b.y += oy;
 
+        // A text with no text yet has no size, but unlike an empty picture its place is its anchor:
+        // place it as a point (munitions' "STATUS" label, filled in by code, belongs to the bar).
+        const bool pointText = c->_GetCType_() == _CNTL_TEXT_ and (b.w <= 0 or b.h <= 0);
+
+        if (pointText)
+            b.w = b.h = 1;
+
         if (not abs and not whole[ci])
         {
             p.follow = true; // rides with its client
@@ -668,9 +719,12 @@ void AdaptStage(C_Window *win, long sw, long sh, long gw, long gh, bool *fullOut
             p.to = StagePlace(b, true, gw, gh);
         }
         else if (b.w > ow + kSnap or b.h > oh + kSnap)
-            p.to = b, p.to.x += gw / 2, p.to.y += gh / 2; // oversized content rides with the stage
+            p.to = b, p.to.x += side >= 0 ? side : gw / 2, p.to.y += gh / 2; // oversized content rides with the stage
         else
-            p.to = StagePlace(b, CanStretch(c) and not IsPicture(c), gw, gh);
+            p.to = StagePlace(b, CanStretch(c) and not IsPicture(c), gw, gh, side);
+
+        if (pointText)
+            p.to.w = p.to.h = 0; // placed as a point, sized by its text later
 
         if (InBar(b))
             Grow(&u, &any, p.to);
@@ -700,7 +754,7 @@ void AdaptStage(C_Window *win, long sw, long sh, long gw, long gh, bool *fullOut
     // Absolute controls added later ignore that origin: remember how to place them (UI95_AdaptLateControl).
     if (bdx or bdy)
     {
-        LateInfo li = {ox, oy, nw.x, nw.y, gw, gh};
+        LateInfo li = {ox, oy, nw.x, nw.y, gw, gh, side};
         sLate[win] = li;
     }
 
@@ -847,7 +901,7 @@ void UI95_AdaptLateControl(C_Window *win, C_Base *c)
 
     const LateInfo &li = it->second;
     Box b = {li.ox + c->GetX(), li.oy + c->GetY(), c->GetW(), c->GetH()};
-    const Box to = StagePlace(b, false, li.gw, li.gh); // never stretch: code sized it on purpose
+    const Box to = StagePlace(b, false, li.gw, li.gh, li.side); // never stretch: code sized it on purpose
     c->SetXY(to.x - li.nx, to.y - li.ny);
 }
 

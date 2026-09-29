@@ -46,6 +46,9 @@ public:
     long mSavedWinStyle = 0;
     RECT mSavedWinRect = {0, 0, 0, 0};
     bool mSavedFullScreen = true;
+    // SimFitWindow: the sim size chosen for this 3D session, and the options it replaced.
+    bool mSimFitted = false;
+    unsigned short mFitSavedW = 0, mFitSavedH = 0;
 
     void Setup(int languageNum);
     void Cleanup();
@@ -56,6 +59,7 @@ public:
     void EnterSimWindowMode(
         bool windowed); // #33 (call from any thread; marshals to main)
     void LeaveSimWindowMode(); // #33
+    void FitSimToWindow(bool windowed); // SimFitWindow: before EnterMode(Sim)
     void MakeWindow();
     ImageBuffer* GetImageBuffer()
     {
