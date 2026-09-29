@@ -12,6 +12,7 @@
 //   clickxy <x> <y>               surface pixels
 //   rclickxy <x> <y>              right click, surface pixels (map popups)
 //   clickin <WINID> <x> <y>       left click at a point inside a window (popup menu rows)
+//   clickat <CTRLID> <dx> <dy>    left click at an offset inside a control (tree/list rows)
 //   hold <CTRLID> <dy> <ms>       press dy px below a control's centre for ms (panners repeat)
 //   text <CTRLID>                 log a text control's current text
 //   rclickicon <WINID> [n]        right click the n-th map icon ui95 would hit (default 0)
@@ -681,6 +682,29 @@ static void RunLine(char *line, int lineNo)
             Log("FAIL click %s %s: unknown id", a1, a2 ? a2 : "");
         else
             Click(id, win, a1);
+    }
+    else if (!_stricmp(cmd, "clickat") and a1 and a2)
+    {
+        // clickat <CTRLID> <dx> <dy>: a point inside a control's rect (tree and list rows)
+        char *a3 = strtok_s(NULL, " \t\r\n", &ctx);
+        const long id = ParseId(a1);
+        C_Base *c = NULL;
+        gMainHandler->EnterCritical();
+        C_Window *win = id ? FindControlWindow(id, 0, &c) : NULL;
+        long x = 0, y = 0, w = 0, h = 0;
+
+        if (win)
+            ControlRect(win, c, &x, &y, &w, &h);
+
+        gMainHandler->LeaveCritical();
+
+        if (!win or !a3)
+            Log("FAIL clickat %s: no shown window has it", a1);
+        else
+        {
+            PostClick(x + atol(a2), y + atol(a3));
+            Log("OK clickat %s +%s,+%s = %ld,%ld", a1, a2, a3, x + atol(a2), y + atol(a3));
+        }
     }
     else if (!_stricmp(cmd, "clickin") and a1 and a2)
     {

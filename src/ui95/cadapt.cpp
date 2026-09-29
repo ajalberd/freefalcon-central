@@ -231,6 +231,22 @@ bool CanStretch(C_Base *c)
     return false;
 }
 
+// The map screens: a map pane between the bars that should fill, with panels pinned to its edges.
+// UiAdaptEdges (cfg) names extra .scf files on top of these.
+const char *const kEdgesFiles[] = {
+    "cp_main", "cp_mspua", "cp_sua", "cp_tool", "cp_miss",   // campaign map
+    "rec_eye", "rec_list",                                   // recon
+    "tacpmain", "tacptool", "tac_smap", "tac_air", "tac_psua", "tac_team", // TE play map
+    "tacemain", "tacetool",                                  // TE editor
+    NULL,
+};
+
+bool NameIs(const char *base, const char *tok)
+{
+    const size_t n = strlen(tok);
+    return n and _strnicmp(base, tok, n) == 0 and (base[n] == 0 or base[n] == '.');
+}
+
 bool EdgesFile(const char *file)
 {
     if (not file)
@@ -238,17 +254,18 @@ bool EdgesFile(const char *file)
 
     const char *base = max(strrchr(file, '\\'), strrchr(file, '/'));
     base = base ? base + 1 : file;
+
+    for (int i = 0; kEdgesFiles[i]; ++i)
+        if (NameIs(base, kEdgesFiles[i]))
+            return true;
+
     char list[0x40];
     strncpy_s(list, sizeof(list), g_strUiAdaptEdges, _TRUNCATE);
     char *ctx = NULL;
 
     for (char *tok = strtok_s(list, ";, ", &ctx); tok; tok = strtok_s(NULL, ";, ", &ctx))
-    {
-        const size_t n = strlen(tok);
-
-        if (_strnicmp(base, tok, n) == 0 and (base[n] == 0 or base[n] == '.'))
+        if (NameIs(base, tok))
             return true;
-    }
 
     return false;
 }
@@ -348,8 +365,16 @@ void AdaptEdges(C_Window *win, long gw, long gh, Rule *rxOut, Rule *ryOut)
     Rule ry = Classify(oy, oy + oh, kTopBar, kBottomBar);
 
     // A panel narrower than half the stage pins rather than stretches: nothing inside it grows, so
-    // stretching only adds an empty band (the recon target list grew 200 px of black).
-    if (ow < kStageW / 2)
+    // stretching only adds an empty band (the recon target list grew 200 px of black). Unless it
+    // carries bottom-bar buttons -- a tall toolbar strip (TE's TAC_TOOLBAR_WIN, 475x768) must still
+    // reach the bottom bar, or its buttons end up under the map.
+    bool bottomBarItems = false;
+
+    for (CONTROLLIST *cur = win->GetControlList(); cur and not bottomBarItems; cur = cur->Next)
+        bottomBarItems = cur->Control_ and cur->Control_->GetH() > 0 and
+                         oy + cur->Control_->GetY() >= kBottomBar;
+
+    if (ow < kStageW / 2 and not bottomBarItems)
     {
         if (rx == FILL)
             rx = PIN_NEAR;

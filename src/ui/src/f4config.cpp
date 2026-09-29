@@ -1075,9 +1075,9 @@ int g_nUiHeight = 0;
 float g_fReconZoomRate = 6.0f; // recon zoom, % per unit of panner offset (-5..5) per tick; 0 = stock linear
 float g_fUiScale = 1.0f; // menu magnification: the layout is UiWidth/UiScale wide, drawn UiScale times bigger
 bool g_bUiAdapt = true; // fit the stock layout to a larger surface (ui95/cadapt.cpp); 0 = stock rects
-// .scf files whose windows pin to the surface edges and fill it (the map screens); every other
-// window keeps the stock layout as a centred block. Base names, ';'-separated, case-insensitive.
-char g_strUiAdaptEdges[0x40] = "cp_main;cp_mspua;cp_sua;cp_tool;cp_miss;rec_eye;rec_list";
+// Extra .scf files whose windows pin to the surface edges and fill it, on top of the built-in map
+// screens (kEdgesFiles in ui95/cadapt.cpp: campaign, recon, TE). Base names, ';'-separated.
+char g_strUiAdaptEdges[0x40] = "";
 bool g_bAWACSFuel =
     false; // for debug, shows fuel of flight in UI when AWACSSupport = true
 //bool g_bShowManeuverLabels = true; // for debug, shows currently performed BVR/WVR maneuver in SIM
