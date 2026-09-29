@@ -189,6 +189,63 @@ position to go to).
 
 ---
 
+## Drawing the track in 3D
+
+Three ways were weighed (2026-09-28). Chosen: **option 2 for the pilot, with
+option 3 planned** for bridges.
+
+1. **Paint rail into the terrain tiles.** Rejected. The ground is a shared
+   library of tiles reused across the map (`texture.bin`, texID = set << 4 |
+   tile), so a line through a tile needs a unique copy of it: ~4,000 new
+   tiles for ~4,000 km of route, >100 MB, near the library's limit, clashing
+   with the BMS tile mods, and one or two texels wide at 256 px/km anyway.
+2. **A strip that sits on the ground, drawn near the camera.** The pilot.
+3. **Real 3D objects.** Planned, for bridges first (see the recon below).
+
+### Recon for option 2 (the strip)
+
+- `DrawableTrail` (`graphics/objects/drawsgmt.cpp`) is the model: world-space
+  quads built as `ThreeDVertex`, `renderer->TransformPoint` /
+  `TransformPointToView`, `renderer->DrawSquare(v0..v3, CULL_ALLOW_ALL)`,
+  state set with `renderer->context.RestoreState(STATE_...)`. These are the
+  CPU-transformed Render3D prims, not the DX-engine model path.
+- Drawables join the frame with `OTWDriver.InsertObject` / `viewPoint->
+  InsertObject`. `ObjectDisplayList::UpdateMetrics` (`objects/objlist.cpp`)
+  sorts by `max(|dx|,|dy|) - Radius()` and `DrawBeyond` draws far to near,
+  interleaved with the terrain rings -- so one drawable with a huge radius is
+  distance 0, drawn every frame in the nearest ring, after the terrain.
+- `OTWDriverClass::Enter` (`sim/otwdrive/otwdrive.cpp:2006`) creates the
+  `RViewPoint` (line ~2104); cleanup at ~2896 and ~3108. That is where a
+  long-lived drawable is added and removed.
+- Risk: z-fighting where the strip's heights (from the ground-height lookup)
+  differ from the terrain mesh actually rendered at that LOD. Handled by a
+  small lift, a short range, and a knob-gated height log if it flickers.
+
+### Recon for option 3 (objects: bridges first)
+
+- **Bridges are already objects made of pieces.** `sim/otwdrive/addobj.cpp`
+  ~300-360: when a bridge objective's features deaggregate, the lead feature
+  flagged `FEAT_ELEV_CONTAINER` gets one `DrawableBridge` container
+  (`graphics/include/drawbrdg.h`), and every span becomes a `DrawableRoadbed`
+  (`drawrdbd.h`, a `DrawableBuilding`) with `visType` (base) and
+  `visType + 1` (superstructure, when `FEAT_NEXT_IS_TOP` and not destroyed),
+  heading from the feature's yaw, 10 ft height and a 20/280 ramp angle.
+  Destroyed spans swap drawables in place (the `lastPointer` replacement).
+  `DrawableRoadbed::OnRoadbed(pos, normal)` is how vehicles find the deck.
+- `FEAT_FLAT_CONTAINER` / `DrawablePlatform` is the airbase equivalent.
+- So a rail bridge = a bridge objective whose features use span models, laid
+  where OSM says the line crosses water (`seg` = `b` in rail.json). Two routes:
+  (a) bind each OSM rail-bridge run to the nearest existing bridge objective
+  (Korea has 691) and treat its status as the line's -- no new objects, uses
+  the ATM/damage/repair loop as is; (b) new bridge objectives (theater
+  objective list + features + relink via `LinkCampaignObjectives`) where no
+  road bridge is close. (a) first.
+- Routes do not carry the bridge/tunnel flags yet (`build_route` concatenates
+  piece points only); the game file needs them for both the strip (no strip
+  in tunnels, a deck over bridges, trains hidden in tunnels) and option 3.
+- No rail models exist in `KoreaObj`; sleepers/poles as objects would be
+  thousands of instances -- not worth it. Train cars are KrAz trucks for now.
+
 ## Phases
 
 1. **v0: a train that moves.** Done; seen riding the line in 3D.
