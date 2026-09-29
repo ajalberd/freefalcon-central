@@ -122,19 +122,31 @@ rect in surface pixels, so `ConfineGpuViewportToPane` (`c3dview.cpp`) scales it 
 there unattended: `rclickicon CP_PUA_MAP 20` opens `OBJECTIVE_POP`, and `clickin OBJECTIVE_POP 30 41`
 picks its Recon row (popup rows are not controls; the offset is the stock menu layout).
 
+## Done since (2026-09-29, all checked at 3200x1300 x1.35 with the harness)
+
+- **UiScale end to end**: the mouse maps through `ClientToSurface`; every scripted click lands.
+- **Desktop fill**: `-uisize desktop` / UiWidth,UiHeight -1 gave a 3424x1361 client on Andrew's
+  3440x1440 (work area 3440x1400); `UiScale 0` made the layout 1932x768 (x1.77). Recommended setting
+  for an ultrawide: stock screens fill the height, map screens gain ~1.9x the width.
+- **Recon zoom** is proportional (`ReconZoomRate`, default 6): 4000 -> 30000 ft in <2 s held; it was
+  10 ft per unit per tick (panner offset / 4 = +-5, ~8 ticks/s), over a minute end to end.
+- **Recon pivot** at pane centre when scaled (was centre x UiScale; see the facts above).
+- **TE**: play map (`te.txt`), editor via New (`te_new.txt`), flight plan, briefing, munitions
+  (`te_plan/te_brief/te_munitions.txt`).
+
 ## Open / next
 
-- **UiScale end to end** (window 2560x1440, scale 1.5): built, **not run yet**. Clicks via the
-  harness will prove the mapping.
-- **Window larger than the desktop**: `EnterMode` sets the client size and Windows may clamp it; the
-  mouse mapping reads the real client, so it should hold, **unverified**. Next: default UiWidth/
-  UiHeight to the desktop work area, and keep that size across menu <-> sim.
+- **Integer / sharp scaling of the present** (asked 2026-09-29): nearest at a non-integer scale
+  (1.77) doubles some pixels and not others. Plan: the "sharp bilinear" pixel-art filter in the
+  menu blit (crisp texels, one blended pixel at each seam), as a knob.
 - **DPI awareness**: still none. On a scaled desktop Windows bitmap-stretches the window again.
-- **Screens not reached yet**: planner / flight plan / briefing / munitions (need a flight), TE
-  editor map, intel, ATO, the 3D viewers (`C_3dViewer` renders a "screen-sized" RTT -- check it
-  uses the surface size), popups (`gPopupMgr`), ACMI options popup (fixed x,y knobs).
-- **More EDGES screens**: TE editor/play map and the planner map are the obvious candidates for
-  the same fill treatment as the campaign map.
+- **Menu <-> sim window size**: the sim still enters its own DispWidth x DispHeight.
+- **Screens not reached yet**: intel, ATO, OOB, TE mission builder and victory conditions, the
+  campaign planner map (flight plan from the campaign), popups (`gPopupMgr`), ACMI options popup
+  (fixed x,y knobs).
+- **Small leftovers**: the TE editor's team panel keeps its stock height (black below it);
+  munitions' "FLIGHT:" pair sits in the title bar rather than just under it; a few stray pixels in
+  the tacref/TE margins.
 - **Main-menu photo** could cover (`COVER_SCALE`) rather than letterbox; it has no aligned art
   apart from the logo.
 - **VR**: the menu quad already follows the surface aspect (width = height x aspect, 1.82 m tall
