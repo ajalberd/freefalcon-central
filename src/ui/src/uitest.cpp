@@ -12,6 +12,8 @@
 //   clickxy <x> <y>               surface pixels
 //   rclickxy <x> <y>              right click, surface pixels (map popups)
 //   clickin <WINID> <x> <y>       left click at a point inside a window (popup menu rows)
+//   hold <CTRLID> <dy> <ms>       press dy px below a control's centre for ms (panners repeat)
+//   text <CTRLID>                 log a text control's current text
 //   rclickicon <WINID> [n]        right click the n-th map icon ui95 would hit (default 0)
 //   shot <name>                   the ui95 surface as ui95 drew it -> out\<name>.bmp
 //   wshot <name>                  the window as it is on screen (PrintWindow) -> out\<name>.bmp
@@ -699,6 +701,59 @@ static void RunLine(char *line, int lineNo)
     {
         PostClick(atol(a1), atol(a2), cmd[0] == 'r' or cmd[0] == 'R');
         Log("OK %s %s %s", cmd, a1, a2);
+    }
+    else if (!_stricmp(cmd, "hold") and a1 and a2)
+    {
+        // hold <CTRLID> <dy> <ms>: press dy px below the control's centre and keep the button down,
+        // so the handler's repeat ticks run (panners: zoom, pan)
+        char *a3 = strtok_s(NULL, " \t\r\n", &ctx);
+        const long id = ParseId(a1);
+        C_Base *c = NULL;
+        gMainHandler->EnterCritical();
+        C_Window *win = id ? FindControlWindow(id, 0, &c) : NULL;
+        long x = 0, y = 0, w = 0, h = 0;
+
+        if (win)
+            ControlRect(win, c, &x, &y, &w, &h);
+
+        gMainHandler->LeaveCritical();
+
+        if (!win or !a3)
+            Log("FAIL hold %s: no shown window has it", a1);
+        else
+        {
+            long sx = x + w / 2, sy = y + h / 2 + atol(a2);
+            SurfaceToClient(&sx, &sy);
+            const LPARAM lp = MAKELPARAM((WORD)sx, (WORD)sy);
+            HWND hwnd = gMainHandler->GetAppWnd();
+            PostMessage(hwnd, WM_MOUSEMOVE, 0, lp);
+            Sleep(50);
+            extern volatile bool g_bUiTestLButtonHeld; // chandler.cpp: stands in for the real button
+            g_bUiTestLButtonHeld = true;
+            PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lp);
+            Sleep((DWORD)atol(a3));
+            g_bUiTestLButtonHeld = false;
+            PostMessage(hwnd, WM_LBUTTONUP, 0, lp);
+            Log("OK hold %s dy %s for %s ms", a1, a2, a3);
+        }
+    }
+    else if (!_stricmp(cmd, "text") and a1)
+    {
+        const long id = ParseId(a1);
+        C_Base *c = NULL;
+        gMainHandler->EnterCritical();
+        C_Window *win = id ? FindControlWindow(id, 0, &c) : NULL;
+        char buf[128] = "";
+
+        if (win and c->_GetCType_() == _CNTL_TEXT_ and ((C_Text *)c)->GetText())
+            strncpy_s(buf, sizeof(buf), ((C_Text *)c)->GetText(), _TRUNCATE);
+
+        gMainHandler->LeaveCritical();
+
+        if (win)
+            Log("INFO text %s = \"%s\"", a1, buf);
+        else
+            Log("FAIL text %s: no shown window has it", a1);
     }
     else if (!_stricmp(cmd, "rclickicon") and a1)
     {

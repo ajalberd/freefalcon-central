@@ -28,6 +28,7 @@ extern bool g_bCheckBltStatusBeforeFlip;
 extern bool g_bHiResUI;
 extern int g_nUiWidth, g_nUiHeight;
 extern float g_fUiScale;
+volatile bool g_bUiTestLButtonHeld = false; // set only by the -uitest harness's "hold"
 
 // Artscout - 2026: the menu window is UiWidth x UiHeight; the ui95 surface is that divided by
 // UiScale, never smaller than the stock layout, and the present stretches it back over the window.
@@ -2973,7 +2974,11 @@ long C_Handler::EventHandler(HWND hwnd, UINT message, WPARAM wParam,
 
             if (Grab_.Control_ and not InTimer)
             {
-                if (GetAsyncKeyState(VK_LBUTTON))
+                // Artscout - 2026: the -uitest harness holds the button by flag, since a posted
+                // WM_LBUTTONDOWN never reaches GetAsyncKeyState (uitest.cpp "hold").
+                extern volatile bool g_bUiTestLButtonHeld;
+
+                if (GetAsyncKeyState(VK_LBUTTON) or g_bUiTestLButtonHeld)
                 {
                     InTimer = 1;
                     Grab_.Control_->Process(Grab_.ID_, C_TYPE_REPEAT);

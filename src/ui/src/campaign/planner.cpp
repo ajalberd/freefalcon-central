@@ -5,6 +5,7 @@
 */
 
 #include <windows.h>
+#include <math.h>
 #include "graphics/include/rviewpnt.h"
 #include "graphics/include/render3d.h"
 #include "graphics/include/drawbsp.h"
@@ -377,7 +378,17 @@ static void ZoomPannerCB(long, short hittype, C_Base *control)
 
     dx = pnr->GetVRange();
 
-    Recon.Distance += dx * 10;
+    // Artscout - 2026: zoom by a percentage per tick rather than 10 ft per unit of panner offset.
+    // The panner reports its offset / 4, so -5..+5 on this 40-px button, and repeats at ~8 ticks/s
+    // (measured with the -uitest harness): the linear step topped out at 400 ft/s, over a minute to
+    // cross 250..30000 ft. A proportional one feels the same near and far. g_fReconZoomRate is % per
+    // unit per tick (default 6: ~34% a tick at the edge, end to end in ~2 s; 0 = the old step).
+    extern float g_fReconZoomRate;
+
+    if (g_fReconZoomRate > 0.0f)
+        Recon.Distance *= powf(1.0f + g_fReconZoomRate / 100.0f, static_cast<float>(dx));
+    else
+        Recon.Distance += dx * 10;
 
     if (Recon.Distance < Recon.MinDistance)
         Recon.Distance = Recon.MinDistance;

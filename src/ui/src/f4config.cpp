@@ -1072,6 +1072,7 @@ bool g_bHiResUI = true; // false = 800x600, true = 1024x768
 // the menus more room. Also "-uisize WxH" on the command line. See UI-OVERHAUL.md.
 int g_nUiWidth = 0;
 int g_nUiHeight = 0;
+float g_fReconZoomRate = 6.0f; // recon zoom, % per unit of panner offset (-5..5) per tick; 0 = stock linear
 float g_fUiScale = 1.0f; // menu magnification: the layout is UiWidth/UiScale wide, drawn UiScale times bigger
 bool g_bUiAdapt = true; // fit the stock layout to a larger surface (ui95/cadapt.cpp); 0 = stock rects
 // .scf files whose windows pin to the surface edges and fill it (the map screens); every other
@@ -2358,7 +2359,8 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fVrTracerBright}, // Artscout - 2026 (VR): tracer brightness multiplier in headset (0..1)
     {"VrMenuScale",
      &g_fVrMenuScale}, // Artscout - 2026 (VR): center + scale the radio/comms/exit menu in the headset
-    {"UiScale", &g_fUiScale}, // Artscout - 2026: menu magnification over UiWidth x UiHeight
+    {"UiScale", &g_fUiScale},
+    {"ReconZoomRate", &g_fReconZoomRate}, // Artscout - 2026: recon zoom speed, 0 = stock // Artscout - 2026: menu magnification over UiWidth x UiHeight
     {"MenuScale",
      &g_fMenuScale}, // Artscout - 2026: radio/comms popup menu size on a flat screen, 1.0 = stock
     {"EngineRumbleLevel",
