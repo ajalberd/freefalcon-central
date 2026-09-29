@@ -1072,6 +1072,14 @@ bool g_bHiResUI = true; // false = 800x600, true = 1024x768
 // the menus more room. Also "-uisize WxH" on the command line. See UI-OVERHAUL.md.
 int g_nUiWidth = 0; // -1 = fill the desktop work area
 int g_nUiHeight = 0;
+// Artscout - 2026 (VR UI): in a headset the menu layout is VrUiWidth x VrUiHeight (0 = follow UiWidth/
+// UiHeight/UiScale), shown on a curved panel VrUiHeightDeg tall at VrUiRadius m; its width follows the
+// aspect (1920x768 at 45 deg is ~120 deg round). VrUiCylinder 0 = the old flat quad.
+int g_nVrUiWidth = 1920;
+int g_nVrUiHeight = 768;
+float g_fVrUiRadius = 2.0f;
+float g_fVrUiHeightDeg = 45.0f;
+bool g_bVrUiCylinder = true;
 int g_nUiFilter = 1; // menu magnification filter (D3D12): 1 = sharp bilinear (crisp texels), 0 = plain bilinear
 float g_fReconZoomRate = 6.0f; // recon zoom, % per unit of panner offset (-5..5) per tick; 0 = stock linear
 float g_fUiScale = 1.0f; // menu magnification: the layout is UiWidth/UiScale wide, drawn UiScale times bigger; 0 = auto (layout 768 tall)
@@ -1819,6 +1827,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"ModuleList", &g_bModuleList},
     {"HiResUI", &g_bHiResUI},
     {"UiAdapt", &g_bUiAdapt}, // Artscout - 2026: fit the stock layout to UiWidth/UiHeight
+    {"VrUiCylinder", &g_bVrUiCylinder}, // Artscout - 2026: curved VR menu panel, 0 = flat quad
     {"AWACSFuel", &g_bAWACSFuel},
     // { "ShowManeuverLabels", &g_bShowManeuverLabels},
     {"FullScreenNVG", &g_bFullScreenNVG},
@@ -2195,6 +2204,8 @@ static ConfigOption<int> IntOpts[] = {
     {"VUMaxDeltaTime", &g_nVUMaxDeltaTime}, // 2002-04-12 MN
     {"UiWidth", &g_nUiWidth}, // Artscout - 2026: menu surface size, 0 = 1024x768
     {"UiFilter", &g_nUiFilter}, // Artscout - 2026: 1 = sharp bilinear menu scaling, 0 = plain
+    {"VrUiWidth", &g_nVrUiWidth}, // Artscout - 2026: VR menu layout size, 0 = desktop knobs
+    {"VrUiHeight", &g_nVrUiHeight},
     {"UiHeight", &g_nUiHeight},
     {"ACMIOptionsPopupHiResX", &g_nACMIOptionsPopupHiResX},
     {"ACMIOptionsPopupHiResY", &g_nACMIOptionsPopupHiResY},
@@ -2362,6 +2373,8 @@ static ConfigOption<float> FloatOpts[] = {
     {"VrMenuScale",
      &g_fVrMenuScale}, // Artscout - 2026 (VR): center + scale the radio/comms/exit menu in the headset
     {"UiScale", &g_fUiScale},
+    {"VrUiRadius", &g_fVrUiRadius}, // Artscout - 2026: VR menu panel distance, m
+    {"VrUiHeightDeg", &g_fVrUiHeightDeg}, // Artscout - 2026: VR menu panel height, degrees
     {"ReconZoomRate", &g_fReconZoomRate}, // Artscout - 2026: recon zoom speed, 0 = stock // Artscout - 2026: menu magnification over UiWidth x UiHeight
     {"MenuScale",
      &g_fMenuScale}, // Artscout - 2026: radio/comms popup menu size on a flat screen, 1.0 = stock

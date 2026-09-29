@@ -134,6 +134,20 @@ picks its Recon row (popup rows are not controls; the offset is the stock menu l
 - **TE**: play map (`te.txt`), editor via New (`te_new.txt`), flight plan, briefing, munitions
   (`te_plan/te_brief/te_munitions.txt`).
 
+## VR menu panel (2026-09-29, built, NOT seen in the headset yet)
+
+- The pre-3D menu panel (`OpenXRBackend::RunMenuFrame`, D3D12) was a flat quad fixed at 1.3 m tall,
+  2.1 m away, in `appSpace`: ~35 deg tall, ~45 deg wide at 4:3.
+- Now sized by angle: `VrUiHeightDeg` (45) tall at `VrUiRadius` (2.0 m), width from the layout's
+  aspect. On `XR_KHR_composition_layer_cylinder` (Quest 3 offers it; enabled with the core set,
+  `p->cylinderEnabled`) it is a cylinder layer centred on the start pose, else the same-sized quad.
+  `VrUiCylinder 0` forces the quad.
+- In VR the layout is `VrUiWidth x VrUiHeight` (1920x768) at scale 1, whatever the desktop knobs:
+  ~120 deg round at 45 deg tall. Map screens get the extra width; the rest stay centred.
+- First frame logs `OpenXR: menu panel cylinder|quad WxH, H m at R m (arc x height deg)` to
+  `openxr_diag.txt`. Unverified: that the cylinder faces the viewer (spec: centred on -Z from its
+  pose) and the cursor crosshair still tracks. The Vulkan menu path is unchanged (quad).
+
 ## Open / next
 
 - **Sharp scaling: done** (`UiFilter`, default 1; `-uifilter`). Was: nearest at a non-integer scale

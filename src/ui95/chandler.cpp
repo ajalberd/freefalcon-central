@@ -47,9 +47,29 @@ void UI95_GetWorkArea(RECT *outer, int *clientW, int *clientH)
     *clientH = (work.bottom - work.top) - (frame.bottom - frame.top);
 }
 
+// In VR the headset panel, not the desktop window, is what you look at: the layout is VrUiWidth x
+// VrUiHeight at scale 1 (the desktop window mirrors it at that size), and the panel's angular size
+// is set in the XR layer (VrUiHeightDeg). 0 = follow the desktop knobs.
+static bool VrLayout(int *w, int *h)
+{
+    extern bool g_bUseOpenXR;
+    extern int g_nVrUiWidth, g_nVrUiHeight;
+
+    if (not g_bUseOpenXR or g_nVrUiWidth <= 0 or g_nVrUiHeight <= 0)
+        return false;
+
+    *w = max(g_nVrUiWidth, g_bHiResUI ? 1024 : 800);
+    *h = max(g_nVrUiHeight, g_bHiResUI ? 768 : 600);
+    return true;
+}
+
 void UI95_GetWindowSize(int *w, int *h)
 {
     const int minW = g_bHiResUI ? 1024 : 800, minH = g_bHiResUI ? 768 : 600;
+
+    if (VrLayout(w, h))
+        return;
+
     RECT outer;
     int dw, dh;
     UI95_GetWorkArea(&outer, &dw, &dh);
@@ -60,6 +80,10 @@ void UI95_GetWindowSize(int *w, int *h)
 void UI95_GetSurfaceSize(int *w, int *h)
 {
     const int minW = g_bHiResUI ? 1024 : 800, minH = g_bHiResUI ? 768 : 600;
+
+    if (VrLayout(w, h))
+        return;
+
     float scale = g_fUiScale >= 1.0f ? g_fUiScale : 1.0f;
 
     if (g_fUiScale == 0.0f)
