@@ -186,6 +186,13 @@ public:
     virtual void DrawDynamic2DIndexed(const unsigned short* indices, int icount,
                                       ID3D11ShaderResourceView* srv,
                                       int primType) = 0;
+    // Artscout - 2026: > 0 makes each following DrawDynamic2DIndexed triangle draw repeat as a
+    // depth-only pass that keeps texels at or above this alpha -- the dense core of a cloud puff
+    // writes depth, its soft edge does not. 0 = off. Backends without it ignore it.
+    virtual void SetDynamic2DDepthPrime(float alphaRef)
+    {
+        (void)alphaRef;
+    }
 
     // UI + textures
     virtual void CompositeUISurface(const void* src565, int w, int h) = 0;

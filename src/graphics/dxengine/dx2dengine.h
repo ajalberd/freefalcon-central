@@ -85,6 +85,10 @@ public:
 #define POLY_TAPE 0x0400000 // TAPE ITEM
 #define POLY_LINE 0x0800000 // TAPE ITEM
 #define POLY_3DOBJECT 0x1000000 // this is a 3D object coming from DX Engine
+// Artscout - 2026: also write depth where this item is dense (CloudDepthAlpha) -- the cumulus puffs,
+// so what draws after them (GPU particles, the external-view ownship) is hidden behind their cores.
+// Above the 0xffffff a POLY_3DOBJECT item keeps its index in.
+#define POLY_DEPTHPRIME 0x2000000
 
 
 // Layers Flags

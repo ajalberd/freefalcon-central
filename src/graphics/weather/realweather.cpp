@@ -365,7 +365,7 @@ inline void RealWeather::DrawCumulus(Tpoint *position, int txtIndex,
     // the ray to THIS puff rather than the single global camera-facing matrix -- see DX2D_TransformBB.
     // Cumulus are the worst case for that matrix (big, far off, and spread right across the field of
     // view), so they are the one caller opted in by default; g_nBillboardMode 2 extends it to the rest.
-    TheDXEngine.DX2D_AddQuad(LAYER_GROUND, POLY_BB, (D3DXVECTOR3 *)position,
+    TheDXEngine.DX2D_AddQuad(LAYER_GROUND, POLY_BB bitor POLY_DEPTHPRIME, (D3DXVECTOR3 *)position,
                              Quad, Radius, CumulusTextures.TexHandle(), true);
 }
 

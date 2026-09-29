@@ -1765,9 +1765,17 @@ void CDXEngine::DX2D_Flush2DObjects(void)
                                    D3DPT_LINELIST :
                                    D3DPT_TRIANGLELIST;
                     if (g_pRenderer)
+                    {
+                        // Artscout - 2026: cloud cores write depth too (POLY_DEPTHPRIME).
+                        extern int g_nCloudDepthAlpha;
+                        g_pRenderer->SetDynamic2DDepthPrime(
+                            (Draw.Flags bitand POLY_DEPTHPRIME) ?
+                                g_nCloudDepthAlpha * 0.01f :
+                                0.0f);
                         g_pRenderer->DrawDynamic2DIndexed(
                             (unsigned short*)&DrawIndexes, (int)Indexed2D,
                             (struct ID3D11ShaderResourceView*)srv, prim);
+                    }
                 }
 
                 // Mark that we are in 2D mode
@@ -1786,6 +1794,9 @@ void CDXEngine::DX2D_Flush2DObjects(void)
 
     } while (Layer not_eq LAYER_TOP and
              l <= LAYER_TOP); // END with TOP LAYER in any case
+
+    if (g_bUseGpu and g_pRenderer)
+        g_pRenderer->SetDynamic2DDepthPrime(0.0f);
 
 
     // buffer is flushed

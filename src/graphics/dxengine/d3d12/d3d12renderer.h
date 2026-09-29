@@ -229,6 +229,10 @@ public:
     void UploadDynamic2D(const void* dynVerts, int vcount);
     void DrawDynamic2D(const void* dynVerts, int vcount,
                        ID3D11ShaderResourceView* srv, int primType);
+    void SetDynamic2DDepthPrime(float alphaRef)
+    {
+        m_dyn2DPrimeRef = alphaRef;
+    }
     void DrawDynamic2DIndexed(const unsigned short* indices, int icount,
                               ID3D11ShaderResourceView* srv, int primType);
 
@@ -557,6 +561,10 @@ private:
     float m_shadowParams[4];
     bool m_dShadow;    // b6 needs (re)upload
     bool m_shadowPass; // inside the depth-only replay -> GetPSO builds the shadow variant
+    // Artscout - 2026: SetDynamic2DDepthPrime -- the alpha a DX2D texel needs to write depth in the
+    // repeat pass (0 = no repeat), and the colour-masked PSO variant that pass uses.
+    float m_dyn2DPrimeRef;
+    bool m_depthPrime;
     float m_savedShadowView[16], m_savedShadowProj[16], m_savedShadowCam[4];
     int m_pitShadowRes; // shadow map edge (texels); 0 = not created yet
     // Artscout - 2026: the cockpit flood/instrument fill (cbRender gCockpitFill) -- rgb, a unused.

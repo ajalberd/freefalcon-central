@@ -232,7 +232,8 @@ D3D12Renderer::D3D12Renderer()
       m_fogEnd(1.0e9f), m_fogColor(0xFF808080), m_chromaKey(0xFF000000),
       m_chromaTol(0.02f), m_texColorDiffuse(false), m_cockpitPass(false),
       m_hasTex0(false), m_irGrey(false), m_nvg(false), m_fullBright(false),
-      m_dShadow(false), m_shadowPass(false), m_pitShadowRes(0),
+      m_dShadow(false), m_shadowPass(false), m_dyn2DPrimeRef(0.0f),
+      m_depthPrime(false), m_pitShadowRes(0),
       m_dViewport(true), m_dView(true), m_dObject(true), m_dRender(true),
       m_dLights(true), m_dyn2DVerts(0), m_dyn2DVcount(0)
 {
@@ -2200,7 +2201,8 @@ ID3D12PipelineState* D3D12Renderer::GetPSO(int pass, int blend, bool dWrite,
         | ((unsigned)(m_objZBias & 3)
            << 19) // per-surface dwzBias bucket (object pass)
         | ((unsigned)(m_shadowPass ? 1u : 0u) << 21) // cockpit shadow depth-only variant
-        | ((unsigned)(hdrTarget ? 1u : 0u) << 22); // Artscout - 2026: FP16 HDR scene target (GT7)
+        | ((unsigned)(hdrTarget ? 1u : 0u) << 22) // Artscout - 2026: FP16 HDR scene target (GT7)
+        | ((unsigned)(m_depthPrime ? 1u : 0u) << 23); // Artscout - 2026: DX2D depth prime, colour masked
 
     PsoMap* cache = (PsoMap*)m_pPsoCache;
     PsoMap::iterator it = cache->find(key);
@@ -2339,7 +2341,8 @@ ID3D12PipelineState* D3D12Renderer::GetPSO(int pass, int blend, bool dWrite,
 
     // Blend (mirror D3D11 CreateStateObjects): opaque / alpha / pure-additive (tracers).
     D3D12_RENDER_TARGET_BLEND_DESC& rt = pd.BlendState.RenderTarget[0];
-    rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    // Artscout - 2026: the DX2D depth prime writes depth only (SetDynamic2DDepthPrime).
+    rt.RenderTargetWriteMask = m_depthPrime ? 0 : D3D12_COLOR_WRITE_ENABLE_ALL;
     if (blend == BLEND_OPAQUE)
     {
         rt.BlendEnable = FALSE;
@@ -4130,6 +4133,34 @@ void D3D12Renderer::DrawDynamic2DIndexed(const unsigned short* indices,
     cl->IASetVertexBuffers(0, 1, &vbv);
     cl->IASetPrimitiveTopology(TopoOf(primType));
     cl->DrawInstanced(icount, 1, 0, 0);
+
+    // Artscout - 2026: SetDynamic2DDepthPrime -- the same triangles again, colour masked, writing
+    // depth where the texel alpha reaches the prime threshold. DX2D quads never write depth, so
+    // anything drawn after the clouds (GPU particles, the external-view ownship) showed through
+    // them; the dense core now occludes it and the soft edge still blends. The DX2D list is
+    // sorted far to near, so only nearer items follow and none is clipped by a puff behind it.
+    if (m_dyn2DPrimeRef > 0.0f && m_depthTest && m_depthTargetBound &&
+        topoType == 2) // triangles only (TopoTypeOf: 0 points, 1 lines)
+    {
+        const float savedRef = m_alphaRef;
+        const unsigned savedFlags = m_flags;
+        m_alphaRef = m_dyn2DPrimeRef;
+        m_flags |= FF_ALPHATEST;
+        m_depthPrime = true;
+        m_dRender = true;
+        FlushConstants();
+        ID3D12PipelineState* prime = GetPSO(m_pass, m_blend, true, true,
+                                            topoType, m_cull, m_bias);
+        m_depthPrime = false;
+        if (prime)
+        {
+            cl->SetPipelineState(prime);
+            cl->DrawInstanced(icount, 1, 0, 0);
+        }
+        m_alphaRef = savedRef;
+        m_flags = savedFlags;
+        m_dRender = true; // the next draw re-uploads the restored alpha test
+    }
 }
 
 //---- object/BSP path (aircraft/cockpit): per-model DEFAULT-heap VB (ID3D12Resource*), object shader (pass 1) ----

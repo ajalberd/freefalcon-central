@@ -983,6 +983,7 @@ bool g_bRailTrack =
 bool g_bRailTrackLog =
     false; // Artscout - 2026: every 10 s, log how many track pieces were drawn and how far the exact ground lookup the strip uses is from the approximate one, for chasing flicker. "RailTrackLog".
 int g_nRailTrackRangeKm = 8; // Artscout - 2026: how far from the camera the track strip is drawn, km (1..30). "RailTrackRangeKm".
+int g_nCloudDepthAlpha = 60; // Artscout - 2026: texture alpha, in percent, at which a cumulus puff also writes depth (a second, colour-masked pass in the D3D12 renderer). The puffs are DX2D quads, which never wrote depth, so everything drawn after them showed through: the GPU particles (see ParticlesLast) and, in an external view, your own aircraft (drawn in a later flush). The dense core now occludes them; the soft edge below this alpha still only blends. Objects drawn before the clouds -- other aircraft, ground -- are unaffected: they already sat behind a ~90% opaque puff. 0 = off. "CloudDepthAlpha".
 bool g_bParticlesLast =
     true; // Artscout - 2026: draw the GPU particles (dust, smoke columns, explosions) after the DX2D world quads -- the cumulus puffs, smoke trails and the rail strip -- instead of partway through the scene. Neither writes depth, so whichever draws last paints over the other: with the particles first, a cloud behind a dust plume drew over it. Costs the rarer case, a puff between the eye and the plume. 0 = the old order. "ParticlesLast".
 int g_nPathDamageCost =
@@ -2148,6 +2149,7 @@ static ConfigOption<int> IntOpts[] = {
     {"RailTrainLoad", &g_nRailTrainLoad}, // Artscout - 2026: supply + fuel per railhead arrival
     {"RailRailheadKm", &g_nRailRailheadKm}, // Artscout - 2026: delivery radius at the railhead
     {"RailTrackRangeKm", &g_nRailTrackRangeKm}, // Artscout - 2026: track strip draw range
+    {"CloudDepthAlpha", &g_nCloudDepthAlpha}, // Artscout - 2026: cumulus cores write depth above this alpha %
     {"PathDamageCost",
      &g_nPathDamageCost}, // Artscout - 2026: damaged roads/bridges cost more to ROUTE through (0 = stock)
     {"SupplyInterdiction",
