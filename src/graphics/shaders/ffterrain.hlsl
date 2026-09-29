@@ -82,6 +82,11 @@ cbuffer cbTerrain : register(b0)
     float4      gTerrMisc;          // xy = screen size (px), z = time (sec)
     float4      gTerrFrustum[6];    // world-space planes (xyz = n, w = d), camera-relative
     ClipLevel   gClip[MAX_CLIP_LODS];
+    // Artscout - 2026: cumulus shadows -- the same two rows the object pass gets as gCloudSh0/1 (ffemu.hlsl
+    // cbRender), plus the mask's bindless slot. Appended, so nothing above moves.
+    float4      gCloudSh0;          // xy = mask world origin, z = cloud plane world z, w = 1 / mask size
+    float4      gCloudSh1;          // xyz = toward the sun, w = strength (0 = off)
+    uint4       gCloudShSlot;       // x = bindless slot of the mask (~0 = none)
 };
 
 //============================== Resources ====================================
@@ -493,6 +498,34 @@ void MS_Terrain(uint gtid : SV_GroupThreadID,
 
 //============================== Pixel shader =================================
 
+// Artscout - 2026: the cumulus shadow term -- ffemu.hlsl's CloudSunShadow, reading the mask through the
+// tile path's bindless slot instead of a bound register. Keep the two in step.
+float TerrainCloudShadow(float3 wpos)
+{
+    if (gCloudSh1.w <= 0.0f || gCloudShSlot.x == ~0u)
+        return 1.0f;
+    const float3 p = wpos + gTerrCamPos.xyz;
+    const float3 d = gCloudSh1.xyz;                 // toward the sun; z DOWN
+    if (d.z > -0.02f)
+        return 1.0f;
+    const float below = p.z - gCloudSh0.z;          // feet under the cloud plane
+    if (below <= 0.0f)
+        return 1.0f;
+    const float2 q  = p.xy + d.xy * (below / -d.z);
+    const float2 uv = (q - gCloudSh0.xy) * gCloudSh0.w;
+    if (any(uv < 0.0f) || any(uv > 1.0f))
+        return 1.0f;
+#if defined(FF_BINDLESS_HEAP)
+    Texture2D mask = ResourceDescriptorHeap[gCloudShSlot.x];
+    const float m = mask.SampleLevel(gTileSampler, uv, 0).r;
+#elif defined(FF_BINDLESS_ARRAY)
+    const float m = gTiles[gCloudShSlot.x].SampleLevel(gTileSampler, uv, 0).r;
+#else
+    const float m = 0.0f;
+#endif
+    return 1.0f - gCloudSh1.w * m * saturate(below / 1500.0f);
+}
+
 float4 PS_Terrain(TerrVertex i) : SV_Target
 {
     float3 rgb;
@@ -525,7 +558,8 @@ float4 PS_Terrain(TerrVertex i) : SV_Target
         // Lambert off the post normals. gSunDir is the RAY direction, same
         // convention as the object shader, so negate to face the sun.
         const float ndl = saturate(dot(normalize(i.normal), -gSunDir.xyz));
-        rgb *= saturate(gSunAmbient.rgb + gSunColor.rgb * ndl);
+        // Cloud shadow takes the SUN term only; the ambient under a cloud is unchanged.
+        rgb *= saturate(gSunAmbient.rgb + gSunColor.rgb * ndl * TerrainCloudShadow(i.wpos));
     }
 
     if ((gTerrFlags.x & TF_WIREOVERLAY) != 0)

@@ -838,6 +838,12 @@ bool g_bObjPixelLight =
     true; // Artscout - 2026: evaluate object lighting PER PIXEL instead of per vertex (FF_PIXELLIGHT). The light model does not change; the sun + point/spot lights (and the Blinn-Phong specular) are computed in the pixel shader from the interpolated world normal/position/view vector. Per-vertex Gouraud is what smears a small lamp's colour across whole low-poly panels -- e.g. the F-16's air-intake light (range 3 ft) washing a multi-foot fuselage triangle red. 0 = legacy per-vertex lighting.
 bool g_bPitShadow =
     true; // Artscout - 2026: cockpit sun shadows. The 3D pit BSP is replayed depth-only into a small sun-space shadow map once per flush, and the cockpit branch of the object pixel shader darkens only the SUN term where the pit occludes it (ambient/lamps are untouched). The map is fitted to the pit model's own bounding box in MODEL space, so it is independent of camera and aircraft attitude -- only the sun direction in the pit frame changes it. 0 = no cockpit shadows (the PS returns unshadowed).
+bool g_bCloudShadow =
+    true; // Artscout - 2026: cumulus shadows. RealWeather rasterises the cumulus puffs it draws into a top-down cover mask; the terrain and object pixel shaders walk from each point toward the sun to the cloud plane and darken the SUN term by the cover there (ambient untouched). Ground, objects and the 3D pit alike. 0 = none.
+float g_fCloudShadowStrength =
+    0.8f; // Artscout - 2026: how much of the sun a full cumulus takes away (1 = all of it, 0 = no darkening).
+bool g_bCloudShadowLog =
+    false; // Artscout - 2026: log the cloud shadow mask (rebuilds, puff count, plane, sun) to FFDebug.log.
 bool g_bToneMapGT7 =
     true; // Artscout - 2026: HDR scene + Gran Turismo 7 tone mapping (D3D12). The 3D scene renders into an FP16 target instead of the 8-bit back buffer / XR eye image, so additive glows, lamps, specular and the afterburner are no longer clipped at 1 by the target; at the 3D -> 2D boundary the GT7 operator (Polyphony's reference, ICtCp) rolls those highlights off and hue-preserves them, then the HUD / 2D pit draw on top un-curved. Scene 1.0 is placed on GT7's SDR paper white, so mid-tones look as before. 0 = the old 8-bit scene, bit for bit.
 float g_fPitShadowFitReach =
@@ -1720,6 +1726,10 @@ static ConfigOption<bool> BoolOpts[] = {
     {"RailTrackLog", &g_bRailTrackLog}, // Artscout - 2026: log track pieces and ground mismatch
     {"PitShadow",
      &g_bPitShadow}, // Artscout - 2026: cockpit sun shadows (depth-only pit replay + PS lookup)
+    {"CloudShadow",
+     &g_bCloudShadow}, // Artscout - 2026: cumulus shadows on ground, objects and pit
+    {"CloudShadowLog",
+     &g_bCloudShadowLog}, // Artscout - 2026: log cloud shadow mask rebuilds
     {"ToneMapGT7",
      &g_bToneMapGT7}, // Artscout - 2026: FP16 HDR scene + GT7 tone mapping (D3D12)
     {"LightFalloffD3D7",
@@ -2334,6 +2344,8 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fMenuModelDetail}, // Artscout - 2026: LOD detail for the tacref/loadout model viewer
     {"TerrainCullPad",
      &g_fTerrainCullPad}, // Artscout - 2026: #78 -- terrain cull frustum widened by this fraction of FOV (head-turn margin)
+    {"CloudShadowStrength",
+     &g_fCloudShadowStrength}, // Artscout - 2026: cumulus shadow darkness (1 = sun dies under a cloud)
     {"PitShadowStrength",
      &g_fPitShadowStrength}, // Artscout - 2026: cockpit shadow darkness (1 = sun dies in shadow, 0 = no darkening)
     {"PitShadowFitReach",

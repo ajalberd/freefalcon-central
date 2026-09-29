@@ -152,6 +152,8 @@ struct CBRender
     float cockpitFill[4];
     // Artscout - 2026: MFD sun glare (gGlare0..4) -- see ffemu.hlsl cbRender and IRenderer::SetRttGlare.
     float glare[5][4];
+    // Artscout - 2026: cumulus shadows (gCloudSh0/1). MUST match cbRender in ffemu.hlsl.
+    float cloudShadow[2][4];
 };
 // Object/dynamic vertex layouts (match DXVbManager / the object input layout below).
 struct DynV
@@ -275,6 +277,9 @@ D3D12Renderer::D3D12Renderer()
     // Artscout - 2026: no cockpit fill until the sim publishes one (the knobs are off in the menus).
     m_cockpitFill[0] = m_cockpitFill[1] = m_cockpitFill[2] = m_cockpitFill[3] = 0.0f;
     memset(m_glare, 0, sizeof(m_glare));
+    // Artscout - 2026: no cloud shadow until RealWeather publishes one.
+    m_pCloudShadowTex = 0;
+    memset(m_cloudShadow, 0, sizeof(m_cloudShadow));
     // Artscout - 2026: #13 clouds off until SetCloudParams runs (FF_CLOUD is only set by BeginCloudPass anyway).
     for (int c = 0; c < 4; ++c)
     {
@@ -652,7 +657,9 @@ bool D3D12Renderer::CreateRootSignature()
     // Artscout - 2026: t6 = the cockpit sun shadow map (R32_FLOAT). Like t2..t5 it is bound for every
     // draw -- a white stand-in where there is no pit/shadow -- because the table is one contiguous
     // range; only the FF_COCKPIT branch of PS_Main samples it.
-    srvRange.NumDescriptors = 7; // t0,t1,t2,t3,t4,t5,t6
+    // Artscout - 2026: t7 = the cumulus shadow mask (cloudshadow.h). Same rules: bound for every draw
+    // (white stand-in), read only when cbRender gCloudSh1.w > 0.
+    srvRange.NumDescriptors = 8; // t0,t1,t2,t3,t4,t5,t6,t7
     srvRange.OffsetInDescriptorsFromTableStart =
         D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
     params[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -1418,13 +1425,43 @@ void D3D12Renderer::EndPitShadowPass()
         g_pD3D12Backend->UnbindPitShadowTarget();
     // The map only becomes samplable on Unbind (it was a depth attachment during the replay), and the
     // SRV table may already have been copied with the white stand-in for the replay's own draws -- so
-    // force the next draw to re-copy t0..t6 with the now-valid shadow view.
+    // force the next draw to re-copy t0..t7 with the now-valid shadow view.
     m_tableDirty = true;
 }
 
 // Artscout - 2026: the cockpit flood/instrument fill (see IRenderer + CockpitManager::GetCockpitFill).
 // Stored in the cbRender shadow and uploaded with the next draw; FF_COCKPIT surfaces add it to their
 // ambient, so the two cockpit light knobs move the 3D pit the way they already move the 2D art.
+void D3D12Renderer::SetCloudShadow(ID3D11ShaderResourceView* mask,
+                                   const float* p0, const float* p1)
+{
+    if (m_pCloudShadowTex != (void*)mask)
+    {
+        m_pCloudShadowTex = (void*)mask;
+        m_tableDirty = true; // t7 changed
+    }
+    if (p0 && p1)
+    {
+        memcpy(m_cloudShadow[0], p0, sizeof(m_cloudShadow[0]));
+        memcpy(m_cloudShadow[1], p1, sizeof(m_cloudShadow[1]));
+    }
+    else
+        memset(m_cloudShadow, 0, sizeof(m_cloudShadow));
+    m_dRender = true;
+}
+
+// Artscout - 2026: free a LoadTextureRGBA result. Destroy defers the resource and its bindless slot
+// past the frames in flight; OnTextureFreed (via the manager) drops any binding we still hold.
+void D3D12Renderer::DestroyTexture(ID3D11ShaderResourceView* srv)
+{
+    if (!srv || !g_pD3D12TextureManager)
+        return;
+    D3D12Texture* t = (D3D12Texture*)srv;
+    OnTextureFreed(t);
+    g_pD3D12TextureManager->Destroy(*t);
+    delete t;
+}
+
 void D3D12Renderer::SetCockpitFill(float r, float g, float b)
 {
     extern float g_fPitFillReach;
@@ -1544,6 +1581,9 @@ void D3D12Renderer::FillRenderCB(void* pCb)
     if (m_blend == BLEND_OPAQUE && m_hudStencil == 0)
         memcpy(cb.cockpitFill, m_cockpitFill, sizeof(cb.cockpitFill));
     memcpy(cb.glare, m_glare, sizeof(cb.glare)); // armed only around an MFD composite
+    memcpy(cb.cloudShadow, m_cloudShadow, sizeof(cb.cloudShadow));
+    if (!m_pCloudShadowTex)
+        cb.cloudShadow[1][3] = 0.0f; // no mask at t7 -> the stand-in must never be read as cover
 }
 
 void D3D12Renderer::BeginFrameStateIfNeeded()
@@ -1751,7 +1791,7 @@ void D3D12Renderer::FlushConstants()
         // A silent heap overrun, and mine: I added t3, then t4, and never came back to the stride they are
         // allocated with. The root signature's NumDescriptors and this number are the same fact stated twice.
         const unsigned SRV_PER_DRAW =
-            7; // t0,t1,t2,t3,t4,t5,t6 -- MUST match srvRange.NumDescriptors
+            8; // t0..t7 -- MUST match srvRange.NumDescriptors
         // On overflow do NOT wrap to 0 (that would corrupt earlier, not-yet-executed draws -> "swapped tiles").
         // Clamp to the last slot: only the overflowing tail aliases (visually wrong there, but the bulk is correct).
         // The ring proper starts past the resident bindless prefix.
@@ -1875,6 +1915,19 @@ void D3D12Renderer::FlushConstants()
         dst6.ptr += (SIZE_T)6 * m_srvInc;
         m_pDevice->CopyDescriptorsSimple(
             1, dst6, s6h, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        // Artscout - 2026: t7 = the cumulus shadow mask. FlushConstants zeroes the strength when there is
+        // no mask, so the white stand-in here is never read as cover.
+        SIZE_T p7 = m_pCloudShadowTex ?
+                        (SIZE_T)((D3D12Texture*)m_pCloudShadowTex)->srvCpuPtr :
+                        (SIZE_T)m_whiteSrvCpu;
+        if (p7 == 0 || p7 == (SIZE_T)-1)
+            p7 = (SIZE_T)m_whiteSrvCpu;
+        D3D12_CPU_DESCRIPTOR_HANDLE s7h;
+        s7h.ptr = p7;
+        D3D12_CPU_DESCRIPTOR_HANDLE dst7 = dst;
+        dst7.ptr += (SIZE_T)7 * m_srvInc;
+        m_pDevice->CopyDescriptorsSimple(
+            1, dst7, s7h, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         D3D12_GPU_DESCRIPTOR_HANDLE gpu =
             m_pSrvRing[f]->GetGPUDescriptorHandleForHeapStart();
         gpu.ptr += (UINT64)off * m_srvInc;

@@ -666,7 +666,12 @@ void DrawableBSP::Draw(RenderOTW *renderer, int)
 
     BOOL isShadow = FALSE;
 
-    if (PlayerOptions.ShadowsOn() and realWeather->weatherCondition == FAIR)
+    // Artscout - 2026: the per-pixel cloud shadow (cloudshadow.h) replaces this
+    // whole-object dimming; running both would darken an object twice.
+    extern bool g_bCloudShadow;
+
+    if (not g_bCloudShadow and PlayerOptions.ShadowsOn() and
+        realWeather->weatherCondition == FAIR)
     {
         Tpoint pv;
         Tcolor light;

@@ -39,6 +39,11 @@ struct TerrainClipConstants
     float misc[4];       // xy = screen size (px), z = time (sec)
     float frustum[6][4];
     TerrainClipLevelGpu clip[TCLIP_MAX_LODS];
+    // Artscout - 2026: cumulus shadows (cloudshadow.h). Appended: MUST match
+    // gCloudSh0/gCloudSh1/gCloudShSlot at the end of cbTerrain.
+    float cloudSh0[4];            // xy = mask origin, z = cloud plane z, w = 1/size
+    float cloudSh1[4];            // xyz = toward the sun, w = strength (0 = off)
+    unsigned int cloudShSlot[4];  // x = the mask's bindless slot (~0 = none)
 };
 
 // Per-frame: stream in whatever the camera uncovered, rebuild the rings and the

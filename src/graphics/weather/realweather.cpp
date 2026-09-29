@@ -32,6 +32,9 @@
 //#include "weather.h"
 #include "dispopts.h"
 #include "fflog.h"
+#include "cloudshadow.h"
+#include "graphics/dxengine/common/irenderer.h"
+#include <vector>
 #ifdef _WIN32
 #include "urlmon.h"//Cobra added this so FreeFalcon connects to the net
 //works with urlmon.lib which needs to be present for project to build.
@@ -582,6 +585,9 @@ void RealWeather::RefreshWeather(RenderOTW *Renderer)
     //REPORT_VALUE("Shading Factor :", (ShadingFactor));
     UpdateCells();
 
+    // Artscout - 2026: after the cells move, before anything draws with them.
+    UpdateCloudShadow();
+
     if (not DisplayOptions.bZBuffering)
         UpdateDrawables();
 
@@ -726,6 +732,311 @@ void RealWeather::GenerateCloud(DWORD row, DWORD col)
         3000.f + 300.f * PRANDFloatPos() * (float)ShadingFactor;
 
 #endif
+}
+
+// Artscout - 2026 (cloud shadows): lifted out of UpdateDrawables unchanged, so
+// the shadow caster and the drawn cloud come from one piece of code.
+bool RealWeather::CellCumulus(int row, int col, float &radius, float &baseZ,
+                              float &sev)
+{
+    radius = weatherCellArray[row][col].Radius;
+    baseZ = cumulusZ;
+    sev = 0.0f;
+
+    // Artscout - 2026 (FRONTS): each cell asks the field for its own weather,
+    // so a front 50 km off shows as a bank of cloud before you reach it.
+    if (not(frontMap.active and weatherCondition <= FAIR))
+        return weatherCondition == FAIR;
+
+    sev = SeverityAt(weatherCellArray[row][col].cloudPosX + weatherShiftX,
+                     weatherCellArray[row][col].cloudPosY + weatherShiftY);
+
+    if (sev < 1.5f)
+        return false;
+
+    // Past the Fair band, into weather we would be under an overcast for:
+    // towering and larger, so the front reads as a wall.
+    if (sev > 2.3f)
+        radius *= 1.f + 0.6f * min(sev - 2.3f, 1.5f);
+
+    baseZ = (cumulusZ > -6000.f) ? -8000.f : cumulusZ;
+    return true;
+}
+
+void RealWeather::CumulusPuffPos(int row, int col, int i, float radius,
+                                 float baseZ, Tpoint *pos)
+{
+    const float cx = weatherCellArray[row][col].cloudPosX;
+    const float cy = weatherCellArray[row][col].cloudPosY;
+
+    //RV - I-Hawk - the drawing order change
+#if CLOUDS_FIX
+
+    // Do some fake random stuff to decide how to draw
+    if (i % 2)
+    {
+        float sideRandFactor, ZRandFactor;
+
+        if (i % 3)
+        {
+            sideRandFactor = ZRandFactor = 1;
+        }
+        else
+        {
+            sideRandFactor = -1;
+            ZRandFactor = 0;
+        }
+
+        // The regulare drawing, but with less space between the puffs
+        // make the clouds more 3D
+        pos->x = cx + (float)(i - 2) * radius * 0.075f * sideRandFactor;
+        pos->y = cy + (float)(i - 2) * radius * 0.075f * sideRandFactor;
+        pos->z = baseZ + 500.0f * ZRandFactor - 5000;
+    }
+    else
+    {
+        // The old-style BMS drawing method
+        const int p = weatherCellArray[row][col].cPntIndex[i];
+        pos->x = cx + ((cloudPntList[p][0] * 1.8f) / 30.f);
+        pos->y = cy + ((cloudPntList[p][2] * 1.8f) / 30.f);
+        pos->z = baseZ - ((cloudPntList[p][1] * 1.8f) / 30.f) - 5000;
+    }
+
+#else
+
+    pos->x = cx + (float)(i - 2) * radius * 2.3f;
+    pos->y = cy + (float)(i - 2) * radius * 2.3f;
+    pos->z = cumulusZ - 3000.0f;
+
+#endif
+
+    if (pos->z < stratusZ)
+        pos->z = (stratusZ + 1500.f);
+}
+
+// Artscout - 2026 (cloud shadows). The mask covers the whole 9x9 cell grid in
+// WEATHER-LOCAL feet (0 .. numCells*cellSize), so the wind, which only moves
+// weatherShiftX/Y, moves the mask's origin and nothing else. It is rebuilt only
+// when the puffs themselves change: a cell wrap (every ~17 km flown), a new
+// weather, a front drifting across a cell.
+namespace
+{
+const int CS_MASK = 1024;            // texels per edge; ~500 ft each over 9 cells
+const float CS_PUFF_REACH = 0.8f;    // shadow radius, fraction of the billboard's half-size
+const float CS_PUFF_ALPHA = 0.6f;    // one puff's cover at its centre; puffs overlap
+const DWORD CS_REBUILD_MS = 3000;    // least time between rebuilds for gradual changes
+struct CsPuff
+{
+    float x, y, z, r;
+};
+CloudShadowParams s_cs = {{0.f, 0.f, 0.f, 0.f}, {0.f, 0.f, 0.f, 0.f}, 0};
+unsigned s_csSig = 0, s_csLayoutSig = 0;
+DWORD s_csBuiltMS = 0;
+float s_csPlaneZ = 0.0f;
+std::vector<CsPuff> s_csPuffs;
+std::vector<float> s_csClear;
+std::vector<unsigned char> s_csRgba;
+DWORD s_csLogMS = 0;
+
+unsigned CsHash(unsigned h, const void *data, size_t n)
+{
+    const unsigned char *b = (const unsigned char *)data;
+    for (size_t k = 0; k < n; ++k)
+        h = (h ^ b[k]) * 16777619u;
+    return h;
+}
+} // namespace
+
+const CloudShadowParams &CloudShadow_Current()
+{
+    return s_cs;
+}
+
+void RealWeather::UpdateCloudShadow()
+{
+    extern bool g_bCloudShadow;
+    extern float g_fCloudShadowStrength;
+    extern bool g_bCloudShadowLog;
+
+    s_cs.p1[3] = 0.0f;
+
+    if (not g_pRenderer)
+        return;
+
+    // The puffs UpdateDrawables will draw this frame, weather-local.
+    s_csPuffs.clear();
+    // Which cells carry cumulus, and where: changes here (a cell wrap, a cell
+    // gaining or losing its cloud) rebuild at once. Everything else -- a front
+    // growing a cloud's radius a little every frame -- waits CS_REBUILD_MS, or
+    // the mask would be re-created every frame while a front drifts.
+    unsigned layout = 2166136261u;
+
+    if (g_bCloudShadow and numCells > 0 and cellSize > 0)
+    {
+        const float reach = 2.0f * puffRadius * CS_PUFF_REACH;
+
+        for (int row = drawableCell; row < numCells - drawableCell; row++)
+        {
+            for (int col = drawableCell; col < numCells - drawableCell; col++)
+            {
+                float radius, baseZ, sev;
+
+                if (not CellCumulus(row, col, radius, baseZ, sev))
+                    continue;
+
+                const int rc[2] = {row, col};
+                layout = CsHash(layout, rc, sizeof(rc));
+                layout = CsHash(layout, &weatherCellArray[row][col].cloudPosX,
+                                sizeof(float) * 2);
+
+                for (int i = 0; i < NUM_3DCLOUD_POLYS; i++)
+                {
+                    Tpoint p;
+                    CumulusPuffPos(row, col, i, radius, baseZ, &p);
+                    CsPuff c = {p.x, p.y, p.z, reach};
+                    s_csPuffs.push_back(c);
+                }
+            }
+        }
+    }
+
+    if (s_csPuffs.empty())
+    {
+        g_pRenderer->SetCloudShadow(s_cs.mask, 0, 0);
+        return;
+    }
+
+    const float size = (float)numCells * (float)cellSize;
+    unsigned sig = 2166136261u;
+    sig = CsHash(sig, &numCells, sizeof(numCells));
+    sig = CsHash(sig, &cellSize, sizeof(cellSize));
+    sig = CsHash(sig, &s_csPuffs[0], s_csPuffs.size() * sizeof(CsPuff));
+
+    const bool layoutChanged = (layout != s_csLayoutSig);
+    const bool due = (SimLibElapsedTime - s_csBuiltMS) >= CS_REBUILD_MS;
+
+    if (not s_cs.mask or layoutChanged or (sig != s_csSig and due))
+    {
+        // Cover = 1 - product of (1 - each puff's cover): overlapping puffs
+        // build a dense core and a soft rim, as the billboards do.
+        s_csClear.assign(CS_MASK * CS_MASK, 1.0f);
+        const float texel = size / (float)CS_MASK;
+        double zSum = 0.0;
+
+        for (size_t k = 0; k < s_csPuffs.size(); ++k)
+        {
+            const CsPuff &c = s_csPuffs[k];
+            zSum += c.z;
+            const float inner = c.r * 0.35f;
+            int u0 = (int)((c.x - c.r) / texel), u1 = (int)((c.x + c.r) / texel);
+            int v0 = (int)((c.y - c.r) / texel), v1 = (int)((c.y + c.r) / texel);
+            u0 = max(u0, 0), v0 = max(v0, 0);
+            u1 = min(u1, CS_MASK - 1), v1 = min(v1, CS_MASK - 1);
+
+            for (int v = v0; v <= v1; v++)
+            {
+                const float dy = ((float)v + 0.5f) * texel - c.y;
+
+                for (int u = u0; u <= u1; u++)
+                {
+                    const float dx = ((float)u + 0.5f) * texel - c.x;
+                    const float d = SqrtF(dx * dx + dy * dy);
+
+                    if (d >= c.r)
+                        continue;
+
+                    float t = (d - inner) / (c.r - inner);
+                    t = min(max(t, 0.f), 1.f);
+                    const float a = CS_PUFF_ALPHA * (1.f - t * t * (3.f - 2.f * t));
+                    s_csClear[v * CS_MASK + u] *= 1.f - a;
+                }
+            }
+        }
+
+        s_csRgba.resize(CS_MASK * CS_MASK * 4);
+
+        for (int t = 0; t < CS_MASK * CS_MASK; t++)
+        {
+            const unsigned char m =
+                (unsigned char)((1.f - s_csClear[t]) * 255.f + 0.5f);
+            s_csRgba[t * 4 + 0] = s_csRgba[t * 4 + 1] = s_csRgba[t * 4 + 2] = m;
+            s_csRgba[t * 4 + 3] = 255;
+        }
+
+        ID3D11ShaderResourceView *mask =
+            g_pRenderer->LoadTextureRGBA(&s_csRgba[0], CS_MASK, CS_MASK);
+
+        if (mask)
+        {
+            if (s_cs.mask)
+                g_pRenderer->DestroyTexture(s_cs.mask);
+
+            s_cs.mask = mask;
+            s_csSig = sig;
+            s_csLayoutSig = layout;
+            s_csBuiltMS = SimLibElapsedTime;
+            s_csPlaneZ = (float)(zSum / (double)s_csPuffs.size());
+        }
+
+        if (g_bCloudShadowLog)
+        {
+            char line[256];
+            _snprintf(line, sizeof(line) - 1,
+                      "[CLOUDSHADOW] rebuilt: %d puffs, plane z %.0f, mask %s, "
+                      "%.0f ft over %d texels\n",
+                      (int)s_csPuffs.size(), s_csPlaneZ,
+                      mask ? "ok" : "FAILED", size, CS_MASK);
+            line[sizeof(line) - 1] = 0;
+            FFDebugLog(line);
+        }
+    }
+
+    if (not s_cs.mask)
+    {
+        g_pRenderer->SetCloudShadow(0, 0, 0);
+        return;
+    }
+
+    s_cs.p0[0] = (float)weatherShiftX;
+    s_cs.p0[1] = (float)weatherShiftY;
+    s_cs.p0[2] = s_csPlaneZ;
+    s_cs.p0[3] = 1.0f / size;
+
+    // Toward the sun, z DOWN. GetLightDirection falls back to the MOON when
+    // the sun is down; moonlit cloud shadows are not wanted, so no sun, none.
+    Tpoint lv;
+    TheTimeOfDay.GetLightDirection(&lv);
+    float len = SqrtF(lv.x * lv.x + lv.y * lv.y + lv.z * lv.z);
+
+    if (len < 1e-6f)
+        len = 1.0f;
+
+    s_cs.p1[0] = lv.x / len;
+    s_cs.p1[1] = lv.y / len;
+    s_cs.p1[2] = lv.z / len;
+
+    // Fade out over the last ~10 degrees of sun elevation: the lookup runs
+    // off the mask at grazing angles anyway, and the sun term is small.
+    float fade = (-s_cs.p1[2] - 0.05f) / 0.15f;
+    fade = min(max(fade, 0.f), 1.f);
+    s_cs.p1[3] = TheTimeOfDay.ThereIsASun() ?
+                     min(max(g_fCloudShadowStrength, 0.f), 1.f) * fade :
+                     0.0f;
+
+    g_pRenderer->SetCloudShadow(s_cs.mask, s_cs.p0, s_cs.p1);
+
+    if (g_bCloudShadowLog and SimLibElapsedTime - s_csLogMS > 5000)
+    {
+        s_csLogMS = SimLibElapsedTime;
+        char line[256];
+        _snprintf(line, sizeof(line) - 1,
+                  "[CLOUDSHADOW] origin %.0f %.0f plane %.0f sun %.2f %.2f "
+                  "%.2f strength %.2f viewer z %.0f\n",
+                  s_cs.p0[0], s_cs.p0[1], s_cs.p0[2], s_cs.p1[0], s_cs.p1[1],
+                  s_cs.p1[2], s_cs.p1[3], viewerZ);
+        line[sizeof(line) - 1] = 0;
+        FFDebugLog(line);
+    }
 }
 
 void RealWeather::GenerateClouds(bool bRandom)
@@ -1034,13 +1345,12 @@ void RealWeather::UpdateDrawables()
 
     DWORD clipFlag[4];
     Tpoint wp, vp[4], cumulusPos, stratusPos, shadowPos;
-    int i, row, col, sTxtIndex, cTxtIndex, cPntIndex, p = 0, q = 0, r = 0;
+    int i, row, col, sTxtIndex, cTxtIndex, p = 0, q = 0, r = 0;
 
     // Artscout - 2026 (FRONTS): each cell asks the field for its own weather,
     // so a front 50 km off shows as a bank of cloud before you reach it.
     bool perCell = frontMap.active and weatherCondition <= FAIR;
     DWORD baseHi = CloudHiColor, baseLo = CloudLoColor;
-    float frontCumulusZ = (cumulusZ > -6000.f) ? -8000.f : cumulusZ;
 
     for (row = drawableCell; row < numCells - drawableCell; row++)
     {
@@ -1050,34 +1360,23 @@ void RealWeather::UpdateDrawables()
             stratusPos.x = weatherCellArray[row][col].cloudPosX + weatherShiftX;
             stratusPos.y = weatherCellArray[row][col].cloudPosY + weatherShiftY;
 
-            bool cellCumulus = (weatherCondition == FAIR);
-            float cellRadius = weatherCellArray[row][col].Radius;
-            float cellBaseZ = cumulusZ;
+            float cellRadius, cellBaseZ, sev;
+            bool cellCumulus =
+                CellCumulus(row, col, cellRadius, cellBaseZ, sev);
 
-            if (perCell)
+            if (perCell and cellCumulus)
             {
-                float sev = SeverityAt(stratusPos.x, stratusPos.y);
-                cellCumulus = sev >= 1.5f;
-
-                if (cellCumulus)
-                {
-                    // Fair: whiter to darker across the band. Past it, into
-                    // weather we would be under an overcast for: towering,
-                    // dark, and larger, so the front reads as a wall.
-                    float sf = min(max((sev - 1.5f) * 9.f, 0.f), 10.f);
-                    float shade = 1.0f - 0.03f * sf;
-                    float alpha = min(0.9f + sf * 0.01f, 1.f);
-                    CloudHiColor = F_TO_ARGB(alpha, litCloudColor.r,
-                                             litCloudColor.g, litCloudColor.b);
-                    CloudLoColor = F_TO_ARGB(alpha, litCloudColor.r * shade,
-                                             litCloudColor.g * shade,
-                                             litCloudColor.b * shade);
-
-                    if (sev > 2.3f)
-                        cellRadius *= 1.f + 0.6f * min(sev - 2.3f, 1.5f);
-
-                    cellBaseZ = frontCumulusZ;
-                }
+                // Fair: whiter to darker across the band. Past it, into
+                // weather we would be under an overcast for: towering,
+                // dark, and larger, so the front reads as a wall.
+                float sf = min(max((sev - 1.5f) * 9.f, 0.f), 10.f);
+                float shade = 1.0f - 0.03f * sf;
+                float alpha = min(0.9f + sf * 0.01f, 1.f);
+                CloudHiColor = F_TO_ARGB(alpha, litCloudColor.r,
+                                         litCloudColor.g, litCloudColor.b);
+                CloudLoColor = F_TO_ARGB(alpha, litCloudColor.r * shade,
+                                         litCloudColor.g * shade,
+                                         litCloudColor.b * shade);
             }
 
             stratusPos.z = Stratus1Z;
@@ -1095,74 +1394,12 @@ void RealWeather::UpdateDrawables()
             {
                 for (i = 0; i < NUM_3DCLOUD_POLYS; i++)
                 {
-                    cPntIndex = weatherCellArray[row][col].cPntIndex[i];
                     cTxtIndex = weatherCellArray[row][col].cTxtIndex[i];
 
-                    //RV - I-Hawk - the drawing order change
-#if CLOUDS_FIX
-
-                    // Do some fake random stuff to decide how to draw
-                    if (i % 2)
-                    {
-                        float sideRandFactor, ZRandFactor;
-
-                        if (i % 3)
-                        {
-                            sideRandFactor = ZRandFactor = 1;
-                        }
-
-                        else
-                        {
-                            sideRandFactor = -1;
-                            ZRandFactor = 0;
-                        }
-
-                        // The regulare drawing, but with less space between the puffs
-                        // make the clouds more 3D
-                        cumulusPos.x = (stratusPos.x +
-                                        (float)(i - 2) *
-                                            /*puffRadius*/
-                                            cellRadius *
-                                            0.075f * sideRandFactor);
-                        cumulusPos.y = (stratusPos.y +
-                                        (float)(i - 2) *
-                                            /*puffRadius*/
-                                            cellRadius *
-                                            0.075f * sideRandFactor);
-                        cumulusPos.z = cellBaseZ + 500.0f * ZRandFactor - 5000;
-                    }
-
-                    else
-                    {
-                        // The old-style BMS drawing method
-                        cumulusPos.x =
-                            stratusPos.x +
-                            ((cloudPntList[cPntIndex][0] * 1.8f) / 30.f);
-                        cumulusPos.y =
-                            stratusPos.y +
-                            ((cloudPntList[cPntIndex][2] * 1.8f) / 30.f);
-                        cumulusPos.z =
-                            cellBaseZ -
-                            ((cloudPntList[cPntIndex][1] * 1.8f) / 30.f) - 5000;
-                    }
-
-#else
-
-                    cumulusPos.x =
-                        (stratusPos.x + (float)(i - 2) *
-                                            cellRadius *
-                                            2.3f);
-                    cumulusPos.y =
-                        (stratusPos.y + (float)(i - 2) *
-                                            cellRadius *
-                                            2.3f);
-                    cumulusPos.z = cumulusZ - 3000.0f;
-
-#endif
-
-
-                    if (cumulusPos.z < stratusZ)
-                        cumulusPos.z = (stratusZ + 1500.f);
+                    CumulusPuffPos(row, col, i, cellRadius, cellBaseZ,
+                                   &cumulusPos);
+                    cumulusPos.x += weatherShiftX;
+                    cumulusPos.y += weatherShiftY;
 
                     if (DisplayOptions.bZBuffering)
                         DrawCumulus(&cumulusPos, cTxtIndex,

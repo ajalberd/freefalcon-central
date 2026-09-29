@@ -14,6 +14,7 @@
 #include "graphics/dxengine/dxengine.h"
 #include "graphics/dxengine/common/irenderer.h"
 #include "graphics/include/fflog.h" // mirror the debug stream into FFDebug.log
+#include "graphics/include/cloudshadow.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include "terrainclipmap.h"
@@ -745,6 +746,21 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
     s_cb.misc[1] = (float)DisplayOptions.DispHeight;
     s_cb.misc[2] = (float)(GetTickCount() % 100000u) * 0.001f;
     s_cb.misc[3] = 0.0f;
+
+    // Artscout - 2026: cumulus shadows. The mask reaches the terrain PS through
+    // the same bindless path as a tile; no slot means no shadow, not a stale one.
+    {
+        const CloudShadowParams &cs = CloudShadow_Current();
+        memcpy(s_cb.cloudSh0, cs.p0, sizeof(s_cb.cloudSh0));
+        memcpy(s_cb.cloudSh1, cs.p1, sizeof(s_cb.cloudSh1));
+        unsigned int slot = 0xFFFFFFFFu;
+        if (cs.mask && cs.p1[3] > 0.0f)
+            slot = g_pRenderer->BindlessTexIndex(cs.mask);
+        s_cb.cloudShSlot[0] = slot;
+        s_cb.cloudShSlot[1] = s_cb.cloudShSlot[2] = s_cb.cloudShSlot[3] = 0;
+        if (slot == 0xFFFFFFFFu)
+            s_cb.cloudSh1[3] = 0.0f;
+    }
     s_cb.flags[1] = (unsigned int)s_levels;
     s_cb.flags[2] = (unsigned int)s_baseLod;
     s_cb.flags[3] = (unsigned int)s_chunkCount;

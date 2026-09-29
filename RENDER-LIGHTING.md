@@ -300,6 +300,44 @@ Known limits, deliberately:
 - Per-frame cost: one depth-only replay of the pit's ~400 surfaces, shared by both VR eyes. If VR
   CPU time regresses, the merge candidate is one combined index buffer for the pit (one draw).
 
+## Cumulus shadows (2026-09-29) — written, compiles, NOT flown
+
+**What was there:** a 2003 system (JAM/Cobra) in `ComputeVertexColor` (`otw.cpp`) and `DrawableBSP::Draw`
+that dimmed terrain vertices and whole objects inside a circle per weather cell. It is dead on the live path:
+the ground is the GPU mesh-shader terrain (`g_bGpuTerrain` + `g_bTerrainMeshShader`, both default on), which
+never calls `ComputeVertexColor`. It was also crude — offset 1/10th of the real projection, one fixed 20000 ft
+circle per cell, both ambient and sun dimmed. The per-object half is now skipped while `CloudShadow` is on.
+
+**What replaces it:**
+- `RealWeather::UpdateCloudShadow` (once per `RefreshWeather`) rasterises the **same puffs `UpdateDrawables`
+  draws** into a 1024² top-down cover mask. Placement lives in `CellCumulus` + `CumulusPuffPos`, lifted out of
+  `UpdateDrawables` so the caster and the drawn cloud cannot drift. Each puff is a soft disc (0.8 × the
+  billboard's half-size, 0.6 cover at the centre, combined as `1 - Π(1 - a)`).
+- The mask is **weather-local** (the whole 9×9 grid, ~516 k ft, ~500 ft/texel). Wind moves only
+  `weatherShiftX/Y`, so wind moves the origin, not the pixels. Rebuilt at once when the layout changes (cell
+  wrap, a cell gaining/losing cumulus), at most every 3 s for gradual changes (a front growing a cloud).
+- Published through `cloudshadow.h` (`CloudShadow_Current`). The shader walks from each point **toward the
+  sun** up to the mean puff altitude and reads the cover there, so the shadow lands where the sun throws it
+  and anything above the layer is never shadowed (1500 ft ramp through the layer). Only the **sun term**
+  darkens; ambient under a cloud is unchanged. No sun (`ThereIsASun`), no shadow; fades out below ~12°.
+- **Terrain:** `TerrainCloudShadow` in `ffterrain.hlsl`, the mask reached through the tile path's bindless
+  slot (`BindlessTexIndex`), three rows appended to `cbTerrain` / `TerrainClipConstants`. Shared HLSL, so
+  **Vulkan terrain gets it too** (untested there).
+- **Objects + 3D pit:** `CloudSunShadow` in `ffemu.hlsl`, multiplied into the existing `sunShadow` of
+  `FFObjectLighting`. The mask is a new **t7** in the per-draw SRV table (8 descriptors now, both the root
+  signature and `SRV_PER_DRAW`); params are `gCloudSh0/1` appended to `cbRender`. D3D12 only — Vulkan's
+  object pass keeps the `IRenderer::SetCloudShadow` no-op. Per-pixel lighting only (`g_bObjPixelLight`,
+  default on); the per-vertex fallback gets none.
+- Knobs: `CloudShadow` (1), `CloudShadowStrength` (0.8 = a full cumulus takes 80% of the sun),
+  `CloudShadowLog` (0) → `[CLOUDSHADOW]` lines in `FFDebug.log`: one per rebuild, one every 5 s with origin /
+  plane / sun / strength.
+
+To verify first: shadows on the **sun-opposite side** of each cloud and moving with it; `[CLOUDSHADOW]`
+plane z near `cumulusZ - 5000`; the sun vector's z negative in daylight. Known limits: one plane for all
+puffs (fronts' taller cells cast from the mean); `gCameraPos` is the flat path's camera, so view instancing
+(off on this rig) would misplace the object lookup; the mask texture, like the moon's, assumes the renderer
+lives for the whole process.
+
 ## Shadows: the rest of the world still has nothing
 
 Grep for `shadowmap` / `ShadowPass` / `ShadowMatrix` across `src/graphics` still returns **zero

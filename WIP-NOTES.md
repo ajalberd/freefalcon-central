@@ -25,7 +25,8 @@ here.**
 - `RENDER-LIGHTING.md` — **GT7 tone mapping landed on D3D12 (2026-09-27), staged**: the scene
   renders FP16 and GT7 runs at the 3D->2D boundary, but lighting is still LDR-authored, so today it
   only rolls off what already exceeded 1 (additive glows, specular). Vulkan is not done. Cockpit
-  sun shadows exist (D3D12; the fit box was stale until 2026-09-27); no world shadows. The "missile shading issue" turned out to be the fin z-fight, not
+  sun shadows exist (D3D12; the fit box was stale until 2026-09-27); no world shadows. **Cumulus shadows**
+  on ground, objects and pit are written and compile but are **not flown** (2026-09-29) — see its section. The "missile shading issue" turned out to be the fin z-fight, not
   lighting — see `OBJECT-RENDERING.md`.
 - `COCKPIT-OVERHAUL.md` — the cockpit displays use a **three-size GIF+`.rct` bitmap font
   set**, separate from the `.bft` menu fonts, and `g_rttFontScale` magnifies glyph geometry

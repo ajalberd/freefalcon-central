@@ -171,6 +171,20 @@ protected:
     void DoLightning();
     void GenerateCloud(DWORD row, DWORD col);
 
+    // Artscout - 2026 (cloud shadows): where the cumulus are. UpdateDrawables
+    // draws from these and UpdateCloudShadow casts from them, so a shadow can
+    // never belong to a cloud that is not there.
+    // Does cell (row,col) carry cumulus, and how big / how high. sev is the
+    // front severity there (0 when fronts are off).
+    bool CellCumulus(int row, int col, float &radius, float &baseZ,
+                     float &sev);
+    // Weather-LOCAL position of puff i of a cell (add weatherShiftX/Y for world).
+    void CumulusPuffPos(int row, int col, int i, float radius, float baseZ,
+                        Tpoint *pos);
+    // Rebuild the shadow mask if the cumulus changed, and publish this frame's
+    // parameters (cloudshadow.h). Once per RefreshWeather.
+    void UpdateCloudShadow();
+
     // Artscout - 2026 (FRONTS): pick the condition at the viewer, and shade
     // toward the next one so crossing a front is not a single step.
     void SampleLocal();

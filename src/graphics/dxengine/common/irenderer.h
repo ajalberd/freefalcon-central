@@ -346,6 +346,18 @@ public:
     virtual void SetRttGlare(const float* /*glare20*/)
     {
     }
+    // Artscout - 2026: cumulus shadows for the OBJECT pass (cloudshadow.h). mask = the cover texture
+    // (a LoadTextureRGBA result, or NULL), p0/p1 = gCloudSh0/gCloudSh1. Default no-op: the object shader
+    // then never darkens. The terrain pass reads the same parameters itself.
+    virtual void SetCloudShadow(ID3D11ShaderResourceView* /*mask*/,
+                                const float* /*p0*/, const float* /*p1*/)
+    {
+    }
+    // Artscout - 2026: free a LoadTextureRGBA result (deferred past the frames still using it).
+    // Default no-op: a backend without it leaks the texture rather than freeing one in flight.
+    virtual void DestroyTexture(ID3D11ShaderResourceView* /*srv*/)
+    {
+    }
 };
 
 // The active renderer (D3D11Renderer or, later, D3D12Renderer). Set in DXContext::Init.

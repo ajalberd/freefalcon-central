@@ -138,7 +138,7 @@ public:
     ID3D11ShaderResourceView* LoadTextureFile(const char* path) override;
     ID3D11ShaderResourceView* LoadTextureRGBA(const void* rgba, int w,
                                               int h) override;
-    void DestroyTexture(struct ID3D11ShaderResourceView* srv); // frees a LoadTexture* result (deferred)
+    void DestroyTexture(struct ID3D11ShaderResourceView* srv) override; // frees a LoadTexture* result (deferred)
 
     // ---- object / BSP path ----
     void SetLights(const float ambient[4], int numLights, const void* lights,

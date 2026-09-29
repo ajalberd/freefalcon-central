@@ -181,6 +181,13 @@ cbuffer cbRender : register(b3)
     float4 gGlare2;
     float4 gGlare3;
     float4 gGlare4;
+    // Artscout - 2026: cumulus shadows (see CloudSunShadow). Built by RealWeather::UpdateCloudShadow; the
+    // terrain shader reads the SAME two rows from cbTerrain. MUST match CBRender's cloudShadow.
+    //   gCloudSh0: xy = the mask's world origin (feet, absolute), z = the cloud plane's world z (z DOWN),
+    //              w = 1 / the mask's world size (feet)
+    //   gCloudSh1: xyz = unit vector TOWARD the sun (world), w = strength (0 = off: the mask is not read)
+    float4 gCloudSh0;
+    float4 gCloudSh1;
 };
 
 //============================ Lighting =======================================
@@ -244,6 +251,9 @@ Texture3D<float2>     gLightCache  : register(t5);
 // Artscout - 2026: the cockpit sun shadow map -- R32_FLOAT, reversed-Z depth from the sun. Bound for
 // every draw (a white stand-in when there is none), but only the FF_COCKPIT branch of PS_Main reads it.
 Texture2D<float>      gShadowMap  : register(t6);
+// Artscout - 2026: t7 = the cumulus shadow mask -- top-down cloud cover, R = 0 clear .. 1 fully shadowed.
+// Bound for every draw (white stand-in), read only when gCloudSh1.w > 0.
+Texture2D<float4>     gCloudShadow : register(t7);
 SamplerState          gSampNoise  : register(s2);
 SamplerState gSamp0 : register(s0);
 SamplerState gSamp1 : register(s1);
@@ -478,6 +488,34 @@ float CockpitSunShadow(float3 Nl, float3 Pl)
         }
     }
     return lerp(1.0f, lit * (1.0f / 9.0f), saturate(gShadowParams.z));
+}
+
+// Artscout - 2026: the cumulus shadow term. 1 = no cloud between the point and the sun. Walks from the
+// point TOWARD the sun up to the cloud plane and reads the top-down cover mask there, so a shadow lands
+// where the sun actually throws it, and an aircraft above the layer is never shadowed by it.
+//   wpos is CAMERA-RELATIVE (every WPos here is); the mask's origin and plane are absolute, so the
+// camera goes back in first. gCameraPos is the flat path's camera -- the view-instanced path keeps its
+// own in gCamPos2, which this cannot see. VI is off on every rig this was built for; revisit if not.
+//   ffterrain.hlsl carries the same function (TerrainCloudShadow). Keep the two in step.
+float CloudSunShadow(float3 wpos)
+{
+    if (gCloudSh1.w <= 0.0f)
+        return 1.0f;
+    const float3 p = wpos + gCameraPos.xyz;
+    const float3 d = gCloudSh1.xyz;                 // toward the sun; z DOWN, so a daytime sun has d.z < 0
+    if (d.z > -0.02f)
+        return 1.0f;                                // sun at or under the horizon: nothing to cast
+    const float below = p.z - gCloudSh0.z;          // feet under the cloud plane (z DOWN)
+    if (below <= 0.0f)
+        return 1.0f;
+    const float2 q  = p.xy + d.xy * (below / -d.z);
+    const float2 uv = (q - gCloudSh0.xy) * gCloudSh0.w;
+    if (any(uv < 0.0f) || any(uv > 1.0f))
+        return 1.0f;
+    const float m = gCloudShadow.SampleLevel(gSampNoise, uv, 0).r;
+    // The puffs span ~1500 ft of height around the plane; ramp in across it so flying down through the
+    // layer dims gradually instead of at one altitude.
+    return 1.0f - gCloudSh1.w * m * saturate(below / 1500.0f);
 }
 
 //============================ Vertex shaders =================================
@@ -1942,7 +1980,10 @@ float4 PS_Main(VSOut i) : SV_Target
         float3 lit, spec;
         // Artscout - 2026: the cockpit's sun shadow -- model-space lookup (see CockpitSunShadow).
         // Only the pit sets FF_COCKPIT; every other surface passes 1.0 and is untouched.
-        const float sunShadow = (gFlags & FF_COCKPIT) ? CockpitSunShadow(i.NrmL, i.PosL) : 1.0f;
+        // Cloud shadow multiplies in for everything lit per pixel, the pit included: under a cumulus the
+        // sun is gone from the cockpit too.
+        const float sunShadow = ((gFlags & FF_COCKPIT) ? CockpitSunShadow(i.NrmL, i.PosL) : 1.0f)
+                              * CloudSunShadow(i.WPos);
         FFObjectLighting(N, i.WPos, i.View, sunShadow, lit, spec);
         c.rgb *= saturate(lit);
         // Artscout - 2026: D3D7's order is  texture * (matDiffuse*lit + matEmissive)  -- the

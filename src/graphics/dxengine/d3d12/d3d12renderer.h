@@ -101,7 +101,16 @@ public:
             m_pTex1 = 0;
             m_tableDirty = true;
         }
+        if (m_pCloudShadowTex == tex)
+        {
+            m_pCloudShadowTex = 0;
+            m_tableDirty = true;
+        }
     }
+    // Artscout - 2026: cumulus shadows -- the mask goes to t7, p0/p1 to cbRender gCloudSh0/1.
+    void SetCloudShadow(ID3D11ShaderResourceView* mask, const float* p0,
+                        const float* p1) override;
+    void DestroyTexture(ID3D11ShaderResourceView* srv) override;
     void SetView(const float* m);
     void SetProj(const float* m);
     void SetWorld(const float* m);
@@ -570,6 +579,10 @@ private:
     // Artscout - 2026: the cockpit flood/instrument fill (cbRender gCockpitFill) -- rgb, a unused.
     float m_cockpitFill[4];
     float m_glare[5][4]; // Artscout - 2026: MFD sun glare (cbRender gGlare0..4); zero = off
+    // Artscout - 2026: cumulus shadows. The mask (a D3D12Texture*, owned by RealWeather) is bound at t7;
+    // m_cloudShadow is cbRender gCloudSh0/1. Strength (m_cloudShadow[1][3]) 0 = off.
+    void* m_pCloudShadowTex;
+    float m_cloudShadow[2][4];
 
     // Dirty flags: which CBs changed since last bind (per-slot root CBV rebind).
     bool m_dViewport, m_dView, m_dObject, m_dRender, m_dLights;
