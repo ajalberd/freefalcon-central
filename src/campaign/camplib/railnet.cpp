@@ -85,6 +85,7 @@ struct Train
     double lastDelivery;  // game seconds of the last railhead arrival it delivered for
     bool stranded;        // a dropped bridge between it and every hub: no deliveries
     bool halted;          // no run long enough left (logged once); parked where it stood
+    float adoptS;         // >= 0: just picked up at this point on the line, not yet running
 };
 
 // vuxGameTime in seconds, as a double: the cycle maths subtract times, and an
@@ -757,38 +758,6 @@ bool RouteWanted(const Route &r)
     return false;
 }
 
-// An existing train unit (after a load) that sits on this route and is not
-// already running on another one.
-Unit AdoptTrain(const Route &r, const std::vector<VU_ID> &claimed, float *sOut)
-{
-    VuListIterator it(AllUnitList);
-
-    for (Unit u = GetFirstUnit(&it); u; u = GetNextUnit(&it))
-    {
-        if (not u->IsBattalion() or not u->IsTrain() or u->IsDead())
-            continue;
-
-        bool taken = false;
-
-        for (const VU_ID &id : claimed)
-            taken = taken or id == u->Id();
-
-        if (taken)
-            continue;
-
-        float off;
-        float s = Project(r, u->XPos(), u->YPos(), &off);
-
-        if (off < 3.0F * GRID_SIZE_FT)
-        {
-            *sOut = s;
-            return u;
-        }
-    }
-
-    return nullptr;
-}
-
 Unit SpawnTrain(const Route &r, const Termini &tm)
 {
     float x, y, yaw;
@@ -983,7 +952,7 @@ void EnlistPlacedTrains()
             u->SetTrain(1);
             u->SetDontPlan(1);
             u->SetScripted(1);
-            Log("rail: Train %d placed %.1f km from the %s -- it is that line's train",
+            Log("rail: Train %d placed %.1f km from the %s -- it runs on that line",
                 u->GetCampID(), bestOff / GRID_SIZE_FT, best->name.c_str());
         }
         else
@@ -1041,12 +1010,14 @@ void RailCampaignTick(int startup)
     if (not g_bridgesBound)
         BindBridges();
 
+    // Which bridges are down right now, per route; say so when that changes.
+    std::vector<std::vector<char>> downs(g_routes.size());
+
     for (int ri = 0; ri < (int)g_routes.size(); ri++)
     {
         const Route &r = g_routes[ri];
-
-        // Which of its bridges are down right now; say so when that changes.
-        std::vector<char> down(r.bridges.size(), 0);
+        std::vector<char> &down = downs[ri];
+        down.assign(r.bridges.size(), 0);
 
         for (size_t k = 0; k < r.bridges.size(); k++)
         {
@@ -1074,74 +1045,137 @@ void RailCampaignTick(int startup)
                 g_routes[ri].bridges[k].down = down[k] not_eq 0;
             }
         }
+    }
+
+    // Every live train unit gets a record of its own on its nearest line -- placed in a TE,
+    // from a save, or spawned here -- so several trains can share a line, each at its own
+    // point in the cycle. One out of reach of every line has none and holds still.
+    {
+        VuListIterator it(AllUnitList);
+
+        for (Unit u = GetFirstUnit(&it); u; u = GetNextUnit(&it))
+        {
+            if (not u->IsBattalion() or not u->IsTrain() or u->IsDead())
+                continue;
+
+            {
+                std::lock_guard<std::mutex> hold(g_lock);
+
+                if (FindTrainById(u->Id()))
+                    continue;
+            }
+
+            int best = -1;
+            float bestOff = ENLIST_REACH_FT, bestS = 0.0F;
+
+            for (int ri = 0; ri < (int)g_routes.size(); ri++)
+            {
+                float off;
+                float s = Project(g_routes[ri], u->XPos(), u->YPos(), &off);
+
+                if (off < bestOff)
+                {
+                    bestOff = off;
+                    bestS = s;
+                    best = ri;
+                }
+            }
+
+            if (best < 0)
+                continue;
+
+            std::lock_guard<std::mutex> hold(g_lock);
+            Train *slot = nullptr;
+
+            // A line's automatic slot that has no train yet (a fresh start, or a load) takes it.
+            for (Train &t : g_trains)
+                if (t.route == best and t.id == FalconNullId)
+                    slot = &t;
+
+            if (not slot)
+            {
+                Train fresh = {best, FalconNullId, 0, 0.0F, 0.0F, 0.0, false, -1.0, false, 0.0,
+                               false, false, -1.0F};
+                g_trains.push_back(fresh);
+                slot = &g_trains.back();
+            }
+
+            slot->id = u->Id();
+            slot->running = false;
+            slot->deadSince = -1.0;
+            slot->adoptS = bestS;
+            Log("rail: %s -- train %d is on the line at km %.1f (placed, or from a save)",
+                g_routes[best].name.c_str(), u->GetCampID(), bestS / GRID_SIZE_FT);
+        }
+    }
+
+    // A line in RailTrainLines with no record at all gets an empty one, for SpawnTrain.
+    {
+        std::lock_guard<std::mutex> hold(g_lock);
+
+        for (int ri = 0; ri < (int)g_routes.size(); ri++)
+        {
+            if (RouteWanted(g_routes[ri]) and not FindTrainByRoute(ri))
+            {
+                Train fresh = {ri, FalconNullId, 0, 0.0F, 0.0F, 0.0, false, -1.0, false, 0.0,
+                               false, false, -1.0F};
+                g_trains.push_back(fresh);
+            }
+        }
+    }
+
+    // Records are added above and removed below, both on this thread only; the sim thread
+    // only reads them under the lock. So indices hold for the loop.
+    size_t count;
+    {
+        std::lock_guard<std::mutex> hold(g_lock);
+        count = g_trains.size();
+    }
+    std::vector<size_t> drop;
+
+    for (size_t ti = 0; ti < count; ti++)
+    {
+        Train t;
+        bool otherOnLine = false;
+        {
+            std::lock_guard<std::mutex> hold(g_lock);
+            t = g_trains[ti];
+
+            for (size_t k = 0; k < g_trains.size(); k++)
+                if (k not_eq ti and g_trains[k].route == t.route and g_trains[k].id not_eq FalconNullId)
+                    otherOnLine = true;
+        }
+
+        const int ri = t.route;
+        const Route &r = g_routes[ri];
+        const std::vector<char> &down = downs[ri];
 
         // A route not in RailTrainLines still runs a train someone placed on it (TE), but
         // gets no automatic one and no replacement when it dies.
         const bool wanted = RouteWanted(r);
-
-        if (not wanted)
-        {
-            bool have;
-            {
-                std::lock_guard<std::mutex> hold(g_lock);
-                Train *rec = FindTrainByRoute(ri);
-                have = rec and rec->id not_eq FalconNullId;
-            }
-            float ignored;
-            std::vector<VU_ID> none;
-
-            if (not have and not AdoptTrain(r, none, &ignored))
-                continue;
-        }
-
-        Train t;
-        std::vector<VU_ID> claimed;
-        {
-            std::lock_guard<std::mutex> hold(g_lock);
-            Train *rec = FindTrainByRoute(ri);
-
-            if (not rec)
-            {
-                Train fresh = {ri,    FalconNullId, 0,   0.0F,  0.0F, 0.0, false,
-                               -1.0,  false,        0.0, false, false};
-                g_trains.push_back(fresh);
-                rec = &g_trains.back();
-            }
-
-            t = *rec;
-
-            for (const Train &o : g_trains)
-                if (o.route not_eq ri and o.id not_eq FalconNullId)
-                    claimed.push_back(o.id);
-        }
 
         Unit u = t.id == FalconNullId ? nullptr : (Unit)vuDatabase->Find(t.id);
 
         if (u and (u->IsDead() or not u->IsTrain()))
             u = nullptr;
 
-        // After a load the record is new but the train is in the save.
-        float adoptS = -1.0F;
-
-        if (not u and t.id == FalconNullId)
-        {
-            u = AdoptTrain(r, claimed, &adoptS);
-
-            if (u)
-            {
-                t.id = u->Id();
-                t.running = false;
-                Log("rail: %s -- found train %d already on the line (placed, or from a save)",
-                    r.name.c_str(),
-                    u->GetCampID());
-            }
-        }
+        // Just picked up (placed, or from a save): where it stands on the line.
+        float adoptS = t.adoptS;
+        t.adoptS = -1.0F;
 
         bool skip = false;
 
         if (not u and t.id not_eq FalconNullId)
         {
-            // It was running and now it is gone: destroyed.
+            // It was running and now it is gone: destroyed. The line's automatic train is
+            // replaced after RailRespawnHours; any other train is simply gone.
+            if (not wanted or otherOnLine)
+            {
+                Log("rail: %s -- train destroyed", r.name.c_str());
+                drop.push_back(ti);
+                continue;
+            }
+
             if (t.deadSince < 0.0)
             {
                 t.deadSince = now;
@@ -1157,6 +1191,13 @@ void RailCampaignTick(int startup)
                 t.id = FalconNullId;
                 t.deadSince = -1.0;
             }
+        }
+
+        // An empty slot on a line that no longer wants a train (the config changed).
+        if (not u and t.id == FalconNullId and not wanted)
+        {
+            drop.push_back(ti);
+            continue;
         }
 
         Termini tm = {false, -1, 0.0F, 0.0F, nullptr, false, false};
@@ -1229,8 +1270,8 @@ void RailCampaignTick(int startup)
             }
 
             // Did it reach the railhead since the last look? Checked on the timetable it has been
-            // running, before the ends move and the cycle is re-based.
-            // A stranded train (a dropped bridge between it and every hub) carries nothing.
+            // running, before the ends move and the cycle is re-based. A stranded train (a
+            // dropped bridge between it and every hub) carries nothing.
             if (t.running and not t.stranded)
                 MaybeDeliver(r, t, u, now);
             else
@@ -1259,7 +1300,7 @@ void RailCampaignTick(int startup)
                     tm.stranded ? " -- STRANDED behind a dropped bridge, carrying nothing" : "");
             }
         }
-        else if (not skip and wanted)
+        else if (not skip and not u and wanted)
         {
             u = SpawnTrain(r, tm);
 
@@ -1284,10 +1325,15 @@ void RailCampaignTick(int startup)
         }
 
         std::lock_guard<std::mutex> hold(g_lock);
-        Train *rec = FindTrainByRoute(ri);
+        g_trains[ti] = t;
+    }
 
-        if (rec)
-            *rec = t;
+    if (not drop.empty())
+    {
+        std::lock_guard<std::mutex> hold(g_lock);
+
+        for (size_t k = drop.size(); k-- > 0;)
+            g_trains.erase(g_trains.begin() + drop[k]);
     }
 }
 

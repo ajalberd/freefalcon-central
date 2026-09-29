@@ -995,6 +995,14 @@ int GroundClass::Exec(void)
                 ((DrawableGroundVehicle *)drawPointer)->SetInhibitFlag(railAt.kind == 't');
             }
         }
+        else if (railUnit and railUnit->IsBattalion() and railUnit->IsTrain())
+        {
+            // A train railnet.cpp is not running (no line in reach, or not picked up yet) holds
+            // still: left to the ground AI its cars would drive off like trucks -- and scatter
+            // when aircraft show up.
+            SetDelta(0.0F, 0.0F, 0.0F);
+            SetPosition(XPos(), YPos(), groundZ);
+        }
         else
         {
             // Move and update delta;
