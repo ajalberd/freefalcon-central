@@ -45,6 +45,54 @@ def any_objectives(ws):
     raise SystemExit("no campaign in %s has objectives" % ws.campaign_dir)
 
 
+FEAT_FLAT_CONTAINER = 0x100
+
+
+def airfields(gamedir, terrain_dir, log=print):
+    """Every airbase/airstrip in every campaign of every theater on this terrain,
+    as rail.Airfield boxes round their flat surfaces (runways, ramps, taxiways).
+    rail.txt is per terrain, so the track has to keep clear of all of them."""
+    out, seen = [], set()
+    for tdf in sorted(glob.glob(os.path.join(gamedir, "terrdata", "theaterdefinition", "*.tdf"))):
+        try:
+            ws = TheaterWorkspace(gamedir, os.path.relpath(tdf, gamedir))
+            terr = ws.terrain()
+        except Exception:
+            continue
+        if terr is None or os.path.normcase(terr.dir) != os.path.normcase(terrain_dir):
+            continue
+        names = ws.name_table()
+        fed = ws.db.table("featureentry")
+        if fed is None:
+            continue
+        for path in sorted(glob.glob(os.path.join(ws.campaign_dir, "save*.cam"))):
+            try:
+                objs = ws.objectives(os.path.basename(path)).objectives
+            except Exception:
+                continue
+            for o in objs:
+                if o.get("typeName") not in ("Airbase", "Airstrip"):
+                    continue
+                _t, row = ws.db.data_row(o["classIndex"])
+                if not row:
+                    continue
+                pts = []
+                for k in range(row["Features"]):
+                    e = fed.rows[row["FirstFeature"] + k]
+                    _f, fr = ws.db.data_row(e["Index"])
+                    if fr and fr["Flags"] & FEAT_FLAT_CONTAINER:
+                        # GetFeatureOffset: Offset[0] east, Offset[1] north, feet.
+                        pts.append((o["x"] + 0.5 + e["Offset"][0] / rail.GRID_FT,
+                                    o["y"] + 0.5 + e["Offset"][1] / rail.GRID_FT))
+                name = names.get(o["nameId"], "?").strip()
+                key = (name, o["x"], o["y"], row["Index"])
+                if pts and key not in seen:
+                    seen.add(key)
+                    out.append(rail.Airfield(name, pts))
+    log("keeping the track clear of %d airfields" % len(out))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--gamedir", default=r"C:\FreeFalcon6")
@@ -76,13 +124,13 @@ def main():
         src = os.path.join(terr.dir, rail.FILENAME)
         with open(src, encoding="utf-8") as f:
             doc = json.load(f)
-        rail.keep_on_land(doc, terr)
+        rail.keep_on_land(doc, terr, fields=airfields(args.gamedir, terr.dir))
         debug = None
     else:
         doc, debug = rail.build_theater(
             terr, any_objectives(ws), ws.name_table(),
             rail.AIRBASES[args.airbases], CACHE, refresh=args.refresh,
-            line=args.line)
+            line=args.line, fields=airfields(args.gamedir, terr.dir))
         doc["theater"] = args.theater
 
     with open(out, "w", encoding="utf-8") as f:

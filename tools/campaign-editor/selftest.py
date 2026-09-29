@@ -1292,6 +1292,21 @@ def test_rail():
           "bridge point over the sea was moved: %r" % (br_pts,))
     check(len(br_fl) == len(br_pts) - 1 and set(br_fl) == {"b"},
           "densified bridge flags %r for %d points" % (br_fl, len(br_pts)))
+    # Airfields: a 3 km east-west runway at (10, 10). A track crossing it
+    # north-south, and one running along it, both go round the box: no point
+    # (or midpoint of a segment) inside, flags one per segment, ends kept.
+    field = rail.Airfield("test", [(8.5, 10.0), (11.5, 10.0)], margin=0.35)
+    for label, line in (("across", [[10.0, 5.0 + 0.25 * k] for k in range(41)]),
+                        ("along", [[5.0 + 0.25 * k, 10.1] for k in range(41)])):
+        fl_in = "-" * 10 + "b" * 5 + "-" * (len(line) - 16)
+        got, got_fl, went = rail.keep_off_airfields(line, fl_in, [field])
+        mids = [[(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] for a, b in zip(got, got[1:])]
+        check(went == ["test"], "%s: detour not taken (%r)" % (label, went))
+        check(not any(field.inside(p) for p in got + mids),
+              "%s: track still inside the airfield" % label)
+        check(len(got_fl) == len(got) - 1, "%s: %d flags for %d points"
+              % (label, len(got_fl), len(got)))
+        check(got[0] == line[0] and got[-1] == line[-1], "%s: route ends moved" % label)
     print("  ok    merge, simplify, clip, fit, shore distance, route stitching, "
           "keep on land")
 

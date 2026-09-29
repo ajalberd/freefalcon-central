@@ -841,8 +841,147 @@ class LandKeeper:
         return (out, "".join(flags)) if seg is not None else out
 
 
-def keep_on_land(doc, terr, log=print):
-    """Pull lines and routes off open sea; rebuilds the routes. In place."""
+GRID_FT = 3279.98           # feet per campaign km (GRID_SIZE_FT)
+AIRFIELD_MARGIN_KM = 0.35   # clearance round an airfield's runways, taxiways and ramps
+
+
+class Airfield:
+    """An airfield's flat surfaces as an oriented box, grown by a margin.
+
+    `pts` are the centres of its FEAT_FLAT_CONTAINER features (runway pieces,
+    ramps, taxiways, aprons) in campaign km. The box runs along their principal
+    axis; the margin covers the pieces' own extent round their centres plus
+    clearance for the track.
+    """
+
+    def __init__(self, name, pts, margin=AIRFIELD_MARGIN_KM):
+        self.name = name
+        p = np.array(pts, float)
+        self.c = p.mean(axis=0)
+        q = p - self.c
+        if len(p) >= 2 and np.abs(q).sum() > 1e-6:
+            self.ax = np.linalg.svd(q, full_matrices=False)[2][0]
+        else:
+            self.ax = np.array([1.0, 0.0])
+        self.pe = np.array([-self.ax[1], self.ax[0]])
+        a, b = q @ self.ax, q @ self.pe
+        self.a0, self.a1 = a.min() - margin, a.max() + margin
+        self.b0, self.b1 = b.min() - margin, b.max() + margin
+
+    def local(self, p):
+        q = np.asarray(p, float) - self.c
+        return float(q @ self.ax), float(q @ self.pe)
+
+    def world(self, a, b):
+        return (self.c + a * self.ax + b * self.pe).tolist()
+
+    def inside(self, p):
+        a, b = self.local(p)
+        return self.a0 < a < self.a1 and self.b0 < b < self.b1
+
+    def _perim(self, a, b):
+        """Distance round the box boundary (a0,b0) -> (a1,b0) -> (a1,b1) -> (a0,b1)."""
+        w, h = self.a1 - self.a0, self.b1 - self.b0
+        if abs(b - self.b0) < 1e-9:
+            return a - self.a0
+        if abs(a - self.a1) < 1e-9:
+            return w + (b - self.b0)
+        if abs(b - self.b1) < 1e-9:
+            return w + h + (self.a1 - a)
+        return 2 * w + h + (self.b1 - b)
+
+    def _clip(self, out_p, in_p):
+        """Where the segment from outside to inside crosses the boundary (local)."""
+        ao, bo = self.local(out_p)
+        ai, bi = self.local(in_p)
+        best = None
+        for t_edge, val in (("a", self.a0), ("a", self.a1), ("b", self.b0), ("b", self.b1)):
+            d = (ai - ao) if t_edge == "a" else (bi - bo)
+            if abs(d) < 1e-12:
+                continue
+            t = (val - (ao if t_edge == "a" else bo)) / d
+            if not 0.0 <= t <= 1.0:
+                continue
+            a, b = ao + (ai - ao) * t, bo + (bi - bo) * t
+            if self.a0 - 1e-9 <= a <= self.a1 + 1e-9 and self.b0 - 1e-9 <= b <= self.b1 + 1e-9:
+                if best is None or t < best[0]:
+                    best = (t, min(max(a, self.a0), self.a1), min(max(b, self.b0), self.b1))
+        return best[1], best[2]
+
+    def around(self, entry, exit_):
+        """Boundary walk from entry to exit (both local), the shorter way round,
+        as world points including the corners passed."""
+        w, h = self.a1 - self.a0, self.b1 - self.b0
+        total = 2 * (w + h)
+        corners = [(0.0, (self.a0, self.b0)), (w, (self.a1, self.b0)),
+                   (w + h, (self.a1, self.b1)), (2 * w + h, (self.a0, self.b1))]
+        s0, s1 = self._perim(*entry), self._perim(*exit_)
+        fwd = (s1 - s0) % total
+        path = [entry]
+        if fwd <= total - fwd:
+            for c_s, c in sorted(corners, key=lambda cs: (cs[0] - s0) % total):
+                if 0 < (c_s - s0) % total < fwd:
+                    path.append(c)
+        else:
+            back = total - fwd
+            for c_s, c in sorted(corners, key=lambda cs: (s0 - cs[0]) % total):
+                if 0 < (s0 - c_s) % total < back:
+                    path.append(c)
+        path.append(exit_)
+        # A metre outside the box, so rounding cannot put the walk back inside it.
+        eps = 0.001
+        out = []
+        for a, b in path:
+            a = a - eps if abs(a - self.a0) < 1e-9 else (a + eps if abs(a - self.a1) < 1e-9 else a)
+            b = b - eps if abs(b - self.b0) < 1e-9 else (b + eps if abs(b - self.b1) < 1e-9 else b)
+            out.append(self.world(a, b))
+        return out
+
+
+def keep_off_airfields(pts, seg, fields):
+    """Route points with every stretch through an airfield replaced by a walk
+    round its box. Returns (points, flags, detours)."""
+    pts = [list(p) for p in pts]
+    seg = list(seg)
+    detours = []
+    for fld in fields:
+        out_p, out_s = [], []
+        i, n = 0, len(pts)
+        while i < n:
+            if not fld.inside(pts[i]):
+                out_p.append(pts[i])
+                if i < n - 1:
+                    out_s.append(seg[i])
+                i += 1
+                continue
+            j = i
+            while j + 1 < n and fld.inside(pts[j + 1]):
+                j += 1
+            if i == 0 or j == n - 1:
+                # A route that starts or ends inside: drop the points in there
+                # (and, at the end, the flag of the segment that led in).
+                if j == n - 1 and out_s:
+                    out_s.pop()
+                i = j + 1
+                continue
+            entry = fld._clip(pts[i - 1], pts[i])
+            exit_ = fld._clip(pts[j + 1], pts[j])
+            walk = fld.around(entry, exit_)
+            # out_p ends with pts[i-1], whose flag (the segment into the box)
+            # is now the segment to the entry point; the walk is plain track.
+            out_s[-1] = "-"
+            for w in walk:
+                out_p.append(w)
+                out_s.append("-")
+            detours.append(fld.name)
+            i = j + 1
+        pts, seg = out_p, out_s[:len(out_p) - 1]
+    return pts, "".join(seg), detours
+
+
+def keep_on_land(doc, terr, log=print, fields=None):
+    """Pull lines and routes off open sea, and routes round airfields (`fields`,
+    a list of Airfield); rebuilds the routes. In place."""
     keeper = LandKeeper(sea_mask(water_mask(terr)))
     for ln in doc.get("lines", ()):
         # Vertices only: a line's `seg` flags are one per segment.
@@ -853,6 +992,10 @@ def keep_on_land(doc, terr, log=print):
         # then simplified again.
         seg = r.get("seg") or "-" * (len(r["pts"]) - 1)
         pts, seg = keeper.fix(r["pts"], densify_km=0.25, seg=seg)
+        if fields:
+            pts, seg, went_round = keep_off_airfields(pts, seg, fields)
+            for name in went_round:
+                log("  %s goes round %s" % (r["name"], name))
         pts, seg = simplify(np.array(pts, float), seg, 0.05)
         r["pts"] = [[round(float(x), 3), round(float(y), 3)] for x, y in pts]
         if set(seg) != {"-"}:
@@ -943,7 +1086,7 @@ def debug_coast(coast_ways, proj, w, h, tol=0.3):
 
 
 def build_theater(terr, objectives, name_table, airbases, cache_dir,
-                  refresh=False, log=print, line=None):
+                  refresh=False, log=print, line=None, fields=None):
     """Fit the projection, fetch OSM and build the track document.
 
     Returns (doc, debug): `doc` is what goes in rail.json; `debug` holds the
@@ -1009,5 +1152,5 @@ def build_theater(terr, objectives, name_table, airbases, cache_dir,
         "lines": lines,
         "routes": [],
     }
-    keep_on_land(doc, terr, log)
+    keep_on_land(doc, terr, log, fields)
     return doc, {"coast": debug_coast(coast, proj, w, h)}
