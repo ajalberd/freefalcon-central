@@ -33,6 +33,11 @@ here.**
 - `CAMPAIGN-MAP-PALETTE.md` — **Israel ships Korea's colour table byte-identical**, so its
   desert quantises into a temperate palette and the map reads washed pale green.
   `TMap::ColorTable` cannot be assumed to describe the ground; the tiles can.
+- `UI-OVERHAUL.md` — branch `ui-adaptive`. **The menu is one 1024x768 RGB565 surface,
+  stretched by a full-screen triangle, with mouse coordinates taken 1:1**, so it cannot fill a
+  window. The layout is all in 141 `.scf` scripts, but ui95 windows can already resize, and
+  only about six code sites know the resolution. Routes go from fit, to stage, to anchors, to a
+  VR cylinder layer.
 - `WEATHER-FRONTS.md` — **weather now varies across the theater** (moving fronts and
   random patches over the Setup condition, `g_nWeatherFronts`), built and deployed but
   **not flown**. Read its `FRONTS:` log lines first. The Python port in the editor must
@@ -561,7 +566,7 @@ The 4.32 art is the better base; upscaling does not close the gap for FF6.
 | **Damage feeds route cost (2026-09-27, compiles, not flown)** | `GetObjectiveMovementCost` scales the ground cost of entering a damaged road/junction/rail node (up to x2) or bridge (up to x4) by objective status; `PathDamageCost` (100, 0 = stock). Watch whether columns detour around a half-dropped bridge. See `CAMPAIGN-SUPPLY-ENGINE.md`. |
 | **Objective icons shaded by health (2026-09-27, compiles, not seen)** | Objective icon sets darken linearly with status down to `CampMapIconMin` (0.35); `CampMapIconHealth 0` = stock. Two stock bugs fixed on the way: `AddObjective` seeded every icon with status 0, and `C_MapIcon::UpdateInfo` never stored a status change for an icon that had not moved -- so objective icons never learned their status at all. Darkening uses UI95's own blend with back = 0 (`O_Output`: negative `bperc_`). |
 | Pale circles on the campaign map | Pre-dates this work. Ruled out: Logistics overlays, threat rings (`ShowCircles` is inside `#if 0`), the terrain basemap, the waypoint list. Cheap test: zoom — map imagery scales, drawn marks do not. |
-| Menu is fixed-resolution | UI95 is not a layout engine — absolute pixel rects from `.scf` with art authored to match. Routes: scale the composited surface, or re-author every resource. |
+| Menu is fixed-resolution | Recon done, branch `ui-adaptive`: see `UI-OVERHAUL.md`. |
 
 ---
 
