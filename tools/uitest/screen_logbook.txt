@@ -1,0 +1,10 @@
+# Main menu -> logbook, one shot and layout of whatever it opens.
+timeout 90
+waitwin UI_MAIN_SCREEN 60000
+wait 1000
+click LB_MAIN_CTRL
+wait 5000
+windows
+shot logbook
+layout logbook
+quit

@@ -41,6 +41,29 @@ public:
     void Setup(long ID, short Type, long ImageID);
     void SetImage(long ID);
     void SetImage(IMAGE_RSC *image);
+    // Artscout - 2026: stretch this bitmap's box to w x h and draw the image to fill it
+    // (O_Output::COVER_*), for full-screen backgrounds on a surface larger than the art.
+    void SetCover(short mode, long w, long h)
+    {
+        if (not Image_)
+            return;
+
+        Image_->SetCover(mode);
+        Image_->SetWH(w, h);
+        SetWH(w, h);
+    }
+    short GetCover()
+    {
+        return Image_ ? Image_->GetCover() : 0;
+    }
+    // After an image change: a covering bitmap keeps its box, any other takes the image's size.
+    void SizeToImage()
+    {
+        if (Image_->GetCover())
+            Image_->SetWH(GetW(), GetH());
+        else
+            SetWH(Image_->GetW(), Image_->GetH());
+    }
     IMAGE_RSC *GetImage(void)
     {
         if (Image_)

@@ -310,6 +310,7 @@
     <ClCompile Include="..\Tools\ui_tools\savefont.cpp" />
     <ClCompile Include="Src\cmusic.cpp" />
     <ClCompile Include="Src\ui_help.cpp" />
+    <ClCompile Include="Src\uitest.cpp" />
     <ClCompile Include="Src\UI_Main.cpp" />
   </ItemGroup>
   <ItemGroup>

@@ -33,6 +33,7 @@
 #include "graphics/dxengine/openxrbackend.h" // VR (OpenXR) -- clean teardown on exit
 #include "dialog.h" // Campaign tool includes
 #include "dispcfg.h"
+#include "uitest.h"
 #include "dispopts.h"
 #include "ehandler.h"
 #include "entity.h"
@@ -708,6 +709,9 @@ signed int PASCAL handle_WinMain(HINSTANCE h_instance,
             DisplayOptions
                 .bAnisotropicFiltering; // Artscout - 2026: aniso on/off + level -> samplers
         g_nAnisoSamples = DisplayOptions.nAnisotropicSamples;
+
+        if (UiTest_Requested())
+            g_bUseOpenXR = false; // a scripted UI run is a desktop run, whatever the saved options say
     }
 
     FalconDisplay.Setup(gLangIDNum);
@@ -1285,6 +1289,29 @@ void ParseCommandLine(LPSTR cmdLine)
 
             if (stricmp(arg, "-usersc") == 0)
                 _LOAD_ART_RESOURCES_ = 1;
+
+            if (not stricmp(arg, "-uitest"))
+                UiTest_SetScript(strtok(NULL, " ")); // the script, relative to <exe dir>\uitest
+
+            if (not _strnicmp(arg, "-uisize", 7))
+            {
+                // -uisize WxH: menu surface size for this run, over the cfg's UiWidth/UiHeight
+                extern int g_nUiWidth, g_nUiHeight;
+                const char *size = strtok(NULL, " ");
+
+                if (size)
+                    sscanf_s(size, "%dx%d", &g_nUiWidth, &g_nUiHeight);
+            }
+
+            if (not _strnicmp(arg, "-uiscale", 8))
+            {
+                // -uiscale S: menu magnification for this run, over the cfg's UiScale
+                extern float g_fUiScale;
+                const char *scale = strtok(NULL, " ");
+
+                if (scale)
+                    g_fUiScale = (float)atof(scale);
+            }
 
             if (_strnicmp(arg, "-nomovie", 8) == 0)
                 intro_movie = false;

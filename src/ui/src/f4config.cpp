@@ -1068,6 +1068,15 @@ float g_fFormationBurnerDistance =
 //float g_fHitChanceAir = 3.5F; // Only added to test out the best value. 6 seems to high (CampLIB/unit.cpp)
 //float g_fHitChanceGround = 2.0F; // moved into Falcon4.aii in campaign\save folder
 bool g_bHiResUI = true; // false = 800x600, true = 1024x768
+// Artscout - 2026: menu surface/window size (UI95_GetSurfaceSize). 0 = 1024x768; larger values give
+// the menus more room. Also "-uisize WxH" on the command line. See UI-OVERHAUL.md.
+int g_nUiWidth = 0;
+int g_nUiHeight = 0;
+float g_fUiScale = 1.0f; // menu magnification: the layout is UiWidth/UiScale wide, drawn UiScale times bigger
+bool g_bUiAdapt = true; // fit the stock layout to a larger surface (ui95/cadapt.cpp); 0 = stock rects
+// .scf files whose windows pin to the surface edges and fill it (the map screens); every other
+// window keeps the stock layout as a centred block. Base names, ';'-separated, case-insensitive.
+char g_strUiAdaptEdges[0x40] = "cp_main;cp_mspua;cp_sua;cp_tool;cp_miss";
 bool g_bAWACSFuel =
     false; // for debug, shows fuel of flight in UI when AWACSSupport = true
 //bool g_bShowManeuverLabels = true; // for debug, shows currently performed BVR/WVR maneuver in SIM
@@ -1807,6 +1816,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"RP5DataCompatiblity", &g_bRP5Comp},
     {"ModuleList", &g_bModuleList},
     {"HiResUI", &g_bHiResUI},
+    {"UiAdapt", &g_bUiAdapt}, // Artscout - 2026: fit the stock layout to UiWidth/UiHeight
     {"AWACSFuel", &g_bAWACSFuel},
     // { "ShowManeuverLabels", &g_bShowManeuverLabels},
     {"FullScreenNVG", &g_bFullScreenNVG},
@@ -2181,6 +2191,8 @@ static ConfigOption<int> IntOpts[] = {
     {"BWMaxDeltaTime", &g_nBWMaxDeltaTime}, // 2002-04-12 MN
     {"BWCheckDeltaTime", &g_nBWCheckDeltaTime}, // 2002-04-12 MN
     {"VUMaxDeltaTime", &g_nVUMaxDeltaTime}, // 2002-04-12 MN
+    {"UiWidth", &g_nUiWidth}, // Artscout - 2026: menu surface size, 0 = 1024x768
+    {"UiHeight", &g_nUiHeight},
     {"ACMIOptionsPopupHiResX", &g_nACMIOptionsPopupHiResX},
     {"ACMIOptionsPopupHiResY", &g_nACMIOptionsPopupHiResY},
     {"ACMIOptionsPopupLowResX", &g_nACMIOptionsPopupLowResX},
@@ -2246,6 +2258,7 @@ static ConfigOption<char> StringOpts[] = {
     {"ServerAdminEmail", &g_strServerAdminEmail[0]},
     {"VoiceHostIP", &g_strVoiceHostIP[0]},
     {"WorldName", &g_strWorldName[0]},
+    {"UiAdaptEdges", &g_strUiAdaptEdges[0]}, // Artscout - 2026: map screens that fill the surface
     {"ScrollUpFunction", &g_strScrollUpFunction[0]}, //Wombat778 10-07-2003
     {"ScrollDownFunction", &g_strScrollDownFunction[0]}, //Wombat778 10-07-2003
     {"MiddleButtonFunction",
@@ -2345,6 +2358,7 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fVrTracerBright}, // Artscout - 2026 (VR): tracer brightness multiplier in headset (0..1)
     {"VrMenuScale",
      &g_fVrMenuScale}, // Artscout - 2026 (VR): center + scale the radio/comms/exit menu in the headset
+    {"UiScale", &g_fUiScale}, // Artscout - 2026: menu magnification over UiWidth x UiHeight
     {"MenuScale",
      &g_fMenuScale}, // Artscout - 2026: radio/comms popup menu size on a flat screen, 1.0 = stock
     {"EngineRumbleLevel",
@@ -2709,7 +2723,13 @@ NextLine:
                         char *p2 = strstr(p, "\"");
 
                         if (p2)
-                            strncpy(pOpts->Value, p, p2 - p);
+                        {
+                            // Artscout - 2026: terminate it -- a value shorter than the default
+                            // used to keep the default's tail. (Buffers are at least 0x40.)
+                            const size_t n = min((size_t)(p2 - p), (size_t)0x3f);
+                            strncpy(pOpts->Value, p, n);
+                            pOpts->Value[n] = 0;
+                        }
 
                         goto NextLine;
                     }

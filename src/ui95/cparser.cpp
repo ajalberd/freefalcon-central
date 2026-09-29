@@ -984,6 +984,7 @@ BOOL C_Parser::LoadWindowList(char *filename)
 
                 if (win)
                 {
+                    UI95_AdaptWindow(win, lfp); // Artscout - 2026: a no-op at 1024x768
                     WindowList_[WinLoaded_++] = win->GetID();
                     Handler_->AddWindow(win, win->GetFlags());
                     win->ScanClientAreas();

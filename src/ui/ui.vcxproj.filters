@@ -20,6 +20,9 @@
     <ClCompile Include="Src\ui_help.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Src\uitest.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Src\UI_Main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

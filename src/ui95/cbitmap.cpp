@@ -73,8 +73,7 @@ void C_Bitmap::SetImage(long ID)
 
     Image_->SetFlags(GetFlags());
     Image_->SetImage(ID);
-
-    SetWH(Image_->GetW(), Image_->GetH());
+    SizeToImage();
     SetReady(1);
 }
 
@@ -91,8 +90,7 @@ void C_Bitmap::SetImage(IMAGE_RSC *tmp)
 
     Image_->SetFlags(GetFlags());
     Image_->SetImage(tmp);
-
-    SetWH(Image_->GetW(), Image_->GetH());
+    SizeToImage();
     SetReady(1);
 }
 

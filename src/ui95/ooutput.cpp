@@ -5,6 +5,7 @@ static _TCHAR _password_[100];
 
 O_Output::O_Output(char **stream)
 {
+    cover_ = COVER_OFF;
     memcpy(&flags_, *stream, sizeof(long));
     *stream += sizeof(long);
     memcpy(&Font_, *stream, sizeof(long));
@@ -53,6 +54,7 @@ O_Output::O_Output(char **stream)
 
 O_Output::O_Output(FILE *fp)
 {
+    cover_ = COVER_OFF;
     fread(&flags_, sizeof(long), 1, fp);
     fread(&Font_, sizeof(long), 1, fp);
     fread(&ScaleSet_, sizeof(long), 1, fp);
@@ -1010,6 +1012,12 @@ void O_Output::Draw(SCREEN *surface, UI95_RECT *cliprect)
 
     case _OUT_BITMAP_:
     {
+        if (cover_ != COVER_OFF)
+        {
+            DrawCover(surface, cliprect); // Artscout - 2026: UI95_AdaptWindow (cadapt.cpp)
+            break;
+        }
+
         UI95_RECT src, dest;
         src.left = 0;
         src.top = 0;

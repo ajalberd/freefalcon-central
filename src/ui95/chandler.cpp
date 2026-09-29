@@ -26,6 +26,54 @@ void SaveScreenShot();
 extern bool g_bCheckBltStatusBeforeFlip;
 // M.N. 2001-11-13
 extern bool g_bHiResUI;
+extern int g_nUiWidth, g_nUiHeight;
+extern float g_fUiScale;
+
+// Artscout - 2026: the menu window is UiWidth x UiHeight; the ui95 surface is that divided by
+// UiScale, never smaller than the stock layout, and the present stretches it back over the window.
+// So UiScale 1 gives more room at stock pixel size, and UiScale 1.5 at 2560x1440 gives a 1707x960
+// layout drawn half as big again. See UI-OVERHAUL.md.
+void UI95_GetWindowSize(int *w, int *h)
+{
+    const int minW = g_bHiResUI ? 1024 : 800, minH = g_bHiResUI ? 768 : 600;
+    *w = g_nUiWidth > 0 ? g_nUiWidth : minW;
+    *h = g_nUiHeight > 0 ? g_nUiHeight : minH;
+}
+
+void UI95_GetSurfaceSize(int *w, int *h)
+{
+    const int minW = g_bHiResUI ? 1024 : 800, minH = g_bHiResUI ? 768 : 600;
+    const float scale = g_fUiScale >= 1.0f ? g_fUiScale : 1.0f;
+    int ww, wh;
+    UI95_GetWindowSize(&ww, &wh);
+    *w = (int)(ww / scale + 0.5f);
+    *h = (int)(wh / scale + 0.5f);
+
+    if (*w < minW)
+        *w = minW;
+
+    if (*h < minH)
+        *h = minH;
+}
+
+// Window client pixels -> surface pixels, for every mouse message (the present stretches the
+// surface over the whole client, so this is a plain proportion of the client's real size).
+static void ClientToSurface(HWND hwnd, long *x, long *y)
+{
+    RECT rc;
+    int sw, sh;
+
+    if (not GetClientRect(hwnd, &rc) or rc.right <= 0 or rc.bottom <= 0)
+        return;
+
+    UI95_GetSurfaceSize(&sw, &sh);
+
+    if (rc.right == sw and rc.bottom == sh)
+        return;
+
+    *x = (long)((long long)*x * sw / rc.right);
+    *y = (long)((long long)*y * sh / rc.bottom);
+}
 
 extern void Transmit(int com);
 
@@ -116,13 +164,8 @@ void C_Handler::Setup(HWND hwnd, ImageBuffer *, ImageBuffer *Primary)
     // PrimaryRect_=PrimaryRect;
     AppWindow_ = hwnd;
 
-    int dispXres = 800, dispYres = 600;
-
-    if (g_bHiResUI)
-    {
-        dispXres = 1024;
-        dispYres = 768;
-    }
+    int dispXres, dispYres;
+    UI95_GetSurfaceSize(&dispXres, &dispYres);
 
     // OW V2
 #if 1
@@ -1238,11 +1281,9 @@ void C_Handler::Update()
 
     if (gScreenShotEnabled and gUI_TakeScreenShot == 1)
     {
-        // Copy Front_ surface to a secondary buffer
-        int xsize = 800;
-
-        if (g_bHiResUI)
-            xsize = 1024;
+        // Copy Front_ surface to a secondary buffer (sized by UI95_GetSurfaceSize in UI_Startup)
+        int xsize, ysize;
+        UI95_GetSurfaceSize(&xsize, &ysize);
 
         //memcpy(gScreenShotBuffer,surface_.mem,surface_.width * surface_.height * sizeof(WORD));
         // MN somehow this D3D stuff for surface_.width creates a width of 1024 for an 800x600 UI...
@@ -2210,6 +2251,28 @@ long C_Handler::EventHandler(HWND hwnd, UINT message, WPARAM wParam,
 
     HandlingMessage = message;
 
+    // Artscout - 2026: every client-coordinate mouse message below reads LOWORD/HIWORD(lParam) as
+    // surface pixels; when the window is not the surface's size, map it once here.
+    switch (message)
+    {
+    case WM_MOUSEMOVE:
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
+    case WM_LBUTTONDBLCLK:
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_RBUTTONDBLCLK:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+    case WM_MBUTTONDBLCLK:
+    {
+        long mx = (short)LOWORD(lParam), my = (short)HIWORD(lParam);
+        ClientToSurface(hwnd, &mx, &my);
+        lParam = MAKELPARAM((WORD)mx, (WORD)my);
+        break;
+    }
+    }
+
     switch (message)
     {
         // sfr: added mouse wheel
@@ -2232,6 +2295,7 @@ long C_Handler::EventHandler(HWND hwnd, UINT message, WPARAM wParam,
         p.x = LOWORD(lParam);
         p.y = HIWORD(lParam);
         ScreenToClient(hwnd, &p);
+        ClientToSurface(hwnd, &p.x, &p.y);
         MouseX = (WORD)p.x;
         MouseY = (WORD)p.y;
         overme = GetWindow(MouseX, MouseY);

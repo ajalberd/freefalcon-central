@@ -147,6 +147,11 @@ public:
               long dy);
     void Blend(SCREEN *surface, long sx, long sy, long sw, long sh, long dx,
                long dy, long front, long back);
+    // Artscout - 2026: draw the whole image into *dest (nearest-neighbour), fit = 0: 1:1 centred,
+    // 1: scaled evenly to cover and cropped, 2: stretched to exactly fill. Black fills what the image
+    // leaves bare. Only the part inside *clip is written; both rects in surface pixels. See
+    // O_Output::DrawCover.
+    void BlitCover(SCREEN *surface, const UI95_RECT *dest, const UI95_RECT *clip, int fit);
     void ScaleDown8(SCREEN *surface, long *Rows, long *Cols, long dx, long dy,
                     long dw, long dh, long offx, long offy);
     void ScaleUp8(SCREEN *surface, long *Rows, long *Cols, long dx, long dy,

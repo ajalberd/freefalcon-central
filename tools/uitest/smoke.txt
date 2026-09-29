@@ -1,0 +1,9 @@
+# First light: does the harness see the main menu at all?
+timeout 90
+waitwin UI_MAIN_SCREEN 60000
+wait 1500
+windows
+shot main
+wshot main_window
+layout main
+quit

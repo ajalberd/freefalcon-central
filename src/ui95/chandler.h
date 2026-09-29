@@ -355,4 +355,12 @@ public:
     BOOL DragItem(WORD MouseX, WORD MouseY, C_Window *overme);
     BOOL DropItem(WORD MouseX, WORD MouseY, C_Window *overme);
 };
+
+// Artscout - 2026: the size of the ui95 surface, and so of the menu window. 1024x768 unless
+// UiWidth/UiHeight (FFViper.cfg) or -uisize WxH ask for more; never smaller. See UI-OVERHAUL.md.
+void UI95_GetSurfaceSize(int *w, int *h);
+// The menu window's client size (UiWidth x UiHeight); the surface is this over UiScale.
+void UI95_GetWindowSize(int *w, int *h);
+// Fit one freshly parsed stock window to that surface (cadapt.cpp).
+void UI95_AdaptWindow(C_Window *win, const char *file); // file: the .scf it came from
 #endif

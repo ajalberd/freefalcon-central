@@ -137,6 +137,16 @@ void C_Tile::Draw(SCREEN *surface, UI95_RECT *cliprect)
             clip.bottom = GetY() + GetH();
     }
 
+    if (Image_->GetCover())
+    {
+        // Artscout - 2026: one draw fills the box (SetCover)
+        Image_->SetWH(GetW(), GetH());
+        Image_->SetXY(0, 0);
+        Image_->SetInfo();
+        Image_->Draw(surface, &clip);
+        return;
+    }
+
     y = 0;
 
     while (y < GetH())

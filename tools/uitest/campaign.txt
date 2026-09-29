@@ -1,0 +1,22 @@
+# Main menu -> campaign select -> commit -> campaign map, past the priorities screen.
+timeout 200
+waitwin UI_MAIN_SCREEN 60000
+wait 1500
+shot main
+click CP_MAIN_CTRL
+waitwin CS_SELECT_WIN 20000
+wait 3000
+shot select
+layout select
+click SINGLE_COMMIT_CTRL
+waitwin STRAT_WIN 150000
+wait 3000
+shot strat
+click OK STRAT_WIN
+waitgone STRAT_WIN 10000
+wait 3000
+windows
+shot cpmap
+layout cpmap
+wshot cpmap_window
+quit

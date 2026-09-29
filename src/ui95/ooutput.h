@@ -58,6 +58,7 @@ protected:
     short WWWidth_;
     short WWCount_;
     short OpStart_, OpEnd_;
+    short cover_; // Artscout - 2026: COVER_* (not saved)
 
     // Don't save this stuff
     long *Rows_;
@@ -126,7 +127,29 @@ public:
         Image_ = NULL;
         Anim_ = NULL;
         Owner_ = NULL;
+        cover_ = COVER_OFF;
     }
+
+    // Artscout - 2026: how an _OUT_BITMAP_ fills a w_ x h_ larger than the image (UI95_AdaptWindow):
+    // COVER_SCALE scales it up to cover and crops the overflow evenly; COVER_CENTER draws it 1:1 in
+    // the middle and paints the margins black, which keeps art-aligned windows lined up with it;
+    // COVER_STRETCH stretches it to fit exactly (bar graphics, which are uniform along their length).
+    enum
+    {
+        COVER_OFF = 0,
+        COVER_SCALE,
+        COVER_CENTER,
+        COVER_STRETCH,
+    };
+    void SetCover(short mode)
+    {
+        cover_ = mode;
+    }
+    short GetCover()
+    {
+        return cover_;
+    }
+    void DrawCover(SCREEN *surface, UI95_RECT *cliprect);
 
     O_Output(char **stream);
     O_Output(FILE *fp);

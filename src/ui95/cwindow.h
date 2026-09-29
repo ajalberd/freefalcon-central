@@ -305,6 +305,14 @@ public:
     {
         DragH_ = h;
     }
+    // Artscout - 2026: the drag ranges, read by UI95_AdaptWindow (cadapt.cpp)
+    void GetRanges(short *x1, short *y1, short *x2, short *y2)
+    {
+        *x1 = MinX_;
+        *y1 = MinY_;
+        *x2 = MaxX_;
+        *y2 = MaxY_;
+    }
     short GetDepth()
     {
         return (Depth_);
