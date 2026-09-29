@@ -101,6 +101,16 @@ main, campaign select, priorities (`STRAT_WIN`), campaign map, logbook, tacref, 
 comms, theater, TE, instant action, dogfight. Campaign map: map fills 1600x828, side panels pinned,
 toolbars split. The rest: stock layout centred, bars edge to edge, black margins.
 
+## Recon (checked scaled, 3200x1300 x1.35)
+
+`rec_eye` and `rec_list` are EDGES screens: the 3D pane client (0,32 1024x696) fills between the
+bars, and the target list stays a 500-wide panel pinned top-left (EDGES windows narrower than half
+the stage pin instead of stretching). Recon draws its 3D straight to the back buffer with the pane
+rect in surface pixels, so `ConfineGpuViewportToPane` (`c3dview.cpp`) scales it by
+`SceneW / surface width` -- 1 for the off-screen RTT viewers, UiScale for recon. `recon.txt` gets
+there unattended: `rclickicon CP_PUA_MAP 20` opens `OBJECTIVE_POP`, and `clickin OBJECTIVE_POP 30 41`
+picks its Recon row (popup rows are not controls; the offset is the stock menu layout).
+
 ## Open / next
 
 - **UiScale end to end** (window 2560x1440, scale 1.5): built, **not run yet**. Clicks via the

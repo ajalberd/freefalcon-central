@@ -1076,7 +1076,7 @@ float g_fUiScale = 1.0f; // menu magnification: the layout is UiWidth/UiScale wi
 bool g_bUiAdapt = true; // fit the stock layout to a larger surface (ui95/cadapt.cpp); 0 = stock rects
 // .scf files whose windows pin to the surface edges and fill it (the map screens); every other
 // window keeps the stock layout as a centred block. Base names, ';'-separated, case-insensitive.
-char g_strUiAdaptEdges[0x40] = "cp_main;cp_mspua;cp_sua;cp_tool;cp_miss";
+char g_strUiAdaptEdges[0x40] = "cp_main;cp_mspua;cp_sua;cp_tool;cp_miss;rec_eye;rec_list";
 bool g_bAWACSFuel =
     false; // for debug, shows fuel of flight in UI when AWACSSupport = true
 //bool g_bShowManeuverLabels = true; // for debug, shows currently performed BVR/WVR maneuver in SIM

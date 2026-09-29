@@ -290,7 +290,9 @@ void PlaceEdges(bool bars, bool stretch, long ow, long oh, long gw, long gh, lon
     const bool topBar = bars and *y + *h <= kTopBar;
     const bool bottomBar = bars and *y >= kBottomBar;
     Rule rx = Classify(*x, *x + *w, kSnap, ow - kSnap);
-    Rule ry = Classify(*y, *y + *h, kSnap, oh - kSnap);
+    // In a stage-tall shell the bars are the edges, as for windows: recon's 3D pane client
+    // (0,32 1024x696) sits exactly between them and must fill, not centre.
+    Rule ry = Classify(*y, *y + *h, bars ? kTopBar : kSnap, bars ? kBottomBar : oh - kSnap);
 
     if (topBar or bottomBar)
     {
@@ -342,8 +344,19 @@ void AdaptEdges(C_Window *win, long gw, long gh, Rule *rxOut, Rule *ryOut)
 {
     const long ox = win->GetX(), oy = win->GetY(), ow = win->GetW(), oh = win->GetH();
     // A few px of slack: CP_SUA ends at 1023, and it is plainly a right-hand panel.
-    const Rule rx = Classify(ox, ox + ow, 2, kStageW - 2);
-    const Rule ry = Classify(oy, oy + oh, kTopBar, kBottomBar);
+    Rule rx = Classify(ox, ox + ow, 2, kStageW - 2);
+    Rule ry = Classify(oy, oy + oh, kTopBar, kBottomBar);
+
+    // A panel narrower than half the stage pins rather than stretches: nothing inside it grows, so
+    // stretching only adds an empty band (the recon target list grew 200 px of black).
+    if (ow < kStageW / 2)
+    {
+        if (rx == FILL)
+            rx = PIN_NEAR;
+
+        if (ry == FILL)
+            ry = PIN_NEAR;
+    }
     long x = ox, y = oy, w = ow, h = oh;
     Apply(rx, gw, true, &x, &w);
     Apply(ry, gh, true, &y, &h);

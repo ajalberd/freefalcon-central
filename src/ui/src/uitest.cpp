@@ -10,6 +10,9 @@
 //   click <CTRLID> [<WINID>]      centre of the control, through the real WM_ mouse path; with no
 //                                 window, the topmost shown window that has the control
 //   clickxy <x> <y>               surface pixels
+//   rclickxy <x> <y>              right click, surface pixels (map popups)
+//   clickin <WINID> <x> <y>       left click at a point inside a window (popup menu rows)
+//   rclickicon <WINID> [n]        right click the n-th map icon ui95 would hit (default 0)
 //   shot <name>                   the ui95 surface as ui95 drew it -> out\<name>.bmp
 //   wshot <name>                  the window as it is on screen (PrintWindow) -> out\<name>.bmp
 //   layout <name>                 every shown window and control, with lint -> out\<name>.json
@@ -32,6 +35,7 @@
 #include "chandler.h"
 #include "cbitmap.h"
 #include "ctile.h"
+#include "ui95_ext.h"
 #include "uitest.h"
 
 extern C_Handler *gMainHandler;
@@ -234,16 +238,16 @@ static void SurfaceToClient(long *x, long *y)
     *y = (long)(((long long)*y * 2 + 1) * rc.bottom / (2LL * sh));
 }
 
-static void PostClick(long sx, long sy)
+static void PostClick(long sx, long sy, bool right = false)
 {
     SurfaceToClient(&sx, &sy);
     HWND hwnd = gMainHandler->GetAppWnd();
     LPARAM lp = MAKELPARAM((WORD)sx, (WORD)sy);
     PostMessage(hwnd, WM_MOUSEMOVE, 0, lp);
     Sleep(50);
-    PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lp);
+    PostMessage(hwnd, right ? WM_RBUTTONDOWN : WM_LBUTTONDOWN, right ? MK_RBUTTON : MK_LBUTTON, lp);
     Sleep(80);
-    PostMessage(hwnd, WM_LBUTTONUP, 0, lp);
+    PostMessage(hwnd, right ? WM_RBUTTONUP : WM_LBUTTONUP, 0, lp);
 }
 
 static bool WriteBmp24(const char *path, const unsigned char *bgr, int w, int h)
@@ -449,6 +453,59 @@ static void Click(long ctrlId, long winId, const char *label)
         PostClick(sx, sy);
 }
 
+// Right-click the n-th map icon (0-based) in a window that ui95 itself would hit at the icon's
+// centre -- i.e. one not hidden under another window or control. The map popups (recon, ...)
+// hang off icons, which are not controls of their own.
+static void RightClickIcon(long winId, int n, const char *label)
+{
+    gMainHandler->EnterCritical();
+    C_Window *win = gMainHandler->FindWindow(winId);
+    long sx = 0, sy = 0, iconId = 0;
+    int seen = 0;
+    bool found = false;
+
+    for (CONTROLLIST *cur = win ? win->GetControlList() : NULL; cur and not found; cur = cur->Next)
+    {
+        C_Base *c = cur->Control_;
+
+        if (not c or c->_GetCType_() != _CNTL_MAPICON_)
+            continue;
+
+        C_MapIcon *mi = (C_MapIcon *)c;
+        C_HASHNODE *node;
+        long idx;
+
+        for (MAPICONLIST *ic = (MAPICONLIST *)mi->GetRoot()->GetFirst(&node, &idx); ic and not found;
+             ic = (MAPICONLIST *)mi->GetRoot()->GetNext(&node, &idx))
+        {
+            if ((ic->Flags bitand C_BIT_INVISIBLE) or not(ic->Flags bitand C_BIT_ENABLED) or not ic->Icon)
+                continue;
+
+            const long x = win->GetX() + win->VX_[c->GetClient()] + ic->x + ic->Icon->GetX() + ic->Icon->GetW() / 2;
+            const long y = win->GetY() + win->VY_[c->GetClient()] + ic->y + ic->Icon->GetY() + ic->Icon->GetH() / 2;
+            long hitId = 0;
+            C_Window *over = gMainHandler->GetWindow((short)x, (short)y);
+
+            if (over != win or over->GetControl(&hitId, x - win->GetX(), y - win->GetY()) != c)
+                continue;
+
+            if (seen++ == n)
+                found = true, sx = x, sy = y, iconId = ic->ID;
+        }
+    }
+
+    gMainHandler->LeaveCritical();
+
+    if (not found)
+    {
+        Log("FAIL rclickicon %s: %d hittable icons, wanted #%d", label, seen, n);
+        return;
+    }
+
+    Log("OK rclickicon %s #%d (icon %ld) at %ld,%ld", label, n, iconId, sx, sy);
+    PostClick(sx, sy, true);
+}
+
 static void Layout(const char *name)
 {
     char path[MAX_PATH];
@@ -623,10 +680,34 @@ static void RunLine(char *line, int lineNo)
         else
             Click(id, win, a1);
     }
-    else if (!_stricmp(cmd, "clickxy") and a1 and a2)
+    else if (!_stricmp(cmd, "clickin") and a1 and a2)
     {
-        PostClick(atol(a1), atol(a2));
-        Log("OK clickxy %s %s", a1, a2);
+        // clickin <WINID> <x> <y>: window-relative, for popup rows (not controls of their own)
+        char *a3 = strtok_s(NULL, " \t\r\n", &ctx);
+        const long id = ParseId(a1);
+        C_Window *win = id ? gMainHandler->FindWindow(id) : NULL;
+
+        if (!win or !a3 or !WindowShown(id))
+            Log("FAIL clickin %s: window not shown", a1);
+        else
+        {
+            PostClick(win->GetX() + atol(a2), win->GetY() + atol(a3));
+            Log("OK clickin %s %s %s", a1, a2, a3);
+        }
+    }
+    else if ((!_stricmp(cmd, "clickxy") or !_stricmp(cmd, "rclickxy")) and a1 and a2)
+    {
+        PostClick(atol(a1), atol(a2), cmd[0] == 'r' or cmd[0] == 'R');
+        Log("OK %s %s %s", cmd, a1, a2);
+    }
+    else if (!_stricmp(cmd, "rclickicon") and a1)
+    {
+        const long win = ParseId(a1);
+
+        if (!win)
+            Log("FAIL rclickicon %s: unknown window", a1);
+        else
+            RightClickIcon(win, a2 ? atoi(a2) : 0, a1);
     }
     else if (!_stricmp(cmd, "shot") and a1)
         Shot(a1);

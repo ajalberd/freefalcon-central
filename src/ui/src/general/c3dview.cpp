@@ -594,14 +594,21 @@ static void ConfineGpuViewportToPane(const UI95_RECT *vp)
     if (not g_bUseGpu or not g_pRenderBackend or not vp)
         return;
 
-    const int w = static_cast<int>(vp->right - vp->left);
-    const int h = static_cast<int>(vp->bottom - vp->top);
+    // Artscout - 2026: the pane is in ui95 surface pixels, the target is whatever is bound. They are
+    // the same size for the off-screen route (its RTT is surface-sized), but the recon route draws to
+    // the back buffer, which is UiScale times the surface. Scale by the ratio either way.
+    ImageBuffer *front = gMainHandler->GetFront();
+    const int fw = front ? front->targetXres() : 0, fh = front ? front->targetYres() : 0;
+    const double kx = fw > 0 ? (double)g_pRenderBackend->SceneW() / fw : 1.0;
+    const double ky = fh > 0 ? (double)g_pRenderBackend->SceneH() / fh : 1.0;
+    const int x0 = static_cast<int>(vp->left * kx + 0.5), y0 = static_cast<int>(vp->top * ky + 0.5);
+    const int w = static_cast<int>(vp->right * kx + 0.5) - x0;
+    const int h = static_cast<int>(vp->bottom * ky + 0.5) - y0;
 
     if (w < 1 or h < 1)
         return;
 
-    g_pRenderBackend->SetViewportRect(static_cast<int>(vp->left),
-                                      static_cast<int>(vp->top), w, h);
+    g_pRenderBackend->SetViewportRect(x0, y0, w, h);
 
     // Artscout - 2026: the companion datum to the [MENUVIEW] Viewport line -- that one prints the
     // pane the viewer COMPUTED, this one the rect the GPU was actually narrowed to for the draw.
@@ -612,7 +619,7 @@ static void ConfineGpuViewportToPane(const UI95_RECT *vp)
         {
             char b2[160];
             sprintf(b2, "[MENUVIEW] pane viewport -> (%d,%d %dx%d) scene=%dx%d\n",
-                    (int)vp->left, (int)vp->top, w, h,
+                    x0, y0, w, h,
                     g_pRenderBackend->SceneW(), g_pRenderBackend->SceneH());
             FFDebugLog(b2);
         }
