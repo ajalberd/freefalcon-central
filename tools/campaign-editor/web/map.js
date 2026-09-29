@@ -114,7 +114,19 @@ const M = {
   hover: null,
   file: null,
   place: null,           // the unit type armed for placement
+  searchQ: '',           // the Ctrl-F query; kept across reloads of the panel
 };
+
+// Ctrl-F belongs to whichever map panel is on screen. One listener for the
+// page, not one per panel build, or every reload would stack another.
+window.addEventListener('keydown', e => {
+  const s = mapPanel._search;
+  if (!s || !s.box.isConnected) return;
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'f') {
+    e.preventDefault();
+    s.open();
+  }
+});
 
 // Centre the map on a grid coordinate. Used by the Victory tab when you click
 // an objective the trigger script watches.
@@ -422,6 +434,52 @@ async function mapPanel(file) {
     M.showObjectives && !M.hiddenCats.has(o.cat) &&
     M.view.scale >= (LAYER_MIN_ZOOM[o.cat] || 0);
 
+  // --- search (Ctrl-F) -----------------------------------------------------
+  // Every word of the query has to appear somewhere in what the map knows about
+  // a thing: name, type, team, aircraft, home base, TACAN, "#camp id". A match
+  // draws even when its layer is filtered off or below its zoom threshold, and
+  // everything else fades while there are matches.
+  let hits = [], hitSet = new Set(), hitIdx = -1;
+
+  function haystack(item, sort) {
+    const bits = sort === 'unit'
+      ? [item.sqName, item.name, item.aircraft, item.kind, item.home,
+         item.patchName, item.naval && item.naval.state]
+      : [item.name, item.type, item.cat, item.tacan];
+    bits.push(teamName(item.owner), '#' + item.campId);
+    return bits.filter(Boolean).join(' ').toLowerCase() + ' ';
+  }
+  // "#12" is a camp id and has to match it whole, not #120 or #1234.
+  const wordIn = (hay, w) => hay.includes(w[0] === '#' ? w + ' ' : w);
+
+  const hitLabel = h => (h.sort === 'unit'
+    ? h.item.sqName || h.item.name || h.item.kind
+    : h.item.name || h.item.type) || '';
+
+  function runSearch() {
+    const q = M.searchQ.trim().toLowerCase();
+    const words = q.split(/\s+/).filter(Boolean);
+    hits = [];
+    hitIdx = -1;
+    if (words.length) {
+      const test = (item, sort) => {
+        const hay = haystack(item, sort);
+        if (!words.every(w => wordIn(hay, w))) return;
+        const h = {sort: sort, item: item};
+        const name = hitLabel(h).toLowerCase();
+        h.rank = name.startsWith(q) ? 0 : name.includes(q) ? 1 : 2;
+        h.name = name;
+        hits.push(h);
+      };
+      for (const u of data.units) test(u, 'unit');
+      for (const o of data.objectives) test(o, 'objective');
+      // Names that start with the query, then names containing it, then
+      // matches on type or team; alphabetical within each.
+      hits.sort((a, b) => (a.rank - b.rank) || a.name.localeCompare(b.name));
+    }
+    hitSet = new Set(hits.map(h => h.item));
+  }
+
   const markSize = () => Math.max(4.5, Math.min(15, 7 * Math.sqrt(M.view.scale)));
   const objSize = () => Math.max(2.5, Math.min(9, 4.5 * Math.sqrt(M.view.scale)));
 
@@ -489,10 +547,12 @@ async function mapPanel(file) {
     // Objectives first, so units sit on top of them. A script target draws
     // even when its category is below its zoom threshold -- the handful of
     // places that decide the war should be findable zoomed out.
+    const dim = hits.length > 0;
     const os = objSize();
     const byCat = {};
     for (const o of data.objectives) {
-      if (!objVisible(o) && !scriptVisible(scriptTarget(o))) continue;
+      if (!objVisible(o) && !scriptVisible(scriptTarget(o)) &&
+          !hitSet.has(o)) continue;
       (byCat[o.cat] = byCat[o.cat] || []).push(o);
     }
     for (const [cat, glyph] of OBJ_LAYERS) {
@@ -500,6 +560,7 @@ async function mapPanel(file) {
         const [sx, sy] = toScreen(o.x, o.y);
         if (sx < -12 || sy < -12 || sx > r.width + 12 || sy > r.height + 12) continue;
         const t = scriptTarget(o);
+        g.globalAlpha = dim && !hitSet.has(o) ? 0.3 : 1;
         drawObjective(g, o, sx, sy, os, glyph,
                       isSelected('objective', o), o === M.hover);
         if (scriptVisible(t)) drawScriptRing(g, t, sx, sy, os);
@@ -508,11 +569,13 @@ async function mapPanel(file) {
 
     const size = markSize();
     for (const u of data.units) {
-      if (!unitVisible(u)) continue;
+      if (!unitVisible(u) && !hitSet.has(u)) continue;
       const [sx, sy] = toScreen(u.x, u.y);
       if (sx < -20 || sy < -20 || sx > r.width + 20 || sy > r.height + 20) continue;
+      g.globalAlpha = dim && !hitSet.has(u) ? 0.3 : 1;
       drawUnit(g, u, sx, sy, size, isSelected('unit', u), u === M.hover);
     }
+    g.globalAlpha = 1;
 
     if (M.showTacan) drawTacan(g, r);
     if (M.showRailFit) drawRailFit(g, r, toScreen);
@@ -527,6 +590,30 @@ async function mapPanel(file) {
       g.moveTo(bx, by - 11); g.lineTo(bx, by + 11);
       g.stroke();
     }
+
+    drawHits(g, r);
+  }
+
+  // A yellow ring on every search match, over everything else; the one Enter
+  // last jumped to is white and larger.
+  function drawHits(g, r) {
+    if (!hits.length) return;
+    const base = Math.max(9, 13 * iconScale());
+    g.save();
+    for (let i = 0; i < hits.length; i++) {
+      const [sx, sy] = toScreen(hits[i].item.x, hits[i].item.y);
+      if (sx < -30 || sy < -30 || sx > r.width + 30 || sy > r.height + 30) continue;
+      const cur = i === hitIdx;
+      g.beginPath();
+      g.arc(sx, sy, cur ? base * 1.35 : base, 0, Math.PI * 2);
+      g.lineWidth = cur ? 5 : 4;
+      g.strokeStyle = 'rgba(0,0,0,.7)';
+      g.stroke();
+      g.lineWidth = cur ? 2.6 : 2;
+      g.strokeStyle = cur ? '#ffffff' : '#ffd23f';
+      g.stroke();
+    }
+    g.restore();
   }
 
   // Pick the pyramid level whose tiles land closest to 1:1 on screen, then
@@ -729,7 +816,7 @@ async function mapPanel(file) {
     const us = markSize() * 1.6;
     let best = null, bestD = Infinity;
     for (const u of data.units) {
-      if (!unitVisible(u)) continue;
+      if (!unitVisible(u) && !hitSet.has(u)) continue;
       const [ux, uy] = toScreen(u.x, u.y);
       const r = pickRadius(u, us);
       const d = (ux - sx) * (ux - sx) + (uy - sy) * (uy - sy);
@@ -740,7 +827,7 @@ async function mapPanel(file) {
     const os = objSize() * 2.2;
     bestD = Infinity;
     for (const o of data.objectives) {
-      if (!objVisible(o)) continue;
+      if (!objVisible(o) && !hitSet.has(o)) continue;
       const [ox, oy] = toScreen(o.x, o.y);
       const r = pickRadius(o, os);
       const d = (ox - sx) * (ox - sx) + (oy - sy) * (oy - sy);
@@ -787,11 +874,114 @@ async function mapPanel(file) {
     else { M.selected = null; resetDetail(); }
   }
 
+  // --- search bar ----------------------------------------------------------
+
+  const LIST_MAX = 100;
+  const sInput = el('input', {type: 'text', spellcheck: 'false',
+    placeholder: 'Find on map: name, type, team, #camp id'});
+  sInput.value = M.searchQ;
+  const sCount = el('span', {class: 'map-search-count'});
+  const sList = el('div', {class: 'map-search-list'});
+
+  function updateCount() {
+    const q = M.searchQ.trim();
+    sCount.textContent = !q ? '' : !hits.length ? 'no match'
+      : (hitIdx >= 0 ? (hitIdx + 1) + ' of ' : '') + hits.length;
+    sCount.classList.toggle('warn', !!q && !hits.length);
+  }
+
+  function fillList() {
+    sList.textContent = '';
+    hits.slice(0, LIST_MAX).forEach((h, i) => {
+      const it = h.item;
+      const sub = h.sort === 'unit'
+        ? [it.sqName && it.name !== it.sqName ? it.name : '', it.aircraft ||
+           (it.sqName ? '' : it.kind), it.naval && it.naval.state]
+        : [it.type];
+      sub.push(teamName(it.owner));
+      sList.appendChild(el('div', {
+        class: 'map-search-item' + (i === hitIdx ? ' on' : ''),
+        // mousedown, not click: the input keeps focus, so the list stays up.
+        onmousedown: e => { e.preventDefault(); go(i); },
+      }, [
+        el('span', {class: 'swatch', style: 'background:' + teamColour(it.owner)}),
+        el('span', {class: 'map-search-name', text: hitLabel(h)}),
+        el('span', {class: 'hint', text: sub.filter(Boolean).join(' · ')}),
+      ]));
+    });
+    if (hits.length > LIST_MAX) {
+      sList.appendChild(el('div', {class: 'hint map-search-more', text:
+        (hits.length - LIST_MAX) + ' more on the map — add a word to ' +
+        'narrow it'}));
+    }
+  }
+
+  function refreshSearch() {
+    runSearch();
+    updateCount();
+    fillList();
+    draw();
+  }
+
+  // Centre on a match and open it in the sidebar, as a click would.
+  function go(i) {
+    if (!hits.length) return;
+    hitIdx = (i + hits.length) % hits.length;
+    const h = hits[hitIdx];
+    updateCount();
+    fillList();
+    const row = sList.children[hitIdx];
+    if (row) row.scrollIntoView({block: 'nearest'});
+    mapFocus(h.item.x, h.item.y);
+    show({sort: h.sort, item: h.item});
+  }
+  const step = d =>
+    go(hitIdx < 0 ? (d > 0 ? 0 : hits.length - 1) : hitIdx + d);
+
+  const sBar = el('div', {class: 'map-search'}, [
+    el('div', {class: 'map-search-row'}, [
+      sInput, sCount,
+      el('button', {class: 'btn btn-sm', title: 'Previous (Shift+Enter)',
+                    onclick: () => step(-1)}, '↑'),
+      el('button', {class: 'btn btn-sm', title: 'Next (Enter)',
+                    onclick: () => step(1)}, '↓'),
+      el('button', {class: 'btn btn-sm', title: 'Close (Esc)',
+                    onclick: () => closeSearch()}, '×'),
+    ]),
+    sList,
+  ]);
+  sBar.hidden = !M.searchQ;
+  box.appendChild(sBar);
+
+  function openSearch() {
+    sBar.hidden = false;
+    sInput.focus();
+    sInput.select();
+  }
+  function closeSearch() {
+    M.searchQ = '';
+    sInput.value = '';
+    sBar.hidden = true;
+    refreshSearch();
+  }
+
+  sInput.addEventListener('input', () => { M.searchQ = sInput.value; refreshSearch(); });
+  sInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); step(e.shiftKey ? -1 : 1); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); step(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); step(-1); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeSearch(); }
+  });
+
+  mapPanel._search = {box: box, open: openSearch};
+  if (M.searchQ) refreshSearch();
+
   // --- interaction ---------------------------------------------------------
 
   let panning = false, dragUnit = null, moved = false, last = [0, 0];
 
   box.addEventListener('contextmenu', e => {
+    if (sBar.contains(e.target)) return;
     e.preventDefault();
     const r = box.getBoundingClientRect();
     const sx = e.clientX - r.left, sy = e.clientY - r.top;
@@ -804,6 +994,7 @@ async function mapPanel(file) {
     if (e.button !== 0) return;
     const menu = $('#map-menu');
     if (menu && menu.contains(e.target)) return;   // let the menu handle it
+    if (sBar.contains(e.target)) return;
     const r = box.getBoundingClientRect();
     const sx = e.clientX - r.left, sy = e.clientY - r.top;
     closeMapMenu();
@@ -862,6 +1053,7 @@ async function mapPanel(file) {
       draw();
       return;
     }
+    if (sBar.contains(e.target)) { tip.style.display = 'none'; return; }
 
     const hit = pick(sx, sy);
     const item = hit && hit.item;
@@ -896,6 +1088,7 @@ async function mapPanel(file) {
   });
 
   box.addEventListener('wheel', e => {
+    if (sBar.contains(e.target)) return;         // let the result list scroll
     e.preventDefault();
     const r = box.getBoundingClientRect();
     zoomAt((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height,

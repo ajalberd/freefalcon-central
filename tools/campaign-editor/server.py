@@ -1102,6 +1102,7 @@ def api_map(q, _body):
             "name": place_name(nametab, names, o),
             "icon": icon_for(o["classIndex"], otbl),
             "tacan": stations.get(o["campId"], {}).get("label", ""),
+            "campId": o["campId"],
         })
 
     teams = []

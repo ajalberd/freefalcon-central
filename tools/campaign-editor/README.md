@@ -70,6 +70,11 @@ hand: the point of this map is putting units on exact kilometre squares, and a
 hand cursor covers the pixel you are aiming at. It turns blue with a centre pip
 when you are armed to place a unit.
 
+- **Ctrl-F** searches the map by name, type, team, aircraft, home base or
+  `#camp id`. All the words have to match. Every match gets a yellow ring and
+  the rest fade. Matches show even on layers that are switched off. **Enter**
+  and **Shift-Enter** step through them, centring the map and opening each
+  one, and **Esc** closes the search.
 - **Shift-drag** a unit to move it.
 - **Right-click** anywhere for a menu. Over a unit: inspect, move, duplicate,
   delete, plus the commands the campaign screen puts there — orders, supply,
