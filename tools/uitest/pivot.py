@@ -1,5 +1,5 @@
-# Recon zoom pivot: run recon_pivot.txt, copy uitestoutpivot_*.bmp + the layout JSON into <dir>, then
-#   python toolsItestpivot.py <dir> <range_before / range_after>
+# Recon zoom pivot: run recon_pivot.txt, copy uitest\out\pivot_*.bmp + the layout JSON into <dir>, then
+#   python tools\uitest\pivot.py <dir> <range_before / range_after>
 # B (zoomed in by s) = A magnified by s about the pivot c; grid-search c, then refine.
 import json, struct, sys
 import numpy as np
