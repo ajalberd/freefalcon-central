@@ -19,8 +19,8 @@ not inferred, unless marked **unverified**.
 
 | cfg | command line | what |
 |---|---|---|
-| `set g_nUiWidth 2560` / `set g_nUiHeight 1440` | `-uisize 2560x1440` | menu window client size; 0 = 1024x768 (stock); -1 (or `-uisize desktop`) = fill the desktop work area |
-| `set g_fUiScale 1.5` | `-uiscale 1.5` | magnification. The layout surface is window / scale, never below 1024x768; 0 = auto (layout exactly 768 tall) |
+| `set g_nUiWidth 2560` / `set g_nUiHeight 1440` | `-uisize 2560x1440` | menu window client size, real pixels; 0 = 16:9 at stock height (1365x768) times the desktop scale, centred (2730x1536 at 200%); -1 (or `-uisize desktop`) = fill the desktop work area |
+| `set g_fUiScale 1.5` | `-uiscale 1.5` | magnification, in desktop units (times the desktop scale: 1 at 200% draws every art pixel 2x2). The layout surface is window / scale, never below 1024x768; 0 = auto (layout exactly 768 tall) |
 | `set g_bUiAdapt 0` | | turn the layout adaptation off (stock rects on a bigger surface) |
 | `set g_sUiAdaptEdges "foo;bar"` | | extra `.scf` files laid out by EDGES, on top of the built-in map screens (`kEdgesFiles` in `cadapt.cpp`: campaign, recon, TE play and editor) |
 | `set g_fReconZoomRate 6` | | recon zoom, % per unit of panner offset per tick; 0 = stock linear |
@@ -158,6 +158,8 @@ picks its Recon row (popup rows are not controls; the offset is the stock menu l
 - **DPI aware** (`handle_WinMain`, per-monitor v2, `SetProcessDPIAware` fallback, both by name). The
   harness showed what it was hiding: Andrew's "3424x1361" desktop client was *logical*; the real
   client is **3814x2009**. Unaware, Windows was bitmap-stretching the window on top of UiScale.
+  Aware, the stock 1024x768 default came up a postage stamp (Andrew caught it), so sizes now follow
+  the desktop scale (`UI95_DpiScale`): the default window is 16:9 x scale, UiScale is x scale.
 - **Campaign screens reached** (`campaign_screens.txt`, `campaign_intel.txt`): the script must
   click `START_CAMP` on `STARTCAMP_WIN` (a button, not a loading screen), then `clickat
   MISSION_LIST_TREE 40 8` picks the first flight. Intel tab, ATO, flight plan, briefing, OOB,

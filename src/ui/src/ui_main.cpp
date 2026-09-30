@@ -1595,6 +1595,16 @@ int UI_Startup()
         FalconDisplay.xOffset = work.left;
         FalconDisplay.yOffset = work.top;
     }
+    else if (g_nUiWidth == 0 and g_nUiHeight == 0)
+    {
+        // The default window (16:9 at the desktop's scale) opens centred in the work area.
+        RECT work, frame = {0, 0, winW, winH};
+        int dw, dh;
+        UI95_GetWorkArea(&work, &dw, &dh);
+        AdjustWindowRect(&frame, WS_OVERLAPPEDWINDOW, FALSE);
+        FalconDisplay.xOffset = work.left + max(0L, (work.right - work.left - (frame.right - frame.left)) / 2);
+        FalconDisplay.yOffset = work.top + max(0L, (work.bottom - work.top - (frame.bottom - frame.top)) / 2);
+    }
 
     // M.N. Large UI
     if (g_bHiResUI)

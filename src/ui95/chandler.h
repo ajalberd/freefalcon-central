@@ -361,6 +361,7 @@ public:
 void UI95_GetSurfaceSize(int *w, int *h);
 // The menu window's client size (UiWidth x UiHeight); the surface is this over UiScale.
 void UI95_GetWindowSize(int *w, int *h);
+float UI95_DpiScale(); // desktop scale, 1 at 96 dpi
 // The desktop work area, and the client size of a bordered window that fills it.
 void UI95_GetWorkArea(RECT *outer, int *clientW, int *clientH);
 // Fit one freshly parsed stock window to that surface (cadapt.cpp).
