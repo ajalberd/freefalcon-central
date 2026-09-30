@@ -63,6 +63,33 @@ static bool VrLayout(int *w, int *h)
     return true;
 }
 
+// The desktop's scale (1 at 96 dpi, 1.5 at 150%). The process is DPI aware (winmain), so every size
+// here is in real pixels; without this the stock-size default would be a postage stamp on a scaled
+// desktop, where Windows used to blow it up (blurred) for us.
+float UI95_DpiScale()
+{
+    static float scale = 0.0f;
+
+    if (scale == 0.0f)
+    {
+        typedef UINT(WINAPI * GetDpiFn)(void);
+        HMODULE user = GetModuleHandleA("user32.dll");
+        GetDpiFn getDpi = user ? (GetDpiFn)GetProcAddress(user, "GetDpiForSystem") : NULL;
+        UINT dpi = getDpi ? getDpi() : 0;
+
+        if (not dpi)
+        {
+            HDC dc = GetDC(NULL);
+            dpi = dc ? (UINT)GetDeviceCaps(dc, LOGPIXELSX) : 96;
+            ReleaseDC(NULL, dc);
+        }
+
+        scale = dpi >= 96 ? dpi / 96.0f : 1.0f;
+    }
+
+    return scale;
+}
+
 void UI95_GetWindowSize(int *w, int *h)
 {
     const int minW = g_bHiResUI ? 1024 : 800, minH = g_bHiResUI ? 768 : 600;
@@ -73,8 +100,16 @@ void UI95_GetWindowSize(int *w, int *h)
     RECT outer;
     int dw, dh;
     UI95_GetWorkArea(&outer, &dw, &dh);
-    *w = g_nUiWidth > 0 ? g_nUiWidth : g_nUiWidth < 0 ? dw : minW;
-    *h = g_nUiHeight > 0 ? g_nUiHeight : g_nUiHeight < 0 ? dh : minH;
+
+    // Default: 16:9 at stock height (1365x768), at the desktop's scale, shrunk to fit the work area.
+    const int baseW = minH * 16 / 9;
+    float fit = UI95_DpiScale();
+    fit = min(fit, min((float)dw / baseW, (float)dh / minH));
+    fit = max(fit, 1.0f);
+    const int defW = (int)(baseW * fit + 0.5f), defH = (int)(minH * fit + 0.5f);
+
+    *w = g_nUiWidth > 0 ? g_nUiWidth : g_nUiWidth < 0 ? dw : defW;
+    *h = g_nUiHeight > 0 ? g_nUiHeight : g_nUiHeight < 0 ? dh : defH;
 }
 
 void UI95_GetSurfaceSize(int *w, int *h)
@@ -84,7 +119,8 @@ void UI95_GetSurfaceSize(int *w, int *h)
     if (VrLayout(w, h))
         return;
 
-    float scale = g_fUiScale >= 1.0f ? g_fUiScale : 1.0f;
+    // UiScale counts in desktop units: 1 = art at the size Windows would show a normal app's.
+    float scale = (g_fUiScale >= 1.0f ? g_fUiScale : 1.0f) * UI95_DpiScale();
 
     if (g_fUiScale == 0.0f)
     {

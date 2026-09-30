@@ -17,12 +17,13 @@ param(
     [switch]$Deploy,
     [string]$Install = "C:\FreeFalcon6",
     [string]$Png = "",
-    [int]$TimeoutSec = 240
+    [int]$TimeoutSec = 240,
+    [string]$ExeName = "FFViper-ui.exe" # another name when Andrew has FFViper-ui.exe open
 )
 
 $ErrorActionPreference = "Stop"
 $repo = Resolve-Path "$PSScriptRoot\..\.."
-$exe = Join-Path $Install "FFViper-ui.exe"
+$exe = Join-Path $Install $ExeName
 $testDir = Join-Path $Install "uitest"
 $out = Join-Path $testDir "out"
 
@@ -37,7 +38,9 @@ $ids = Select-String -Path (Join-Path $repo "src\ui\include\userids.h") -Pattern
     ForEach-Object { "$($_.Matches[0].Groups[1].Value) $($_.Matches[0].Groups[2].Value)" }
 Set-Content -Path (Join-Path $testDir "ids.txt") -Value $ids -Encoding ascii
 
-if (Get-Process FFViper, FFViper-ui -ErrorAction SilentlyContinue) { throw "the game is already running" }
+# Only this exe matters: a copy Andrew is playing (FFViper.exe, or FFViper-ui.exe with -ExeName set
+# to something else) can stay open; two scripted runs at once would share uitest\out.
+if (Get-Process ([IO.Path]::GetFileNameWithoutExtension($ExeName)) -ErrorAction SilentlyContinue) { throw "$ExeName is already running" }
 
 # Old results would read as this run's.
 if (Test-Path $out) { Get-ChildItem $out -File | Remove-Item -Force }
