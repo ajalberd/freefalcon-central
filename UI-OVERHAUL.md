@@ -25,7 +25,7 @@ not inferred, unless marked **unverified**.
 | `set g_sUiAdaptEdges "foo;bar"` | | extra `.scf` files laid out by EDGES, on top of the built-in map screens (`kEdgesFiles` in `cadapt.cpp`: campaign, recon, TE play and editor) |
 | `set g_fReconZoomRate 6` | | recon zoom, % per unit of panner offset per tick; 0 = stock linear |
 | `set g_nUiFilter 1` | `-uifilter 1` | menu magnification filter: 1 = sharp bilinear (D3D12 shader; Vulkan nearest-then-linear blit), 0 = plain bilinear |
-| `set g_bSimFitWindow 1` | | the flat-screen sim renders at the window's size (windowed) or the monitor's (borderless) instead of `display.xml`'s, for that session only; never in VR |
+| `set g_bSimFitWindow 1` | | **off by default until flown.** The flat-screen sim renders at the window's size (windowed) or the monitor's (borderless) instead of `display.xml`'s, for that session only; never in VR |
 | | `-renderer dx12\|vulkan` | renderer for this run only (the harness's `-Renderer`); the saved option is untouched |
 
 Stock behaviour is unchanged when none are set.
