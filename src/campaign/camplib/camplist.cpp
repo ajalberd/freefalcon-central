@@ -1372,6 +1372,8 @@ void InactivateUnit(UnitClass *unit)
     AllParentList->Remove(unit);
     AllRealList->Remove(unit);
     RealUnitProxList->Remove(unit);
-    // insert into inactive
-    InactiveList->Insert(unit);
+    // insert into inactive (idempotent: a unit can be seen inactive by more
+    // than one scan before its flag is cleared, and the list allows duplicates)
+    if (not InactiveList->Find(unit))
+        InactiveList->Insert(unit);
 }

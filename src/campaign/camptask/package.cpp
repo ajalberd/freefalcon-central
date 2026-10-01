@@ -1384,11 +1384,16 @@ int PackageClass::RecordFlightAddition(Flight flight, MissionRequest mis,
                 bw = tw;
 
             ShiAssert(bw and tw and aw and eaw)
+            // Release drops the assert; a mission that lacks one of these
+            // waypoints used to dereference NULL here and crash the campaign.
+            if (bw and tw and aw and eaw)
+            {
                 // copy ingress and egress paths to package
                 w = bw->GetNextWP();
-            ingress = CloneWPToList(aw, w);
-            w = eaw->GetNextWP();
-            egress = CloneWPToList(tw, w);
+                ingress = CloneWPToList(aw, w);
+                w = eaw->GetNextWP();
+                egress = CloneWPToList(tw, w);
+            }
         }
     }
 

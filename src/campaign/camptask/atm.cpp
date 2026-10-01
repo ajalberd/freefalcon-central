@@ -10,6 +10,8 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <time.h>
+#include <vector>
+#include <algorithm>
 #include "campmap.h"
 #include "cmpglobl.h"
 #include "listadt.h"
@@ -561,6 +563,7 @@ int AirTaskingManagerClass::Task(void)
     flags or_eq ATM_NEW_REQUESTS;
 
     // Now traverse my request list
+    std::vector<MissionRequest> seen;
     lp = requestList->GetLastElement();
 
     while (lp)
@@ -578,6 +581,13 @@ int AirTaskingManagerClass::Task(void)
             continue;
         }
 
+        // The list is walked again from the end after every build (below), so
+        // remember which requests this pass has already looked at.
+        if (std::find(seen.begin(), seen.end(), mis) != seen.end())
+            continue;
+
+        seen.push_back(mis);
+
         if (missionsFilled >= missionsToFill and not mis->action_type and
             not(MissionData[mis->mission].flags bitand AMIS_FLYALWAYS))
             continue;
@@ -594,6 +604,16 @@ int AirTaskingManagerClass::Task(void)
 #ifdef DEBUG_TIMING
         DWORD time = GetTickCount();
 #endif
+
+        // Building can queue support requests, and RequestMission() deletes
+        // any earlier queued request for the same mission and target -- which
+        // could be this one, still in use below (a use-after-free, then a
+        // double free in Remove()). It can equally delete the neighbour `lp`
+        // points at. So take this request off the list while it is built, and
+        // afterwards restart from the end of the list (seen[] skips the rest).
+        CampEnterCriticalSection();
+        requestList->Detach(pp);
+        CampLeaveCriticalSection();
 
         if (mis->flags bitand AMIS_IMMEDIATE)
             res = BuildDivert(mis);
@@ -675,6 +695,8 @@ int AirTaskingManagerClass::Task(void)
                 pc = NULL;
             }
         }
+
+        lp = requestList->GetLastElement();
     }
 
     // we actually finished traversing the whole list.
@@ -1434,6 +1456,7 @@ void AirTaskingManagerClass::ProcessRequest(MissionRequest request)
 
     // Now check to see if a similar mission request is already on the queue
     lp = requestList->GetFirstElement();
+
 
     while (lp)
     {
