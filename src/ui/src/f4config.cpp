@@ -1118,7 +1118,8 @@ float g_fReconZoomRate = 6.0f; // recon zoom, % per unit of panner offset (-5..5
 float g_fUiScale = 1.0f; // menu magnification: the layout is UiWidth/UiScale wide, drawn UiScale times bigger; 0 = auto (layout 768 tall)
 // Artscout - 2026: the flat-screen sim renders at the window's own size (windowed) or the monitor's
 // (borderless), instead of DispWidth x DispHeight stretched to it. Not saved; VR is left alone.
-bool g_bSimFitWindow = true;
+// Off until it has been flown (UI-OVERHAUL.md).
+bool g_bSimFitWindow = false;
 bool g_bUiAdapt = true; // fit the stock layout to a larger surface (ui95/cadapt.cpp); 0 = stock rects
 // Extra .scf files whose windows pin to the surface edges and fill it, on top of the built-in map
 // screens (kEdgesFiles in ui95/cadapt.cpp: campaign, recon, TE). Base names, ';'-separated.
