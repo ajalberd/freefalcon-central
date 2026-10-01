@@ -456,9 +456,19 @@ float GridToSim(GridIndex x)
     return (float)(x * GRID_SIZE_FT) + OffsetToMiddle;
 }
 
+extern int g_nSimToGridFix;
+
 GridIndex SimToGrid(float x)
 {
-    // sfr: added fast float function
+    // GridToSim() returns the CENTRE of the cell (x * size + size / 2), so the sim position
+    // sits exactly half a cell from each boundary. FloatToInt32 rounds to nearest (ties to
+    // even), so single-precision error in that x.5 decided which side it landed on: 553 of
+    // the 1024 grid coordinates read back one cell too high. A ground unit stepping onto such
+    // a cell in a decreasing direction read back where it started and never moved again.
+    // The cell is the floor of the quotient. g_nSimToGridFix 0 restores the old rounding.
+    if (g_nSimToGridFix)
+        return (GridIndex)FloatToInt32(floorf(x / GRID_SIZE_FT));
+
     return (GridIndex)FloatToInt32(x / GRID_SIZE_FT);
 }
 
