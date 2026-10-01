@@ -18,6 +18,7 @@
 #include "voicemapper.h"
 #include "sim/include/fcc.h"
 #include "drawbsp.h"
+#include "graphics/include/fflog.h"
 #include "mlrvoice.h"
 #include "profiler.h"
 
@@ -575,7 +576,20 @@ int F4StartStream(char *filename, long flags)
     if (gSoundDriver)
     {
         // Start KLUDGE
+        // Header was left uninitialised if the file could not be read; a zero nBlockAlign then
+        // divided by zero in AddStreamToMgr (crash clicking "News Report" with a bad stream path).
+        memset(&Header, 0, sizeof(Header));
         gSoundDriver->LoadRiffFormat(filename, &Header, &size, &NumSamples);
+
+        if (Header.nBlockAlign == 0 or Header.nSamplesPerSec == 0)
+        {
+            char msg[400];
+            _snprintf(msg, sizeof(msg) - 1, "F4StartStream: cannot read a wave header from '%s' -- stream skipped",
+                      filename ? filename : "(null)");
+            msg[sizeof(msg) - 1] = 0;
+            FFDebugLog(msg);
+            return (SND_NO_HANDLE);
+        }
 
         if (Header.wFormatTag == WAVE_FORMAT_IMA_ADPCM)
         {
