@@ -2645,6 +2645,16 @@ LRESULT CALLBACK FalconMessageHandler(HWND hwnd, UINT message, WPARAM wParam,
 }
 
 
+#ifdef _WIN32
+// Media Foundation movie player (MovieMF.cpp): kept in its own file because mfplay.h and
+// the game's DirectDraw headers cannot be included together.
+void PlayMovieMF(const char *filename, HWND game);
+static void PlayMovieGpu(const char *filename)
+{
+    PlayMovieMF(filename, FalconDisplay.appWin);
+}
+#endif
+
 void PlayMovie(char *filename, int left, int top, int w, int h,
                void *theSurface)
 {
@@ -2663,8 +2673,11 @@ void PlayMovie(char *filename, int left, int top, int w, int h,
     // so playing a movie (intro logos / campaign cutscenes) would crash. No-op until the player is
     // ported to a D3D11 path. Movies are non-essential, so skipping them is safe.
     extern bool g_bUseD3D12;
-    if (g_bUseD3D12) // #DX12: movie player is DDraw-based; skip under any GPU backend
+    if (g_bUseD3D12) // #DX12: the DDraw player cannot run; play through Media Foundation
+    {
+        PlayMovieGpu(filename);
         return;
+    }
 
     HWND hwnd;
     int hMovie = -1, mode;

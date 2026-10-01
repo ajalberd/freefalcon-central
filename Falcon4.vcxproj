@@ -171,7 +171,7 @@
     </ResourceCompile>
     <Link>
       <AdditionalOptions>/MACHINE:I386 /FORCE:MULTIPLE /SAFESEH:NO %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalDependencies>libCMTd.lib;libCPMTd.lib;libvcruntimed.lib;libucrtd.lib;atls.lib;delayimp.lib;src\Landh\Lib\st80w.lib;comsupp.lib;src\amd\lib\release\amd3d.lib;oldnames.lib;comctl32.lib;winmm.lib;vfw32.lib;wsock32.lib;src\extlibs\openal\libs\win64\OpenAL32.lib;dxguid.lib;dinput8.lib;ddraw.lib;dbghelp.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;$(VULKAN_SDK)\Lib\vulkan-1.lib;version.lib;comsuppwd.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>libCMTd.lib;libCPMTd.lib;libvcruntimed.lib;libucrtd.lib;atls.lib;delayimp.lib;src\Landh\Lib\st80w.lib;comsupp.lib;src\amd\lib\release\amd3d.lib;oldnames.lib;comctl32.lib;winmm.lib;vfw32.lib;mfplay.lib;mfplat.lib;mf.lib;mfuuid.lib;wsock32.lib;src\extlibs\openal\libs\win64\OpenAL32.lib;dxguid.lib;dinput8.lib;ddraw.lib;dbghelp.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;$(VULKAN_SDK)\Lib\vulkan-1.lib;version.lib;comsuppwd.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)FFViper.exe</OutputFile>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <AdditionalLibraryDirectories>$(VULKAN_SDK)\Lib;C:\Falcon4\SP3\ExtLibs;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
@@ -220,7 +220,7 @@
     </ResourceCompile>
     <Link>
       <AdditionalOptions>/FORCE:MULTIPLE %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalDependencies>libCMTd.lib;libCPMTd.lib;libvcruntimed.lib;libucrtd.lib;atls.lib;delayimp.lib;comsupp.lib;oldnames.lib;comctl32.lib;winmm.lib;vfw32.lib;wsock32.lib;src\extlibs\openal\libs\win64\OpenAL32.lib;dxguid.lib;dinput8.lib;ddraw.lib;dbghelp.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;$(VULKAN_SDK)\Lib\vulkan-1.lib;version.lib;comsuppwd.lib;C:\Program Files\NVIDIA Corporation\NVIDIA Texture Tools\lib\x64-v142\nvtt30205.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>libCMTd.lib;libCPMTd.lib;libvcruntimed.lib;libucrtd.lib;atls.lib;delayimp.lib;comsupp.lib;oldnames.lib;comctl32.lib;winmm.lib;vfw32.lib;mfplay.lib;mfplat.lib;mf.lib;mfuuid.lib;wsock32.lib;src\extlibs\openal\libs\win64\OpenAL32.lib;dxguid.lib;dinput8.lib;ddraw.lib;dbghelp.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;$(VULKAN_SDK)\Lib\vulkan-1.lib;version.lib;comsuppwd.lib;C:\Program Files\NVIDIA Corporation\NVIDIA Texture Tools\lib\x64-v142\nvtt30205.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)FFViper.exe</OutputFile>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <AdditionalLibraryDirectories>$(VULKAN_SDK)\Lib;C:\Falcon4\SP3\ExtLibs;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
@@ -279,7 +279,7 @@
     </ResourceCompile>
     <Link>
       <AdditionalOptions>/MACHINE:I386 /FIXED:NO /FORCE:MULTIPLE /SAFESEH:NO %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalDependencies>libCMT.lib;libCPMT.lib;libvcruntime.lib;libucrt.lib;atls.lib;delayimp.lib;src\Landh\Lib\st80w.lib;comsupp.lib;src\amd\lib\release\amd3d.lib;oldnames.lib;comctl32.lib;winmm.lib;vfw32.lib;wsock32.lib;src\extlibs\openal\libs\win64\OpenAL32.lib;dxguid.lib;dinput8.lib;ddraw.lib;dbghelp.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;$(VULKAN_SDK)\Lib\vulkan-1.lib;version.lib;comsuppwd.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>libCMT.lib;libCPMT.lib;libvcruntime.lib;libucrt.lib;atls.lib;delayimp.lib;src\Landh\Lib\st80w.lib;comsupp.lib;src\amd\lib\release\amd3d.lib;oldnames.lib;comctl32.lib;winmm.lib;vfw32.lib;mfplay.lib;mfplat.lib;mf.lib;mfuuid.lib;wsock32.lib;src\extlibs\openal\libs\win64\OpenAL32.lib;dxguid.lib;dinput8.lib;ddraw.lib;dbghelp.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;$(VULKAN_SDK)\Lib\vulkan-1.lib;version.lib;comsuppwd.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)FFViper.exe</OutputFile>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
@@ -334,7 +334,7 @@
     </ResourceCompile>
     <Link>
       <AdditionalOptions>/FIXED:NO /FORCE:MULTIPLE %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalDependencies>libCMT.lib;libCPMT.lib;libvcruntime.lib;libucrt.lib;atls.lib;delayimp.lib;comsupp.lib;oldnames.lib;comctl32.lib;winmm.lib;vfw32.lib;wsock32.lib;src\extlibs\openal\libs\win64\OpenAL32.lib;dxguid.lib;dinput8.lib;ddraw.lib;dbghelp.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;$(VULKAN_SDK)\Lib\vulkan-1.lib;version.lib;comsuppwd.lib;C:\Program Files\NVIDIA Corporation\NVIDIA Texture Tools\lib\x64-v142\nvtt30205.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>libCMT.lib;libCPMT.lib;libvcruntime.lib;libucrt.lib;atls.lib;delayimp.lib;comsupp.lib;oldnames.lib;comctl32.lib;winmm.lib;vfw32.lib;mfplay.lib;mfplat.lib;mf.lib;mfuuid.lib;wsock32.lib;src\extlibs\openal\libs\win64\OpenAL32.lib;dxguid.lib;dinput8.lib;ddraw.lib;dbghelp.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;$(VULKAN_SDK)\Lib\vulkan-1.lib;version.lib;comsuppwd.lib;C:\Program Files\NVIDIA Corporation\NVIDIA Texture Tools\lib\x64-v142\nvtt30205.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)FFViper.exe</OutputFile>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
@@ -392,7 +392,7 @@
     </ResourceCompile>
     <Link>
       <AdditionalOptions>/MACHINE:I386 /FIXED:NO /FORCE:MULTIPLE /SAFESEH:NO %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalDependencies>libCMT.lib;libCPMT.lib;libvcruntime.lib;libucrt.lib;atls.lib;delayimp.lib;src\Landh\Lib\st80w.lib;comsupp.lib;src\amd\lib\release\amd3d.lib;oldnames.lib;comctl32.lib;winmm.lib;vfw32.lib;wsock32.lib;src\extlibs\openal\libs\win64\OpenAL32.lib;dxguid.lib;dinput8.lib;ddraw.lib;dbghelp.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;$(VULKAN_SDK)\Lib\vulkan-1.lib;version.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>libCMT.lib;libCPMT.lib;libvcruntime.lib;libucrt.lib;atls.lib;delayimp.lib;src\Landh\Lib\st80w.lib;comsupp.lib;src\amd\lib\release\amd3d.lib;oldnames.lib;comctl32.lib;winmm.lib;vfw32.lib;mfplay.lib;mfplat.lib;mf.lib;mfuuid.lib;wsock32.lib;src\extlibs\openal\libs\win64\OpenAL32.lib;dxguid.lib;dinput8.lib;ddraw.lib;dbghelp.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;$(VULKAN_SDK)\Lib\vulkan-1.lib;version.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)RedViper.exe</OutputFile>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
@@ -447,7 +447,7 @@
     </ResourceCompile>
     <Link>
       <AdditionalOptions>/FIXED:NO /FORCE:MULTIPLE %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalDependencies>libCMT.lib;libCPMT.lib;libvcruntime.lib;libucrt.lib;atls.lib;delayimp.lib;comsupp.lib;oldnames.lib;comctl32.lib;winmm.lib;vfw32.lib;wsock32.lib;src\extlibs\openal\libs\win64\OpenAL32.lib;dxguid.lib;dinput8.lib;ddraw.lib;dbghelp.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;$(VULKAN_SDK)\Lib\vulkan-1.lib;version.lib;C:\Program Files\NVIDIA Corporation\NVIDIA Texture Tools\lib\x64-v142\nvtt30205.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>libCMT.lib;libCPMT.lib;libvcruntime.lib;libucrt.lib;atls.lib;delayimp.lib;comsupp.lib;oldnames.lib;comctl32.lib;winmm.lib;vfw32.lib;mfplay.lib;mfplat.lib;mf.lib;mfuuid.lib;wsock32.lib;src\extlibs\openal\libs\win64\OpenAL32.lib;dxguid.lib;dinput8.lib;ddraw.lib;dbghelp.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;$(VULKAN_SDK)\Lib\vulkan-1.lib;version.lib;C:\Program Files\NVIDIA Corporation\NVIDIA Texture Tools\lib\x64-v142\nvtt30205.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <OutputFile>$(OutDir)RedViper.exe</OutputFile>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
@@ -469,6 +469,7 @@
   <ItemGroup>
     <ClCompile Include="RedProfiler.cpp" />
     <ClCompile Include="src\ui\src\F4Config.cpp" />
+    <ClCompile Include="src\ui\src\MovieMF.cpp" />
     <ClCompile Include="src\Ui\Src\Winmain.cpp">
       <WarningLevel Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Level3</WarningLevel>
       <WarningLevel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Level3</WarningLevel>
