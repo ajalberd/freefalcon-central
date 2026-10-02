@@ -20,6 +20,7 @@
 extern EventClass **CampEvents;
 
 extern void UI_AddMovieToList(long ID, long timestamp, _TCHAR *Description);
+extern void EventLogAdd(int kind, int id, unsigned long time);
 
 CampEventDataMessage::CampEventDataMessage(VU_ID entityId,
                                            VuTargetEntity *target,
@@ -63,6 +64,7 @@ int CampEventDataMessage::Process(uchar autodisp)
     case playMovie:
         _TCHAR str[128] = {0};
         AddIndexedStringToBuffer(1160 + dataBlock.event - 100, str);
+        EventLogAdd(1, dataBlock.event, TheCampaign.CurrentTime);
         UI_AddMovieToList(dataBlock.event, TheCampaign.CurrentTime,
                           str); // Must be a "localized" string...
         break;
