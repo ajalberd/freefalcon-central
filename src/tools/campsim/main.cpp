@@ -1441,6 +1441,9 @@ int main(int argc, char **argv)
             if ((TheCampaign.CurrentTime % CampaignDay) < CampaignMinutes)
                 DumpCampaign("checkpoint");
 
+            if ((iter % 60) == 0 && vuLocalSessionEntity)
+                printf("SESSREF h=%d ref=%d\n", iter / 60, vuLocalSessionEntity->RefCount());
+
             if ((iter % 360) == 0)
                 for (int tm : {1, 2, 6})
                     printf("LOSS h=%d team %d: ground<-air %d  <-artillery %d  <-ground %d  <-naval %d | air<-air %d  "
