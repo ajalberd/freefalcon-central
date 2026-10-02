@@ -1249,3 +1249,30 @@ is within noise of the old behaviour: ROK/DPRK ground vehicles 76%/34% and 72%/3
 objectives ROK 1326/1343 vs 1353/1340; airborne flights unchanged. Seed 13: fix crashed 0xC0000005 at 0.8 d (known
 timing crash), old ended "we win" (endgame 17) at 2.4 d. Default stays 1 (`g_nBattalionReinforceFix`). Not committed; not in
 the ui-adaptive/rail trees or any game exe yet.
+
+## 2026-10-01 evening: sim fidelity, Campaign Lab, crash + freeze fixes (branch main, no rail)
+
+Install: `C:\FreeFalcon6\FFViper.exe` = main build (rail kept as `FFViper.exe.bak-rail` + `RedViper.pdb.bak-rail`).
+Newest build staged as `FFViper.next.exe` / `RedViper.next.pdb` (game was running): rename over FFViper.exe / RedViper.pdb.
+
+- **campsim skipped the new-campaign setup** (`AdjustCampaignOptions`): unit supply stayed ~37% so DPRK's supply stat fired
+  China at minute 1. Knob `newgame` (default on when no event fired), `ratio=G:A:D:N`, `exp=A:G`. Now DPRK supply 99-100%
+  like the live game; China fires at ~h4-6 via the air ratio (live: Day 1 16:26, ~7.5 h in).
+- **Campaign Lab** GUI: `python tools/campsim/serve.py` -> http://localhost:8770/ (runs, progress, overlay charts incl. the
+  China/Russia trigger stats, event table, crash stacks).
+- **Balance finding**: Blue wins (event 17) at h30-70 in every completed run. Loss attribution (`gLossDiag`): ~92% of DPRK
+  ground losses are air strikes (2,152 vehicles by h6, 4,890 by h36; ~355 from ground combat). Lever: Falcon4.AII
+  `2DHitChanceGround` (1.5): 3 -> win h50-58, 5 -> h57-69, 8 -> h93. Symmetric, but Blue loses only ~41 vehicles to air by
+  h24. Objective strikes don't use it. Undecided: Andrew dismissed the question; nothing changed in game data.
+- **Fixed: day 2-5 crash** - VuEntity refcount was ushort; local session leaks ~4,000 refs/h, wrapped at ~h14, deleted
+  the live session. 32-bit now (Rebuild All). Six 5-day runs incl. two crashing seeds pass.
+- **Fixed: reinforcements re-announced hourly** - SetInactive(0) cleared the flag before InactiveList->Remove, which the
+  filter refused; arrived units stayed listed (55 at h12 -> 0).
+- **Fixed: permanent campaign freeze** - NEW_SYNC handshake waited INFINITE both ways; caught live (clock stopped,
+  both threads waiting, flags not paused), resumed by setting the named events. Waits capped at 250 ms, `THREADSYNC` log.
+- **WIP: player-held ground orders** (`g_bPlayerGroundHold`, default 0). Andrew chose "hold until arrived" + map marker +
+  cfg toggle. With the GTM guard, campsim `holdtest=8` shows held units that stop moving (s6: 1/8 reached) and a
+  playerhold=0 run that died after setup. Next: find what moves a brigade element when the GTM doesn't order it.
+- Other: VuLinkedList::Remove(VU_ID) iterator-after-erase, PackageListCounter::DelObj erase(end()).
+- Git: `main` synced with origin/main; ~12 commits on top, nothing pushed. `.git` holds a 4.66 GB cruft pack from an
+  aborted `git stash -u` that walked the gamework junctions (gamework now in .git/info/exclude); `git gc --prune=now` removes it.
