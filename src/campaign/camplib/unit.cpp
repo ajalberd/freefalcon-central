@@ -3084,6 +3084,19 @@ void UnitClass::SetInactive(int f)
         {
             // activate: have to find a place for list handlings here
 
+            // Artscout - 2026: take the unit off InactiveList BEFORE clearing the flag.
+            // InactiveList is a VuFilteredList whose Remove() only acts when the filter's
+            // RemoveTest passes, and InactiveFilter's RemoveTest requires Inactive(). With
+            // the flag already cleared the Remove below was silently refused, so every
+            // reinforcement stayed on InactiveList after it arrived (~95 by hour 30 of
+            // save0), and AddReinforcements re-activated it and posted another
+            // "reinforcements arrived" news item for it every hour.
+            VuBin<UnitClass> safe(this);
+            const bool listed = InactiveList->Find(this) not_eq NULL;
+
+            if (listed)
+                InactiveList->Remove(this);
+
             ClearDeaggregationData();
             unit_flags and_eq compl U_INACTIVE;
             MakeUnitDirty(DIRTY_UNIT_FLAGS, SEND_SOON);
@@ -3096,10 +3109,8 @@ void UnitClass::SetInactive(int f)
             // (ui/src/common/units.cpp), so airmobile infantry gained a copy
             // every time: one save held three battalions ~43,000 times each,
             // wrapped the 16-bit unit count, and would not load.
-            if (InactiveList->Find(this))
+            if (listed)
             {
-                InactiveList->Remove(this);
-
                 AllUnitList->Insert(this);
                 AllParentList->Insert(this);
 

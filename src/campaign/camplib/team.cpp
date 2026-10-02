@@ -2500,7 +2500,9 @@ void AddReinforcements(Team who, int inc)
     while (u)
     {
         // Activate any waiting reinforcements (note: cargoed units are inactive too, so keep an eye out)
-        if (u->GetTeam() == who and not u->Cargo() and
+        // Artscout - 2026: and only units still waiting -- an already-active unit left on the
+        // list (see UnitClass::SetInactive) was re-announced in the news every hour.
+        if (u->Inactive() and u->GetTeam() == who and not u->Cargo() and
             u->GetUnitReinforcementLevel() <=
                 TeamInfo[who]->GetReinforcement() and
             u->Parent())
