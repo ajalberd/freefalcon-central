@@ -436,6 +436,7 @@ int g_nWeatherFronts = 1;
 // 0 = the old round-to-nearest, under which 553 of 1024 grid coordinates read back one cell too
 // high and a ground unit could never step onto one of them in a decreasing direction.
 int g_nSimToGridFix = 1;
+int g_nBattalionReinforceFix = 1; // campaign: 1 = keep a loaded battalion's reinforcement hour, 0 = old (all arrive at once)
 // New fronts per campaign day, on average. 0 = only the ones already there.
 float g_fWeatherFrontsPerDay = 3.0f;
 // How much the random patches vary the condition: 0 none, 1 about a third
@@ -2162,6 +2163,7 @@ static ConfigOption<int> IntOpts[] = {
     {"Knee3DFont", &g_nKnee3DFont}, // Artscout - 2026 (3D kneeboard)
     {"KneeNavaidFont", &g_nKneeNavaidFont}, // Artscout - 2026 (NAVAIDS)
     {"WeatherFronts", &g_nWeatherFronts}, // Artscout - 2026 (FRONTS): 0 = one condition everywhere
+    {"BattalionReinforceFix", &g_nBattalionReinforceFix}, // 1 = ground reinforcements arrive at their scenario hour, 0 = all at the first tick
     {"SimToGridFix", &g_nSimToGridFix}, // campaign: 1 = floor the sim->grid conversion (ground units can move again), 0 = old rounding
     {"RwrFont", &g_nRwrFont}, // Artscout - 2026 (RWR): -1 = one size below the MFD font, else 0..3
     {"CanopyAttenuation", &g_nCanopyAttenuation}, // Artscout - 2026: extra dB of canopy muffling, 0 = off

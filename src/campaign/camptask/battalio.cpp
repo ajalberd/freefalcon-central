@@ -200,6 +200,8 @@ BattalionClass *NewBattalion(int type, Unit parent)
 }
 
 // constructors
+extern int g_nBattalionReinforceFix;
+
 BattalionClass::BattalionClass(ushort type, Unit parent)
     : GroundUnitClass(type, GetIdFromNamespace(NonVolatileNS))
 {
@@ -209,7 +211,13 @@ BattalionClass::BattalionClass(ushort type, Unit parent)
 BattalionClass::BattalionClass(VU_BYTE **stream, long *rem)
     : GroundUnitClass(stream, rem)
 {
+    // InitLocalData(NULL) zeroes the release level the base class has just read from the save, so every
+    // battalion arrived at the first reinforcement tick whatever hour its scenario gave it (6..96).
+    short savedLevel = (short)GetUnitReinforcementLevel();
     InitLocalData(NULL);
+
+    if (g_nBattalionReinforceFix)
+        SetReinforcement(savedLevel);
 
     memcpychk(&last_move, stream, sizeof(CampaignTime), rem);
     memcpychk(&last_combat, stream, sizeof(CampaignTime), rem);
