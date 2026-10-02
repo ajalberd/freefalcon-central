@@ -1,0 +1,259 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Campaign Lab</title>
+<style>
+  :root { color-scheme: dark; --bg:#101317; --panel:#171b21; --line:#2a313a; --text:#d8dde3; --dim:#8a94a0;
+          --blue:#4aa3ff; --red:#ff5a5a; --amber:#ffc24a; --green:#3ddc84; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.4 system-ui, sans-serif; }
+  header { padding:10px 16px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:baseline; }
+  header h1 { font-size:16px; margin:0; }
+  header .dim { color:var(--dim); }
+  main { display:grid; grid-template-columns: 300px 1fr; min-height: calc(100vh - 44px); }
+  aside { border-right:1px solid var(--line); padding:12px 16px; background:var(--panel); }
+  section { padding:12px 16px; min-width:0; }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:16px 0 6px; }
+  h2:first-child { margin-top:0; }
+  label { display:block; margin:6px 0 2px; color:var(--dim); font-size:12px; }
+  input, select, button { background:#20262e; color:var(--text); border:1px solid #39424d; border-radius:4px; padding:5px 7px; font:inherit; }
+  input[type=number] { width:70px; }
+  input[type=text] { width:100%; }
+  select { width:100%; }
+  .row { display:flex; gap:6px; align-items:center; }
+  .row select { width:auto; }
+  .chk { display:flex; gap:6px; align-items:center; margin:4px 0; color:var(--text); font-size:13px; }
+  .chk input { margin:0; }
+  button { cursor:pointer; }
+  button.primary { background:#2b6cb0; border-color:#3b82d0; width:100%; padding:8px; margin-top:12px; font-weight:600; }
+  button.small { padding:2px 7px; font-size:12px; }
+  .hint { color:var(--dim); font-size:11px; margin-top:2px; }
+  table { border-collapse:collapse; width:100%; }
+  th, td { padding:5px 6px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; white-space:nowrap; }
+  th { color:var(--dim); font-weight:500; font-size:12px; }
+  td.num { text-align:right; font-variant-numeric: tabular-nums; }
+  tr.sel { background:#1c2633; }
+  .bar { height:6px; background:#2a313a; border-radius:3px; width:120px; overflow:hidden; display:inline-block; vertical-align:middle; }
+  .bar > i { display:block; height:100%; background:var(--amber); }
+  .chip { display:inline-block; padding:0 5px; border-radius:3px; background:#262d36; margin:1px 2px 1px 0; font-size:11px; }
+  .chip.c7, .chip.c9 { background:#1d3a5c; } .chip.c11 { background:#5a2323; } .chip.c12 { background:#5a3a14; }
+  .chip.c14, .chip.c15, .chip.c16, .chip.c17 { background:#1f4d33; }
+  .b { color:var(--blue); } .r { color:var(--red); } .g { color:var(--green); } .dim { color:var(--dim); }
+  .state-failed { color:var(--red); } .state-running, .state-queued { color:var(--amber); }
+  #charts { display:grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap:12px; margin-top:10px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:8px 10px; }
+  .card h3 { margin:0 0 6px; font-size:12px; color:var(--dim); font-weight:500; }
+  canvas { width:100%; height:180px; display:block; }
+  .legend span { margin-right:10px; font-size:11px; white-space:nowrap; }
+  .legend i { display:inline-block; width:10px; height:3px; vertical-align:middle; margin-right:4px; }
+  #evtable td { white-space:normal; }
+  .wrap { overflow-x:auto; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } }
+</style>
+<header><h1>Campaign Lab</h1><span class="dim" id="gameinfo"></span><span style="flex:1"></span><a href="viewer.html" style="color:var(--blue)">map replay</a></header>
+<main>
+<aside>
+  <h2>New run</h2>
+  <label>Campaign save</label>
+  <select id="save"></select>
+  <div class="row" style="margin-top:6px">
+    <div><label>Days</label><input type="number" id="days" value="5" min="1" max="60"></div>
+    <div style="flex:1"><label>Seeds</label><input type="text" id="seeds" value="1 2 3 4"></div>
+  </div>
+  <label>Tag (name suffix)</label>
+  <input type="text" id="tag" placeholder="e.g. baseline">
+
+  <h2>Game setup</h2>
+  <label class="chk"><input type="checkbox" id="usecfg" checked> Use FFViper.cfg (as the game does)</label>
+  <label>New-campaign setup</label>
+  <select id="newgame">
+    <option value="">auto (on if no event has fired yet)</option>
+    <option value="1">on: refill supply, apply ratios</option>
+    <option value="0">off: raw save (old campsim behaviour)</option>
+  </select>
+  <label>Force ratios: ground / air / AD / naval (0 weakest - 4 strongest, for the player's side)</label>
+  <div class="row" id="ratios"></div>
+  <label>Enemy experience: air / ground (0 green - 4 ace)</label>
+  <div class="row" id="exps"></div>
+
+  <h2>Experiments</h2>
+  <div class="row"><label class="chk" style="flex:1"><input type="checkbox" id="k_stripair"> Remove DPRK aircraft %</label><input type="number" id="v_stripair" value="50"></div>
+  <div class="row"><label class="chk" style="flex:1"><input type="checkbox" id="k_strip"> Remove DPRK ground %</label><input type="number" id="v_strip" value="25"></div>
+  <div class="row"><label class="chk" style="flex:1"><input type="checkbox" id="k_airtempo"> DPRK air tempo floor %</label><input type="number" id="v_airtempo" value="50"></div>
+  <label class="chk"><input type="checkbox" id="k_abheal"> DPRK airbases self-repair</label>
+  <label class="chk"><input type="checkbox" id="k_simtogrid"> Old SimToGrid bug (stalled ground war)</label>
+  <label>Extra knobs (key=value, space separated)</label>
+  <input type="text" id="extra" placeholder="speed=2 init=6:60">
+  <div class="hint">See tools/campsim/README.md for every knob.</div>
+  <button class="primary" id="go">Start runs</button>
+  <div class="hint" id="gomsg"></div>
+</aside>
+<section>
+  <h2>Runs</h2>
+  <div class="row" style="margin-bottom:6px"><input type="text" id="filter" placeholder="filter runs" style="max-width:260px">
+    <span class="dim" id="selinfo">Tick runs to compare them below.</span></div>
+  <div class="wrap"><table id="runs"><thead><tr>
+    <th></th><th>run</th><th>state</th><th class="num">days</th><th class="num">objectives Blue / DPRK</th>
+    <th class="num">ground left</th><th class="num">aircraft left</th><th>events fired</th><th></th>
+  </tr></thead><tbody></tbody></table></div>
+
+  <h2>Compare</h2>
+  <div id="charts"></div>
+  <h2>Scripted events (first fire, campaign time)</h2>
+  <div class="wrap"><table id="evtable"></table></div>
+</section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const PAL = ['#4aa3ff','#ff5a5a','#3ddc84','#ffc24a','#c77dff','#5ee6e6','#ff8fb1','#b0b8c4'];
+let runs = [], selected = new Set(JSON.parse(localStorageGet('lab.sel') || '[]')), sums = {}, titles = {};
+function localStorageGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function localStorageSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+for (const [id, n] of [['ratios', 4], ['exps', 2]])
+  for (let i = 0; i < n; i++) $(id).insertAdjacentHTML('beforeend',
+    `<select>${[0,1,2,3,4].map(v => `<option ${v === (id === 'ratios' ? 2 : 0) ? 'selected' : ''}>${v}</option>`).join('')}</select>`);
+
+const fmtMin = m => { const d = Math.floor(m / 1440), h = Math.floor(m % 1440 / 60), mm = m % 60;
+  return `D${d + 1} ${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; };
+const pct = (a, b) => b ? Math.round(100 * a / b) + '%' : '-';
+
+async function init() {
+  const s = await fetch('api/saves').then(r => r.json());
+  titles = s.titles || {};
+  $('gameinfo').textContent = 'game dir ' + s.game;
+  $('save').innerHTML = s.saves.map(n => `<option ${n === 'save0.cam' ? 'selected' : ''}>${n}</option>`).join('');
+  refresh(); setInterval(refresh, 3000);
+}
+
+function knobs() {
+  const k = [];
+  if ($('usecfg').checked) k.push('usecfg=1');
+  if ($('newgame').value !== '') k.push('newgame=' + $('newgame').value);
+  const r = [...$('ratios').querySelectorAll('select')].map(s => s.value);
+  if (r.join(':') !== '2:2:2:2') k.push('ratio=' + r.join(':'));
+  const e = [...$('exps').querySelectorAll('select')].map(s => s.value);
+  if (e.join(':') !== '0:0') k.push('exp=' + e.join(':'));
+  if ($('k_stripair').checked) k.push('stripair=6:' + $('v_stripair').value);
+  if ($('k_strip').checked) k.push('strip=6:' + $('v_strip').value);
+  if ($('k_airtempo').checked) k.push('airtempo=6:' + $('v_airtempo').value);
+  if ($('k_abheal').checked) k.push('abheal=6');
+  if ($('k_simtogrid').checked) k.push('simtogrid=0');
+  k.push(...$('extra').value.split(/\s+/).filter(x => /^[a-z]+=/.test(x)));
+  return k;
+}
+
+$('go').onclick = async () => {
+  const seeds = $('seeds').value.split(/[\s,]+/).map(Number).filter(n => n > 0);
+  if (!seeds.length) { $('gomsg').textContent = 'Give at least one seed.'; return; }
+  const body = { save: $('save').value, days: +$('days').value, seeds, tag: $('tag').value.trim(), knobs: knobs() };
+  const r = await fetch('api/run', { method: 'POST', body: JSON.stringify(body) }).then(r => r.json());
+  $('gomsg').textContent = r.started.length ? `Started ${r.started.join(', ')}` : 'Nothing started (already running?)';
+  r.started.forEach(n => selected.add(n)); saveSel(); refresh();
+};
+
+function saveSel() { localStorageSet('lab.sel', JSON.stringify([...selected])); }
+
+async function refresh() {
+  runs = await fetch('api/runs').then(r => r.json());
+  const need = runs.filter(r => (selected.has(r.name) || !sums[r.name] || r.state !== 'done') && r.size)
+                   .filter(r => !sums[r.name] || sums[r.name]._mtime !== r.mtime || r.state !== 'done');
+  // Summaries are cached server side, but a big batch still takes a moment: fetch a few at a time.
+  for (let i = 0; i < need.length; i += 6) {
+    const batch = need.slice(i, i + 6);
+    const res = await fetch('api/summary?' + batch.map(r => 'name=' + encodeURIComponent(r.name)).join('&')).then(r => r.json());
+    res.forEach((s, j) => { s._mtime = batch[j].mtime; sums[s.name] = s; });
+    if (i === 0) render();
+  }
+  render();
+}
+
+function render() {
+  const f = $('filter').value.toLowerCase();
+  const tb = $('runs').querySelector('tbody');
+  tb.innerHTML = runs.filter(r => !f || r.name.toLowerCase().includes(f)).map(r => {
+    const s = sums[r.name] || {};
+    const st = r.state === 'running' && r.progress
+      ? `<span class="bar"><i style="width:${r.progress.pct}%"></i></span> <span class="dim">${r.progress.clock}</span>`
+      : `<span class="state-${r.state}">${r.state === 'done' ? (s.done ? 'complete' : (s.crash ? 'crashed' : 'incomplete')) : r.state}</span>`;
+    const ob = s.obj ? `<span class="b">${s.obj[0][0]}→${s.obj[1][0]}</span> / <span class="r">${s.obj[0][1]}→${s.obj[1][1]}</span>` : '';
+    const gd = s.gnd ? `<span class="b">${pct(s.gnd[1][0], s.gnd[0][0])}</span> / <span class="r">${pct(s.gnd[1][1], s.gnd[0][1])}</span>` : '';
+    const ai = s.air ? `<span class="b">${pct(s.air[1][0], s.air[0][0])}</span> / <span class="r">${pct(s.air[1][1], s.air[0][1])}</span>` : '';
+    const ev = (s.events || []).map(e => `<span class="chip c${e.id}" title="${(e.title || '').replace(/"/g, '&quot;')} — ${fmtMin(e.min)}, DPRK supply ${e.supply}%">${e.id}@${fmtMin(e.min)}</span>`).join('');
+    return `<tr class="${selected.has(r.name) ? 'sel' : ''}">
+      <td><input type="checkbox" data-n="${r.name}" ${selected.has(r.name) ? 'checked' : ''}></td>
+      <td title="${(s.knobs || []).join('\n').replace(/"/g, '&quot;')}">${r.name}</td><td>${st}</td>
+      <td class="num">${s.days ?? ''}</td><td class="num">${ob}</td><td class="num">${gd}</td><td class="num">${ai}</td>
+      <td style="white-space:normal;min-width:240px;max-width:420px">${ev}</td>
+      <td><a class="small" href="viewer.html?run=${encodeURIComponent(r.name)}.jsonl" style="color:var(--blue)">replay</a>
+          ${r.state !== 'running' && r.state !== 'queued' ? `<button class="small" data-del="${r.name}">✕</button>` : ''}</td></tr>`;
+  }).join('');
+  tb.querySelectorAll('input[data-n]').forEach(c => c.onchange = () => {
+    c.checked ? selected.add(c.dataset.n) : selected.delete(c.dataset.n); saveSel(); refresh(); });
+  tb.querySelectorAll('button[data-del]').forEach(b => b.onclick = async () => {
+    if (!confirm('Delete run ' + b.dataset.del + ' (timeline + log)?')) return;
+    await fetch('api/delete', { method: 'POST', body: JSON.stringify({ name: b.dataset.del }) });
+    selected.delete(b.dataset.del); saveSel(); refresh(); });
+  compare();
+}
+
+const CHARTS = [
+  ['Objectives held by Blue', c => c[1]],
+  ['Objectives held by DPRK', c => c[2]],
+  ['DPRK supply level % (China fires at ≤40, Russia at ≤20)', c => c[3], [40, 20]],
+  ['DPRK aircraft (trigger stat)', c => c[4]],
+  ['Blue aircraft (trigger stat)', c => c[5]],
+  ['Ground vehicles: Blue', c => c[6]],
+  ['Ground vehicles: DPRK', c => c[7]],
+];
+
+function compare() {
+  const list = [...selected].map(n => sums[n]).filter(s => s && s.curve && s.curve.length);
+  $('selinfo').textContent = list.length ? `${list.length} run(s) compared` : 'Tick runs to compare them below.';
+  const host = $('charts');
+  if (!list.length) { host.innerHTML = ''; $('evtable').innerHTML = ''; return; }
+  host.innerHTML = CHARTS.map((c, i) => `<div class="card"><h3>${c[0]}</h3><canvas id="ch${i}"></canvas>
+    <div class="legend">${list.map((s, j) => `<span><i style="background:${PAL[j % PAL.length]}"></i>${s.name}</span>`).join('')}</div></div>`).join('');
+  CHARTS.forEach((c, i) => plot($('ch' + i), list, c[1], c[2]));
+  // events table: rows = event ids, cols = runs
+  const ids = [...new Set(list.flatMap(s => s.events.map(e => e.id)))].sort((a, b) => a - b);
+  $('evtable').innerHTML = `<tr><th>event</th>${list.map((s, j) => `<th style="color:${PAL[j % PAL.length]}">${s.name}</th>`).join('')}</tr>` +
+    ids.map(id => `<tr><td><b>${id}</b> <span class="dim">${titles[id] || ''}</span></td>${list.map(s => {
+      const e = s.events.find(e => e.id === id);
+      return `<td>${e ? fmtMin(e.min) + ` <span class="dim">supply ${e.supply}%, ac ${e.ac}</span>` : '<span class="dim">-</span>'}</td>`; }).join('')}</tr>`).join('');
+}
+
+function plot(cv, list, pick, refs) {
+  const dpr = devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const g = cv.getContext('2d'); g.scale(dpr, dpr);
+  const L = 44, R = 8, T = 6, B = 18;
+  let tmax = 1, lo = Infinity, hi = -Infinity;
+  for (const s of list) for (const c of s.curve) { const v = pick(c); if (v == null) continue;
+    tmax = Math.max(tmax, c[0]); lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  if (refs) for (const v of refs) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  if (!isFinite(lo)) return;
+  if (hi - lo < 1) { hi += 1; lo -= 1; }
+  const pad = (hi - lo) * .08; lo -= pad; hi += pad;
+  const X = t => L + (W - L - R) * t / tmax, Y = v => T + (H - T - B) * (1 - (v - lo) / (hi - lo));
+  g.strokeStyle = '#2a313a'; g.fillStyle = '#8a94a0'; g.font = '10px system-ui'; g.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) { const v = lo + (hi - lo) * i / 4, y = Y(v);
+    g.beginPath(); g.moveTo(L, y); g.lineTo(W - R, y); g.stroke(); g.fillText(Math.round(v), 4, y + 3); }
+  const days = Math.ceil(tmax / 1440);
+  for (let d = 0; d <= days; d++) { const x = X(d * 1440); if (x > W - R + 1) break; g.fillText('D' + (d + 1), x + 2, H - 4); }
+  if (refs) { g.setLineDash([4, 4]); g.strokeStyle = '#ffc24a88';
+    for (const v of refs) { g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(W - R, Y(v)); g.stroke(); } g.setLineDash([]); }
+  list.forEach((s, j) => {
+    g.strokeStyle = PAL[j % PAL.length]; g.lineWidth = 1.5; g.beginPath(); let on = false;
+    for (const c of s.curve) { const v = pick(c); if (v == null) continue;
+      on ? g.lineTo(X(c[0]), Y(v)) : g.moveTo(X(c[0]), Y(v)); on = true; }
+    g.stroke();
+    for (const e of s.events) { if (![7, 11, 12, 14, 15, 16, 17].includes(e.id)) continue;
+      g.fillStyle = PAL[j % PAL.length]; g.fillRect(X(e.min) - 1, T, 2, 6); }
+  });
+}
+
+$('filter').oninput = render;
+addEventListener('resize', compare);
+init();
+</script>

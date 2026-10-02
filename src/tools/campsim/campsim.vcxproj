@@ -1,0 +1,398 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{3F1E9A64-8B2D-4C77-9E41-5A6D0C3B7E12}</ProjectGuid>
+    <RootNamespace>campsim</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.28000.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(ProjectDir)..\..\..\packages\OpenXR.Loader.1.1.61\build\native\OpenXR.Loader.props" Condition="Exists('$(ProjectDir)..\..\..\packages\OpenXR.Loader.1.1.61\build\native\OpenXR.Loader.props')" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v145</PlatformToolset>
+    <UseOfMfc>false</UseOfMfc>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v145</PlatformToolset>
+    <UseOfMfc>false</UseOfMfc>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>16.0.30028.132</_ProjectFileVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>$(ProjectDir)..\..\Falcon4___x64_Release\Tools\campsim\</OutDir>
+    <IntDir>$(ProjectDir)..\..\Falcon4___x64_Release\Tools\campsim\</IntDir>
+    <TargetName>campsim</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <OutDir>$(ProjectDir)..\..\Falcon4___x64_Debug\Tools\campsim\</OutDir>
+    <IntDir>$(ProjectDir)..\..\Falcon4___x64_Debug\Tools\campsim\</IntDir>
+    <TargetName>campsim</TargetName>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)..\..;$(ProjectDir)..\..\Falclib\Include;$(ProjectDir)..\..\codelib\include;$(ProjectDir)..\..\Vu2\Include;$(ProjectDir)..\..\Sim\Include;$(ProjectDir)..\..\Campaign\Include;$(ProjectDir)..\..\UI\Include;$(ProjectDir)..\..\Graphics\Include;$(ProjectDir)..\..\amd\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_CONSOLE;NDEBUG;_LIB;TARGET=m_i486;WIN32;STRICT;WIN32_LEAN_AND_MEAN;_WIN32_WINNT=0x0500;_CRT_SECURE_NO_DEPRECATE;WINDOWS_IGNORE_PACKING_MISMATCH;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <StringPooling>true</StringPooling>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <StructMemberAlignment>Default</StructMemberAlignment>
+      <FunctionLevelLinking>false</FunctionLevelLinking>
+      <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
+      <PrecompiledHeaderOutputFile>$(IntDir)campsim.pch</PrecompiledHeaderOutputFile>
+      <AssemblerOutput>NoListing</AssemblerOutput>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
+      <WarningLevel>Level3</WarningLevel>
+      <SuppressStartupBanner>true</SuppressStartupBanner>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <CompileAs>Default</CompileAs>
+    </ClCompile>
+    <Link>
+      <AdditionalOptions>/FIXED:NO /FORCE:MULTIPLE %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalDependencies>libCMT.lib;libCPMT.lib;libvcruntime.lib;libucrt.lib;atls.lib;delayimp.lib;comsupp.lib;oldnames.lib;comctl32.lib;winmm.lib;vfw32.lib;wsock32.lib;$(ProjectDir)..\..\extlibs\openal\libs\win64\OpenAL32.lib;dxguid.lib;dinput8.lib;ddraw.lib;dbghelp.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;$(VULKAN_SDK)\Lib\vulkan-1.lib;version.lib;comsuppwd.lib;C:\Program Files\NVIDIA Corporation\NVIDIA Texture Tools\lib\x64-v142\nvtt30205.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <OutputFile>$(OutDir)campsim.exe</OutputFile>
+      <SuppressStartupBanner>true</SuppressStartupBanner>
+      <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ProgramDatabaseFile>$(OutDir)campsim.pdb</ProgramDatabaseFile>
+      <SubSystem>Console</SubSystem>
+      <OptimizeReferences>false</OptimizeReferences>
+      <RandomizedBaseAddress>false</RandomizedBaseAddress>
+      <DataExecutionPrevention>
+      </DataExecutionPrevention>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)..\..;$(ProjectDir)..\..\Falclib\Include;$(ProjectDir)..\..\codelib\include;$(ProjectDir)..\..\Vu2\Include;$(ProjectDir)..\..\Sim\Include;$(ProjectDir)..\..\Campaign\Include;$(ProjectDir)..\..\UI\Include;$(ProjectDir)..\..\Graphics\Include;$(ProjectDir)..\..\amd\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_CONSOLE;_DEBUG;_LIB;TARGET=m_i486;WIN32;STRICT;WIN32_LEAN_AND_MEAN;_WIN32_WINNT=0x0500;_CRT_SECURE_NO_DEPRECATE;WINDOWS_IGNORE_PACKING_MISMATCH;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <PrecompiledHeaderOutputFile>$(IntDir)campsim.pch</PrecompiledHeaderOutputFile>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ProgramDataBaseFileName>$(IntDir)</ProgramDataBaseFileName>
+      <WarningLevel>Level3</WarningLevel>
+      <SuppressStartupBanner>true</SuppressStartupBanner>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <CompileAs>Default</CompileAs>
+    </ClCompile>
+    <Link>
+      <AdditionalOptions>/FIXED:NO /FORCE:MULTIPLE %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalDependencies>libCMTd.lib;libCPMTd.lib;libvcruntimed.lib;libucrtd.lib;atls.lib;delayimp.lib;comsupp.lib;oldnames.lib;comctl32.lib;winmm.lib;vfw32.lib;wsock32.lib;$(ProjectDir)..\..\extlibs\openal\libs\win64\OpenAL32.lib;dxguid.lib;dinput8.lib;ddraw.lib;dbghelp.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;$(VULKAN_SDK)\Lib\vulkan-1.lib;version.lib;comsuppwd.lib;C:\Program Files\NVIDIA Corporation\NVIDIA Texture Tools\lib\x64-v142\nvtt30205.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <OutputFile>$(OutDir)campsim.exe</OutputFile>
+      <SuppressStartupBanner>true</SuppressStartupBanner>
+      <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <ProgramDatabaseFile>$(OutDir)campsim.pdb</ProgramDatabaseFile>
+      <SubSystem>Console</SubSystem>
+      <OptimizeReferences>false</OptimizeReferences>
+      <RandomizedBaseAddress>false</RandomizedBaseAddress>
+      <DataExecutionPrevention>
+      </DataExecutionPrevention>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="stubs.cpp" />
+    <ClCompile Include="..\..\ui\src\f4config.cpp" />
+    <ClCompile Include="..\..\ui\src\winmain.cpp" />
+    <ClCompile Include="..\..\..\RedProfiler.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Graphics\3Dlib\3DLib.vcxproj">
+      <Project>{13256DB2-A84D-4755-9EFC-BEECDA61713C}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\UI\SRC\campaign\Campaign.vcxproj">
+      <Project>{3052A8D3-71F3-4502-BD4D-37C0CC1B1176}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\CAMPAIGN\CAMPLIB\CampLib.vcxproj">
+      <Project>{137E2465-7871-46AB-990A-8B53B26E6067}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\CAMPAIGN\CAMPTASK\CampTask.vcxproj">
+      <Project>{9F3DC08D-F3AB-45BA-BDEC-D6E416C5C09A}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\CAMPAIGN\CAMPTOOL\CampTool.vcxproj">
+      <Project>{D7932B34-4576-43BA-9287-757C91C1F09B}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\CAMPAIGN\CAMPUI\CampUI.vcxproj">
+      <Project>{AB408B12-A8E9-4BA2-A312-92DF930559EF}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\CAMPAIGN\CAMPUPD\CampUpd.vcxproj">
+      <Project>{1B95EBF6-D3A4-49F1-8DB7-CB3058A5FFCF}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\comms\Comms.vcxproj">
+      <Project>{32EAB4B3-5B0D-4205-8DCE-99FF97B7EEA5}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\crashhandler\crashhandler.vcxproj">
+      <Project>{06FEDAB4-0B59-4B15-8B9B-CC74F4D96C07}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Graphics\DDstuff\DDStuff.vcxproj">
+      <Project>{8ED5D803-EFF2-4B5B-86AF-831FF6A5A7F7}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Graphics\DXEngine\DXEngine.vcxproj">
+      <Project>{59BECA8E-1370-4D6E-BCA7-C6948601471A}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\FALCLIB\FalcLib.vcxproj">
+      <Project>{279B8DEB-3C4A-4B2C-9055-AA50F7405219}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\FalcSnd\FalcSnd.vcxproj">
+      <Project>{F08AB66A-0C6F-4382-97D7-C46C375D3C24}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\codelib\tools\lists\Lists.vcxproj">
+      <Project>{0052E7E5-99E4-45A5-AF65-89C997DA37A1}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\movie\Movie.vcxproj">
+      <Project>{D2F5AB8E-A793-4817-A476-3FB9F9ACB384}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\Navaids\Navaids.vcxproj">
+      <Project>{25056C8F-66B0-4E5F-9F93-2E0BA7A22C4C}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Graphics\Objects\Objects.vcxproj">
+      <Project>{4A1ABFED-DEB8-4E1F-9B8B-7DD0EC45F433}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\OTWDRIVE\OTWDrive.vcxproj">
+      <Project>{501002DB-C2C6-4963-968F-991A56811A75}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\codelib\resources\reslib\ResMgr.vcxproj">
+      <Project>{637040B7-E832-4567-AB76-56A0521AFA9E}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\SIMDRIVE\SimDrive.vcxproj">
+      <Project>{D180A90E-67BF-46E5-939E-744FD76B5BD1}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\SIMINPUT\SimInput.vcxproj">
+      <Project>{1D825AA7-EAB1-47D0-AC9A-C44DB4F0DDFC}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\SIMLIB\SimLib.vcxproj">
+      <Project>{19AC892E-EB8C-46BE-A73D-D69AD23C41F3}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\SimLoop\SimLoop.vcxproj">
+      <Project>{5D9EEB30-2BC8-42CD-B76F-06FB46492B08}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Graphics\Renderer\Renderer.vcxproj">
+      <Project>{6275F50C-0337-4201-9CDB-F58FD5A66D65}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Graphics\Terrain\Terrain.vcxproj">
+      <Project>{FCEA447D-B717-4C0E-ABDB-25355EFFD63B}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Graphics\Texture\Texture.vcxproj">
+      <Project>{8A0E07A2-5623-4742-AD92-ADC5310C425A}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\TOOLS.vcxproj">
+      <Project>{DB08A361-37B1-4D37-AE4C-52C3F654DAB4}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\UI\UI.vcxproj">
+      <Project>{EC52C00E-CD89-44E8-B356-F8A173F8ED40}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\ui95\ui95.vcxproj">
+      <Project>{3BE385A8-D11D-4E54-BCEE-443CE3C81DBC}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\ui95_ext\UI95_ext.vcxproj">
+      <Project>{264AB5CD-FB0C-497A-A30F-3EAC9624DC7B}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\UI\SRC\comms\UIComms.vcxproj">
+      <Project>{5D2D31C8-287E-4970-9425-B45745B3874C}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Graphics\Utils\Utils.vcxproj">
+      <Project>{A0377AAE-3C21-4841-BA46-333B7835490C}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\vu2\Vu2.vcxproj">
+      <Project>{24640B5C-06A2-46FC-8B9F-49779489AE6D}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Graphics\Weather\Weather.vcxproj">
+      <Project>{7B84E881-F7A3-41D0-802A-6C9238018427}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\ACMI\Acmi.vcxproj">
+      <Project>{4B65F64A-C572-44DA-834F-47CDDE6381FE}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\Aircraft\Aircraft.vcxproj">
+      <Project>{7937590F-BA3E-4537-87E3-98863770AC81}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\Airframe\Airframe.vcxproj">
+      <Project>{3042720A-4B53-4B35-A354-031A0D79C226}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\BOMB\Bomb.vcxproj">
+      <Project>{916C9938-FB28-4452-92B7-FF27DF0F858F}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Graphics\BSPlib\BSPLib.vcxproj">
+      <Project>{A9AF41A2-348D-40FC-A7AD-601A944E1D2F}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\Cockpit\Cockpit.vcxproj">
+      <Project>{C008F3F5-C2A9-49C0-8798-30D3B83A6CC2}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\UI\SRC\common\Common.vcxproj">
+      <Project>{5050729B-EFD8-4ED4-800D-41575F41B225}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\DIGI\Digi.vcxproj">
+      <Project>{36A59546-6E25-4436-B4F5-C113DECCCF3C}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\DISPLAYS\Displays.vcxproj">
+      <Project>{30F114E1-84F8-4C54-B897-97BAEE1CF481}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\eject\Eject.vcxproj">
+      <Project>{D8956702-2871-46F0-82D5-62034C5F7285}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\FAULTS\Faults.vcxproj">
+      <Project>{B1251ABE-8BBE-4D89-B9C4-F253C4760855}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\FCC\FCC.vcxproj">
+      <Project>{8F024CCA-883D-4A35-AAE1-99169C50B94E}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\FEATURE\Feature.vcxproj">
+      <Project>{9AB683D2-C834-4543-BF4B-F4C50AD5D16E}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\GROUND\Ground.vcxproj">
+      <Project>{335948B2-69EB-4949-A264-A5A14ABE5BDA}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\GUNS\Guns.vcxproj">
+      <Project>{3C79FE0F-78F0-4451-99A9-E2EE9CEFE39A}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\hdigi\HDigi.vcxproj">
+      <Project>{30BA2DFE-D99E-4576-986A-834B868BEFD9}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\Helo\Helo.vcxproj">
+      <Project>{BA98EF88-F5FA-4BFD-A6C8-1EA4445026C9}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\ICP\ICP.vcxproj">
+      <Project>{F0F3C561-1BEF-48C0-9708-9C588F326DB4}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\IRST\Irst.vcxproj">
+      <Project>{F02BF74B-FDB5-4E64-B232-554ADE43DF1A}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\MISSILE\Missile.vcxproj">
+      <Project>{D3B8701D-46C8-425A-BF3E-2D856ED8F732}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\RADAR\Radar.vcxproj">
+      <Project>{0A406638-92B3-4109-97A4-8CE1391550E0}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\RWR\Rwr.vcxproj">
+      <Project>{5AFB5B41-122D-4929-9EC6-279F88934DD9}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\SIM\VISUAL\Visual.vcxproj">
+      <Project>{608E8FEB-FB0D-43E1-8615-91FAFA182B89}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\ui95_ext\UI95_ext.vcxproj">
+      <Project>{264AB5CD-FB0C-497A-A30F-3EAC9624DC7B}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\UI\SRC\dogfight\UIDogfight.vcxproj">
+      <Project>{BA2CB060-F7CC-4258-B356-C743BE43937E}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\UI\SRC\general\UIGeneral.vcxproj">
+      <Project>{C89E7CFD-2B9C-4AEA-8F9E-B29747933F9B}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\UI\SRC\instant\UIInstant.vcxproj">
+      <Project>{30816680-DB76-4485-AA3D-3FC966390C0E}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\UI\SRC\logbook\UILogbook.vcxproj">
+      <Project>{A66FFC82-B2F9-48FF-B169-EC911B9E7512}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\UI\SRC\setup\UISetup.vcxproj">
+      <Project>{DE5206A9-EF00-4233-A3E1-08DF65E1AB65}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\UI\SRC\taceng\UITaceng.vcxproj">
+      <Project>{12A1697C-7EB4-4BA0-9764-7386B91C4FEB}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\UI\SRC\tacref\UITacref.vcxproj">
+      <Project>{08082B97-E1DA-491A-ACDA-E555342C9F82}</Project>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(ProjectDir)..\..\..\packages\OpenXR.Loader.1.1.61\build\native\OpenXR.Loader.targets" Condition="Exists('$(ProjectDir)..\..\..\packages\OpenXR.Loader.1.1.61\build\native\OpenXR.Loader.targets')" />
+  </ImportGroup>
+</Project>
