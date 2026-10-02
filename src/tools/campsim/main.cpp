@@ -1403,6 +1403,13 @@ int main(int argc, char **argv)
     InterlockedExchange(&gTicklerRun, 0);
     Sleep(50);
 
+    // ...and then stop it for good. It used to stay parked in campaign_wait_for_sim(INFINITE),
+    // since campsim has no sim thread to wake it; with the handshake waits capped at 250 ms
+    // (threadmgr.cpp) it woke four times a second and dispatched VU messages concurrently with
+    // this thread -- two threads in ATM::ProcessRequest corrupted the request list
+    // (ListClass::Insert crash, a_none-mod-s61 day 2).
+    ThreadManager::stop_campaign_thread();
+
     // From here the main thread drains the VU queue itself, between ticks. A
     // background pump ran message handlers that edit the ATM request list
     // while Task() was walking it (use-after-free in ListClass::Remove).
