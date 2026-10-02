@@ -4,6 +4,7 @@
 #include "debuggr.h"
 #include "f4thread.h"
 #include "falclib.h"
+#include "../graphics/include/fflog.h"
 
 int ThreadManager::initialized = FALSE;
 HANDLE ThreadManager::campaign_wait_event;
@@ -43,16 +44,44 @@ void ThreadManager::start_campaign_thread(UFUNCTION function)
     fast_campaign();
 }
 
+// Artscout - 2026: the NEW_SYNC handshake had both threads wait INFINITE on each other's
+// auto-reset event. One lost wake-up (e.g. the extra signal StopSim sends while the sim
+// thread leaves its loop without answering the campaign) froze the campaign for good: a live
+// game was caught with the clock stopped, the campaign thread in campaign_wait_for_sim and the
+// sim thread in sim_wait_for_campaign, neither using CPU; setting both events by hand resumed
+// it. Cap the waits so a lost wake-up costs one short stall, and log it.
+static const DWORD kSyncWaitCap = 250; // ms
+
+static bool SyncWait(HANDLE ev, DWORD maxwait, const char *who)
+{
+    const bool forever = (maxwait == INFINITE);
+
+    if (WaitForSingleObject(ev, forever ? kSyncWaitCap : maxwait) not_eq WAIT_TIMEOUT)
+        return true;
+
+    if (forever)
+    {
+        static LONG s_logged = 0;
+
+        if (InterlockedIncrement(&s_logged) <= 20)
+        {
+            char line[160];
+            sprintf(line, "THREADSYNC: %s waited %lu ms with no signal (lost wake-up, recovered)\n", who,
+                    kSyncWaitCap);
+            FFDebugLog(line);
+        }
+    }
+
+    return false;
+}
+
 bool ThreadManager::campaign_wait_for_sim(DWORD maxwait)
 {
 #if not NEW_SYNC
     ResetEvent(campaign_wait_event);
 #endif
 
-    return WaitForSingleObject(campaign_wait_event, maxwait) not_eq
-                   WAIT_TIMEOUT ?
-               true :
-               false;
+    return SyncWait(campaign_wait_event, maxwait, "campaign");
 }
 
 
@@ -67,9 +96,7 @@ bool ThreadManager::sim_wait_for_campaign(DWORD maxwait)
     ResetEvent(sim_wait_event);
 #endif
 
-    return WaitForSingleObject(sim_wait_event, maxwait) not_eq WAIT_TIMEOUT ?
-               true :
-               false;
+    return SyncWait(sim_wait_event, maxwait, "sim");
 }
 
 
