@@ -584,8 +584,24 @@ int F4StartStream(char *filename, long flags)
         if (Header.nBlockAlign == 0 or Header.nSamplesPerSec == 0)
         {
             char msg[400];
-            _snprintf(msg, sizeof(msg) - 1, "F4StartStream: cannot read a wave header from '%s' -- stream skipped",
-                      filename ? filename : "(null)");
+            // Say why: a failed open (and its error) reads very differently from a header the parser rejects.
+            DWORD openErr = 0, fileSize = 0;
+            HANDLE probe = filename ? CreateFile(filename, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+                                                 FILE_ATTRIBUTE_NORMAL, NULL)
+                                    : INVALID_HANDLE_VALUE;
+
+            if (probe == INVALID_HANDLE_VALUE)
+                openErr = GetLastError();
+            else
+            {
+                fileSize = GetFileSize(probe, NULL);
+                CloseHandle(probe);
+            }
+
+            _snprintf(msg, sizeof(msg) - 1,
+                      "F4StartStream: cannot read a wave header from '%s' (open error %lu, size %lu, fmt tag %u, "
+                      "cwd-relative) -- stream skipped",
+                      filename ? filename : "(null)", openErr, fileSize, (unsigned)Header.wFormatTag);
             msg[sizeof(msg) - 1] = 0;
             FFDebugLog(msg);
             return (SND_NO_HANDLE);

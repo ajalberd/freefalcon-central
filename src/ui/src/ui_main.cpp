@@ -1450,7 +1450,17 @@ void PlayThatFunkyMusicWhiteBoy()
     }
     else
     {
-        gMusic->StartInteractive(rand() bitand 0x01, 0);
+        long section = rand() bitand 0x01;
+
+        // On the campaign screen the music follows how the war is going: slow when losing, fast when winning
+        // (the engine still drifts between sections as it plays).
+        if (MusicTypePlayed == 2 and FalconLocalSession and TeamInfo[FalconLocalSession->GetTeam()])
+        {
+            const int rating = TeamInfo[FalconLocalSession->GetTeam()]->playerRating;
+            section = (rating >= 5) ? C_Music::MUSIC_FAST : C_Music::MUSIC_SLOW;
+        }
+
+        gMusic->StartInteractive(section, 0);
         LastTypePlayed = 2;
     }
 }
