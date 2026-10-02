@@ -45,6 +45,7 @@
 #include "path.h"
 #include "atm.h"
 #include "playerop.h"
+#include "battalion.h"
 #include <dbghelp.h>
 #include "package.h"
 #include "entity.h"
@@ -758,6 +759,80 @@ static int gAbHeal[NUM_TEAMS];
 static int gCrashTest;
 // noend=1 -- keep simulating after the engine declares the campaign over (crash hunting)
 static int gNoEnd;
+// holdtest=N -- give N ROK battalions a "player" order (capture the nearest DPRK objective),
+// exactly as the campaign map's waypoint drag does, and log hourly whether the AI keeps it.
+static int gHoldTest;
+static VU_ID gHoldIds[16];
+static VU_ID gHoldObj[16];
+extern int gPlayerOrdering;
+extern bool g_bPlayerGroundHold;
+
+static void HoldTestStart(void)
+{
+    VuListIterator uit(AllUnitList);
+    int n = 0;
+
+    for (Unit u = GetFirstUnit(&uit); u && n < gHoldTest && n < 16; u = GetNextUnit(&uit))
+    {
+        if (!u->IsBattalion() || u->GetTeam() != 2 || !u->Parent() || u->GetMovementType() == NoMove ||
+            u->GetUnitNormalRole() == GRO_AIRDEFENSE || u->GetUnitNormalRole() == GRO_FIRESUPPORT)
+            continue;
+
+        GridIndex x, y, ox, oy;
+        u->GetLocation(&x, &y);
+        Objective best = NULL;
+        float bd = 1e9f;
+        VuListIterator oit(AllObjList);
+
+        for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+        {
+            if (o->GetTeam() != 6)
+                continue;
+
+            o->GetLocation(&ox, &oy);
+            float d = Distance(x, y, ox, oy);
+
+            if (d < bd)
+                bd = d, best = o;
+        }
+
+        if (!best || bd > 40.0f)
+            continue;
+
+        gPlayerOrdering = 1;
+        ((Battalion)u)->SetUnitOrders(GORD_CAPTURE, best->Id());
+        gPlayerOrdering = 0;
+
+        if (g_bPlayerGroundHold)
+            u->SetPlayerHeld(1);
+
+        gHoldIds[n] = u->Id();
+        gHoldObj[n] = best->Id();
+        printf("HOLDTEST start bn camp=%d -> capture obj %d (%.0f km) held=%d\n", (int)u->GetCampID(),
+               (int)best->GetCampID(), bd, u->PlayerHeld() ? 1 : 0);
+        n++;
+    }
+}
+
+static void HoldTestLog(int hour)
+{
+    for (int i = 0; i < 16 && gHoldIds[i] != FalconNullId; i++)
+    {
+        Unit u = FindUnit(gHoldIds[i]);
+
+        if (!u)
+            continue;
+
+        GridIndex x, y, ox, oy;
+        u->GetLocation(&x, &y);
+        Objective o = (Objective)vuDatabase->Find(gHoldObj[i]);
+        o ? o->GetLocation(&ox, &oy) : (void)(ox = x, oy = y);
+        printf("HOLD h=%d bn=%d orders=%d keepsPlayerObj=%d held=%d dist=%.1f km objTeam=%d broken=%d\n", hour,
+               (int)u->GetCampID(), (int)u->GetUnitOrders(), u->GetUnitObjectiveID() == gHoldObj[i] ? 1 : 0,
+               u->PlayerHeld() ? 1 : 0, Distance(x, y, ox, oy), o ? (int)o->GetTeam() : -1,
+               u->Broken() ? 1 : 0);
+    }
+}
 
 static void ApplyAbHeal(void)
 {
@@ -964,6 +1039,10 @@ static void ApplyKnobs(int argc, char **argv)
         }
         else if (!strcmp(key, "crashtest"))
             gCrashTest = atoi(val);
+        else if (!strcmp(key, "holdtest"))
+            gHoldTest = atoi(val);
+        else if (!strcmp(key, "playerhold"))
+            g_bPlayerGroundHold = atoi(val) != 0, printf("KNOB g_bPlayerGroundHold = %d\n", (int)g_bPlayerGroundHold);
         else if (!strcmp(key, "noend"))
             gNoEnd = atoi(val), printf("KNOB noend: run continues past the endgame\n");
         else if (!strcmp(key, "hcg"))
@@ -1440,6 +1519,12 @@ int main(int argc, char **argv)
 
             if ((TheCampaign.CurrentTime % CampaignDay) < CampaignMinutes)
                 DumpCampaign("checkpoint");
+
+            if (gHoldTest && iter == 1)
+                HoldTestStart();
+
+            if (gHoldTest && (iter % 60) == 0 && iter <= 60 * 24)
+                HoldTestLog(iter / 60);
 
             if ((iter % 60) == 0 && vuLocalSessionEntity)
                 printf("SESSREF h=%d ref=%d\n", iter / 60, vuLocalSessionEntity->RefCount());

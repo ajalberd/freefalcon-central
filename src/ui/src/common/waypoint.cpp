@@ -2282,9 +2282,19 @@ void WaypointCB(long ID, short hittype, class C_Base *ctrl)
 
                     if (un->IsBattalion())
                     {
+                        // Artscout - 2026: the player's order beats the AI's (see
+                        // BattalionClass::SetUnitOrders); the unit is held until it arrives.
+                        extern int gPlayerOrdering;
+                        extern bool g_bPlayerGroundHold;
                         CampEnterCriticalSection();
+                        gPlayerOrdering = 1;
                         tactical_set_orders((Battalion)un, FalconNullId, gx,
                                             gy);
+                        gPlayerOrdering = 0;
+
+                        if (g_bPlayerGroundHold and un->GetUnitObjective())
+                            un->SetPlayerHeld(1);
+
                         CampLeaveCriticalSection();
                         return;
                     }

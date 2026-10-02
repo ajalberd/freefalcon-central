@@ -534,8 +534,9 @@ int BattalionClass::MoveUnit(CampaignTime time)
     // Check if we have a valid objective
     lo = GetUnitObjective();
 
+    // (a player-held unit keeps the objective the player chose even if the GTM would not)
     if (not lo or
-        (Parent() and (FalconLocalGame->GetGameType() == game_Campaign) and
+        (Parent() and not PlayerHeld() and (FalconLocalGame->GetGameType() == game_Campaign) and
          not TeamInfo[GetTeam()]->gtm->IsValidObjective(GetOrders(), lo)))
     {
         if (Parent())
@@ -605,7 +606,7 @@ int BattalionClass::MoveUnit(CampaignTime time)
         }
     }
     else if (GetUnitTactic() == GTACTIC_MOVE_BRIGADE_COLUMN and
-             GetUnitElement())
+             GetUnitElement() and not PlayerHeld())
     {
         // We want to follow the previous battalion, unless we're closer to our destination in which
         // case we hang out off the road and wait for the other unit to pass
@@ -676,6 +677,10 @@ int BattalionClass::MoveUnit(CampaignTime time)
     }
     else
     {
+        // At the destination the player chose: hand the unit back to the AI.
+        if (PlayerHeld())
+            SetPlayerHeld(0);
+
         if (Retreating() and not Engaged())
         {
             // We've retreated to our destination
@@ -709,7 +714,7 @@ int BattalionClass::MoveUnit(CampaignTime time)
     }
 
     // Make some adjustments for certain tactics
-    if ((GetUnitTactic() == GTACTIC_MOVE_BRIGADE_COLUMN) and GetUnitElement())
+    if ((GetUnitTactic() == GTACTIC_MOVE_BRIGADE_COLUMN) and GetUnitElement() and not PlayerHeld())
     {
         Unit u = NULL, brig;
         GridIndex px, py, pwx, pwy;
@@ -1168,8 +1173,26 @@ CampaignHeading FindBestHeading(Objective o, int type, int own)
     return h;
 }
 
+// Artscout - 2026: player ground orders that stick. When the player drags a battalion on the
+// campaign map, the UI sets gPlayerOrdering around its SetUnitOrders call and then marks the
+// unit U_PLAYER_HELD. While held, every AI re-tasking (GTM, the brigade, the battalion's own
+// objective-validity check) is refused, so the player's order lasts until the unit arrives
+// (released in MoveUnit) or breaks (released here, so it can retreat). Measured before this:
+// a re-ordered battalion's order lasted a median of 3 h, a quarter of them under 1 h.
+// FFViper.cfg: set g_bPlayerGroundHold 0 for the stock behaviour.
+int gPlayerOrdering = 0;
+extern bool g_bPlayerGroundHold;
+
 void BattalionClass::SetUnitOrders(int neworders, VU_ID oid)
 {
+    if (PlayerHeld() and not gPlayerOrdering)
+    {
+        if (g_bPlayerGroundHold and not Broken())
+            return;
+
+        SetPlayerHeld(0); // broken (or the feature is off): the AI takes it back
+    }
+
 #ifdef DEBUG
 
     if (gDumping)

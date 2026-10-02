@@ -924,6 +924,17 @@ int GroundTaskingManagerClass::AssignUnit(Unit u, int orders, Objective o,
     if (not u or not o)
         return 0;
 
+    // Artscout - 2026: a battalion the player moved keeps the player's order (see
+    // BattalionClass::SetUnitOrders). Refusing SetUnitOrders alone was not enough: this
+    // function then overwrote the objective directly and set U_ORDERED, which threw away
+    // the player's route (campsim holdtest: a held unit ended 34 km from its target).
+    {
+        extern bool g_bPlayerGroundHold;
+
+        if (g_bPlayerGroundHold and u->PlayerHeld() and not u->Broken())
+            return 0;
+    }
+
 #ifdef KEV_GDEBUG
     AssignedCount[orders]++;
 #endif

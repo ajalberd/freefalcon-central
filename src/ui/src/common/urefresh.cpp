@@ -487,6 +487,25 @@ void UI_Refresher::UpdateMapItem(CampEntity entity)
             else
                 MapItem_->Flags and_eq compl C_BIT_ENABLED;
         }
+        else if (entity->IsBattalion() and MapItem_ and MapItem_->Label)
+        {
+            // Artscout - 2026: mark battalions the player has moved (U_PLAYER_HELD) --
+            // yellow label with " [HELD]"; back to normal once the AI has the unit again.
+            _TCHAR name[80];
+            const int held = ((Unit)entity)->PlayerHeld();
+            entity->GetName(name, 49, FALSE);
+
+            if (held)
+                _tcscat(name, _T(" [HELD]"));
+
+            const _TCHAR *cur = MapItem_->Label->GetText();
+
+            if (not cur or _tcscmp(cur, name))
+            {
+                MapItem_->Label->SetText(gStringMgr->GetText(gStringMgr->AddText(name)));
+                MapItem_->Label->SetFgColor(held ? 0x0000ffff : 0x00f0f0f0);
+            }
+        }
     }
     else if (entity->IsObjective())
     {

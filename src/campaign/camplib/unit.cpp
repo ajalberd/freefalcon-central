@@ -2790,6 +2790,19 @@ void UnitClass::SetAssigned(int p)
         unit_flags and_eq compl U_ASSIGNED;
 }
 
+void UnitClass::SetPlayerHeld(int p)
+{
+    if ((p not_eq 0) == (PlayerHeld() not_eq 0))
+        return;
+
+    if (p)
+        unit_flags or_eq U_PLAYER_HELD;
+    else
+        unit_flags and_eq compl U_PLAYER_HELD;
+
+    MakeUnitDirty(DIRTY_UNIT_FLAGS, SEND_SOON);
+}
+
 void UnitClass::SetOrdered(int p)
 {
     if (p)
