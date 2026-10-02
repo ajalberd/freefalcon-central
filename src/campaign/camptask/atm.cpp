@@ -45,6 +45,7 @@
 #include "invalidbufferexception.h"
 
 #include "debuggr.h"
+extern int gAtmDiag[NUM_TEAMS][24];
 
 //#define TEST_SCRAMBLE 1
 
@@ -629,6 +630,7 @@ int AirTaskingManagerClass::Task(void)
                   GetTickCount() - time,
                   (res == PRET_SUCCESS) ? "Success" : "Failure");
 #endif
+        gAtmDiag[owner][10 + (res < 0 or res > 12 ? 12 : res)]++;
         CampEnterCriticalSection();
 
         switch (res)
@@ -1554,6 +1556,10 @@ void AirTaskingManagerClass::ProcessRequest(MissionRequest request)
 }
 
 // This finds the best squadron to assign to a given mission.
+// CAMPSIM DIAGNOSTIC: FindBestAir rejection reasons / BuildPackage results per team
+int gAtmDiag[NUM_TEAMS][24] = {{0}};
+#define ATMD(r) (gAtmDiag[owner][(r)]++)
+
 Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
                                              GridIndex by)
 {
@@ -1618,7 +1624,7 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
 
             // 2001-07-05 ADDED BY S.G. DON'T USE IF THE RELOCATION TIMER HASN'T EXPIRED
             if (sq->squadronRetaskAt > Camp_GetCurrentTime())
-                continue;
+                { ATMD(0); continue; }
 
             // END OF ADDED SECTION
 
@@ -1640,7 +1646,7 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
             // M.N. bring back to original state, this change gives us AWACS flying Sweep missions...:-)
             // if ( max(score,1) <= lowestScore)
             if (score <= lowestScore)
-                continue;
+                { ATMD(1); continue; }
 
             // KCK HACK TO FORCE ONLY ALERT MISSIONS (TO TRACK DOWN THE SCRAMBLE STUFF)
 #ifdef TEST_SCRAMBLE
@@ -1663,19 +1669,19 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
 
             if ((caps bitand stats) not_eq caps or
                 (service and not(service bitand stats)))
-                continue;
+            { ATMD(2); continue; }
 
             // 2001-04-26 ADDED BY S.G. SO STEALTH AIRCRAFT ARE NOT TASKED DURING DAYTIME. ONLY AT NIGHT...
             if (TimeOfDayGeneral(mis->tot) not_eq TOD_NIGHT and
                 (stats bitand VEH_STEALTH))
-                continue;
+                { ATMD(3); continue; }
 
             // END OF ADDED SECTION
 
 
             if ((MissionData[mis->mission].flags bitand AMIS_NPC_ONLY) and
                 TheCampaign.IsValidAircraftType(sq))
-                continue;
+                { ATMD(4); continue; }
 
             // Check range
             speed = (float)sq->GetCruiseSpeed();
@@ -1698,7 +1704,7 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
                     db = (MissionData[mis->mission].loitertime * speed) / 60.0F;
 
                     if (d + db > sq->GetUnitRange())
-                        continue;
+                        { ATMD(5); continue; }
                 }
 
                 // Airlift missions must come from another airbase
@@ -1712,7 +1718,7 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
                  MissionData[mis->mission].flags bitand AMIS_MATCHSPEED))
             {
                 if (sq->GetMaxSpeed() < mis->speed or speed > mis->speed * 1.2F)
-                    continue;
+                    { ATMD(6); continue; }
 
                 speed = (float)mis->speed;
             }
@@ -1726,7 +1732,7 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
             {
                 if (mis->tot_type not_eq TYPE_NE and
                     mis->tot_type <= TYPE_EQ) // Not going to be here in time
-                    continue;
+                    { ATMD(7); continue; }
 
                 // Otherwise, shift our estimate
                 land += scheduleTime - to;
@@ -1765,7 +1771,7 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
             if ((av < mis->aircraft - 1 and
                  not(mis->flags bitand REQF_USERESERVES)) or
                 av < 1)
-                continue;
+                { ATMD(8); continue; }
 
             // Check against airbase schedule for this block and previous block
             airbase = FindATMAirbase(sq->GetUnitAirbaseID());
@@ -1774,7 +1780,7 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
                 (airbase->schedule[mis->start_block] == ATM_CYCLE_FULL and
                  (not mis->start_block or
                   airbase->schedule[mis->start_block - 1] == ATM_CYCLE_FULL)))
-                continue;
+            { ATMD(9); continue; }
 
             // Calculate it's score
             if (TheCampaign.IsValidAircraftType(
