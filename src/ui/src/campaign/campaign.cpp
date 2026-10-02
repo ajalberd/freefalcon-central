@@ -461,7 +461,8 @@ void AddToNewsWindow(long timestamp, _TCHAR *desc, long MovieID)
 
     if (win)
     {
-        _stprintf(buffer, "%02ld:%02ld  %s",
+        _stprintf(buffer, "Day %ld %02ld:%02ld  %s",
+                  (long)(timestamp / CampaignDay) - (long)TheCampaign.DayZero + 1,
                   (timestamp / (60 * 60 * 1000)) % 24,
                   (timestamp / (60 * 1000)) % 60, desc);
         btn = new C_Button;
@@ -493,6 +494,28 @@ void AddToNewsWindow(long timestamp, _TCHAR *desc, long MovieID)
         {
             btn->SetFlagBitOff(C_BIT_INVISIBLE);
             btn->Refresh();
+        }
+    }
+}
+
+// The news clips that have already played in this campaign (kept in the save, see cmpevent.cpp):
+// put them back in the News Report list, without playing them again.
+extern void AddIndexedStringToBuffer(int sid, _TCHAR *buffer);
+extern int EventLogSize(void);
+extern int EventLogGet(int i, int *kind, int *id, unsigned long *time);
+
+static void RestoreNewsList()
+{
+    for (int i = 0; i < EventLogSize(); i++)
+    {
+        int kind, id;
+        unsigned long time;
+        _TCHAR str[128] = {0};
+
+        if (EventLogGet(i, &kind, &id, &time) and kind == 1)
+        {
+            AddIndexedStringToBuffer(1160 + id - 100, str);
+            AddToNewsWindow((long)time, str, id);
         }
     }
 }
@@ -1306,6 +1329,7 @@ void CampaignSetup() // Everything that needs to be done to start the campaign (
     gMapMgr->SetBullsEye(x * FEET_PER_KM,
                          (TheCampaign.TheaterSizeY - y) * FEET_PER_KM);
     SetMapSettings();
+    RestoreNewsList();
     ReadyToPlayMovie = TRUE;
     PlayCampaignMusic();
     StartMovieQ();

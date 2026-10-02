@@ -39,6 +39,57 @@
 EventClass** CampEvents = NULL;
 short CE_Events = 0;
 
+// ============================
+// Event history
+// ============================
+// Which events fired and which news clips played, and when. The .evt member only keeps one
+// flag per event; the history is appended after that table (magic, count, entries) so older
+// readers, which stop after the flags, still load the file. Used to rebuild the News Report
+// when a save is loaded and by the campaign editor.
+#define EVT_LOG_MAX 64
+#define EVT_LOG_MAGIC 0x32545645 // "EVT2"
+
+struct EventLogEntry
+{
+    short kind; // 0 = event fired, 1 = news clip played
+    short id; // event number, or movie id for kind 1
+    unsigned int time; // campaign time, ms
+};
+
+static EventLogEntry EventLog[EVT_LOG_MAX];
+static int EventLogCount = 0;
+
+void EventLogAdd(int kind, int id, unsigned long time)
+{
+    for (int i = 0; i < EventLogCount; i++)
+        if (EventLog[i].kind == kind and EventLog[i].id == id and EventLog[i].time == (unsigned int)time)
+            return;
+
+    if (EventLogCount >= EVT_LOG_MAX)
+        return;
+
+    EventLog[EventLogCount].kind = (short)kind;
+    EventLog[EventLogCount].id = (short)id;
+    EventLog[EventLogCount].time = (unsigned int)time;
+    EventLogCount++;
+}
+
+int EventLogSize(void)
+{
+    return EventLogCount;
+}
+
+int EventLogGet(int i, int* kind, int* id, unsigned long* time)
+{
+    if (i < 0 or i >= EventLogCount)
+        return 0;
+
+    *kind = EventLog[i].kind;
+    *id = EventLog[i].id;
+    *time = EventLog[i].time;
+    return 1;
+}
+
 #define CE_MAX_TRIGGERED 3
 
 // ============================
@@ -126,6 +177,9 @@ void EventClass::SetEvent(int status)
 
     if (status)
     {
+        if (not (flags bitand CE_FIRED))
+            EventLogAdd(0, event, TheCampaign.CurrentTime);
+
         flags or_eq CE_FIRED;
         msg->dataBlock.status = 1;
     }
@@ -370,6 +424,8 @@ void ReadSpecialCampaignData(char* scenario)
 
 int NewCampaignEvents(char* scenario)
 {
+    EventLogCount = 0;
+
     // Read in and allocate the event database
     ReadNumberOfEvents(scenario);
 
@@ -388,6 +444,7 @@ int LoadCampaignEvents(char* filename, char* scenario)
     short i, events;
 
     ReadNumberOfEvents(scenario);
+    EventLogCount = 0;
     CampaignData cd = ReadCampFile(filename, "evt");
 
     if (cd.dataSize == -1)
@@ -398,6 +455,9 @@ int LoadCampaignEvents(char* filename, char* scenario)
     data_ptr = (uchar*)cd.data;
 
     events = *((short*)data_ptr);
+    short savedEvents = events;
+    uchar* historyAt = data_ptr + sizeof(short) + 4 * (savedEvents > 0 ? savedEvents : 0);
+    long historyLeft = cd.dataSize - (long)(historyAt - (uchar*)cd.data);
     data_ptr += sizeof(short);
     long dataSize = cd.dataSize - sizeof(short);
 
@@ -409,6 +469,16 @@ int LoadCampaignEvents(char* filename, char* scenario)
 
     for (; i < CE_Events; i++)
         CampEvents[i] = new EventClass(i);
+
+    // History trailer (absent in older saves)
+    if (historyLeft >= 6 and *((int*)historyAt) == EVT_LOG_MAGIC)
+    {
+        short n = *((short*)(historyAt + 4));
+        EventLogEntry* e = (EventLogEntry*)(historyAt + 6);
+
+        for (int k = 0; k < n and k < EVT_LOG_MAX and 6 + (k + 1) * (long)sizeof(EventLogEntry) <= historyLeft; k++)
+            EventLogAdd(e[k].kind, e[k].id, e[k].time);
+    }
 
     delete cd.data;
     return 1;
@@ -429,6 +499,12 @@ int SaveCampaignEvents(char* filename)
 
         for (i = 0; i < CE_Events; i++)
             CampEvents[i]->Save(fp);
+
+        int magic = EVT_LOG_MAGIC;
+        short n = (short)EventLogCount;
+        fwrite(&magic, sizeof(int), 1, fp);
+        fwrite(&n, sizeof(short), 1, fp);
+        fwrite(EventLog, sizeof(EventLogEntry), EventLogCount, fp);
     }
     else
     {
