@@ -840,10 +840,42 @@ async function victoryPanel(file) {
 
     wrap.appendChild(campaignTextPanel(file, tri));
 
+    // Which scripted events have fired in this file. A scenario has none; a
+    // save carries the flags (they say that an event fired, not when).
+    if (tri.events && tri.events.length) {
+      const nFired = tri.events.filter(e => e.fired).length;
+      wrap.appendChild(el('div', {class: 'panel'}, [
+        el('header', {}, [
+          el('h3', {text: 'Events fired'}),
+          el('span', {class: 'hint', text: tri.eventsFromSave
+            ? nFired + ' of ' + tri.events.length + ' in this file'
+            : 'no saved state'}),
+        ]),
+        el('div', {class: 'panel-body'}, [
+          el('div', {class: 'ev-grid'}, tri.events.map(e => el('div', {
+            class: 'ev-chip' + (e.fired ? ' fired' : ''),
+            title: e.fired ? 'fired in this file' : 'not fired',
+          }, [
+            el('b', {text: '#' + e.id}),
+            el('span', {text: ' ' + (e.title || '')}),
+            el('em', {text: e.fired ? (e.day ? 'Day ' + e.day + ' ' + e.clock : 'FIRED') : ''}),
+          ]))),
+          (tri.eventHistory && tri.eventHistory.length) ? el('div', {class: 'ev-hist'}, tri.eventHistory.map(h => el('div', {}, [
+            el('b', {text: 'Day ' + h.day + ' ' + h.clock}),
+            el('span', {text: (h.kind === 'movie' ? '  news clip: ' : '  event: ') + (h.title || ('#' + h.id))}),
+          ]))) : null,
+          el('p', {class: 'note', text:
+            'Open an Auto Save or any save to see what has happened in that ' +
+            'campaign; a fresh scenario shows nothing fired. Saves made with the ' +
+            'current game also record when each event fired.'}),
+        ]),
+      ]));
+    }
+
     const listing = el('div', {class: 'panel-body script'});
     for (const row of tri.outline) {
       listing.appendChild(el('div', {
-        class: 'sl sl-' + row.kind,
+        class: 'sl sl-' + row.kind + (row.fired ? ' sl-fired' : ''),
         style: 'padding-left:' + (row.depth * 18) + 'px',
       }, [
         row.comment

@@ -1057,6 +1057,11 @@ def api_map(q, _body):
                          is_player_squadron(player_id, u.get("id"))),
             "wp": len(u.get("waypoints", [])),
             "makeup": unit_makeup(names, drow),
+            # U_INACTIVE (0x20000, "generally reinforcements"): the unit exists in the
+            # save but is off the map until the team's reinforcement counter reaches
+            # `arrives` (campaign hours; one point per hour, see WIP-NOTES.md).
+            "inactive": bool(u.get("unitFlags", 0) & 0x20000),
+            "arrives": u.get("reinforcement") or 0,
         }
 
         # The fields the map's condition panel and quick actions edit.
@@ -1101,6 +1106,7 @@ def api_map(q, _body):
             "name": place_name(nametab, names, o),
             "icon": icon_for(o["classIndex"], otbl),
             "tacan": stations.get(o["campId"], {}).get("label", ""),
+            "campId": o["campId"],
         })
 
     teams = []
@@ -2461,6 +2467,39 @@ def api_triggers(q, _body):
     for row in outline:
         row["note"] = _script_row_note(row, movies, write_only)
 
+    # Which scripted events have fired in THIS file (a scenario has none; a save
+    # carries the flags in its .evt member).
+    fired = triggers.fired_events(cam.member("evt"))
+    titles = triggers.event_titles(sc.lines)
+    for row in outline:
+        if row.get("verb") in ("DO_EVENT", "RESET_EVENT", "IF_EVENT_PLAYED",
+                               "SET_EVENT") and row.get("args"):
+            try:
+                ev = int(row["args"][0])
+            except ValueError:
+                continue
+            row["event"] = ev
+            row["fired"] = ev in fired
+    event_ids = sorted(set(titles) | set(fired))
+    hist = triggers.event_history(cam.member("evt"))
+    day_zero = (cam.header.fields.get("DayZero", 0) if cam.header else 0) or 0
+    when = {}
+    for h in hist:
+        if h["kind"] == "event":
+            when[h["id"]] = h["time"]          # the last time it fired
+    events = []
+    for i in event_ids:
+        e = {"id": i, "title": titles.get(i, ""), "fired": i in fired}
+        if i in when:
+            e["day"], e["clock"] = triggers.describe_time(when[i], day_zero)
+            e["time"] = when[i]
+        events.append(e)
+    history = []
+    for h in sorted(hist, key=lambda x: x["time"]):
+        day, clock = triggers.describe_time(h["time"], day_zero)
+        history.append({"kind": h["kind"], "id": h["id"], "day": day, "clock": clock,
+                        "title": titles.get(h["id"], "") if h["kind"] == "event" else
+                                 (movies.get(h["id"]) or {}).get("title", "") if isinstance(movies, dict) else ""})
     slot = camptext.slot_of(name)
     text = ws.campaign_text()
     blurb = camptext.blurb_from_script(ends)
@@ -2480,6 +2519,9 @@ def api_triggers(q, _body):
                   "comment": n.comment} for n in sc.init],
         "endgames": ends,
         "outline": outline,
+        "events": events,
+        "eventHistory": history,
+        "eventsFromSave": cam.member("evt") is not None,
         "writeOnlyEvents": write_only,
         "deadActions": sorted(triggers.DEAD_ACTIONS),
         "watched": watched,

@@ -508,3 +508,82 @@ class Script:
             fp.write("".join(self.lines))
         os.replace(tmp, path)
         self.dirty = False
+
+
+# --- which scripted events have fired ----------------------------------------
+
+CE_FIRED = 0x08          # EventClass flag, src/campaign/include/cmpevent.h
+
+
+def fired_events(evt):
+    """`.evt` member -> {event id: flags} for every event with its fired bit set.
+
+    The member is a short count followed by (short event, short flags) pairs
+    (`SaveCampaignEvents`). It records only the state, not when an event fired.
+    """
+    import struct
+    if not evt or len(evt) < 2:
+        return {}
+    count = struct.unpack_from("<h", evt, 0)[0]
+    out = {}
+    for i in range(max(0, count)):
+        at = 2 + 4 * i
+        if at + 4 > len(evt):
+            break
+        ev, flags = struct.unpack_from("<hh", evt, at)
+        if flags & CE_FIRED:
+            out[ev] = flags
+    return out
+
+
+def event_titles(lines):
+    """{event id: "China joins the war"} from the `// Event #N` comment blocks."""
+    import re
+    titles = {}
+    cur = None
+    for line in lines:
+        text = line.strip()
+        m = re.match(r"//\s*Event\s*#\s*(\d+)\s*$", text, re.I)
+        if m:
+            cur = int(m.group(1))
+            continue
+        if cur is not None:
+            if text.startswith("//"):
+                note = text.lstrip("/").strip()
+                if note:
+                    titles[cur] = note
+                    cur = None
+            elif text:
+                cur = None
+    return titles
+
+
+def event_history(evt):
+    """The history trailer of a `.evt` member -> [{"kind": "event"|"movie", "id", "time"}].
+
+    Written by the game after the flag table (`EVT2`, count, then kind/id/time entries,
+    `cmpevent.cpp`): which events fired and which news clips played, with the campaign
+    time in ms. Saves from before this existed have no trailer, and give [].
+    """
+    import struct
+    if not evt or len(evt) < 2:
+        return []
+    count = struct.unpack_from("<h", evt, 0)[0]
+    at = 2 + 4 * max(0, count)
+    if at + 6 > len(evt) or evt[at:at + 4] != b"EVT2":
+        return []
+    n = struct.unpack_from("<h", evt, at + 4)[0]
+    out = []
+    for i in range(max(0, n)):
+        off = at + 6 + 8 * i
+        if off + 8 > len(evt):
+            break
+        kind, ident, t = struct.unpack_from("<hhI", evt, off)
+        out.append({"kind": "movie" if kind else "event", "id": ident, "time": t})
+    return out
+
+
+def describe_time(ms, day_zero):
+    """Campaign ms -> (campaign day starting at 1, "HH:MM")."""
+    day = ms // 86400000
+    return int(day - day_zero + 1), "%02d:%02d" % ((ms // 3600000) % 24, (ms // 60000) % 60)
