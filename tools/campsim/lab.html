@@ -175,7 +175,9 @@ function render() {
     const s = sums[r.name] || {};
     const st = r.state === 'running' && r.progress
       ? `<span class="bar"><i style="width:${r.progress.pct}%"></i></span> <span class="dim">${r.progress.clock}</span>`
-      : `<span class="state-${r.state}">${r.state === 'done' ? (s.done ? 'complete' : (s.crash ? 'crashed' : 'incomplete')) : r.state}</span>`;
+      : s.crash && !s.done
+        ? `<span class="state-failed" title="${[s.crash, ...(s.stack || [])].join('\n').replace(/"/g, '&quot;')}">crashed ⓘ</span>`
+        : `<span class="state-${r.state}">${r.state === 'done' ? (s.done ? 'complete' : 'incomplete') : r.state}</span>`;
     const ob = s.obj ? `<span class="b">${s.obj[0][0]}→${s.obj[1][0]}</span> / <span class="r">${s.obj[0][1]}→${s.obj[1][1]}</span>` : '';
     const gd = s.gnd ? `<span class="b">${pct(s.gnd[1][0], s.gnd[0][0])}</span> / <span class="r">${pct(s.gnd[1][1], s.gnd[0][1])}</span>` : '';
     const ai = s.air ? `<span class="b">${pct(s.air[1][0], s.air[0][0])}</span> / <span class="r">${pct(s.air[1][1], s.air[0][1])}</span>` : '';
@@ -186,10 +188,13 @@ function render() {
       <td class="num">${s.days ?? ''}</td><td class="num">${ob}</td><td class="num">${gd}</td><td class="num">${ai}</td>
       <td style="white-space:normal;min-width:240px;max-width:420px">${ev}</td>
       <td><a class="small" href="viewer.html?run=${encodeURIComponent(r.name)}.jsonl" style="color:var(--blue)">replay</a>
+          ${r.state === 'queued' ? `<button class="small" data-cancel="${r.name}">cancel</button>` : ''}
           ${r.state !== 'running' && r.state !== 'queued' ? `<button class="small" data-del="${r.name}">✕</button>` : ''}</td></tr>`;
   }).join('');
   tb.querySelectorAll('input[data-n]').forEach(c => c.onchange = () => {
     c.checked ? selected.add(c.dataset.n) : selected.delete(c.dataset.n); saveSel(); refresh(); });
+  tb.querySelectorAll('button[data-cancel]').forEach(b => b.onclick = async () => {
+    await fetch('api/cancel', { method: 'POST', body: JSON.stringify({ name: b.dataset.cancel }) }); refresh(); });
   tb.querySelectorAll('button[data-del]').forEach(b => b.onclick = async () => {
     if (!confirm('Delete run ' + b.dataset.del + ' (timeline + log)?')) return;
     await fetch('api/delete', { method: 'POST', body: JSON.stringify({ name: b.dataset.del }) });
@@ -200,9 +205,10 @@ function render() {
 const CHARTS = [
   ['Objectives held by Blue', c => c[1]],
   ['Objectives held by DPRK', c => c[2]],
-  ['DPRK supply level % (China fires at ≤40, Russia at ≤20)', c => c[3], [40, 20]],
-  ['DPRK aircraft (trigger stat)', c => c[4]],
-  ['Blue aircraft (trigger stat)', c => c[5]],
+  ['DPRK supply level % (China fires below 40, Russia below 20)', c => c[3], [40, 20]],
+  ['Air ratio DPRK/ROK ×10 (China fires below 6, Russia below 3)', c => c[8], [6, 3]],
+  ['DPRK aircraft (trigger stat: aircraft × airbase status)', c => c[4]],
+  ['ROK aircraft (trigger stat)', c => c[5]],
   ['Ground vehicles: Blue', c => c[6]],
   ['Ground vehicles: DPRK', c => c[7]],
 ];

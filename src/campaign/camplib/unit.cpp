@@ -584,6 +584,8 @@ void UnitClass::BroadcastUnitMessage(VU_ID id, short msg, short d1, short d2,
 // HOWEVER, it them broadcasts a FalconWeaponFireMessage which will generate visual effects,
 // update remote copies of this entity, call the mission evaluation/event storage routines,
 // and add any craters we require.
+int gLossDiag[NUM_TEAMS][8] = {{0}};
+
 int UnitClass::ApplyDamage(FalconCampWeaponsFire* cwfm, uchar bonusToHit)
 {
     MoveType mt;
@@ -755,6 +757,23 @@ int UnitClass::ApplyDamage(FalconCampWeaponsFire* cwfm, uchar bonusToHit)
     // if (shooter->IsFlight())
     // MonoPrint("%d (%d,%d) took %d losses from %d (%d,%d). range = %d\n",GetCampID(),tx,ty,currentLosses,shooter->GetCampID(),sx,sy,range);
 #endif
+
+    // Artscout - 2026: who kills whom, always on (read by tools/campsim; the game never reads it).
+    // Indexed by the TARGET's team: 0 battalion<-flight, 1 battalion<-artillery, 2 battalion<-other
+    // ground, 3 battalion<-naval/other, 4 flight<-flight, 5 flight<-ground/naval.
+    {
+        extern int gLossDiag[NUM_TEAMS][8];
+        int t = GetTeam(), k = -1;
+
+        if (IsBattalion())
+            k = shooter->IsFlight() ? 0 : (shooter->IsBattalion() and shooter->GetUnitNormalRole() == GRO_FIRESUPPORT) ? 1 :
+                shooter->IsBattalion() ? 2 : 3;
+        else if (IsFlight())
+            k = shooter->IsFlight() ? 4 : 5;
+
+        if (k >= 0 and t >= 0 and t < NUM_TEAMS)
+            gLossDiag[t][k] += currentLosses;
+    }
 
 #ifdef KEEP_STATISTICS
 

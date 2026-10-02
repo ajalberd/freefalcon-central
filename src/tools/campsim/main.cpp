@@ -45,8 +45,7 @@
 #include "path.h"
 #include "atm.h"
 #include "playerop.h"
-#include "../../crashhandler/bugslayerutil.h"
-#include "../../crashhandler/crashhandler.h"
+#include <dbghelp.h>
 #include "package.h"
 #include "entity.h"
 #include "falcent.h"
@@ -55,6 +54,7 @@
 extern "C" {
 #include "codelib/resources/reslib/src/resmgr.h"
 extern "C++" int gAtmDiag[NUM_TEAMS][24];
+extern "C++" int gLossDiag[NUM_TEAMS][8];
 #include "cmpevent.h"
 extern "C++" EventClass **CampEvents;
 extern "C++" short CE_Events;
@@ -85,7 +85,13 @@ static void ReinfLog(int hour)
         {
             if (!u->Inactive())
             {
-                staleInList++;
+                if (staleInList++ < 4 && (hour == 1 || hour == 12))
+                    printf("STALE h=%d id=%u team=%d %s camp=%d reinf=%d parent=%d inAll=%d cargo=%d dead=%d veh=%d\n", hour,
+                           (unsigned)u->Id().num_, (int)u->GetTeam(),
+                           u->IsBattalion() ? "bn" : u->IsSquadron() ? "sq" : u->IsBrigade() ? "brig" : u->IsTaskForce() ? "tf" : "other",
+                           (int)u->GetCampID(), (int)u->GetUnitReinforcementLevel(), (int)u->Parent(),
+                           AllUnitList->Find(u) ? 1 : 0, (int)u->Cargo(), (int)u->IsDead(), (int)u->GetTotalVehicles());
+
                 continue;
             }
             int k = u->IsBattalion() ? 0 : (u->IsSquadron() ? 1 : 2);
@@ -691,6 +697,19 @@ static void TimelineFrame(CampaignTime startTime)
         TlPrintf("]");
     }
 
+    // cumulative vehicles lost by the team, by shooter (unit.cpp gLossDiag)
+    TlPrintf("],\"lo\":[");
+
+    for (int tm = 0; tm < NUM_TEAMS; tm++)
+    {
+        TlPrintf("%s[", tm ? "," : "");
+
+        for (int k = 0; k < 6; k++)
+            TlPrintf("%s%d", k ? "," : "", gLossDiag[tm][k]);
+
+        TlPrintf("]");
+    }
+
     TlPrintf("],\"ev\":[");
 
     for (int i = 1, f = 0; i < CE_Events && i < 64; i++)
@@ -735,6 +754,10 @@ static void TimelineFrame(CampaignTime startTime)
 static int gAirTempo[NUM_TEAMS];
 // abheal=T -- every few ticks, repair every damaged feature of team T's airbases and airstrips.
 static int gAbHeal[NUM_TEAMS];
+// crashtest=N -- fault on purpose at tick N (checks the crash logger)
+static int gCrashTest;
+// noend=1 -- keep simulating after the engine declares the campaign over (crash hunting)
+static int gNoEnd;
 
 static void ApplyAbHeal(void)
 {
@@ -939,6 +962,14 @@ static void ApplyKnobs(int argc, char **argv)
 
             printf("KNOB airtempo team %d floor %d%% of pending requests\n", team, pct);
         }
+        else if (!strcmp(key, "crashtest"))
+            gCrashTest = atoi(val);
+        else if (!strcmp(key, "noend"))
+            gNoEnd = atoi(val), printf("KNOB noend: run continues past the endgame\n");
+        else if (!strcmp(key, "hcg"))
+            HitChanceGround = (float)atof(val), printf("KNOB 2DHitChanceGround = %.2f\n", HitChanceGround);
+        else if (!strcmp(key, "hca"))
+            HitChanceAir = (float)atof(val), printf("KNOB 2DHitChanceAir = %.2f\n", HitChanceAir);
         else if (!strcmp(key, "savecam"))
         {
             strncpy(gSaveCam, val, sizeof(gSaveCam) - 1);
@@ -1065,21 +1096,52 @@ static LONG __stdcall CampsimCrashFilter(EXCEPTION_POINTERS *ep)
     if (InterlockedExchange(&inCrash, 1))
         return EXCEPTION_CONTINUE_SEARCH;
 
-    char line[160];
-    wsprintfA(line, "\nCRASH at campaign min %d (day %d)\nreason : ", (int)(TheCampaign.CurrentTime / CampaignMinutes),
-              (int)TheCampaign.GetCampaignDay());
+    char line[600];
+    EXCEPTION_RECORD *er = ep->ExceptionRecord;
+    wsprintfA(line, "\nCRASH at campaign min %d (day %d): code 0x%08X at %p",
+              (int)(TheCampaign.CurrentTime / CampaignMinutes), (int)TheCampaign.GetCampaignDay(),
+              (unsigned)er->ExceptionCode, er->ExceptionAddress);
     CrashOut(line);
-    CrashOut(GetFaultReason(ep));
-    CrashOut("\nstack:\n");
-    const DWORD opts = GSTSO_MODULE | GSTSO_SYMBOL | GSTSO_SRCLINE;
-    LPCTSTR frame = GetFirstStackTraceString(opts, ep);
 
-    for (int guard = 0; frame && guard < 64; guard++)
+    if (er->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && er->NumberParameters >= 2)
     {
-        CrashOut("  ");
-        CrashOut(frame);
-        CrashOut("\n");
-        frame = GetNextStackTraceString(opts, ep);
+        wsprintfA(line, " (%s %p)", er->ExceptionInformation[0] ? "write" : "read",
+                  (void *)er->ExceptionInformation[1]);
+        CrashOut(line);
+    }
+
+    CrashOut("\nstack:\n");
+    HANDLE proc = GetCurrentProcess(), thr = GetCurrentThread();
+    CONTEXT ctx = *ep->ContextRecord;
+    STACKFRAME64 sf = {};
+    sf.AddrPC.Offset = ctx.Rip;
+    sf.AddrPC.Mode = AddrModeFlat;
+    sf.AddrFrame.Offset = ctx.Rbp;
+    sf.AddrFrame.Mode = AddrModeFlat;
+    sf.AddrStack.Offset = ctx.Rsp;
+    sf.AddrStack.Mode = AddrModeFlat;
+    static char symBuf[sizeof(IMAGEHLP_SYMBOL64) + 256];
+
+    for (int guard = 0; guard < 48; guard++)
+    {
+        if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, proc, thr, &sf, &ctx, NULL, SymFunctionTableAccess64,
+                         SymGetModuleBase64, NULL) || !sf.AddrPC.Offset)
+            break;
+
+        IMAGEHLP_SYMBOL64 *sym = (IMAGEHLP_SYMBOL64 *)symBuf;
+        sym->SizeOfStruct = sizeof(IMAGEHLP_SYMBOL64);
+        sym->MaxNameLength = 255;
+        DWORD64 d64 = 0;
+        DWORD d32 = 0;
+        IMAGEHLP_LINE64 ln = {sizeof(IMAGEHLP_LINE64)};
+        const char *name = SymGetSymFromAddr64(proc, sf.AddrPC.Offset, &d64, sym) ? sym->Name : "?";
+
+        if (SymGetLineFromAddr64(proc, sf.AddrPC.Offset, &d32, &ln))
+            wsprintfA(line, "  %p %s  %s:%lu\n", (void *)sf.AddrPC.Offset, name, ln.FileName, ln.LineNumber);
+        else
+            wsprintfA(line, "  %p %s\n", (void *)sf.AddrPC.Offset, name);
+
+        CrashOut(line);
     }
 
     CrashOut("CRASH END\n");
@@ -1091,7 +1153,9 @@ int main(int argc, char **argv)
     InitializeCriticalSection(&gVuLock);
     setvbuf(stdout, NULL, _IONBF, 0);
 
-    SetCrashHandlerFilter(CampsimCrashFilter);
+    SymSetOptions(SYMOPT_UNDNAME | SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS);
+    SymInitialize(GetCurrentProcess(), NULL, TRUE);
+    SetUnhandledExceptionFilter(CampsimCrashFilter);
     const char *gamedir = (argc > 1) ? argv[1] : "C:/FreeFalcon6";
     const char *savefile = (argc > 2) ? argv[2] : "save0";
     int days = (argc > 3) ? atoi(argv[3]) : 0;
@@ -1308,7 +1372,7 @@ int main(int argc, char **argv)
 
         // Mirrors HandleCampaignThread's per-iteration body (campaign.cpp:
         // 2606-2741) with a fixed 1-campaign-minute step.
-        while (TheCampaign.CurrentTime < target && !gEndGame)
+        while (TheCampaign.CurrentTime < target && (!gEndGame || gNoEnd))
         {
             DWORD t0 = GetTickCount();
             if (gMainThread)
@@ -1325,6 +1389,10 @@ int main(int argc, char **argv)
 
             DoCampaignLoop(first);
             CheckEventLog(startTime);
+
+            if (gCrashTest && iter == gCrashTest)
+                *(volatile int *)(INT_PTR)gCrashTest = 0;
+
             if ((iter % 60) == 0 && iter <= 60 * 30)
                 ReinfLog(iter / 60);
             DWORD t2 = GetTickCount();
@@ -1372,6 +1440,13 @@ int main(int argc, char **argv)
 
             if ((TheCampaign.CurrentTime % CampaignDay) < CampaignMinutes)
                 DumpCampaign("checkpoint");
+
+            if ((iter % 360) == 0)
+                for (int tm : {1, 2, 6})
+                    printf("LOSS h=%d team %d: ground<-air %d  <-artillery %d  <-ground %d  <-naval %d | air<-air %d  "
+                           "<-ground %d\n",
+                           iter / 60, tm, gLossDiag[tm][0], gLossDiag[tm][1], gLossDiag[tm][2], gLossDiag[tm][3],
+                           gLossDiag[tm][4], gLossDiag[tm][5]);
         }
 
         CampsimPumpMessages();

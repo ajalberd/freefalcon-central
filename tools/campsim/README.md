@@ -3,7 +3,14 @@
 Headless run of the **real campaign AI** (`src/tools/campsim`, builds with the solution, x64 only),
 plus the tools to record, replay and compare runs. Everything here is for campaign-AI research.
 
+**Campaign Lab (GUI):** `python serve.py`, then open http://localhost:8770/. Pick a save, days,
+seeds and settings, press *Start runs*, watch the progress bars, tick runs to overlay their
+charts (objectives, DPRK supply against the China/Russia thresholds, aircraft, ground vehicles)
+and see which scripted events fired when. *replay* opens the map viewer on that run. Runs from
+the command line show up there too. Runs use `gamework/` as the game dir when it exists.
+
 ```
+python serve.py                                                 # Campaign Lab
 python run_batch.py --days 10 --seeds 1 2 3 4 --jobs 4          # baseline, ~20 min with 4 in parallel
 python run_batch.py --days 3 --seeds 41 --tag spd3 --set speed=3  # one experiment
 python serve.py                                                 # http://localhost:8770/  -> viewer.html
@@ -26,11 +33,19 @@ python make_backdrop.py                                         # terrain image 
 | `abheal=T` | team T's airbases and airstrips are fully repaired every 10 ticks |
 | `usecfg=1` / `cfgfile=<path>` | load `FFViper.cfg` (or only some keys) as the game does; **use this for fair runs** |
 | `simtogrid=0` | restore the old (buggy) sim->grid rounding |
+| `newgame=0/1` | run the game's new-campaign setup (`AdjustCampaignOptions`: resupply every unit to the start level, force-ratio company chop, enemy experience, initial events). **Default on when no event has fired yet** (save0 and every variant); off reproduces the old harness, whose DPRK supply sat at ~37% and fired China at minute 1 |
+| `ratio=G:A:D:N` | force ratios from the campaign setup screen, 0-4 (default 2:2:2:2) |
+| `exp=A:G` | enemy air / ground experience, 0 green - 4 ace (default 0:0, the player-options default) |
+| `crashtest=N` | fault on purpose at tick N, to check the crash logger |
+
+A crash now writes `CRASH at campaign min ...` with the fault address and a symbolised stack
+(file:line) into the run's log; the Lab shows it as *crashed ⓘ* with the stack on hover.
 
 ## Timeline format (`runs/*.jsonl`, one JSON object per line)
 
 `{"meta":1,..., "roe":[8x8 ground-capture ROE], "po":<primary objectives>, "objs":[[campId,x,y,type,team]...]}`
-then frames `{"t":minutes,"day","hour","o":[[campId,team,status] changed owners],
+then frames `{"t":minutes,"day","hour","ev":[fired event ids],"st":[[supply%,aircraft,groundVehs] per team (the
+trigger statistics)],"af":[[ATM rejection counters] per team],"o":[[campId,team,status] changed owners],
 "u":[[vuId,kind,team,x,y,veh,full,moving,morale,orders,tactic,supply]...],
 "a":[[actionType,tempo,points,initiative,objective] per team],"s":[[gnd,ad,air,ships,objs] per team]}`
 and a last `{"final":1,"endgame":N}`. Kinds: 0 battalion, 1 brigade, 3 task force, 4 flight.

@@ -33,6 +33,7 @@ EVENT_RE = re.compile(r"EVENT (\d+) FIRED at min (\d+) \(day \d+\) \| DPRK suppl
 PROG_RE = re.compile(r"\[day (\d+) (\d\d):(\d\d)\] ([\d.]+)/([\d.]+) h \(\s*([\d.]+)%\)")
 RESULT_RE = re.compile(r"RESULT seed=\d+ endgame=(-?\d+).*wall_s=(\d+)")
 
+SUMMARY_VERSION = 2      # bump when summarise() output changes (invalidates .sum.json caches)
 POOL = ThreadPoolExecutor(int(os.environ.get("CAMPSIM_JOBS", "4")))
 JOBS = {}            # name -> {"state", "rc", "started", "args"}
 LOCK = threading.Lock()
@@ -58,7 +59,7 @@ def summarise(name):
     """Small JSON describing one run; cached by timeline/log mtime."""
     tl, log = os.path.join("runs", name + ".jsonl"), os.path.join("runs", name + ".log")
     cache = os.path.join("runs", name + ".sum.json")
-    stamp = [os.path.getmtime(p) if os.path.exists(p) else 0 for p in (tl, log)]
+    stamp = [os.path.getmtime(p) if os.path.exists(p) else 0 for p in (tl, log)] + [SUMMARY_VERSION]
     if os.path.exists(cache):
         try:
             c = json.load(open(cache))
@@ -86,10 +87,15 @@ def summarise(name):
                     frames += 1
                     first = first or o
                     last = o
+                    # st = the statistics the .tri triggers read: [supply%, aircraft, groundVehs] per team.
+                    # China: DPRK supply < 40 or DPRK/ROK aircraft x10 < 6; Russia: < 20 or < 3.
                     st = o.get("st") or []
+                    has = len(st) > 6
+                    dac, rac = (st[6][1], st[2][1]) if has else (None, None)
                     curve.append([o["t"], side(o, BLUE, 4), side(o, RED, 4),
-                                  st[6][0] if len(st) > 6 else None,
-                                  side(o, RED, 2), side(o, BLUE, 2), side(o, BLUE, 0), side(o, RED, 0)])
+                                  st[6][0] if has else None, dac, rac,
+                                  side(o, BLUE, 0), side(o, RED, 0),
+                                  round(10.0 * dac / rac, 2) if has and rac else None])
     if meta:
         out["seed"] = meta.get("seed")
         out["daysPlanned"] = meta.get("days")
@@ -103,10 +109,20 @@ def summarise(name):
         out["curve"] = curve[::step]
     out["done"] = bool(fin)
     out["endgame"] = fin.get("endgame") if fin else None
-    events, knobs, crash = [], [], None
+    events, knobs, crash, stack = [], [], None, []
     if os.path.exists(log):
         with open(log, errors="replace") as fh:
+            in_crash = False
             for ln in fh:
+                if ln.startswith("CRASH at"):            # campsim's crash filter (main.cpp)
+                    crash, in_crash = ln.strip(), True
+                    continue
+                if in_crash:
+                    if ln.startswith("CRASH END"):
+                        in_crash = False
+                    elif ln.startswith("  ") and len(stack) < 12:
+                        stack.append(ln.strip())
+                    continue
                 m = EVENT_RE.search(ln)
                 if m:
                     ev = int(m.group(1))
@@ -114,12 +130,12 @@ def summarise(name):
                                    "ac": int(m.group(4)), "title": TITLES.get(str(ev), "")})
                 elif ln.startswith("KNOB"):
                     knobs.append(ln.strip()[5:])
-                elif "ERR" in ln[:4] or "EXCEPTION" in ln or "0xC0000005" in ln:
-                    crash = ln.strip()[:200]
+                elif ln.startswith("ERR"):
+                    crash = crash or ln.strip()[:200]
                 m = RESULT_RE.search(ln)
                 if m:
                     out["wall"] = int(m.group(2))
-    out["events"], out["knobs"], out["crash"] = events, knobs, crash
+    out["events"], out["knobs"], out["crash"], out["stack"] = events, knobs, crash, stack
     if out["done"] or not running(name):
         try:
             json.dump(out, open(cache, "w"))
@@ -170,6 +186,8 @@ def start_runs(req):
 
 
 def job(a, seed, name):
+    if JOBS[name]["state"] == "cancelled":
+        return
     JOBS[name]["state"] = "running"
     JOBS[name]["started"] = time.time()
     try:
@@ -233,6 +251,12 @@ class H(http.server.SimpleHTTPRequestHandler):
         req = json.loads(self.rfile.read(n) or b"{}")
         if self.path == "/api/run":
             return self.send_json({"started": start_runs(req)})
+        if self.path == "/api/cancel":                  # queued runs only; a running one finishes
+            j = JOBS.get(req.get("name", ""))
+            if j and j["state"] == "queued":
+                j["state"] = "cancelled"
+                return self.send_json({"ok": True})
+            return self.send_json({"ok": False}, 400)
         if self.path == "/api/delete":
             name = os.path.basename(req.get("name", ""))
             if not name or running(name):
