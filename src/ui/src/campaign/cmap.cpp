@@ -2717,6 +2717,31 @@ void C_Map::HideNavalUnitType(long mask)
 // means "leave the map alone".
 #define CAMP_TINT_MAX 9
 
+// What a producer actually yields this tick, exactly as ProduceSupplies (campupd/supply.cpp)
+// computes it: class DataRate * status/100, times the nearest friendly power plant's status when
+// PowerGrid is on, and nothing at all from a site that changed hands. The Production layer used to
+// draw DataRate * status alone, so a factory whose power plant was bombed flat still showed a
+// full-size disc while producing nothing.
+static long CampEffectiveOutput(Objective o)
+{
+    extern bool g_bPowerGrid;
+
+    if (o->GetObjectiveOldown() not_eq o->GetOwner())
+        return 0;
+
+    long r = o->GetObjectiveDataRate();
+
+    if (r > 0 and g_bPowerGrid)
+    {
+        GridIndex x, y;
+        o->GetLocation(&x, &y);
+        Objective po = FindNearestFriendlyPowerStation(AllObjList, o->GetTeam(), x, y);
+        r = po ? r * po->GetObjectiveStatus() / 100 : 0;
+    }
+
+    return r;
+}
+
 // Stamp a filled disc into the overlay. Brightest contributor wins rather than accumulating, so a
 // cluster of overlapping nodes reads as its strongest member instead of saturating to a solid blob
 // the moment two of them touch.
@@ -3340,7 +3365,7 @@ void C_Map::ShowCampaignOverlay(long which)
                     t not_eq TYPE_ARMYBASE)
                     continue;
 
-                const long r = o->GetObjectiveDataRate();
+                const long r = CampEffectiveOutput(o);
 
                 if (r > maxRate)
                     maxRate = r;
@@ -3360,7 +3385,7 @@ void C_Map::ShowCampaignOverlay(long which)
                     t not_eq TYPE_ARMYBASE)
                     continue;
 
-                const long r = o->GetObjectiveDataRate();
+                const long r = CampEffectiveOutput(o);
 
                 if (r < 1)
                     continue;
