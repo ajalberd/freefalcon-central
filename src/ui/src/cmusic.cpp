@@ -508,6 +508,10 @@ void C_Music::StartInteractive(long Section, long Group)
 {
     long ID, MusicID;
 
+    // no pieces loaded for this section/group (resources missing): nothing to play, and rand() % 0 would fault
+    if (not Music_ or Count_[Section][Group] <= 0)
+        return;
+
     RepeatCount_ = 1;
 
     ID = (rand() % Count_[Section][Group]) bitor (Section << 16) bitor
