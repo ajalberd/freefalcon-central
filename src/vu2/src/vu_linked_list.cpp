@@ -116,7 +116,9 @@ VU_ERRCODE VuLinkedList::Remove(VU_ID eid)
 
         if (eb->Id() == eid)
         {
-            l_.erase(it);
+            // Artscout - 2026: erase invalidates it; the loop kept using it (and
+            // dereferenced the freed node on the next pass).
+            it = l_.erase(it);
             ret = VU_SUCCESS;
         }
         else

@@ -116,7 +116,9 @@ public:
     {
         ID2PACK::iterator it;
         it = packlist.find(id);
-        packlist.erase(it);
+
+        if (it not_eq packlist.end()) // erase(end()) is undefined
+            packlist.erase(it);
     }
 };
 static PackageListCounter mypacklist;
