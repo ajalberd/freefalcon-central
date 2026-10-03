@@ -22,6 +22,8 @@
   select { width:100%; }
   .row { display:flex; gap:6px; align-items:center; }
   .row select { width:auto; }
+  #ratios, #exps { flex-wrap:wrap; }
+  #ratios select, #exps select { flex:1 1 45%; min-width:0; }
   .chk { display:flex; gap:6px; align-items:center; margin:4px 0; color:var(--text); font-size:13px; }
   .chk input { margin:0; }
   button { cursor:pointer; }
@@ -71,9 +73,9 @@
     <option value="1">on: refill supply, apply ratios</option>
     <option value="0">off: raw save (old campsim behaviour)</option>
   </select>
-  <label>Force ratios: ground / air / AD / naval (0 weakest - 4 strongest, for the player's side)</label>
+  <label>Force ratio sliders: ground / air / air defense / naval (as on the challenge screen)</label>
   <div class="row" id="ratios"></div>
-  <label>Enemy experience: air / ground (0 green - 4 ace)</label>
+  <label>Enemy skill: pilot / ADA</label>
   <div class="row" id="exps"></div>
 
   <h2>Experiments</h2>
@@ -110,9 +112,13 @@ let runs = [], selected = new Set(JSON.parse(localStorageGet('lab.sel') || '[]')
 function localStorageGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function localStorageSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
+// Same values the campaign setup screen writes (cpselect.cpp): skill 0 Recruit .. 4 Ace;
+// force ratio 0 = slider fully toward Red .. 4 = fully toward Blue (2 = centred).
+const SKILL = ['Recruit', 'Cadet', 'Rookie', 'Veteran', 'Ace'];
+const RATIO = ['Red ++', 'Red +', 'centred', 'Blue +', 'Blue ++'];
 for (const [id, n] of [['ratios', 4], ['exps', 2]])
   for (let i = 0; i < n; i++) $(id).insertAdjacentHTML('beforeend',
-    `<select>${[0,1,2,3,4].map(v => `<option ${v === (id === 'ratios' ? 2 : 0) ? 'selected' : ''}>${v}</option>`).join('')}</select>`);
+    `<select>${[0,1,2,3,4].map(v => `<option value="${v}" ${v === (id === 'ratios' ? 2 : 0) ? 'selected' : ''}>${(id === 'ratios' ? RATIO : SKILL)[v]}</option>`).join('')}</select>`);
 
 const fmtMin = m => { const d = Math.floor(m / 1440), h = Math.floor(m % 1440 / 60), mm = m % 60;
   return `D${d + 1} ${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; };

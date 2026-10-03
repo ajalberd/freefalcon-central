@@ -13,6 +13,7 @@
 #include <time.h>
 #include <set>
 #include <map>
+#include <vector>
 #include <string>
 #include <stdarg.h>
 
@@ -309,6 +310,176 @@ static void CountUnitList(L *list, int counts[NUM_TEAMS][6], int *total)
         (*total)++;
         u = GetNextUnit(&uit);
     }
+}
+
+// Ground tasking diagnostics (gtm.cpp gGtmDiag/gGtmAction): per team, over the last period,
+// the ground posture and, per order type, objectives wanting units and candidates offered per
+// call, units newly assigned and units confirmed in orders they already had.
+extern "C++" int gGtmDiag[NUM_TEAMS][GORD_LAST][5];
+extern "C++" int gGtmAction[NUM_TEAMS][8];
+
+static void GtmLog(int hour)
+{
+    static int prev[NUM_TEAMS][GORD_LAST][5], prevAct[NUM_TEAMS][8];
+    static const char *ord[] = {"RES", "CAP", "SEC", "ASL", "ABN", "CMD", "DEF", "SUP", "REP", "AD", "RCN", "RAD"};
+    static const char *act[] = {"none", "defensive", "consolidate", "minor-off", "OFFENSIVE", "?5", "?6", "?7"};
+
+    for (int t : {2, 6})
+    {
+        char buf[1024];
+        int n = sprintf(buf, "GTM h=%d team %d posture:", hour, t);
+
+        for (int a = 0; a < 8; a++)
+            if (gGtmAction[t][a] - prevAct[t][a])
+                n += sprintf(buf + n, " %s=%d", act[a], gGtmAction[t][a] - prevAct[t][a]);
+
+        n += sprintf(buf + n, " |");
+
+        for (int o = 0; o < GORD_LAST && o < 12; o++)
+        {
+            int d[5];
+
+            for (int k = 0; k < 5; k++)
+                d[k] = gGtmDiag[t][o][k] - prev[t][o][k];
+
+            if (d[3])
+                n += sprintf(buf + n, " %s obj/call %d cand/call %d new %d kept %d;", ord[o], d[0] / d[3], d[1] / d[3],
+                             d[2], d[4]);
+        }
+
+        printf("%s\n", buf);
+        memcpy(prev[t], gGtmDiag[t], sizeof(prev[t]));
+        memcpy(prevAct[t], gGtmAction[t], sizeof(prevAct[t]));
+    }
+}
+
+// allylog=1 -- hourly, what the AI has told China's and Russia's starting battalions to do.
+static int gAllyLog;
+static std::vector<VU_ID> gAllyIds;
+
+static void AllyLog(int hour)
+{
+    if (gAllyIds.empty())
+    {
+        VuListIterator uit(AllUnitList);
+
+        for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+            if (u->IsBattalion() && (u->GetTeam() == 5 || u->GetTeam() == 4))
+                gAllyIds.push_back(u->Id());
+    }
+
+    std::map<std::string, int> hist;
+
+    for (size_t i = 0; i < gAllyIds.size(); i++)
+    {
+        Unit u = FindUnit(gAllyIds[i]);
+
+        if (!u)
+            continue;
+
+        GridIndex x, y, dx, dy, ox = -1, oy = -1;
+        u->GetLocation(&x, &y);
+        u->GetUnitDestination(&dx, &dy);
+        Objective o = u->GetUnitObjective();
+
+        if (o)
+            o->GetLocation(&ox, &oy);
+
+        char key[128];
+        sprintf(key, "team%d orders=%d assigned=%d obj=%s tactic=%d %s", (int)u->GetTeam(), u->GetUnitOrders(),
+                u->Assigned() ? 1 : 0, o ? "yes" : "none", u->GetUnitTactic(),
+                (o && Distance(x, y, ox, oy) < 3.0f) ? "AT-obj" : (o ? "away-from-obj" : ""));
+        hist[key]++;
+
+        if (i < 2)
+            printf("ALLY h=%d bn=%d team=%d at %d,%d dest %d,%d orders=%d obj %d,%d assigned=%d tactic=%d moving=%d\n",
+                   hour, (int)u->GetCampID(), (int)u->GetTeam(), x, y, dx, dy, u->GetUnitOrders(), ox, oy,
+                   u->Assigned() ? 1 : 0, u->GetUnitTactic(), u->Moving() ? 1 : 0);
+    }
+
+    for (auto &h : hist)
+        printf("ALLYSUM h=%d %3d x %s\n", hour, h.second, h.first.c_str());
+}
+
+// Engineers answer only their own division's requests (gtm.cpp RequestEngineer), so list, per
+// team and division: battalions, engineer battalions (active + reinforcements).
+static void DumpEngineers(void)
+{
+    std::map<std::pair<int, int>, int> bn, eng, engInact;
+    VuListIterator uit(AllUnitList);
+
+    for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+        if (u->IsBattalion())
+        {
+            std::pair<int, int> k(u->GetTeam(), u->GetUnitDivision());
+            bn[k]++;
+
+            if (u->GetUnitNormalRole() == GRO_ENGINEER)
+                eng[k]++;
+        }
+
+    VuListIterator iit(InactiveList);
+
+    for (Unit u = GetFirstUnit(&iit); u; u = GetNextUnit(&iit))
+        if (u->IsBattalion() && u->GetUnitNormalRole() == GRO_ENGINEER)
+            engInact[std::pair<int, int>(u->GetTeam(), u->GetUnitDivision())]++;
+
+    for (auto &e : bn)
+        printf("ENGDIV team=%d div=%d battalions=%d engineers=%d reinfEngineers=%d\n", e.first.first, e.first.second,
+               e.second, eng[e.first], engInact[e.first]);
+}
+
+// Hourly: per team, bridges blown (<30%: impassable unless an engineer is within 1 km, path.cpp),
+// damaged (<50%: what engineers are sent to, gndunit.cpp), and how many have an engineer on them.
+static void BridgeLog(int hour)
+{
+    int blown[NUM_TEAMS] = {0}, damaged[NUM_TEAMS] = {0}, covered[NUM_TEAMS] = {0}, engBusy[NUM_TEAMS] = {0},
+        engTotal[NUM_TEAMS] = {0};
+    std::vector<Unit> engs;
+    VuListIterator uit(AllUnitList);
+
+    for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+        if (u->IsBattalion() && u->GetUnitNormalRole() == GRO_ENGINEER && !u->IsDead())
+            engs.push_back(u), engTotal[u->GetTeam()]++;
+
+    VuListIterator oit(AllObjList);
+
+    for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+    {
+        if (o->GetType() != TYPE_BRIDGE || o->GetObjectiveStatus() >= 50)
+            continue;
+
+        int t = o->GetTeam();
+        GridIndex ox, oy;
+        o->GetLocation(&ox, &oy);
+        (o->GetObjectiveStatus() < 30 ? blown : damaged)[t]++;
+
+        for (Unit e : engs)
+        {
+            GridIndex ex, ey;
+            e->GetLocation(&ex, &ey);
+
+            if (e->GetTeam() == t && Distance(ex, ey, ox, oy) <= 1.0f)
+            {
+                covered[t]++;
+                break;
+            }
+        }
+    }
+
+    for (Unit e : engs)
+    {
+        GridIndex ex, ey;
+        e->GetLocation(&ex, &ey);
+        Objective o = GetObjectiveByXY(ex, ey);
+
+        if (o && o->GetType() == TYPE_BRIDGE)
+            engBusy[e->GetTeam()]++;
+    }
+
+    for (int t : {2, 6})
+        printf("BRIDGES h=%d team %d: blown(<30%%)=%d damaged(30-49%%)=%d withEngineer=%d | engineers %d, %d on a bridge\n",
+               hour, t, blown[t], damaged[t], covered[t], engTotal[t], engBusy[t]);
 }
 
 static void DumpCampaign(const char *tag)
@@ -1039,6 +1210,20 @@ static void ApplyKnobs(int argc, char **argv)
         }
         else if (!strcmp(key, "crashtest"))
             gCrashTest = atoi(val);
+        else if (!strcmp(key, "reserves"))
+        {
+            extern int g_nGtmReservesPerCycle;
+            g_nGtmReservesPerCycle = atoi(val);
+            printf("KNOB g_nGtmReservesPerCycle = %d\n", g_nGtmReservesPerCycle);
+        }
+        else if (!strcmp(key, "allylog"))
+            gAllyLog = atoi(val);
+        else if (!strcmp(key, "objpathcost"))
+            OBJ_GROUND_PATH_MAX_COST = (short)atoi(val),
+            printf("KNOB ObjGroundPathMaxCost = %d\n", (int)OBJ_GROUND_PATH_MAX_COST);
+        else if (!strcmp(key, "objpathsearch"))
+            OBJ_GROUND_PATH_MAX_SEARCH = (short)atoi(val),
+            printf("KNOB ObjGroundPathMaxSearch = %d\n", (int)OBJ_GROUND_PATH_MAX_SEARCH);
         else if (!strcmp(key, "holdtest"))
             gHoldTest = atoi(val);
         else if (!strcmp(key, "playerhold"))
@@ -1428,6 +1613,7 @@ int main(int argc, char **argv)
     }
 
     DumpCampaign("loaded");
+    DumpEngineers();
 
     if (days > 0)
     {
@@ -1526,6 +1712,15 @@ int main(int argc, char **argv)
 
             if ((TheCampaign.CurrentTime % CampaignDay) < CampaignMinutes)
                 DumpCampaign("checkpoint");
+
+            if ((iter % 180) == 0)
+                BridgeLog(iter / 60);
+
+            if ((iter % 360) == 0)
+                GtmLog(iter / 60);
+
+            if (gAllyLog && (iter == 1 || (iter % 180) == 0))
+                AllyLog(iter / 60);
 
             if (gHoldTest && iter == 1)
                 HoldTestStart();
