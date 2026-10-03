@@ -353,6 +353,34 @@ static void GtmLog(int hour)
     }
 }
 
+// Squadron rebasing: per team, how many squadrons have left the base they started the run on.
+static std::map<VU_ID, VU_ID> gSqStartBase;
+
+static void RebaseLog(int hour)
+{
+    int moved[NUM_TEAMS] = {0}, total[NUM_TEAMS] = {0};
+    VuListIterator uit(AllUnitList);
+
+    for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+    {
+        if (!u->IsSquadron() || u->GetTeam() >= NUM_TEAMS)
+            continue;
+
+        VU_ID ab = u->GetUnitAirbaseID();
+        auto it = gSqStartBase.find(u->Id());
+
+        if (it == gSqStartBase.end())
+            gSqStartBase[u->Id()] = ab;
+        else if (it->second != ab)
+            moved[u->GetTeam()]++;
+
+        total[u->GetTeam()]++;
+    }
+
+    printf("REBASE h=%d ROK %d/%d US %d/%d DPRK %d/%d PRC %d/%d squadrons on a different base than at start\n", hour,
+           moved[2], total[2], moved[1], total[1], moved[6], total[6], moved[5], total[5]);
+}
+
 // allylog=1 -- hourly, what the AI has told China's and Russia's starting battalions to do.
 static int gAllyLog;
 static std::vector<VU_ID> gAllyIds;
@@ -1050,6 +1078,7 @@ static void ApplyAirTempo(void)
 
 extern short NumUnitEntries;
 extern int g_nSimToGridFix;
+extern VU_TIME SimLibElapsedTime;
 extern void ReadFalcon4Config();
 extern void ParseFalcon4Config(FILE *file);
 extern bool g_bRealisticAttrition, g_bFireOntheMove, g_bLargeStrike;
@@ -1215,6 +1244,12 @@ static void ApplyKnobs(int argc, char **argv)
             extern int g_nGtmReservesPerCycle;
             g_nGtmReservesPerCycle = atoi(val);
             printf("KNOB g_nGtmReservesPerCycle = %d\n", g_nGtmReservesPerCycle);
+        }
+        else if (!strcmp(key, "abreloc"))
+        {
+            extern bool g_bEnableABRelocation;
+            g_bEnableABRelocation = atoi(val) != 0;
+            printf("KNOB g_bEnableABRelocation = %d\n", (int)g_bEnableABRelocation);
         }
         else if (!strcmp(key, "farthest"))
         {
@@ -1660,6 +1695,10 @@ int main(int argc, char **argv)
             DWORD t1 = GetTickCount();
             TheCampaign.CurrentTime += CampaignMinutes;
             TheCampaign.TimeOfDay = TheCampaign.CurrentTime % CampaignDay;
+            // The game's timer thread keeps the sim clock equal to game time (timerthread.cpp
+            // SetTime); campaign code reads it too, e.g. squadron rebasing waits for it to pass
+            // 09:00:50 day 1 ("don't relocate before the campaign has begun").
+            SimLibElapsedTime = TheCampaign.CurrentTime;
             ApplyAirTempo();
 
             if ((iter % 10) == 0)
@@ -1724,6 +1763,9 @@ int main(int argc, char **argv)
 
             if ((iter % 360) == 0)
                 GtmLog(iter / 60);
+
+            if (iter == 1 || (iter % 720) == 0)
+                RebaseLog(iter / 60);
 
             if (gAllyLog && (iter == 1 || (iter % 180) == 0))
                 AllyLog(iter / 60);
