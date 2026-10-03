@@ -81,6 +81,30 @@ here.**
     game). Routes therefore need an A* over water squares. The cheap first experiment:
     let the editor write task force waypoints (it already decodes them) and watch how a ship
     follows a hand-made route.
+  - *Added 2026-10-03.* **Supply never returns to a ship**: only battalions and squadrons are
+    resupplied (`supply.cpp`); `CollectWeapons` (`unit.cpp` ~4934) only ever lowers a task
+    force's `supply`, and at 0 it cannot fire. **Sea tankers and cargo ships are cosmetic**:
+    `STYPE_UNIT_SEA_TANKER/SEA_TRANSPORT` is read only by `ntm.cpp` (an air-strike context
+    label) and the map icons. Ports make national supply whether or not a ship is there.
+    The in-game news line "naval ships fired on X forces" (format 1802) is one generic string
+    for any ship volley, whatever it hit; campsim counts DPRK ground vehicles lost to naval fire
+    at ~12 per 5 days (thousands to air). `NORD_*` orders exist and are saved, but nothing sets
+    them, and TE order-setting is Battalion-only. A deaggregated ship near land halts for good
+    (`gndai.cpp` ~1198). save0: 10 DPRK ships in port, no US/ROK ones.
+  - *Built 2026-10-03: naval AI v0* (`navunit.cpp`, cfg `NavalAI` default 1, `NavalTankerFuel` default 50).
+    A ship with no waypoints now plans a water route (A* over the Naval cost table, one waypoint per
+    change of direction): warships sortie from port after a 15-120 min rest, patrol 15-45 km out, and
+    return to the nearest friendly port when 60+ km from one (or 1 time in 3); sea tankers, cargo and
+    supply ships sail between friendly ports with a 60-150 min rest at each. A docked tanker adds
+    `NavalTankerFuel` x (missing refinery output %) to its team's fuel pool, so it pays nothing while
+    all refineries work. Why plain waypoints never sailed: `ResetCurrentWP` skips a flag-less waypoint
+    whose departure has passed and `MoveUnit` waits on a future one, so only a `WPF_REPEAT` waypoint is
+    chased by distance; the planner flags every waypoint. State is the waypoint list plus the saved
+    `orders` byte (`NORD_TRANSPORT` = on a voyage), so no header change. Measured in campsim (save0,
+    1 day, seed 1): 49 of 51 task forces moved >3 km (before: ships idle or 20 km north and back).
+    **Not yet checked:** the fuel delivery (refineries were intact, so it adds 0), ships in 3D (a
+    deaggregated ship near land halts for good, `gndai.cpp` ~1198), no port resupply (deliberately
+    skipped until ships fight more), no player orders yet.
 - **TODO: build the JSOW the way BMS 4.32/4.38 has it.** The data rows exist in Korea's
   `FALCON4.WCD` -- 298 `AGM-154A JSOW` (BLU-97 cluster payload, kinetic, 1250 ft blast)
   and 313 `AGM-154C JSOW` (unitary penetrator, `SimDataIdx` 99) -- both with a 90 km
@@ -1338,3 +1362,35 @@ candidate is scored by distance, so units 300+ km away are never chosen, and eve
 5. **Limited resources to manage**: fewer Blue aircraft (Air slider), reinforcements on a schedule, losses that hurt.
 6. **Tools**: Campaign Lab (python tools/campsim/serve.py) to measure every change; make each proposal a JSGME mod
    or cfg toggle and A/B it with 4+ seeds.
+
+## 2026-10-03 (later): "hold both cities" test, PAKs, the day-4 freeze, supply logger
+
+**Win condition.** save0.tri event 17 is `#IF_CONTROLLED 2 O 680 260 404` - OR: any one of Pyongyang (PAK 260,
+which contains 680) or Wonsan (404). Wonsan ended every run (12/12, h31-h55). Requiring all three (`A`, file
+`both.tri`, campsim `tri=both`): Blue won 2 of 12 in 10 days (h68, h96). Pyongyang PAK slider at max (`pak=260:100`)
+did not help (0/4, same seeds 1/4 without it).
+
+**Wonsan garrison:** ~22 bn / 430 veh within 20 km at h36; 17 destroyed by h48 (theatre: 1,251 DPRK veh lost to
+air vs 71 to ground in that window). Reinforcing it adds targets.
+
+**The day-4 freeze (bigger than balance).** In all 8 noend runs nothing changes after ~h96 for 6 days: no
+captures, zero losses either side, Blue parked 17-58 km from Pyongyang with ~270 flights airborne. Blue's GTM is
+OFFENSIVE and issues ~30 CAPTURE assignments per 6 h, but only 2-3 of 227 battalions hold one; a capture unit
+near Wonsan (obj 405) sat "moving" 0 km for 80 h. ~15 Blue spearhead battalions at 1-2% supply. Supply logger:
+ROK resupplies where nothing arrived = 4,929 of 7,929 (62%), fuel delivered 64% - deliveries fail along the
+long road to the front (suspect GetObjectivePath search limits). Same family as "China never moves". Next:
+instrument why CAPTURE orders are dropped and why the supply path fails.
+
+**PAKs** (team.cpp, gtm.cpp): per PAK, AI ground_priority = air_priority = front proximity (<=40) + assigned
+strength (+-30) + objective priority bonus; the player's slider sets player_priority, used ONLY by air planning
+(OCA target choice +50 for the ground-action PAK, -200 last target; every mission request's 0-100 PAK term; 0
+cancels missions there). Ground uses the AI number. `#SET_PAK_PRIORITY` locks a PAK (event 3 pins Pyongyang 100);
+`#CHANGE_PRIORITIES` is commented out in the engine - a no-op.
+
+**Supply chain** (supply.cpp): factories/army bases/depots/ports -> supply + replacements, refineries -> fuel,
+x nearest non-hostile power station (power plants AND type 17 "nuclear"; DPRK owns 14 nuclear, 0 power plants);
+captured sites produce 0. Units draw <=50% of need per cycle, routed from FindNearestSupplySource with 2%/node
+loss + damage. Trigger supply% = units have/(have+need) - stays 96-101% for DPRK all war (so China only enters on
+the air ratio). DPRK supply capacity falls to 41% by day 10. Replacement pools pile up unused (ROK 15,593 by
+day 10; battalions got ~212 total) - Korea runs the old replacement code (NoTypeBonusRepl absent = 0); verify
+before acting. Logger: `"sp"` frame field + supply_report.py; engine counters gSupplyDiag/gSupplyRatio.

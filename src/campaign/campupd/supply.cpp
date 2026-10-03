@@ -22,6 +22,7 @@
 #include "aiinput.h"
 #include "classtbl.h"
 #include "debuggr.h"
+#include "supply.h"
 
 #define MAX_SUPPLIES 60000
 #define MAX_SUPPLY_RATIO 0.5F
@@ -42,6 +43,11 @@ int gReplacmentsFromOffensive[NUM_TEAMS];
 #endif
 
 extern bool g_bPowerGrid;
+
+// CAMPSIM DIAGNOSTIC (read only by tools/campsim): cumulative per team, see SUPDIAG_*.
+int gSupplyDiag[NUM_TEAMS][SUPDIAG_LAST] = {{0}};
+// Last distribution ratios (x1000): share of each unit's need the pool could cover, capped at 500.
+int gSupplyRatio[NUM_TEAMS][3] = {{0}};
 
 
 // ====================
@@ -234,6 +240,9 @@ int ProduceSupplies(CampaignTime deltaTime)
         gFuelFromProduction[who] += fuel[who];
         gReplacmentsFromProduction[who] += replacements[who];
 #endif
+        gSupplyDiag[who][SUPDIAG_PROD_SUPPLY] += supply[who];
+        gSupplyDiag[who][SUPDIAG_PROD_FUEL] += fuel[who];
+        gSupplyDiag[who][SUPDIAG_PROD_REPL] += replacements[who];
 
         // Deplete unused extra supplies and move supplies to team supply pools
         supply[who] = (TeamInfo[who]->GetSupplyAvail() / 2) + supply[who];
@@ -557,6 +566,9 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
 
     // end added section
 
+    gSupplyRatio[who][0] = FloatToInt32(sratio * 1000.0F);
+    gSupplyRatio[who][1] = FloatToInt32(fratio * 1000.0F);
+    gSupplyRatio[who][2] = FloatToInt32(rratio * 1000.0F);
 
     // Supply units
     {
@@ -690,26 +702,33 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
 
                 if (fuel or supply)
                 {
+                    gSupplyDiag[who][SUPDIAG_RESUPPLIES]++;
                     unit->GetLocation(&x, &y);
                     o = FindNearestFriendlyObjective(who, &x, &y, 0);
+                    s = o ? FindNearestSupplySource(o) : NULL;
 
-                    if (o)
+                    if (o and s)
                     {
-                        s = FindNearestSupplySource(o);
+                        TeamInfo[who]->SetSupplyAvail(
+                            TeamInfo[who]->GetSupplyAvail() - supply);
+                        TeamInfo[who]->SetFuelAvail(
+                            TeamInfo[who]->GetFuelAvail() - fuel);
+                        gots = supply;
+                        gotf = fuel;
+                        gSupplyDiag[who][SUPDIAG_SENT_SUPPLY] += supply;
+                        gSupplyDiag[who][SUPDIAG_SENT_FUEL] += fuel;
 
-                        if (s)
+                        if (SendSupply(s, o, &gots, &gotf))
                         {
-                            TeamInfo[who]->SetSupplyAvail(
-                                TeamInfo[who]->GetSupplyAvail() - supply);
-                            TeamInfo[who]->SetFuelAvail(
-                                TeamInfo[who]->GetFuelAvail() - fuel);
-                            gots = supply;
-                            gotf = fuel;
-
-                            if (SendSupply(s, o, &gots, &gotf))
-                                SupplyUnit(unit, supply, gots, fuel, gotf);
+                            SupplyUnit(unit, supply, gots, fuel, gotf);
+                            gSupplyDiag[who][SUPDIAG_GOT_SUPPLY] += gots;
+                            gSupplyDiag[who][SUPDIAG_GOT_FUEL] += gotf;
                         }
+                        else
+                            gSupplyDiag[who][SUPDIAG_LOST_ALL]++;
                     }
+                    else
+                        gSupplyDiag[who][SUPDIAG_NO_SOURCE]++;
                 }
 
                 unit->SetLastResupplyTime(TheCampaign.CurrentTime);
@@ -717,6 +736,17 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
 
             unit = GetNextUnit(&myit);
         }
+    }
+
+    if (NoTypeBonusRepl)
+    {
+        gSupplyDiag[who][SUPDIAG_REPL_GROUND] += repl_v_s;
+        gSupplyDiag[who][SUPDIAG_REPL_AIR] += repl_a_s;
+    }
+    else
+    {
+        gSupplyDiag[who][SUPDIAG_REPL_GROUND] += repl_s - repl_sa;
+        gSupplyDiag[who][SUPDIAG_REPL_AIR] += repl_sa;
     }
 
     // A.S. debug begin

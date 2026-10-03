@@ -52,6 +52,8 @@
 #include "entity.h"
 #include "falcent.h"
 #include "classtbl.h"
+#include "supply.h"
+#include "gtmobj.h"
 
 extern "C" {
 #include "codelib/resources/reslib/src/resmgr.h"
@@ -725,6 +727,137 @@ static void TimelineMeta(const char *save, unsigned int seed, int days)
 
 static int CountList(ListClass *l);
 
+// One "sp" row per team, the supply chain end to end (indices are what tools read):
+//  0-2   pools: supplyAvail fuelAvail replacementsAvail
+//  3-4   supplyLevel fuelLevel (% the .tri IF_SUPPLY triggers read: units' have / (have + need))
+//  5-7   last distribution ratio x1000 for supply, fuel, replacements (500 = the cap)
+//  8-19  gSupplyDiag cumulative (SUPDIAG_* order: prod supply/fuel/repl, sent/got supply, sent/got fuel,
+//        resupplies, lost-all, no-source, repl ground/air)
+//  20-26 producers: supply sites, supply capacity/day, refineries, fuel capacity/day (what ProduceSupplies
+//        sums: data rate x power), sites captured (produce 0), sites under 50% power, sites under 50% status
+//  27-28 power stations owned (power + nuclear plants), their mean status
+//  29-33 battalions, mean supply, within 30 km of the front, their mean supply, battalions under 25% supply
+static void SupplyFrame()
+{
+    extern bool g_bPowerGrid;
+    long v[NUM_TEAMS][34];
+    memset(v, 0, sizeof(v));
+
+    {
+        VuListIterator oit(AllObjList);
+
+        for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+        {
+            int tm = o->GetTeam();
+
+            if (tm < 0 || tm >= NUM_TEAMS)
+                continue;
+
+            int type = o->GetType();
+            bool sup = type == TYPE_FACTORY || type == TYPE_ARMYBASE || type == TYPE_DEPOT || type == TYPE_PORT;
+            bool ref = type == TYPE_REFINERY;
+
+            // FindNearestFriendlyPowerStation takes nuclear plants too.
+            if (type == TYPE_POWERPLANT || type == TYPE_NUCLEAR)
+            {
+                v[tm][27]++;
+                v[tm][28] += o->GetObjectiveStatus();
+                continue;
+            }
+
+            if (!sup && !ref)
+                continue;
+
+            v[tm][sup ? 20 : 22]++;
+
+            if (o->GetObjectiveStatus() < 50)
+                v[tm][26]++;
+
+            if (o->GetObjectiveOldown() != o->GetOwner())
+            {
+                v[tm][24]++;
+                continue;
+            }
+
+            long power = 100;
+
+            if (g_bPowerGrid)
+            {
+                GridIndex x, y;
+                o->GetLocation(&x, &y);
+                Objective po = FindNearestFriendlyPowerStation(AllObjList, tm, x, y);
+                power = po ? po->GetObjectiveStatus() : 0;
+            }
+
+            if (power < 50)
+                v[tm][25]++;
+
+            v[tm][sup ? 21 : 23] += o->GetObjectiveDataRate() * power / 100;
+        }
+    }
+
+    {
+        VuListIterator uit(AllUnitList);
+
+        for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+        {
+            int tm = u->GetTeam();
+
+            if (tm < 0 || tm >= NUM_TEAMS || !u->IsBattalion())
+                continue;
+
+            GridIndex x, y;
+            u->GetLocation(&x, &y);
+            int s = u->GetUnitSupply();
+            v[tm][29]++;
+            v[tm][30] += s;
+
+            if (DistanceToFront(x, y) <= 30.0F)
+                v[tm][31]++, v[tm][32] += s;
+
+            if (s < 25)
+                v[tm][33]++;
+        }
+    }
+
+    for (int tm = 0; tm < NUM_TEAMS; tm++)
+    {
+        TeamClass *t = TeamInfo[tm];
+
+        if (t)
+        {
+            TeamStatusType *cs = t->GetCurrentStats();
+            v[tm][0] = t->GetSupplyAvail();
+            v[tm][1] = t->GetFuelAvail();
+            v[tm][2] = t->GetReplacementsAvail();
+            v[tm][3] = cs->supplyLevel;
+            v[tm][4] = cs->fuelLevel;
+        }
+
+        for (int k = 0; k < 3; k++)
+            v[tm][5 + k] = gSupplyRatio[tm][k];
+
+        for (int k = 0; k < SUPDIAG_LAST; k++)
+            v[tm][8 + k] = gSupplyDiag[tm][k];
+
+        if (v[tm][27])
+            v[tm][28] /= v[tm][27];
+
+        if (v[tm][29])
+            v[tm][30] /= v[tm][29];
+
+        if (v[tm][31])
+            v[tm][32] /= v[tm][31];
+
+        TlPrintf("%s[", tm ? "," : "");
+
+        for (int k = 0; k < 34; k++)
+            TlPrintf("%s%ld", k ? "," : "", v[tm][k]);
+
+        TlPrintf("]");
+    }
+}
+
 // kind: 0 battalion 1 brigade 2 squadron 3 taskforce 4 flight
 static void TimelineFrame(CampaignTime startTime)
 {
@@ -930,6 +1063,10 @@ static void TimelineFrame(CampaignTime startTime)
     for (int tm = 0; tm < NUM_TEAMS; tm++)
         TlPrintf("%s[%ld,%ld,%ld,%ld,%d]", tm ? "," : "", sum[tm][0],
                 sum[tm][1], sum[tm][2], sum[tm][3], objsOwned[tm]);
+
+    // "sp": the supply chain per team (see SupplyFrame).
+    TlPrintf("],\"sp\":[");
+    SupplyFrame();
 
     TlPrintf("]}\n");
     TlFlush();
@@ -1271,6 +1408,36 @@ static void ApplyKnobs(int argc, char **argv)
             g_bPlayerGroundHold = atoi(val) != 0, printf("KNOB g_bPlayerGroundHold = %d\n", (int)g_bPlayerGroundHold);
         else if (!strcmp(key, "noend"))
             gNoEnd = atoi(val), printf("KNOB noend: run continues past the endgame\n");
+        else if (!strcmp(key, "pak"))
+        {
+            // pak=ID:VALUE[:TEAM] -- the player's PAK slider (Priorities screen) for objective ID's PAK:
+            // sets player_priority, which overrides the AI's air_priority for that team's air planning
+            // (OCA target choice and every mission request's PAK term; 0 cancels missions there).
+            // TEAM defaults to 2 (ROK, the player's side). Repeat the knob for several PAKs.
+            int id = 0, value = 100, team = 2;
+            sscanf(val, "%d:%d:%d", &id, &value, &team);
+            Objective o = (Objective)GetEntityByCampID(id);
+            Objective po = o ? (o->IsPrimary() ? o : o->GetObjectivePrimary()) : NULL;
+            POData pd = po ? GetPOData(po) : NULL;
+
+            if (pd && team >= 0 && team < NUM_TEAMS)
+            {
+                pd->player_priority[team] = (short)value;
+                printf("KNOB pak: team %d PAK %d (from objective %d) player priority %d (AI air %d ground %d)\n",
+                       team, (int)po->GetCampID(), id, value, (int)pd->air_priority[team],
+                       (int)pd->ground_priority[team]);
+            }
+            else
+                printf("KNOB pak: objective %d has no PAK\n", id);
+        }
+        else if (!strcmp(key, "tri"))
+        {
+            // The trigger script is picked by the scenario name stored inside the .cam, not by the
+            // save's file name, so a variant save keeps reading save0.tri unless we point it here.
+            // CheckTriggers re-reads the file every pass, so switching after load takes effect.
+            TheCampaign.SetScenario((char *)val);
+            printf("KNOB tri: triggers from %s.tri\n", val);
+        }
         else if (!strcmp(key, "hcg"))
             HitChanceGround = (float)atof(val), printf("KNOB 2DHitChanceGround = %.2f\n", HitChanceGround);
         else if (!strcmp(key, "hca"))

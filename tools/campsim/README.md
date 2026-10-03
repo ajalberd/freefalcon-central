@@ -37,6 +37,8 @@ python make_backdrop.py                                         # terrain image 
 | `ratio=G:A:D:N` | force ratios from the campaign setup screen, 0-4 (default 2:2:2:2) |
 | `exp=A:G` | enemy air / ground experience, 0 green - 4 ace (default 0:0, the player-options default) |
 | `crashtest=N` | fault on purpose at tick N, to check the crash logger |
+| `tri=NAME` | read triggers from `campaign/SAVE/NAME.tri`. **Needed for trigger variants**: the engine picks the .tri by the scenario name stored *inside* the .cam, so a renamed save (`both.cam`) still reads `save0.tri`. Example: `both.tri` = save0 with the win needing Pyongyang AND Wonsan (`#IF_CONTROLLED 2 A 680 260 404`) |
+| `pak=ID:VALUE[:TEAM]` | the player's PAK slider for objective ID's PAK (`player_priority`; team defaults to 2). Air planning only. Pyongyang is one PAK, 260 (680 belongs to it) |
 
 A crash now writes `CRASH at campaign min ...` with the fault address and a symbolised stack
 (file:line) into the run's log; the Lab shows it as *crashed ⓘ* with the stack on hover.
@@ -48,6 +50,9 @@ then frames `{"t":minutes,"day","hour","ev":[fired event ids],"st":[[supply%,air
 trigger statistics)],"af":[[ATM rejection counters] per team],"o":[[campId,team,status] changed owners],
 "u":[[vuId,kind,team,x,y,veh,full,moving,morale,orders,tactic,supply]...],
 "a":[[actionType,tempo,points,initiative,objective] per team],"s":[[gnd,ad,air,ships,objs] per team]}`
+plus `"sp"`: the supply chain per team (pools, supply/fuel %, distribution ratios, cumulative production /
+delivery / replacement counters, producer capacity, power, battalion supply) - index list above `SupplyFrame`
+in `main.cpp`; `python supply_report.py runs/<run>.jsonl [--team 6] [--every 6]` prints it as a table,
 and a last `{"final":1,"endgame":N}`. Kinds: 0 battalion, 1 brigade, 3 task force, 4 flight.
 Orders = `GORD_*` (1 = CAPTURE), tactic = `GTACTIC_*` (`tactics.h`), action 4 = OFFENSIVE.
 
