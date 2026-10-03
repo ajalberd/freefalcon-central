@@ -620,6 +620,24 @@ int GroundUnitClass::DetectVs(CampEntity e, float *d, int *combat, int *spot,
 
     det = Detected(this, e, d);
 
+    // Artscout - 2026 (g_bWaterObjectiveFix, off = stock): capture needs the unit in the objective's own
+    // 1 km cell, but ports, coastal plants and some river objectives sit on cells a ground unit cannot
+    // enter -- so they could never be taken, and the battalions sent at them retried a path to them
+    // every tick forever (campsim MOVE log: 5 battalions stuck beside Wonsan's coastal plant #615).
+    // Such an objective is taken from the next cell.
+    {
+        extern bool g_bWaterObjectiveFix;
+
+        if (g_bWaterObjectiveFix and e->IsObjective() and *d < 2.5F)
+        {
+            GridIndex ox, oy;
+            e->GetLocation(&ox, &oy);
+
+            if (GetMovementCost(ox, oy, GetMovementType(), PATH_ROADOK, Here) > MAX_COST) // roads/bridges count as enterable
+                *capture = 1;
+        }
+    }
+
     int detTmp = det;
 
     // Check type of entity before GCI is used
@@ -887,6 +905,33 @@ int GetThisWPAction(Unit u, Objective o, Objective n, int d, Team us,
     return action;
 }
 
+// Artscout - 2026 (g_bWaterObjectiveFix, off = stock): some objectives' map points are a cell out to sea
+// (Togwon-ni Nuclear Power Plant #615 sits at (487,599), 1 km off the Wonsan shore; ports such as Sagon-ni
+// #993 and Nachodka #3494 likewise). They are nodes of the objective network, so a route past them puts a
+// waypoint on water, the grid search rejects an impassable destination, and the unit retried every tick
+// forever (campsim MOVE log: 155 failures per 6 h in the Wonsan cluster). Put such a waypoint on the
+// nearest cell the unit can enter instead.
+static void NudgeToEnterable(Unit u, GridIndex *x, GridIndex *y)
+{
+    extern bool g_bWaterObjectiveFix;
+    const MoveType mt = u->GetMovementType();
+
+    if (not g_bWaterObjectiveFix or mt == NoMove or MOVE_AIR(mt) or mt == Naval or
+        GetMovementCost(*x, *y, mt, PATH_ROADOK, Here) <= MAX_COST)
+        return;
+
+    for (int r = 1; r <= 3; r++)
+        for (int iy = -r; iy <= r; iy++)
+            for (int ix = -r; ix <= r; ix++)
+                if ((abs(ix) == r or abs(iy) == r) and
+                    GetMovementCost(*x + ix, *y + iy, mt, PATH_ROADOK, Here) <= MAX_COST)
+                {
+                    *x += ix;
+                    *y += iy;
+                    return;
+                }
+}
+
 int BuildGroundWP(Unit u)
 {
     PathClass path, path2;
@@ -1024,6 +1069,9 @@ int BuildGroundWP(Unit u)
     {
         i = 0; // Zeroth step in path
     }
+
+    // (ox,oy is only the first waypoint from here on; the loop below steps from objective o)
+    NudgeToEnterable(u, &ox, &oy);
 
     if (u->GetUnitGridPath(&path2, ux, uy, ox, oy) > 0)
     {
@@ -1195,7 +1243,11 @@ int BuildGroundWP(Unit u)
         if (n == t)
             u->AddUnitWP(tx, ty, 0, speed, time, 0, action);
         else
-            u->AddUnitWP(ox, oy, 0, speed, time, 0, action);
+        {
+            GridIndex wx = ox, wy = oy; // ox,oy stay the node's own point for the next step's maths
+            NudgeToEnterable(u, &wx, &wy);
+            u->AddUnitWP(wx, wy, 0, speed, time, 0, action);
+        }
 
         o = n;
     }

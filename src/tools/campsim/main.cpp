@@ -517,6 +517,100 @@ static void CapLog(int hour)
     }
 }
 
+// Why battalions that want to move do not (battalio.cpp gMoveDiag / gMoveFailHook). Every 6 h: per team
+// the count of path failures, failed waypoint builds, brigade-column waits and holds; then the units that
+// failed most often, with what lies on the straight line to where they wanted to go: water cells
+// (rivers) and the bridges within 3 km of it (status, owner).
+extern "C++" int gMoveDiag[NUM_TEAMS][4];
+extern "C++" void (*gMoveFailHook)(BattalionClass *u, int why, GridIndex x, GridIndex y, GridIndex nx, GridIndex ny);
+
+struct MoveFail
+{
+    int count, why, team;
+    GridIndex x, y, nx, ny;
+};
+static std::map<unsigned, MoveFail> gMoveFails;
+
+static void MoveFailHook(BattalionClass *u, int why, GridIndex x, GridIndex y, GridIndex nx, GridIndex ny)
+{
+    MoveFail &f = gMoveFails[u->Id().num_];
+    f.count++, f.why = why, f.team = u->GetTeam();
+    f.x = x, f.y = y, f.nx = nx, f.ny = ny;
+}
+
+static void MoveLog(int hour)
+{
+    static int prev[NUM_TEAMS][4];
+
+    for (int t : {2, 6})
+    {
+        int d[4];
+
+        for (int k = 0; k < 4; k++)
+            d[k] = gMoveDiag[t][k] - prev[t][k], prev[t][k] = gMoveDiag[t][k];
+
+        int units = 0;
+
+        for (std::map<unsigned, MoveFail>::iterator it = gMoveFails.begin(); it != gMoveFails.end(); ++it)
+            units += it->second.team == t;
+
+        printf("MOVE h=%d team %d: no grid path %d, no waypoints %d, column wait %d, hold %d (last 6 h); "
+               "%d battalions with path failures\n", hour, t, d[0], d[1], d[2], d[3], units);
+
+        std::vector<std::pair<int, unsigned>> v;
+
+        for (std::map<unsigned, MoveFail>::iterator it = gMoveFails.begin(); it != gMoveFails.end(); ++it)
+            if (it->second.team == t)
+                v.push_back(std::make_pair(it->second.count, it->first));
+
+        std::sort(v.rbegin(), v.rend());
+
+        for (size_t i = 0; i < v.size() && i < 6; i++)
+        {
+            const MoveFail &f = gMoveFails[v[i].second];
+            int water = 0, cells = 0;
+            int len = (int)Distance(f.x, f.y, f.nx, f.ny);
+
+            for (int s = 0; s <= len; s++)
+            {
+                GridIndex cx = (GridIndex)(f.x + (f.nx - f.x) * (len ? (float)s / len : 0) + 0.5f);
+                GridIndex cy = (GridIndex)(f.y + (f.ny - f.y) * (len ? (float)s / len : 0) + 0.5f);
+                cells++;
+                water += GetCover(cx, cy) == Water;
+            }
+
+            char bridges[256] = "";
+            int nb = 0, n = 0;
+            VuListIterator oit(AllObjList);
+
+            for (Objective o = GetFirstObjective(&oit); o && nb < 4; o = GetNextObjective(&oit))
+            {
+                if (o->GetType() != TYPE_BRIDGE)
+                    continue;
+
+                GridIndex bx, by;
+                o->GetLocation(&bx, &by);
+                // distance from the bridge to the segment
+                float vx = (float)(f.nx - f.x), vy = (float)(f.ny - f.y), wx = (float)(bx - f.x), wy = (float)(by - f.y);
+                float l2 = vx * vx + vy * vy, tt = l2 > 0 ? (wx * vx + wy * vy) / l2 : 0;
+                tt = tt < 0 ? 0 : tt > 1 ? 1 : tt;
+                float ddx = wx - tt * vx, ddy = wy - tt * vy;
+
+                if (ddx * ddx + ddy * ddy <= 9.0f)
+                    n += sprintf(bridges + n, " #%d %d%% team%d", (int)o->GetCampID(), (int)o->GetObjectiveStatus(),
+                                 (int)o->GetTeam()),
+                        nb++;
+            }
+
+            printf("MOVE   bn %u: %d failures (%s) at (%d,%d) -> (%d,%d) %d km: water cells %d/%d, bridges:%s\n",
+                   v[i].second, f.count, f.why ? "no waypoints" : "no grid path", f.x, f.y, f.nx, f.ny, len, water,
+                   cells, nb ? bridges : " none within 3 km");
+        }
+    }
+
+    gMoveFails.clear();
+}
+
 // ---------------------------------------------------------------------------
 // China reinforcement wave (prototype). prcwave=MIN:MAX -- when event 11 (China joins) fires, China's
 // ground units arrive as a wave: each brigade (with its battalions) and each independent battalion is
@@ -1759,6 +1853,58 @@ static void ApplyKnobs(int argc, char **argv)
             g_bGtmKeepCapture = atoi(val) != 0;
             printf("KNOB g_bGtmKeepCapture = %d\n", (int)g_bGtmKeepCapture);
         }
+        else if (!strcmp(key, "objinfo"))
+        {
+            // objinfo=ID[,ID...] -- name, type, owner, cell and how a tracked/wheeled unit sees each cell
+            // around it (movement cost, roads allowed or not; > MAX_COST = impassable)
+            for (const char *p = val; p && *p; p = strchr(p, ','), p = p ? p + 1 : NULL)
+            {
+                Objective o = (Objective)GetEntityByCampID(atoi(p));
+
+                if (!o)
+                {
+                    printf("OBJINFO %d: not found\n", atoi(p));
+                    continue;
+                }
+
+                _TCHAR name[80];
+                o->GetName(name, 79, FALSE);
+                GridIndex x, y;
+                o->GetLocation(&x, &y);
+                printf("OBJINFO #%d \"%s\" type %d team %d at (%d,%d) secondary %d primary %d parent #%d\n",
+                       (int)o->GetCampID(), name, (int)o->GetType(), (int)o->GetTeam(), x, y, o->IsSecondary(),
+                       o->IsPrimary(), o->GetObjectiveParent() ? (int)o->GetObjectiveParent()->GetCampID() : 0);
+
+                for (int dy = 2; dy >= -2; dy--)
+                {
+                    char row[512];
+                    int n = sprintf(row, "OBJINFO   y=%d:", y + dy);
+
+                    for (int dx = -2; dx <= 2; dx++)
+                    {
+                        float c0 = GetMovementCost(x + dx, y + dy, Tracked, 0, Here);
+                        float cr = GetMovementCost(x + dx, y + dy, Tracked, PATH_ROADOK, Here);
+                        n += sprintf(row + n, " [%c%c cov%d %3.0f/%3.0f]", dx == 0 && dy == 0 ? '*' : ' ',
+                                     GetRoad(x + dx, y + dy) ? 'R' : ' ', (int)GetCover(x + dx, y + dy),
+                                     c0 > 999 ? 999.0f : c0, cr > 999 ? 999.0f : cr);
+                    }
+
+                    printf("%s\n", row);
+                }
+            }
+        }
+        else if (!strcmp(key, "waterfix"))
+        {
+            extern bool g_bWaterObjectiveFix;
+            g_bWaterObjectiveFix = atoi(val) != 0;
+            printf("KNOB g_bWaterObjectiveFix = %d\n", (int)g_bWaterObjectiveFix);
+        }
+        else if (!strcmp(key, "keepstall"))
+        {
+            extern int g_nGtmKeepCaptureStall;
+            g_nGtmKeepCaptureStall = atoi(val);
+            printf("KNOB g_nGtmKeepCaptureStall = %d h\n", g_nGtmKeepCaptureStall);
+        }
         else if (!strcmp(key, "capunits"))
         {
             extern int g_nGtmCaptureUnits;
@@ -1992,6 +2138,7 @@ int main(int argc, char **argv)
     SymInitialize(GetCurrentProcess(), NULL, TRUE);
     SetUnhandledExceptionFilter(CampsimCrashFilter);
     gOrderChangeHook = CapOrderHook;
+    gMoveFailHook = MoveFailHook;
     const char *gamedir = (argc > 1) ? argv[1] : "C:/FreeFalcon6";
     const char *savefile = (argc > 2) ? argv[2] : "save0";
     int days = (argc > 3) ? atoi(argv[3]) : 0;
@@ -2294,7 +2441,7 @@ int main(int argc, char **argv)
                 BridgeLog(iter / 60);
 
             if ((iter % 360) == 0)
-                GtmLog(iter / 60), CapLog(iter / 60);
+                GtmLog(iter / 60), CapLog(iter / 60), MoveLog(iter / 60);
 
             if ((iter % 1440) == 0)
                 for (int t : {2, 6})

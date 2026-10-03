@@ -4559,6 +4559,16 @@ int UnitClass::GetUnitGridPath(Path p, GridIndex x, GridIndex y, GridIndex xx,
 
         if (GetUnitNormalRole() == GRO_ENGINEER)
             flags or_eq PATH_ENGINEER;
+
+        // Artscout - 2026 (g_bWaterObjectiveFix): a short final approach (< ~5.5 km, not in column)
+        // searched without PATH_ROADOK, so a destination on a road/bridge/port cell over water was
+        // "impassable" and GetGridPath rejected it outright -- every tick, forever (campsim MOVE log:
+        // 122 failures in 6 h for units 5 km from Wonsan's coastal plant). Allow roads in that case.
+        extern bool g_bWaterObjectiveFix;
+
+        if (g_bWaterObjectiveFix and not(flags bitand PATH_ROADOK) and
+            GetMovementCost(xx, yy, GetMovementType(), flags, Here) > MAX_COST)
+            flags or_eq PATH_ROADOK;
     }
 
     // Flights will never find a path inroute - only during planning and they should use

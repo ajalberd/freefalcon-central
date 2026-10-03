@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <float.h>
+#include <map>
 #include "cmpglobl.h"
 #include "listadt.h"
 #include "f4vu.h"
@@ -764,6 +765,37 @@ void GroundTaskingManagerClass::AddToList(Unit u, int orders)
         canidateList[orders]->Insert(curu, USN_SORT_BY_SCORE);
 }
 
+// Artscout - 2026: progress of units kept on a capture order (g_bGtmKeepCapture). A unit that has not
+// moved 1 km in g_nGtmKeepCaptureStall hours toward the same objective is stalled -- typically it cannot
+// path to it -- and is handed back to normal tasking. Session-only state, rebuilt as units are seen.
+struct CaptureProgress
+{
+    VU_ID objective;
+    GridIndex x, y;
+    CampaignTime since;
+};
+static std::map<VU_ID, CaptureProgress> sCaptureProgress;
+
+static int CaptureStalled(Unit u, Objective o)
+{
+    extern int g_nGtmKeepCaptureStall;
+    GridIndex x, y;
+    u->GetLocation(&x, &y);
+    CaptureProgress &p = sCaptureProgress[u->Id()];
+
+    if (p.objective not_eq o->Id() or abs(p.x - x) + abs(p.y - y) >= 1 or not p.since)
+    {
+        p.objective = o->Id();
+        p.x = x;
+        p.y = y;
+        p.since = TheCampaign.CurrentTime;
+        return 0;
+    }
+
+    return g_nGtmKeepCaptureStall > 0 and
+           TheCampaign.CurrentTime - p.since > (CampaignTime)g_nGtmKeepCaptureStall * CampaignHours;
+}
+
 void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
 {
     int i, role;
@@ -778,7 +810,7 @@ void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
         Objective o = u->GetUnitObjective();
 
         if (g_bGtmKeepCapture and u->GetUnitOrders() == GORD_CAPTURE and o and not u->Broken() and
-            IsValidObjective(GORD_CAPTURE, o))
+            IsValidObjective(GORD_CAPTURE, o) and not CaptureStalled(u, o))
         {
             sOffensiveAssigned++;
             AssignUnit(u, GORD_CAPTURE, o, 999);

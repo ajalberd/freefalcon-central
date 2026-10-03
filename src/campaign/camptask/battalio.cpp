@@ -7,6 +7,12 @@
 #include <math.h>
 #include <intrin.h>
 #include "cmpglobl.h"
+#include "campterr.h"
+
+// CAMPSIM DIAGNOSTIC (defined with gOrderChangeHook below)
+extern int gMoveDiag[][4];
+class BattalionClass;
+extern void (*gMoveFailHook)(BattalionClass *u, int why, GridIndex x, GridIndex y, GridIndex nx, GridIndex ny);
 #include "listadt.h"
 #include "campcell.h"
 #include "campterr.h"
@@ -662,6 +668,15 @@ int BattalionClass::MoveUnit(CampaignTime time)
         {
             if (BuildGroundWP(this) < 0)
             {
+                {
+                    GridIndex dx2, dy2;
+                    GetUnitDestination(&dx2, &dy2);
+                    gMoveDiag[GetTeam() % NUM_TEAMS][1]++;
+
+                    if (gMoveFailHook)
+                        gMoveFailHook(this, 1, x, y, dx2, dy2);
+                }
+
                 // Build a path
                 SetUnitObjective(
                     FalconNullId); // We failed for some reason, so clear our objective
@@ -739,6 +754,7 @@ int BattalionClass::MoveUnit(CampaignTime time)
                 if ((DistSqu(x, y, px, py) < 25.0F) or
                     (DistSqu(x, y, pwx, pwy) < DistSqu(px, py, pwx, pwy)))
                 {
+                    gMoveDiag[GetTeam() % NUM_TEAMS][2]++;
                     nx =
                         x; // Don't move right now - wait for previous element to pass
                     ny = y;
@@ -749,6 +765,7 @@ int BattalionClass::MoveUnit(CampaignTime time)
     }
     else if (GetUnitTactic() == GTACTIC_MOVE_HOLD)
     {
+        gMoveDiag[GetTeam() % NUM_TEAMS][3]++;
         // Hang out here til we switch tactics
         nx = x;
         ny = y;
@@ -836,6 +853,11 @@ int BattalionClass::MoveUnit(CampaignTime time)
 #endif
                 // Couldn't find a path (usually a destroyed bridge),
                 // so clear our waypoints, rebuild and quit (we'll move next time we check)
+                gMoveDiag[GetTeam() % NUM_TEAMS][0]++;
+
+                if (gMoveFailHook)
+                    gMoveFailHook(this, 0, x, y, nx, ny);
+
                 ClearUnitPath();
                 DisposeWayPoints();
                 BuildGroundWP(this);
@@ -1188,6 +1210,12 @@ extern bool g_bPlayerGroundHold;
 // address, so tools/campsim can say WHO took a unit off its orders. Null (unused) in the game.
 void (*gOrderChangeHook)(BattalionClass *u, int oldOrders, int newOrders, VU_ID oid, void *caller) = NULL;
 
+// CAMPSIM DIAGNOSTIC (read only by tools/campsim): why a battalion that wants to move does not, per
+// team: [0] no grid path to its next waypoint, [1] no waypoints could be built, [2] waiting in a brigade
+// column, [3] holding (GTACTIC_MOVE_HOLD). The hook gets from/to of each path failure (0 and 1).
+int gMoveDiag[NUM_TEAMS][4] = {{0}};
+void (*gMoveFailHook)(BattalionClass *u, int why, GridIndex x, GridIndex y, GridIndex nx, GridIndex ny) = NULL;
+
 void BattalionClass::SetUnitOrders(int neworders, VU_ID oid)
 {
     if (PlayerHeld() and not gPlayerOrdering)
@@ -1356,6 +1384,31 @@ void BattalionClass::PickFinalLocation(void)
     default:
         final_heading = Here;
         break;
+    }
+
+    // Artscout - 2026 (g_bWaterObjectiveFix, off = stock): never aim at a cell we cannot enter (a port
+    // or coastal objective on water): the grid path search rejects an impassable destination outright,
+    // so the unit retried forever. Stop on the nearest enterable cell instead; DetectVs lets it take the
+    // objective from there.
+    {
+        extern bool g_bWaterObjectiveFix;
+        const MoveType mt = GetMovementType();
+
+        if (g_bWaterObjectiveFix and mt not_eq NoMove and GetMovementCost(dx, dy, mt, PATH_ROADOK, Here) > MAX_COST)
+        {
+            GridIndex bx = dx, by = dy;
+            int found = 0;
+
+            for (int r = 1; r <= 3 and not found; r++)
+                for (int iy = -r; iy <= r and not found; iy++)
+                    for (int ix = -r; ix <= r and not found; ix++)
+                        if ((abs(ix) == r or abs(iy) == r) and
+                            GetMovementCost(dx + ix, dy + iy, mt, PATH_ROADOK, Here) <= MAX_COST)
+                            bx = dx + ix, by = dy + iy, found = 1;
+
+            dx = bx;
+            dy = by;
+        }
     }
 
     GetLocation(&x, &y);

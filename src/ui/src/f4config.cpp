@@ -437,6 +437,7 @@ int g_nWeatherFronts = 1;
 // high and a ground unit could never step onto one of them in a decreasing direction.
 int g_nSimToGridFix = 1;
 int g_nGtmReservesPerCycle = 1; // campaign: ground units the GTM may move up from reserve per tasking cycle (stock 1)
+int g_nGtmKeepCaptureStall = 6; // campaign: with GtmKeepCapture, hours a kept attacker may sit without moving 1 km before it is re-tasked (0 = never)
 int g_nGtmCaptureUnits = 1; // campaign: battalions the GTM may send at one capture objective per cycle (stock 1)
 int g_nBattalionReinforceFix = 1; // campaign: 1 = keep a loaded battalion's reinforcement hour, 0 = old (all arrive at once)
 // New fronts per campaign day, on average. 0 = only the ones already there.
@@ -711,6 +712,7 @@ bool g_bSmartCombatAP = true; // JB 010224
 float g_fDragDilutionFactor = 1.0; // JB 010707
 bool g_bRealisticAttrition = false; // JB 010710
 bool g_bGtmReserveFarthest = false; // campaign: the ground AI moves up its rear-most reserves first (stock: closest first)
+bool g_bWaterObjectiveFix = false; // campaign: ground units stop next to (and capture) objectives on water cells (stock: unreachable, units retry forever)
 bool g_bGtmReserveFix = false; // campaign: reserves are chosen from units still free this cycle (stock: none move up while on the offensive)
 bool g_bGtmKeepCapture = false; // campaign: a battalion keeps a capture order while its target is still a valid one (stock: re-planned every cycle)
 bool g_bSupplyExactLoss = false; // campaign: supply road losses computed once per trip, not truncated per node (stock: small shipments vanish)
@@ -1814,6 +1816,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"RealisticAttrition", &g_bRealisticAttrition},
     {"PlayerGroundHold", &g_bPlayerGroundHold}, // 1 = the AI leaves a battalion you moved alone until it arrives
     {"GtmReserveFarthest", &g_bGtmReserveFarthest}, // 1 = rear reserves are moved forward first
+    {"WaterObjectiveFix", &g_bWaterObjectiveFix}, // 1 = ports and coastal objectives can be reached and captured
     {"GtmReserveFix", &g_bGtmReserveFix}, // 1 = reserves move up while the side is on the offensive
     {"GtmKeepCapture", &g_bGtmKeepCapture}, // 1 = attacking battalions keep their target while it stays valid
     {"SupplyExactLoss", &g_bSupplyExactLoss}, // 1 = small supply shipments are not rounded away on long roads
@@ -2178,6 +2181,7 @@ static ConfigOption<int> IntOpts[] = {
     {"BattalionReinforceFix", &g_nBattalionReinforceFix},
     {"GtmReservesPerCycle", &g_nGtmReservesPerCycle}, // reserve units the ground AI moves up per cycle (stock 1)
     {"GtmCaptureUnits", &g_nGtmCaptureUnits}, // battalions the ground AI sends at one capture objective per cycle (stock 1)
+    {"GtmKeepCaptureStall", &g_nGtmKeepCaptureStall}, // hours a kept attacker may stand still before it is re-tasked
     {"SimToGridFix", &g_nSimToGridFix}, // campaign: 1 = floor the sim->grid conversion (ground units can move again), 0 = old rounding
     {"RwrFont", &g_nRwrFont}, // Artscout - 2026 (RWR): -1 = one size below the MFD font, else 0..3
     {"CanopyAttenuation", &g_nCanopyAttenuation}, // Artscout - 2026: extra dB of canopy muffling, 0 = off
