@@ -15,6 +15,7 @@
 #include <map>
 #include <vector>
 #include <string>
+#include <algorithm>
 #include <stdarg.h>
 
 #include "f4find.h"
@@ -352,6 +353,167 @@ static void GtmLog(int hour)
         printf("%s\n", buf);
         memcpy(prev[t], gGtmDiag[t], sizeof(prev[t]));
         memcpy(prevAct[t], gGtmAction[t], sizeof(prevAct[t]));
+    }
+}
+
+// CAPTURE order life cycle (battalio.cpp gOrderChangeHook), ROK and DPRK battalions: who ends a capture
+// order (caller file:line and the new order), whether the objective had been taken by then, how long the
+// order lasted; plus a snapshot of the units holding one now (moving / stuck / low supply / broken).
+extern "C++" void (*gOrderChangeHook)(BattalionClass *u, int oldOrders, int newOrders, VU_ID oid, void *caller);
+
+struct CapEnd
+{
+    int team, newOrders, taken;
+    void *caller;
+    bool operator<(const CapEnd &o) const
+    {
+        if (team != o.team) return team < o.team;
+        if (newOrders != o.newOrders) return newOrders < o.newOrders;
+        if (taken != o.taken) return taken < o.taken;
+        return caller < o.caller;
+    }
+};
+static std::map<CapEnd, int> gCapEnds;
+static std::map<unsigned, CampaignTime> gCapStart;
+static int gCapAssigned[NUM_TEAMS], gCapLife[NUM_TEAMS][4]; // ended after <1 h, 1-6 h, 6-24 h, >24 h
+static std::map<unsigned, std::pair<int, int>> gCapPos;    // last snapshot position of capture holders
+
+static void CapOrderHook(BattalionClass *u, int oldOrders, int newOrders, VU_ID, void *caller)
+{
+    int t = u->GetTeam();
+
+    if (t != 2 && t != 6)
+        return;
+
+    unsigned id = u->Id().num_;
+
+    if (oldOrders == GORD_CAPTURE)
+    {
+        // taken: 1 objective is ours now, 2 still a valid capture target (dropped anyway), 0 no longer valid
+        Objective o = u->GetUnitObjective();
+        int taken = !o ? 0 : o->GetTeam() == t ? 1
+                    : TeamInfo[t]->gtm->IsValidObjective(GORD_CAPTURE, o) ? 2 : 0;
+        CapEnd k = {t, newOrders, taken, caller};
+        gCapEnds[k]++;
+        std::map<unsigned, CampaignTime>::iterator it = gCapStart.find(id);
+
+        if (it != gCapStart.end())
+        {
+            CampaignTime h = (TheCampaign.CurrentTime - it->second) / CampaignHours;
+            gCapLife[t][h < 1 ? 0 : h < 6 ? 1 : h < 24 ? 2 : 3]++;
+            gCapStart.erase(it);
+        }
+    }
+
+    if (newOrders == GORD_CAPTURE)
+    {
+        gCapAssigned[t]++;
+        gCapStart[id] = TheCampaign.CurrentTime;
+    }
+}
+
+static const char *CallerName(void *addr)
+{
+    static std::map<void *, std::string> cache;
+    std::map<void *, std::string>::iterator it = cache.find(addr);
+
+    if (it != cache.end())
+        return it->second.c_str();
+
+    HANDLE proc = GetCurrentProcess();
+    char symBuf[sizeof(IMAGEHLP_SYMBOL64) + 256];
+    IMAGEHLP_SYMBOL64 *sym = (IMAGEHLP_SYMBOL64 *)symBuf;
+    sym->SizeOfStruct = sizeof(IMAGEHLP_SYMBOL64);
+    sym->MaxNameLength = 255;
+    DWORD64 d64 = 0;
+    DWORD d32 = 0;
+    IMAGEHLP_LINE64 ln = {sizeof(IMAGEHLP_LINE64)};
+    char out[512];
+    const char *name = SymGetSymFromAddr64(proc, (DWORD64)addr - 1, &d64, sym) ? sym->Name : "?";
+
+    if (SymGetLineFromAddr64(proc, (DWORD64)addr - 1, &d32, &ln))
+    {
+        const char *f = strrchr(ln.FileName, '\\');
+        sprintf(out, "%s %s:%lu", name, f ? f + 1 : ln.FileName, ln.LineNumber);
+    }
+    else
+        sprintf(out, "%s", name);
+
+    return (cache[addr] = out).c_str();
+}
+
+static void CapLog(int hour)
+{
+    static const char *ord[] = {"RES", "CAP", "SEC", "ASL", "ABN", "CMD", "DEF", "SUP", "REP", "AD", "RCN", "RAD"};
+    int hold[NUM_TEAMS] = {0}, moving[NUM_TEAMS] = {0}, stuck[NUM_TEAMS] = {0}, lowsup[NUM_TEAMS] = {0},
+        broken[NUM_TEAMS] = {0}, bns[NUM_TEAMS] = {0}, bnLow[NUM_TEAMS] = {0}, bnBroken[NUM_TEAMS] = {0};
+    std::map<unsigned, std::pair<int, int>> pos;
+    VuListIterator uit(AllUnitList);
+
+    for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+    {
+        int t = u->GetTeam();
+
+        if ((t != 2 && t != 6) || !u->IsBattalion())
+            continue;
+
+        bns[t]++;
+        bnLow[t] += u->GetUnitSupply() < 50;
+        bnBroken[t] += u->Broken() ? 1 : 0;
+
+        if (u->GetUnitOrders() != GORD_CAPTURE)
+            continue;
+
+        GridIndex x, y;
+        u->GetLocation(&x, &y);
+        unsigned id = u->Id().num_;
+        pos[id] = std::make_pair((int)x, (int)y);
+        hold[t]++;
+        lowsup[t] += u->GetUnitSupply() < 50;
+        broken[t] += u->Broken() ? 1 : 0;
+
+        if (u->Moving())
+        {
+            moving[t]++;
+            std::map<unsigned, std::pair<int, int>>::iterator p = gCapPos.find(id);
+
+            if (p != gCapPos.end() && abs(p->second.first - x) + abs(p->second.second - y) <= 1)
+                stuck[t]++;
+        }
+    }
+
+    gCapPos.swap(pos);
+
+    for (int t : {2, 6})
+    {
+        int ended = 0, taken = 0;
+
+        for (std::map<CapEnd, int>::iterator it = gCapEnds.begin(); it != gCapEnds.end(); ++it)
+            if (it->first.team == t)
+                ended += it->second, taken += it->first.taken == 1 ? it->second : 0;
+
+        printf("CAPORD h=%d team %d: battalions %d (supply<50 %d, broken %d) | CAPTURE held now %d: moving %d, "
+               "stuck since last log %d, supply<50 %d, broken %d | since start assigned %d, ended %d (objective "
+               "taken %d), lasted <1h %d 1-6h %d 6-24h %d >24h %d\n",
+               hour, t, bns[t], bnLow[t], bnBroken[t], hold[t], moving[t], stuck[t], lowsup[t], broken[t],
+               gCapAssigned[t], ended, taken, gCapLife[t][0], gCapLife[t][1], gCapLife[t][2], gCapLife[t][3]);
+
+        // the eight biggest ways a capture order ends
+        std::vector<std::pair<int, CapEnd>> v;
+
+        for (std::map<CapEnd, int>::iterator it = gCapEnds.begin(); it != gCapEnds.end(); ++it)
+            if (it->first.team == t)
+                v.push_back(std::make_pair(it->second, it->first));
+
+        std::sort(v.begin(), v.end(), [](const std::pair<int, CapEnd> &a, const std::pair<int, CapEnd> &b)
+                  { return a.first > b.first; });
+
+        for (size_t i = 0; i < v.size() && i < 8; i++)
+            printf("CAPORD   %5d -> %s %s by %s\n", v[i].first,
+                   v[i].second.newOrders >= 0 && v[i].second.newOrders < 12 ? ord[v[i].second.newOrders] : "?",
+                   v[i].second.taken == 1 ? "(objective taken)"
+                   : v[i].second.taken == 2 ? "(objective STILL VALID)" : "(objective no longer valid)",
+                   CallerName(v[i].second.caller));
     }
 }
 
@@ -1628,6 +1790,7 @@ int main(int argc, char **argv)
     SymSetOptions(SYMOPT_UNDNAME | SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS);
     SymInitialize(GetCurrentProcess(), NULL, TRUE);
     SetUnhandledExceptionFilter(CampsimCrashFilter);
+    gOrderChangeHook = CapOrderHook;
     const char *gamedir = (argc > 1) ? argv[1] : "C:/FreeFalcon6";
     const char *savefile = (argc > 2) ? argv[2] : "save0";
     int days = (argc > 3) ? atoi(argv[3]) : 0;
@@ -1929,7 +2092,7 @@ int main(int argc, char **argv)
                 BridgeLog(iter / 60);
 
             if ((iter % 360) == 0)
-                GtmLog(iter / 60);
+                GtmLog(iter / 60), CapLog(iter / 60);
 
             if (iter == 1 || (iter % 720) == 0)
                 RebaseLog(iter / 60);

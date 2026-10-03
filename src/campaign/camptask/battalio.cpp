@@ -5,6 +5,7 @@
 #include <io.h>
 #include <stdlib.h>
 #include <math.h>
+#include <intrin.h>
 #include "cmpglobl.h"
 #include "listadt.h"
 #include "campcell.h"
@@ -1183,6 +1184,10 @@ CampaignHeading FindBestHeading(Objective o, int type, int own)
 int gPlayerOrdering = 0;
 extern bool g_bPlayerGroundHold;
 
+// CAMPSIM DIAGNOSTIC: called on every effective battalion order change with the caller's return
+// address, so tools/campsim can say WHO took a unit off its orders. Null (unused) in the game.
+void (*gOrderChangeHook)(BattalionClass *u, int oldOrders, int newOrders, VU_ID oid, void *caller) = NULL;
+
 void BattalionClass::SetUnitOrders(int neworders, VU_ID oid)
 {
     if (PlayerHeld() and not gPlayerOrdering)
@@ -1235,6 +1240,9 @@ void BattalionClass::SetUnitOrders(int neworders, VU_ID oid)
 
     if (neworders == GetOrders() and oid == GetUnitObjectiveID())
         return;
+
+    if (gOrderChangeHook)
+        gOrderChangeHook(this, GetOrders(), neworders, oid, _ReturnAddress());
 
     /* if (Cargo() or cargo_id not_eq FalconNullId)
      {
