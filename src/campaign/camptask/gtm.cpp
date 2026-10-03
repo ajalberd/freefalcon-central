@@ -292,6 +292,11 @@ int GroundTaskingManagerClass::Task(void)
     time = GetTickCount();
 #endif
 
+    {
+        extern int gGtmAction[NUM_TEAMS][8];
+        gGtmAction[owner][action bitand 7]++;
+    }
+
     Cleanup();
 
     // Choose types of orders we can give
@@ -940,6 +945,12 @@ int GroundTaskingManagerClass::AssignUnit(Unit u, int orders, Objective o,
 #endif
 
     Assigned++;
+    {
+        extern int gGtmDiag[NUM_TEAMS][GORD_LAST][5];
+
+        if (orders >= 0 and orders < GORD_LAST)
+            gGtmDiag[owner][orders][score == 999 ? 4 : 2]++;
+    }
 
     // Set local data right now...
     u->SetAssigned(1);
@@ -985,6 +996,13 @@ int GroundTaskingManagerClass::AssignUnit(Unit u, int orders, Objective o,
     return 1;
 }
 
+// CAMPSIM DIAGNOSTIC (read only by tools/campsim): per team and order type, cumulative
+// [0] objectives wanting units, [1] candidate units offered, [2] units newly assigned, [3] calls,
+// [4] units confirmed in orders they already had;
+// gGtmAction counts GTM cycles by ground action type.
+int gGtmDiag[NUM_TEAMS][GORD_LAST][5] = {{{0}}};
+int gGtmAction[NUM_TEAMS][8] = {{0}};
+
 int GroundTaskingManagerClass::AssignUnits(int orders, int mode)
 {
     GODNode curo, nexto;
@@ -995,6 +1013,20 @@ int GroundTaskingManagerClass::AssignUnits(int orders, int mode)
     ulong time, newtime;
     time = GetTickCount();
 #endif
+
+    {
+        int no = 0, nu = 0;
+
+        for (GODNode n = objList[orders]; n; n = n->next)
+            no++;
+
+        for (USNode n = canidateList[orders]; n; n = n->next)
+            nu++;
+
+        gGtmDiag[owner][orders][0] += no;
+        gGtmDiag[owner][orders][1] += nu;
+        gGtmDiag[owner][orders][3]++;
+    }
 
     if (not objList[orders] or not canidateList[orders])
         return 0;
@@ -1012,26 +1044,77 @@ int GroundTaskingManagerClass::AssignUnits(int orders, int mode)
         if (po)
             po->GetLocation(&px, &py);
 
-        nextu = canidateList[orders];
+        // Artscout - 2026: keep the g_nGtmReservesPerCycle candidates closest to the action
+        // objective (stock: 1). With one per cycle, DPRK's 100-200 idle units -- China's 43
+        // battalions among them once it joins -- reached the front at ~1 an hour (campsim GTM
+        // log: ~300 reserve objectives and 108-199 candidates per call, 2-7 moved per 6 h).
+        extern int g_nGtmReservesPerCycle;
+        const int keep = g_nGtmReservesPerCycle < 1 ? 1 : g_nGtmReservesPerCycle;
 
-        while (nextu)
+        if (keep == 1)
         {
-            curu = nextu;
-            nextu = curu->next;
-            curu->unit->GetLocation(&x, &y);
-            ds = (float)DistSqu(x, y, px, py);
+            nextu = canidateList[orders];
 
-            if (ds < bestds)
+            while (nextu)
             {
-                bestds = ds;
+                curu = nextu;
+                nextu = curu->next;
+                curu->unit->GetLocation(&x, &y);
+                ds = (float)DistSqu(x, y, px, py);
 
-                if (bestn)
+                if (ds < bestds)
+                {
+                    bestds = ds;
+
+                    // KCK's original dropped the old best here by removing curu -- the new
+                    // best -- instead. Remove the old best.
+                    if (bestn)
+                        canidateList[orders] = canidateList[orders]->Remove(bestn);
+
+                    bestn = curu;
+                }
+                else
                     canidateList[orders] = canidateList[orders]->Remove(curu);
-
-                bestn = curu;
             }
-            else
-                canidateList[orders] = canidateList[orders]->Remove(curu);
+        }
+        else
+        {
+            // distance of the keep-th closest candidate; drop everything beyond it
+            float nearDs[64];
+            int n = 0;
+
+            for (curu = canidateList[orders]; curu; curu = curu->next)
+            {
+                curu->unit->GetLocation(&x, &y);
+                ds = (float)DistSqu(x, y, px, py);
+                int i = n < keep and n < 64 ? n++ : (ds < nearDs[n - 1] ? n - 1 : -1);
+
+                if (i < 0)
+                    continue;
+
+                nearDs[i] = ds;
+
+                while (i > 0 and nearDs[i - 1] > nearDs[i])
+                {
+                    float t = nearDs[i - 1];
+                    nearDs[i - 1] = nearDs[i];
+                    nearDs[i] = t;
+                    i--;
+                }
+            }
+
+            const float cut = n ? nearDs[n - 1] : FLT_MAX;
+            nextu = canidateList[orders];
+
+            while (nextu)
+            {
+                curu = nextu;
+                nextu = curu->next;
+                curu->unit->GetLocation(&x, &y);
+
+                if ((float)DistSqu(x, y, px, py) > cut)
+                    canidateList[orders] = canidateList[orders]->Remove(curu);
+            }
         }
     }
 
