@@ -17,8 +17,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-EXE_DIR = os.path.normpath(os.path.join(
-    HERE, "..", "..", "src", "Falcon4___x64_Release", "Tools", "campsim"))
+EXE_DIR = os.path.normpath(os.environ.get("CAMPSIM_EXE_DIR") or os.path.join(
+    HERE, "..", "..", "src", "Falcon4___x64_Release", "Tools", "campsim"))  # CAMPSIM_EXE_DIR: a frozen copy
 GAME = r"C:\FreeFalcon6"
 BLUE = (1, 2, 3)
 RED = (5, 6)   # PRC is folded into DPRK by the engine within the first half hour

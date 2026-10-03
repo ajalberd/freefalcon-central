@@ -517,6 +517,175 @@ static void CapLog(int hour)
     }
 }
 
+// ---------------------------------------------------------------------------
+// China reinforcement wave (prototype). prcwave=MIN:MAX -- when event 11 (China joins) fires, China's
+// ground units arrive as a wave: each brigade (with its battalions) and each independent battalion is
+// moved to a DPRK-held secondary objective MIN-MAX km behind the front, spread west to east, instead
+// of starting its war 300+ km away on the Yalu. prcoff=H -- then put DPRK on the OFFENSIVE for H hours
+// (re-asserted every hour, since Blue's own offensives force DPRK back onto the defensive), aimed at the
+// Blue-held primary objective nearest the wave.
+static int gPrcWaveMin, gPrcWaveMax, gPrcOffHours, gPrcWaveDone;
+static CampaignTime gPrcOffUntil;
+static VU_ID gPrcOffObjective;
+static std::vector<VU_ID> gPrcGroups; // brigades and independent battalions of team 5 at load
+
+static void PrcRecord()
+{
+    VuListIterator uit(AllUnitList);
+
+    for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+        if (u->GetTeam() == 5 && u->GetDomain() == DOMAIN_LAND &&
+            (u->IsBrigade() || (u->IsBattalion() && !u->GetUnitParent())))
+            gPrcGroups.push_back(u->Id());
+
+    printf("PRCWAVE recorded %d Chinese brigades / independent battalions\n", (int)gPrcGroups.size());
+}
+
+static void PrcMove(Unit u, Objective o, int jitter)
+{
+    GridIndex ox, oy;
+    o->GetLocation(&ox, &oy);
+    u->DisposeWayPoints();
+    u->SetLocation(ox + (jitter % 3) - 1, oy + ((jitter / 3) % 3) - 1);
+    u->SetUnitDestination(ox, oy);
+}
+
+static void PrcWave(int hour)
+{
+    std::vector<Objective> cand;
+    VuListIterator oit(AllObjList);
+
+    for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+    {
+        if (o->GetTeam() != 6 || !o->IsSecondary())
+            continue;
+
+        GridIndex x, y;
+        o->GetLocation(&x, &y);
+        float d = DistanceToFront(x, y);
+
+        if (d >= gPrcWaveMin && d <= gPrcWaveMax)
+            cand.push_back(o);
+    }
+
+    if (cand.empty())
+    {
+        printf("PRCWAVE h=%d: no DPRK objective %d-%d km behind the front\n", hour, gPrcWaveMin, gPrcWaveMax);
+        return;
+    }
+
+    std::sort(cand.begin(), cand.end(), [](Objective a, Objective b) {
+        GridIndex ax, ay, bx, by;
+        a->GetLocation(&ax, &ay);
+        b->GetLocation(&bx, &by);
+        return ax < bx;
+    });
+
+    int groups = 0, bns = 0, veh = 0;
+    long sx = 0, sy = 0;
+    float dsum = 0;
+    const int n = (int)gPrcGroups.size();
+
+    for (int i = 0; i < n; i++)
+    {
+        Unit g = (Unit)vuDatabase->Find(gPrcGroups[i]);
+
+        if (!g || g->IsDead())
+            continue;
+
+        Objective o = cand[(size_t)i * cand.size() / n];
+        GroundTaskingManagerClass *gtm = TeamInfo[g->GetTeam()]->gtm;
+        int orders = gtm->IsValidObjective(GORD_DEFEND, o) ? GORD_DEFEND : GORD_RESERVE;
+        PrcMove(g, o, 0);
+        int j = 1;
+
+        for (Unit e = g->IsBrigade() ? g->GetFirstUnitElement() : NULL; e; e = g->GetNextUnitElement())
+        {
+            PrcMove(e, o, j++);
+            bns++;
+            veh += e->GetTotalVehicles();
+        }
+
+        if (g->IsBattalion())
+            bns++, veh += g->GetTotalVehicles();
+
+        g->SetUnitOrders(orders, o->Id());
+        GridIndex x, y;
+        o->GetLocation(&x, &y);
+        sx += x, sy += y, dsum += DistanceToFront(x, y);
+        groups++;
+    }
+
+    printf("PRCWAVE h=%d: moved %d groups (%d battalions, %d vehicles) to %d objectives %d-%d km behind the front, "
+           "mean %.0f km, centre (%ld,%ld)\n",
+           hour, groups, bns, veh, (int)cand.size(), gPrcWaveMin, gPrcWaveMax, groups ? dsum / groups : 0.0f,
+           groups ? sx / groups : 0, groups ? sy / groups : 0);
+
+    if (gPrcOffHours > 0 && groups)
+    {
+        // aim at the Blue-held primary objective nearest the wave's centre
+        GridIndex cx = (GridIndex)(sx / groups), cy = (GridIndex)(sy / groups);
+        Objective best = NULL;
+        float bd = 1e9f;
+        VuListIterator pit(POList);
+
+        for (Objective p = GetFirstObjective(&pit); p; p = GetNextObjective(&pit))
+        {
+            if (GetRoE(6, p->GetTeam(), ROE_GROUND_CAPTURE) != ROE_ALLOWED)
+                continue;
+
+            GridIndex x, y;
+            p->GetLocation(&x, &y);
+            float d = Distance(cx, cy, x, y);
+
+            if (d < bd)
+                bd = d, best = p;
+        }
+
+        if (best)
+        {
+            gPrcOffObjective = best->Id();
+            gPrcOffUntil = TheCampaign.CurrentTime + gPrcOffHours * CampaignHours;
+            printf("PRCOFF h=%d: DPRK on the offensive for %d h against PO %d (%.0f km from the wave)\n", hour,
+                   gPrcOffHours, (int)best->GetCampID(), bd);
+        }
+    }
+}
+
+static void PrcTick(int iter)
+{
+    if (gPrcWaveMax > 0 && !gPrcWaveDone && CampEvents && 11 < CE_Events && CampEvents[11] &&
+        CampEvents[11]->HasFired())
+    {
+        gPrcWaveDone = 1;
+        PrcWave(iter / 60);
+    }
+
+    // every tick: Blue's own offensives push DPRK back to DEFENSIVE, and a GTM cycle that cannot staff
+    // half its capture objectives zeroes the action's points (consolidate)
+    if (gPrcOffUntil && TheCampaign.CurrentTime < gPrcOffUntil)
+    {
+        TeamClass *t = TeamInfo[6];
+        Objective o = (Objective)vuDatabase->Find(gPrcOffObjective);
+
+        if (t && o && GetRoE(6, o->GetTeam(), ROE_GROUND_CAPTURE) == ROE_ALLOWED &&
+            t->GetGroundActionType() != GACTION_OFFENSIVE)
+        {
+            TeamGndActionType a = *t->GetGroundAction();
+            a.actionType = GACTION_OFFENSIVE;
+            a.actionObjective = o->Id();
+            a.actionTime = TheCampaign.CurrentTime;
+            a.actionTimeout = gPrcOffUntil;
+            a.actionTempo = 50;
+            a.actionPoints = 80;
+            t->SetGroundAction(&a);
+
+            if (t->GetInitiative() < 60)
+                t->SetInitiative(60);
+        }
+    }
+}
+
 // Squadron rebasing: per team, how many squadrons have left the base they started the run on.
 static std::map<VU_ID, VU_ID> gSqStartBase;
 
@@ -1570,6 +1739,20 @@ static void ApplyKnobs(int argc, char **argv)
             g_bPlayerGroundHold = atoi(val) != 0, printf("KNOB g_bPlayerGroundHold = %d\n", (int)g_bPlayerGroundHold);
         else if (!strcmp(key, "noend"))
             gNoEnd = atoi(val), printf("KNOB noend: run continues past the endgame\n");
+        else if (!strcmp(key, "prcwave"))
+        {
+            sscanf(val, "%d:%d", &gPrcWaveMin, &gPrcWaveMax);
+            printf("KNOB prcwave: China arrives %d-%d km behind the front\n", gPrcWaveMin, gPrcWaveMax);
+            PrcRecord();
+        }
+        else if (!strcmp(key, "prcoff"))
+            gPrcOffHours = atoi(val), printf("KNOB prcoff: DPRK offensive for %d h after the wave\n", gPrcOffHours);
+        else if (!strcmp(key, "resfix"))
+        {
+            extern bool g_bGtmReserveFix;
+            g_bGtmReserveFix = atoi(val) != 0;
+            printf("KNOB g_bGtmReserveFix = %d\n", (int)g_bGtmReserveFix);
+        }
         else if (!strcmp(key, "keepcap"))
         {
             extern bool g_bGtmKeepCapture;
@@ -2068,6 +2251,7 @@ int main(int argc, char **argv)
             DWORD t4 = GetTickCount();
             CampsimPumpMessages();
             iter++;
+            PrcTick(iter);
 
             // First few ticks show where the time goes; after that one line
             // per campaign hour is enough to watch it run.

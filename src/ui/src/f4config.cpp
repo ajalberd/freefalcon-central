@@ -711,6 +711,7 @@ bool g_bSmartCombatAP = true; // JB 010224
 float g_fDragDilutionFactor = 1.0; // JB 010707
 bool g_bRealisticAttrition = false; // JB 010710
 bool g_bGtmReserveFarthest = false; // campaign: the ground AI moves up its rear-most reserves first (stock: closest first)
+bool g_bGtmReserveFix = false; // campaign: reserves are chosen from units still free this cycle (stock: none move up while on the offensive)
 bool g_bGtmKeepCapture = false; // campaign: a battalion keeps a capture order while its target is still a valid one (stock: re-planned every cycle)
 bool g_bSupplyExactLoss = false; // campaign: supply road losses computed once per trip, not truncated per node (stock: small shipments vanish)
 bool g_bPlayerGroundHold = false; // Artscout - 2026 (WORK IN PROGRESS, off by default): a battalion the player moves on the campaign map keeps that order until it arrives or breaks. campsim holdtest: some held units stop moving, see WIP-NOTES.md
@@ -1813,6 +1814,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"RealisticAttrition", &g_bRealisticAttrition},
     {"PlayerGroundHold", &g_bPlayerGroundHold}, // 1 = the AI leaves a battalion you moved alone until it arrives
     {"GtmReserveFarthest", &g_bGtmReserveFarthest}, // 1 = rear reserves are moved forward first
+    {"GtmReserveFix", &g_bGtmReserveFix}, // 1 = reserves move up while the side is on the offensive
     {"GtmKeepCapture", &g_bGtmKeepCapture}, // 1 = attacking battalions keep their target while it stays valid
     {"SupplyExactLoss", &g_bSupplyExactLoss}, // 1 = small supply shipments are not rounded away on long roads
     {"GreyScaleMFD", &g_bGreyScaleMFD},

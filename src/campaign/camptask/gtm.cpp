@@ -1069,6 +1069,32 @@ int GroundTaskingManagerClass::AssignUnits(int orders, int mode)
     if (not objList[orders] or not canidateList[orders])
         return 0;
 
+    // Artscout - 2026 (g_bGtmReserveFix, off = stock): drop units that already got orders this cycle
+    // BEFORE the reserve step below picks the one(s) closest to the action objective. Stock trims first
+    // and removes assigned units after, so on OFFENSIVE -- when the unit nearest the target has just
+    // been given a capture order -- the list ends up empty and no reserve ever moves forward
+    // (campsim GTM log: ROK "RES ... new 0" in every OFFENSIVE cycle, even at 20 reserves per cycle).
+    {
+        extern bool g_bGtmReserveFix;
+
+        if (g_bGtmReserveFix and orders == GORD_RESERVE)
+        {
+            nextu = canidateList[orders];
+
+            while (nextu)
+            {
+                curu = nextu;
+                nextu = curu->next;
+
+                if (curu->unit->Assigned())
+                    canidateList[orders] = canidateList[orders]->Remove(curu);
+            }
+
+            if (not canidateList[orders])
+                return 0;
+        }
+    }
+
     // Special case for reserve orders -
     // We're only going to reorder the unit farthest from our primary objective
     if (orders == GORD_RESERVE)
