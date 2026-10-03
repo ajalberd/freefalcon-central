@@ -1276,3 +1276,24 @@ Newest build staged as `FFViper.next.exe` / `RedViper.next.pdb` (game was runnin
 - Other: VuLinkedList::Remove(VU_ID) iterator-after-erase, PackageListCounter::DelObj erase(end()).
 - Git: `main` synced with origin/main; ~12 commits on top, nothing pushed. `.git` holds a 4.66 GB cruft pack from an
   aborted `git stash -u` that walked the gamework junctions (gamework now in .git/info/exclude); `git gc --prune=now` removes it.
+
+## 2026-10-03: China/Russia, GTM reserves, challenge sliders (sim only, nothing shipped)
+
+- **Challenge sliders are the strongest built-in lever.** Ground Forces 1 notch toward Red (DPRK keeps 16 company
+  slots, Blue 12): Blue wins h41 -> h57 (+Rookie skill) / h67 (+Veteran), Blue a2a losses 126 -> 242/292. Skill values:
+  Recruit 0, Cadet 1, Rookie 2, Veteran 3, Ace 4. Air Forces slider: no effect on outcome. (Pre-clock-fix numbers.)
+- **China/Russia ground never fight.** PRC's 43 bns (783 veh) start ~340 km behind the front (BMS ~220 km), fold into
+  DPRK when China joins, and stay RESERVE/assigned=0. Ruled out: AII path limits (x4), staging 130 km behind front
+  (make_ally_mod.py prc), supply (89-100%), reserve throughput (GtmReservesPerCycle 1 -> 20 moved 2 -> 72 DPRK units
+  per 6 h, outcome unchanged), farthest-first reserves (GtmReserveFarthest: PRC moves ~25 km in 5 days). A 2-3 day war
+  is simply over before they arrive. GTM diag: DPRK is "defensive" all war; DEFEND has 1-3 open objectives per call.
+- **Fixed:** GTM reserve step kept the FIRST candidate, not the closest (removed the new best instead of the old).
+- **China air** (FF6 25 sq/530 ac on paper; only 80 fighters active day 1 vs BMS 144 modern): make_ally_mod.py
+  prcair (squadrons on DPRK airbases, reinforcements active) -> Blue a2a losses +52%, ground lost to air +68%, win
+  time ~same. With g_bEnableABRelocation 1: 23 squadrons rebase (vs 6), day-1 sorties +20%, no further change.
+  Relocation code only moves squadrons off CAPTURED bases (or too near/far from front), not bombed ones.
+- **campsim clock fix:** SimLibElapsedTime now follows game time like the game's timer thread; clock-gated code
+  (rebasing, scramble) runs. Baseline Ground1+Veteran win moved h67 -> h48: earlier sims understated Blue's speed.
+- Engineers: DPRK 13 vs ROK 8; bridges are rarely the bottleneck (0-4 blown); engineer requests are dead code
+  (gndtaskingmsg.cpp handler commented out); all units are division 0. Engineers die like everything else (13 -> 1-2).
+- Andrew chose "Nothing yet" for shipping China-air / relocation; 2DHitChanceGround question dismissed twice.
