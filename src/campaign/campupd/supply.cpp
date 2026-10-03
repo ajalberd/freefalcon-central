@@ -48,6 +48,7 @@ extern bool g_bPowerGrid;
 int gSupplyDiag[NUM_TEAMS][SUPDIAG_LAST] = {{0}};
 // Last distribution ratios (x1000): share of each unit's need the pool could cover, capped at 500.
 int gSupplyRatio[NUM_TEAMS][3] = {{0}};
+int gSupplyPath[NUM_TEAMS][SUPPATH_LAST] = {{0}};
 
 
 // ====================
@@ -341,16 +342,33 @@ int SendSupply(Objective s, Objective d, int *supply, int *fuel)
     Objective c;
     PathClass path;
     int i, l, n, loss, type;
+    extern bool g_bSupplyExactLoss;
+    const int team = s->GetTeam();
+    const int sent = *supply > 0 ? *supply : 0, sentf = *fuel > 0 ? *fuel : 0;
 
     if (not *supply and not *fuel)
         return 0;
 
     if (GetObjectivePath(&path, s, d, Foot, s->GetTeam(), PATH_MARINE) < 1)
+    {
+        gSupplyPath[team][SUPPATH_NO_PATH]++;
         return 0;
+    }
+
+    gSupplyPath[team][SUPPATH_TRIPS]++;
+    gSupplyPath[team][SUPPATH_HOPS] += path.GetLength();
 
     c = s;
     loss = 0;
     AddSupply(s, *supply / 10, *fuel / 10);
+
+    // Artscout - 2026 (g_bSupplyExactLoss, off = stock): stock applies each node's loss in integer
+    // maths, x * (100 - l) / 100, which takes at least 1 point per hop from any shipment under 50 --
+    // a unit's share is often 2-10 points, so it is gone after a handful of road nodes no matter how
+    // light the real losses are (campsim: 62% of ROK resupplies arrived empty). Exact mode keeps the
+    // surviving fraction as a float and rounds once at the end of the trip.
+    float keep = 1.0F;
+    const int s0 = *supply, f0 = *fuel;
 
     for (i = 0; i < path.GetLength(); i++)
     {
@@ -361,14 +379,29 @@ int SendSupply(Objective s, Objective d, int *supply, int *fuel)
         if (type == TYPE_ROAD or type == TYPE_INTERSECT or
             type == TYPE_RAILROAD or type == TYPE_BRIDGE)
         {
-            AddSupply(c, *supply / 10, *fuel / 10);
             l = NodeSupplyLoss(c, type);
-            *supply = *supply * (100 - l) / 100;
-            *fuel = *fuel * (100 - l) / 100;
+
+            if (g_bSupplyExactLoss)
+            {
+                keep *= (100 - l) / 100.0F;
+                *supply = FloatToInt32(s0 * keep + 0.5F);
+                *fuel = FloatToInt32(f0 * keep + 0.5F);
+                AddSupply(c, *supply / 10, *fuel / 10);
+            }
+            else
+            {
+                AddSupply(c, *supply / 10, *fuel / 10);
+                *supply = *supply * (100 - l) / 100;
+                *fuel = *fuel * (100 - l) / 100;
+            }
         }
 
         if (not *supply and not *fuel)
+        {
+            gSupplyPath[team][SUPPATH_EMPTIED]++;
+            gSupplyPath[team][SUPPATH_EMPTIED_SENT] += sent + sentf;
             return 0;
+        }
     }
 
     return 1;

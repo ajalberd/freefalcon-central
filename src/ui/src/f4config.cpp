@@ -437,6 +437,7 @@ int g_nWeatherFronts = 1;
 // high and a ground unit could never step onto one of them in a decreasing direction.
 int g_nSimToGridFix = 1;
 int g_nGtmReservesPerCycle = 1; // campaign: ground units the GTM may move up from reserve per tasking cycle (stock 1)
+int g_nGtmCaptureUnits = 1; // campaign: battalions the GTM may send at one capture objective per cycle (stock 1)
 int g_nBattalionReinforceFix = 1; // campaign: 1 = keep a loaded battalion's reinforcement hour, 0 = old (all arrive at once)
 // New fronts per campaign day, on average. 0 = only the ones already there.
 float g_fWeatherFrontsPerDay = 3.0f;
@@ -710,6 +711,8 @@ bool g_bSmartCombatAP = true; // JB 010224
 float g_fDragDilutionFactor = 1.0; // JB 010707
 bool g_bRealisticAttrition = false; // JB 010710
 bool g_bGtmReserveFarthest = false; // campaign: the ground AI moves up its rear-most reserves first (stock: closest first)
+bool g_bGtmKeepCapture = false; // campaign: a battalion keeps a capture order while its target is still a valid one (stock: re-planned every cycle)
+bool g_bSupplyExactLoss = false; // campaign: supply road losses computed once per trip, not truncated per node (stock: small shipments vanish)
 bool g_bPlayerGroundHold = false; // Artscout - 2026 (WORK IN PROGRESS, off by default): a battalion the player moves on the campaign map keeps that order until it arrives or breaks. campsim holdtest: some held units stop moving, see WIP-NOTES.md
 bool g_bIFFRWR = false; // JB 010727
 int g_nRelocationWait = 3; // JB 010728
@@ -1808,8 +1811,10 @@ static ConfigOption<bool> BoolOpts[] = {
     // { "UserRadioVoice", &g_bUserRadioVoice },
     {"NewFm", &g_bNewFm},
     {"RealisticAttrition", &g_bRealisticAttrition},
-    {"PlayerGroundHold", &g_bPlayerGroundHold},
-    {"GtmReserveFarthest", &g_bGtmReserveFarthest}, // 1 = rear reserves are moved forward first // 1 = the AI leaves a battalion you moved alone until it arrives
+    {"PlayerGroundHold", &g_bPlayerGroundHold}, // 1 = the AI leaves a battalion you moved alone until it arrives
+    {"GtmReserveFarthest", &g_bGtmReserveFarthest}, // 1 = rear reserves are moved forward first
+    {"GtmKeepCapture", &g_bGtmKeepCapture}, // 1 = attacking battalions keep their target while it stays valid
+    {"SupplyExactLoss", &g_bSupplyExactLoss}, // 1 = small supply shipments are not rounded away on long roads
     {"GreyScaleMFD", &g_bGreyScaleMFD},
     {"IFFRWR", &g_bIFFRWR},
     {"3dCockpit", &g_b3dCockpit},
@@ -2169,7 +2174,8 @@ static ConfigOption<int> IntOpts[] = {
     {"KneeNavaidFont", &g_nKneeNavaidFont}, // Artscout - 2026 (NAVAIDS)
     {"WeatherFronts", &g_nWeatherFronts}, // Artscout - 2026 (FRONTS): 0 = one condition everywhere
     {"BattalionReinforceFix", &g_nBattalionReinforceFix},
-    {"GtmReservesPerCycle", &g_nGtmReservesPerCycle}, // reserve units the ground AI moves up per cycle (stock 1) // 1 = ground reinforcements arrive at their scenario hour, 0 = all at the first tick
+    {"GtmReservesPerCycle", &g_nGtmReservesPerCycle}, // reserve units the ground AI moves up per cycle (stock 1)
+    {"GtmCaptureUnits", &g_nGtmCaptureUnits}, // battalions the ground AI sends at one capture objective per cycle (stock 1)
     {"SimToGridFix", &g_nSimToGridFix}, // campaign: 1 = floor the sim->grid conversion (ground units can move again), 0 = old rounding
     {"RwrFont", &g_nRwrFont}, // Artscout - 2026 (RWR): -1 = one size below the MFD font, else 0..3
     {"CanopyAttenuation", &g_nCanopyAttenuation}, // Artscout - 2026: extra dB of canopy muffling, 0 = off

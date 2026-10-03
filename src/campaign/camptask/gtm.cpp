@@ -717,6 +717,22 @@ int GroundTaskingManagerClass::BuildObjectiveLists(int to_collect)
                 }
 
                 // END EXPERIMENTAL
+
+                // Artscout - 2026 (g_nGtmCaptureUnits, 1 = stock): one list node is one battalion
+                // (AssignObjective gives each node a single unit), so list a capture objective N times
+                // to let N battalions attack it in one cycle.
+                if (i == GORD_CAPTURE)
+                {
+                    extern int g_nGtmCaptureUnits;
+
+                    for (int extra = 1; extra < g_nGtmCaptureUnits and extra < 8; extra++)
+                    {
+                        new_node = new GndObjDataType();
+                        new_node->obj = o;
+                        new_node->priority_score = ScoreObj(i, os, ss, ps, pps, fs);
+                        objList[i] = objList[i]->Insert(new_node, GODN_SORT_BY_PRIORITY);
+                    }
+                }
             }
         }
 
@@ -751,6 +767,28 @@ void GroundTaskingManagerClass::AddToList(Unit u, int orders)
 void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
 {
     int i, role;
+
+    // Artscout - 2026 (g_bGtmKeepCapture, off = stock): a unit attacking a target that is still a
+    // valid capture objective keeps it. Stock re-plans it every cycle: it is only kept when the side is
+    // on full OFFENSIVE this cycle (posture flips to consolidate drop every attacker) and its objective
+    // is still in this cycle's list. campsim CAPORD, seed 101, first 96 h: of 235 capture orders, 93
+    // ended with the objective taken and 82 were cancelled by the GTM while the target was still valid.
+    {
+        extern bool g_bGtmKeepCapture;
+        Objective o = u->GetUnitObjective();
+
+        if (g_bGtmKeepCapture and u->GetUnitOrders() == GORD_CAPTURE and o and not u->Broken() and
+            IsValidObjective(GORD_CAPTURE, o))
+        {
+            sOffensiveAssigned++;
+            AssignUnit(u, GORD_CAPTURE, o, 999);
+
+            if (objList[GORD_CAPTURE])
+                objList[GORD_CAPTURE] = objList[GORD_CAPTURE]->Remove(o);
+
+            return;
+        }
+    }
 
     // Units with valid orders are not reassigned
     if (u->GetUnitOrders() not_eq GRO_RESERVE)

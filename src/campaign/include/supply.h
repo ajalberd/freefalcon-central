@@ -51,4 +51,16 @@ enum
 extern int gSupplyDiag[NUM_TEAMS][SUPDIAG_LAST];
 extern int gSupplyRatio[NUM_TEAMS][3]; // supply, fuel, replacement distribution ratio x1000
 
+// SendSupply trips (cumulative, per sending team): why a shipment arrives empty.
+enum
+{
+    SUPPATH_TRIPS,        // trips with a path
+    SUPPATH_HOPS,         // total path length of those trips (objective links)
+    SUPPATH_NO_PATH,      // no path from the supply source to the unit's objective
+    SUPPATH_EMPTIED,      // path found, but the shipment reached 0 on the way
+    SUPPATH_EMPTIED_SENT, // supply + fuel those emptied shipments started with
+    SUPPATH_LAST
+};
+extern int gSupplyPath[NUM_TEAMS][SUPPATH_LAST];
+
 #endif

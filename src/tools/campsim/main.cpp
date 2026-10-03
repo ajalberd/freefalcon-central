@@ -1570,6 +1570,24 @@ static void ApplyKnobs(int argc, char **argv)
             g_bPlayerGroundHold = atoi(val) != 0, printf("KNOB g_bPlayerGroundHold = %d\n", (int)g_bPlayerGroundHold);
         else if (!strcmp(key, "noend"))
             gNoEnd = atoi(val), printf("KNOB noend: run continues past the endgame\n");
+        else if (!strcmp(key, "keepcap"))
+        {
+            extern bool g_bGtmKeepCapture;
+            g_bGtmKeepCapture = atoi(val) != 0;
+            printf("KNOB g_bGtmKeepCapture = %d\n", (int)g_bGtmKeepCapture);
+        }
+        else if (!strcmp(key, "capunits"))
+        {
+            extern int g_nGtmCaptureUnits;
+            g_nGtmCaptureUnits = atoi(val);
+            printf("KNOB g_nGtmCaptureUnits = %d\n", g_nGtmCaptureUnits);
+        }
+        else if (!strcmp(key, "exactloss"))
+        {
+            extern bool g_bSupplyExactLoss;
+            g_bSupplyExactLoss = atoi(val) != 0;
+            printf("KNOB g_bSupplyExactLoss = %d\n", (int)g_bSupplyExactLoss);
+        }
         else if (!strcmp(key, "pak"))
         {
             // pak=ID:VALUE[:TEAM] -- the player's PAK slider (Priorities screen) for objective ID's PAK:
@@ -2093,6 +2111,17 @@ int main(int argc, char **argv)
 
             if ((iter % 360) == 0)
                 GtmLog(iter / 60), CapLog(iter / 60);
+
+            if ((iter % 1440) == 0)
+                for (int t : {2, 6})
+                {
+                    const int *p = gSupplyPath[t];
+                    printf("SUPPATH h=%d team %d: trips %d (mean path %.1f links), no path %d, emptied on the road %d "
+                           "(they started with %d supply+fuel)\n",
+                           iter / 60, t, p[SUPPATH_TRIPS],
+                           p[SUPPATH_TRIPS] ? (float)p[SUPPATH_HOPS] / p[SUPPATH_TRIPS] : 0.0f, p[SUPPATH_NO_PATH],
+                           p[SUPPATH_EMPTIED], p[SUPPATH_EMPTIED_SENT]);
+                }
 
             if (iter == 1 || (iter % 720) == 0)
                 RebaseLog(iter / 60);
