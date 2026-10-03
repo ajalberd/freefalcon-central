@@ -1216,6 +1216,12 @@ static void ApplyKnobs(int argc, char **argv)
             g_nGtmReservesPerCycle = atoi(val);
             printf("KNOB g_nGtmReservesPerCycle = %d\n", g_nGtmReservesPerCycle);
         }
+        else if (!strcmp(key, "farthest"))
+        {
+            extern bool g_bGtmReserveFarthest;
+            g_bGtmReserveFarthest = atoi(val) != 0;
+            printf("KNOB g_bGtmReserveFarthest = %d\n", (int)g_bGtmReserveFarthest);
+        }
         else if (!strcmp(key, "allylog"))
             gAllyLog = atoi(val);
         else if (!strcmp(key, "objpathcost"))

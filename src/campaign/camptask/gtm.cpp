@@ -1050,6 +1050,10 @@ int GroundTaskingManagerClass::AssignUnits(int orders, int mode)
         // log: ~300 reserve objectives and 108-199 candidates per call, 2-7 moved per 6 h).
         extern int g_nGtmReservesPerCycle;
         const int keep = g_nGtmReservesPerCycle < 1 ? 1 : g_nGtmReservesPerCycle;
+        // g_bGtmReserveFarthest: move up the units FARTHEST from the action first, as the
+        // original comment above intends -- rear units (China's, once it joins) come forward.
+        extern bool g_bGtmReserveFarthest;
+        const float sign = g_bGtmReserveFarthest ? -1.0F : 1.0F;
 
         if (keep == 1)
         {
@@ -1060,7 +1064,7 @@ int GroundTaskingManagerClass::AssignUnits(int orders, int mode)
                 curu = nextu;
                 nextu = curu->next;
                 curu->unit->GetLocation(&x, &y);
-                ds = (float)DistSqu(x, y, px, py);
+                ds = sign * (float)DistSqu(x, y, px, py);
 
                 if (ds < bestds)
                 {
@@ -1086,7 +1090,7 @@ int GroundTaskingManagerClass::AssignUnits(int orders, int mode)
             for (curu = canidateList[orders]; curu; curu = curu->next)
             {
                 curu->unit->GetLocation(&x, &y);
-                ds = (float)DistSqu(x, y, px, py);
+                ds = sign * (float)DistSqu(x, y, px, py);
                 int i = n < keep and n < 64 ? n++ : (ds < nearDs[n - 1] ? n - 1 : -1);
 
                 if (i < 0)
@@ -1112,7 +1116,7 @@ int GroundTaskingManagerClass::AssignUnits(int orders, int mode)
                 nextu = curu->next;
                 curu->unit->GetLocation(&x, &y);
 
-                if ((float)DistSqu(x, y, px, py) > cut)
+                if (sign * (float)DistSqu(x, y, px, py) > cut)
                     canidateList[orders] = canidateList[orders]->Remove(curu);
             }
         }

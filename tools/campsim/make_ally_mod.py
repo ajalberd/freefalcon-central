@@ -4,6 +4,7 @@
 
 Variants:  prc      PRC battalions + squadrons
            prc+cis  PRC and CIS
+           prcair   PRC squadrons only, and its 12 reinforcement squadrons active from the start
 
 In save0 the PRC's 43 battalions start ~340 km behind the front (mean grid y 822, front ~490)
 and campsim shows they never come south after China joins: the ground AI rejects any objective
@@ -28,7 +29,8 @@ FRONT_Y = 490
 BAND = (FRONT_Y + 100, FRONT_Y + 170)          # where battalions go
 AIR_BAND = (FRONT_Y + 60, FRONT_Y + 230)       # airbases for squadrons
 GROUND_TYPES = ("Town", "City", "Village", "Road", "Intersection", "Army base", "Depot")
-TEAMS = {"prc": (5,), "prc+cis": (5, 4)}
+TEAMS = {"prc": (5,), "prc+cis": (5, 4), "prcair": (5,)}
+U_INACTIVE = 0x20000
 
 
 def build(variant, out_dir, src="save0.cam"):
@@ -47,7 +49,9 @@ def build(variant, out_dir, src="save0.cam"):
         raise SystemExit("no DPRK objectives/airbases in the band (%d spots, %d bases)" % (len(spots), len(bases)))
 
     moved_bn = moved_sq = 0
-    bns = [u for u in cam.units if u["owner"] in TEAMS[variant] and u["kind"] == "battalion"]
+    # prcair: air only -- squadrons rehomed AND the reinforcement squadrons active from the start
+    bns = [] if variant == "prcair" else [
+        u for u in cam.units if u["owner"] in TEAMS[variant] and u["kind"] == "battalion"]
     sqs = [u for u in cam.units if u["owner"] in TEAMS[variant] and u["kind"] == "squadron"]
     bns.sort(key=lambda u: u["x"])
     for i, u in enumerate(bns):
@@ -68,6 +72,9 @@ def build(variant, out_dir, src="save0.cam"):
         if "hotSpot" in at:
             struct.pack_into("<II", raw, at["hotSpot"], ab["id"][0], ab["id"][1])
         moved_sq += 1
+
+        if variant == "prcair" and u["unitFlags"] & U_INACTIVE:
+            struct.pack_into("<I", raw, s0 + base["campId"] + 2 + 4 + 4, u["unitFlags"] & ~U_INACTIVE)
 
     stream = bytes(raw)
     cam.units_raw = stream

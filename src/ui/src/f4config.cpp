@@ -709,6 +709,7 @@ bool g_bSmartCombatAP = true; // JB 010224
 //bool g_bVoodoo12Compatible = false; // JB 010330 Disables the cockpit kneemap to prevent CTDs on the Voodoo 1 and 2.
 float g_fDragDilutionFactor = 1.0; // JB 010707
 bool g_bRealisticAttrition = false; // JB 010710
+bool g_bGtmReserveFarthest = false; // campaign: the ground AI moves up its rear-most reserves first (stock: closest first)
 bool g_bPlayerGroundHold = false; // Artscout - 2026 (WORK IN PROGRESS, off by default): a battalion the player moves on the campaign map keeps that order until it arrives or breaks. campsim holdtest: some held units stop moving, see WIP-NOTES.md
 bool g_bIFFRWR = false; // JB 010727
 int g_nRelocationWait = 3; // JB 010728
@@ -1807,7 +1808,8 @@ static ConfigOption<bool> BoolOpts[] = {
     // { "UserRadioVoice", &g_bUserRadioVoice },
     {"NewFm", &g_bNewFm},
     {"RealisticAttrition", &g_bRealisticAttrition},
-    {"PlayerGroundHold", &g_bPlayerGroundHold}, // 1 = the AI leaves a battalion you moved alone until it arrives
+    {"PlayerGroundHold", &g_bPlayerGroundHold},
+    {"GtmReserveFarthest", &g_bGtmReserveFarthest}, // 1 = rear reserves are moved forward first // 1 = the AI leaves a battalion you moved alone until it arrives
     {"GreyScaleMFD", &g_bGreyScaleMFD},
     {"IFFRWR", &g_bIFFRWR},
     {"3dCockpit", &g_b3dCockpit},
