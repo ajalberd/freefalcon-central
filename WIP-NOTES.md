@@ -1297,3 +1297,44 @@ Newest build staged as `FFViper.next.exe` / `RedViper.next.pdb` (game was runnin
 - Engineers: DPRK 13 vs ROK 8; bridges are rarely the bottleneck (0-4 blown); engineer requests are dead code
   (gndtaskingmsg.cpp handler commented out); all units are division 0. Engineers die like everything else (13 -> 1-2).
 - Andrew chose "Nothing yet" for shipping China-air / relocation; 2DHitChanceGround question dismissed twice.
+
+## 2026-10-03: where the campaign stands, and what would make it fun (read this first next session)
+
+### Measured state of Korea save0 (main build, no rail, campsim with game-accurate setup + clock)
+- Blue wins (event 17: owns Pyongyang and/or Wonsan) in **every** run: ~h40-55 at stock challenge settings, live
+  game h26. Sequence matches live: E5 at start, China ~h5 (air-ratio trigger, airbases bombed), Russia ~day 2.
+- **Air decides everything**: ~92% of DPRK ground losses are air strikes (2,152 vehicles by h6, 4,890 by h36; ground
+  combat ~355). DPRK air barely touches Blue ground (~40-200 vehicles over days). DPRK posture is "defensive" the
+  whole war; it never runs an offensive.
+- **China/Russia are cosmetic**: their armies fold into DPRK and never move (NOT fixed - see below); China's air can
+  matter (+50% Blue aircraft lost when staged on DPRK bases) but doesn't change the outcome.
+- Levers measured (see earlier sections): 2DHitChanceGround (1.5 -> 5: win ~h57-69), Ground Forces slider (1 notch to
+  Red: +40-60% war length), enemy skill (Veteran: 2.3x Blue a2a losses), DPRK Air Boost mod (more sorties, but Blue
+  wins *sooner* because China/Russia triggers fire later), reserves/relocation (no outcome change).
+
+### Chinese troop movement: NOT fixed (root cause understood)
+The GTM only assigns DPRK's idle units via the reserve step (1 per cycle; DEFEND has 1-3 open slots), and every
+candidate is scored by distance, so units 300+ km away are never chosen, and even "farthest first" moves them ~25 km in
+5 days. The war is over before they could arrive. Fixing the AI's choice is not enough; China needs to *arrive*:
+1. **China entry as a reinforcement wave** (best bet): place PRC battalions inactive (U_INACTIVE + reinforcement level)
+   in DPRK's rear / along the Yalu crossings, and release them when event 11 fires (trigger script or engine hook on
+   CHANGE_RELATIONS), so they appear within ~100 km of the front as a counteroffensive.
+2. **Flip DPRK to OFFENSIVE when China joins** (TeamClass::SelectGroundAction / .tri), so CAPTURE orders exist and the
+   new units are tasked instead of parked in reserve.
+3. Measure with campsim (`ally_track.py`, GTM log) before shipping.
+
+### What would make the war fun and challenging to manage (proposals, none built)
+1. **Pace**: a war that lasts days-weeks, not hours. Air must stop being an instant win button:
+   - attrition for Blue air (SAM/AAA belts near the front, enemy skill), weapon stockpiles that run out (squadron
+     stores / supply), weather and night limiting strike sorties, AII FlightCombatRate / tasking intervals,
+     and/or 2DHitChanceGround.
+2. **A real enemy plan**: DPRK opening with an offensive across the DMZ (it never attacks today), Scud/SOF strikes on
+   Blue airbases, mobile SAMs, counterattacks when Blue overextends.
+3. **Phases with stakes**: DMZ defence -> counteroffensive -> push north -> China intervenes as a real second front
+   (above) -> negotiated end / ceasefire events, instead of one capture ending the war.
+4. **Player agency on the ground**: finish the player-held ground orders (WIP, g_bPlayerGroundHold - some held
+   units stop moving), visible priorities/PAKs, logistics that matter (power grid already shown on the Production
+   layer; supply depots, bridges).
+5. **Limited resources to manage**: fewer Blue aircraft (Air slider), reinforcements on a schedule, losses that hurt.
+6. **Tools**: Campaign Lab (python tools/campsim/serve.py) to measure every change; make each proposal a JSGME mod
+   or cfg toggle and A/B it with 4+ seeds.
