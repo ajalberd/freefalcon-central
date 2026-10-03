@@ -1853,6 +1853,43 @@ static void ApplyKnobs(int argc, char **argv)
             g_bGtmKeepCapture = atoi(val) != 0;
             printf("KNOB g_bGtmKeepCapture = %d\n", (int)g_bGtmKeepCapture);
         }
+        else if (!strcmp(key, "covermap"))
+        {
+            // covermap=X0:Y0:X1:Y1 -- the campaign grid's ground cover as text, north at the top:
+            // ~ water, , bog, . barren/plain, b brush, f forest, F heavy forest, U urban, = road,
+            // and objectives on top: N nuclear/power plant, P port, C city/town, B bridge, o other
+            int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+            sscanf(val, "%d:%d:%d:%d", &x0, &y0, &x1, &y1);
+            static const char cov[] = "~,..bfFU";
+            std::map<int, char> objAt;
+            VuListIterator oit(AllObjList);
+
+            for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+            {
+                GridIndex ox, oy;
+                o->GetLocation(&ox, &oy);
+                int t = o->GetType();
+                char c = (t == TYPE_NUCLEAR || t == TYPE_POWERPLANT) ? 'N' : t == TYPE_PORT ? 'P'
+                         : (t == TYPE_CITY || t == TYPE_TOWN) ? 'C' : t == TYPE_BRIDGE ? 'B' : 'o';
+                objAt[ox * 4096 + oy] = c;
+            }
+
+            printf("COVERMAP x %d..%d (left to right), y %d..%d (top = north)\n", x0, x1, y1, y0);
+
+            for (int y = y1; y >= y0; y--)
+            {
+                std::string row;
+
+                for (int x = x0; x <= x1; x++)
+                {
+                    std::map<int, char>::iterator it = objAt.find(x * 4096 + y);
+                    int c = (int)GetCover(x, y);
+                    row += it != objAt.end() ? it->second : GetRoad(x, y) && c ? '=' : (c >= 0 && c < 8 ? cov[c] : '?');
+                }
+
+                printf("COVERMAP %4d %s\n", y, row.c_str());
+            }
+        }
         else if (!strcmp(key, "objinfo"))
         {
             // objinfo=ID[,ID...] -- name, type, owner, cell and how a tracked/wheeled unit sees each cell
