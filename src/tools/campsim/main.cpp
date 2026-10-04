@@ -492,6 +492,63 @@ static void GtmLog(int hour)
         }
     }
 
+    // Who gets the supply and do squadrons use it, once a day: supply received by battalions vs squadrons;
+    // squadron stores loaded onto sorties and returned unused (in supply points, 20 stores units each);
+    // how full squadron stores are against their own tables.
+    if (hour % 24 == 0)
+    {
+        static int prevSplit[NUM_TEAMS][2], prevFlow[NUM_TEAMS][2];
+
+        for (int t : {2, 6})
+        {
+            int got[2], flow[2];
+
+            for (int k = 0; k < 2; k++)
+            {
+                got[k] = gSupplySplit[t][k] - prevSplit[t][k], prevSplit[t][k] = gSupplySplit[t][k];
+                flow[k] = gStoresFlow[t][k] - prevFlow[t][k], prevFlow[t][k] = gStoresFlow[t][k];
+            }
+
+            long want = 0, have = 0;
+            int sq = 0, full90 = 0, under50 = 0;
+            VuListIterator sit(AllUnitList);
+            std::set<unsigned> seenSq;
+
+            for (Unit u = GetFirstUnit(&sit); u; u = GetNextUnit(&sit))
+            {
+                if (u->GetTeam() != t || !u->IsSquadron() || !seenSq.insert((unsigned)u->Id().num_).second)
+                    continue;
+
+                UnitClassDataType *uc = u->GetUnitClassData();
+
+                if (!uc)
+                    continue;
+
+                long w = 0, h = 0;
+
+                for (int i = 0; i < MAXIMUM_WEAPTYPES; i++)
+                {
+                    int tw = SquadronStoresDataTable[uc->SpecialIndex].Stores[i];
+
+                    if (tw)
+                        w += tw, h += min((int)((SquadronClass *)u)->GetUnitStores(i), tw);
+                }
+
+                if (!w)
+                    continue;
+
+                sq++, want += w, have += h;
+                full90 += h * 10 >= w * 9;
+                under50 += h * 2 < w;
+            }
+
+            printf("SUPSPLIT h=%d team %d (24 h): supply received -- battalions %d, squadrons %d | squadron stores "
+                   "loaded onto sorties %d pts, returned unused %d pts | %d squadrons, stores %.0f%% full, %d at 90%%+, "
+                   "%d under 50%%\n", hour, t, got[0], got[1], flow[0] / SQUADRON_PT_SUPPLY,
+                   flow[1] / SQUADRON_PT_SUPPLY, sq, want ? 100.0 * have / want : 0.0, full90, under50);
+        }
+    }
+
     // Where battalion supply goes (battalio.cpp / unit.cpp gSupplyUse), summed supply-% points per 6 h
     {
         static int prevUse[8][4];

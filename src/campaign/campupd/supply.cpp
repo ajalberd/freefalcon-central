@@ -46,6 +46,8 @@ extern bool g_bPowerGrid;
 
 // CAMPSIM DIAGNOSTIC (read only by tools/campsim): cumulative per team, see SUPDIAG_*.
 int gSupplyDiag[NUM_TEAMS][SUPDIAG_LAST] = {{0}};
+int gSupplySplit[NUM_TEAMS][2] = {{0}};
+int gStoresFlow[NUM_TEAMS][2] = {{0}};
 // Last distribution ratios (x1000): share of each unit's need the pool could cover, capped at 500.
 int gSupplyRatio[NUM_TEAMS][3] = {{0}};
 int gSupplyPath[NUM_TEAMS][SUPPATH_LAST] = {{0}};
@@ -763,6 +765,8 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                             SupplyUnit(unit, supply, gots, fuel, gotf);
                             gSupplyDiag[who][SUPDIAG_GOT_SUPPLY] += gots;
                             gSupplyDiag[who][SUPDIAG_GOT_FUEL] += gotf;
+                            // campsim: supply received by battalions [0] vs squadrons [1]
+                            gSupplySplit[who][unit->IsSquadron() ? 1 : 0] += gots;
                         }
                         else
                             gSupplyDiag[who][SUPDIAG_LOST_ALL]++;
