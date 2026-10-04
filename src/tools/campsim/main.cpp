@@ -63,6 +63,8 @@ extern "C++" int gLossDiag[NUM_TEAMS][8];
 #include "cmpevent.h"
 extern "C++" EventClass **CampEvents;
 extern "C++" short CE_Events;
+extern "C++" int CondLogSize(void);
+extern "C++" int CondLogGet(int i, int *line, int *branch, int *depth, unsigned long *time, int *a, int *b);
 
 // Scripted trigger events (the .tri file): log every change of the fired flag, with the
 // numbers the China/Russia triggers test (supply %, aircraft and ground-vehicle counts).
@@ -127,6 +129,19 @@ static void CheckEventLog(CampaignTime startTime)
 {
     if (!CampEvents)
         return;
+
+    // Which #IF branches led to the actions (cmpevent.cpp's condition history).
+    static int condSeen = 0;
+
+    for (; condSeen < CondLogSize(); condSeen++)
+    {
+        int line, branch, depth, a, b;
+        unsigned long t;
+
+        if (CondLogGet(condSeen, &line, &branch, &depth, &t, &a, &b))
+            printf("COND tri line %d %s depth %d at min %d | a=%d b=%d\n", line, branch ? "ELSE" : "IF", depth,
+                   (int)((t - startTime) / CampaignMinutes), a, b);
+    }
 
     for (int i = 1; i < CE_Events && i < 64; i++)
     {

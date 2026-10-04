@@ -872,10 +872,36 @@ async function victoryPanel(file) {
       ]));
     }
 
+    // Which branch ran. Two branches often fire the same event (China joins on low supply OR on
+    // a lost air war), so when the save says which #IF chain led to an action, light only the
+    // rows on that chain rather than every write of a fired event.
+    const hasBranches = tri.outline.some(r => r.taken && r.taken.length);
+    const onPath = [];
     const listing = el('div', {class: 'panel-body script'});
     for (const row of tri.outline) {
+      const taken = row.taken || [];
+      const inside = onPath.slice(0, row.depth).every(Boolean);
+      if (row.kind === 'condition')
+        onPath[row.depth] = taken.some(t => t.branch === 'if');
+      else if (row.kind === 'else')
+        onPath[row.depth] = taken.length > 0;
+      onPath.length = row.depth + 1;
+      const lit = hasBranches ? (row.fired && inside) : row.fired;
+      const shown = row.kind === 'condition' ? taken.filter(t => t.branch === 'if') : taken;
+      const failed = row.kind === 'condition' ? taken.filter(t => t.branch === 'else') : [];
+      const badge = (t, ok) => el('span', {
+        class: 'sl-taken' + (ok ? '' : ' no') + (t.source === 'recorded' ? '' : ' guess'),
+        title: t.source === 'recorded'
+          ? 'recorded by the game when the action ran'
+          : t.source === 'reconstructed'
+            ? 're-evaluated from the hourly team stats saved beside this file (.frc)'
+            : 'consistent with the saved stats, but this save cannot show the rest of the chain',
+        text: (ok ? '✓ ' : '✗ ') + 'Day ' + t.day + ' ' + t.clock +
+              (t.measured ? ' — ' + t.measured : '') +
+              (t.source === 'possible' ? ' (possibly)' : ''),
+      });
       listing.appendChild(el('div', {
-        class: 'sl sl-' + row.kind + (row.fired ? ' sl-fired' : ''),
+        class: 'sl sl-' + row.kind + (lit ? ' sl-fired' : ''),
         style: 'padding-left:' + (row.depth * 18) + 'px',
       }, [
         row.comment
@@ -883,6 +909,8 @@ async function victoryPanel(file) {
         el('span', {class: 'sl-verb', text: row.verb}),
         el('span', {class: 'sl-text', text: row.text}),
         row.note ? el('span', {class: 'sl-flag', text: row.note}) : null,
+        ...shown.map(t => badge(t, true)),
+        ...failed.map(t => badge(t, false)),
       ]));
     }
     wrap.appendChild(el('div', {class: 'panel'}, [

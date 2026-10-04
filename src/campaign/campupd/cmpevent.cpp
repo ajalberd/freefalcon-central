@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h>
 #include "falclib.h"
 #include "cmpglobl.h"
 #include "cmpevent.h"
@@ -88,6 +89,119 @@ int EventLogGet(int i, int* kind, int* id, unsigned long* time)
     *id = EventLog[i].id;
     *time = EventLog[i].time;
     return 1;
+}
+
+// ============================
+// Condition history
+// ============================
+// Which branch of the script did it. When an action that changes the war runs (an event fires
+// for the first time, a movie plays, relations change, the game ends), every #IF enclosing it is
+// recorded: its line in the .tri, whether it was taken through its #IF or its #ELSE, and the values
+// it compared (supply %, both sides' strength, the roll, ...). Two branches of one script often
+// do the same thing -- China joins on low supply OR on a lost air war -- and the event flag alone
+// cannot tell them apart. Saved as a second trailer after the event history; readers that do not
+// know it stop before it.
+#define COND_LOG_MAX 256
+#define COND_LOG_MAGIC 0x31444E43 // "CND1"
+#define COND_NO_VALUE ((int)0x80000000)
+
+struct CondLogEntry
+{
+    int line; // line of the #IF in the .tri, from 1
+    short branch; // 0 = its condition held, 1 = its #ELSE branch
+    short depth; // nesting level, 1 = outermost
+    unsigned int time; // campaign time, ms
+    int a, b; // what the condition measured, COND_NO_VALUE if nothing
+};
+
+static CondLogEntry CondLog[COND_LOG_MAX];
+static int CondLogCount = 0;
+
+static void CondLogAdd(int line, int branch, int depth, unsigned long time, int a, int b)
+{
+    for (int i = 0; i < CondLogCount; i++)
+        if (CondLog[i].line == line and CondLog[i].branch == branch and CondLog[i].time == (unsigned int)time)
+            return;
+
+    if (CondLogCount >= COND_LOG_MAX)
+        return;
+
+    CondLogEntry& e = CondLog[CondLogCount++];
+    e.line = line;
+    e.branch = (short)branch;
+    e.depth = (short)depth;
+    e.time = (unsigned int)time;
+    e.a = a;
+    e.b = b;
+}
+
+int CondLogSize(void)
+{
+    return CondLogCount;
+}
+
+int CondLogGet(int i, int* line, int* branch, int* depth, unsigned long* time, int* a, int* b)
+{
+    if (i < 0 or i >= CondLogCount)
+        return 0;
+
+    *line = CondLog[i].line;
+    *branch = CondLog[i].branch;
+    *depth = CondLog[i].depth;
+    *time = CondLog[i].time;
+    *a = CondLog[i].a;
+    *b = CondLog[i].b;
+    return 1;
+}
+
+// The script reader's ReadComments + ReadToken (brief.cpp) in one, counting lines so a condition
+// can be named by where it is: skips blank lines and lines starting with '/', then returns the next
+// line, at most len - 1 characters, without its line end. *line is that line's number.
+static void ReadScriptLine(FILE* fp, char* token, int len, int* line, int* nextLine)
+{
+    char buffer[256];
+    int skipping = 0;
+
+    token[0] = 0;
+
+    while (fgets(buffer, sizeof(buffer), fp))
+    {
+        int start = *nextLine;
+        int whole = strchr(buffer, '\n') not_eq NULL;
+
+        if (whole)
+            (*nextLine)++;
+
+        if (skipping)
+        {
+            skipping = not whole;
+            continue;
+        }
+
+        if (buffer[0] == '\n')
+            continue;
+
+        if (buffer[0] == '/')
+        {
+            skipping = not whole;
+            continue;
+        }
+
+        *line = start;
+        strncpy(token, buffer, len);
+        token[len - 1] = 0;
+
+        char* sptr = strchr(token, '\n');
+
+        if (sptr)
+            *sptr = 0;
+
+        if ((sptr = strchr(token, '\r')) not_eq NULL)
+            *sptr = 0;
+
+        // A line longer than the buffer continues on the next read, as it did with ReadToken.
+        return;
+    }
 }
 
 #define CE_MAX_TRIGGERED 3
@@ -425,6 +539,7 @@ void ReadSpecialCampaignData(char* scenario)
 int NewCampaignEvents(char* scenario)
 {
     EventLogCount = 0;
+    CondLogCount = 0;
 
     // Read in and allocate the event database
     ReadNumberOfEvents(scenario);
@@ -445,6 +560,7 @@ int LoadCampaignEvents(char* filename, char* scenario)
 
     ReadNumberOfEvents(scenario);
     EventLogCount = 0;
+    CondLogCount = 0;
     CampaignData cd = ReadCampFile(filename, "evt");
 
     if (cd.dataSize == -1)
@@ -478,6 +594,19 @@ int LoadCampaignEvents(char* filename, char* scenario)
 
         for (int k = 0; k < n and k < EVT_LOG_MAX and 6 + (k + 1) * (long)sizeof(EventLogEntry) <= historyLeft; k++)
             EventLogAdd(e[k].kind, e[k].id, e[k].time);
+
+        // Condition trailer (absent in saves from before it existed)
+        long condAt = 6 + (n > 0 ? n : 0) * (long)sizeof(EventLogEntry);
+        uchar* c = historyAt + condAt;
+
+        if (historyLeft - condAt >= 6 and *((int*)c) == COND_LOG_MAGIC)
+        {
+            short m = *((short*)(c + 4));
+            CondLogEntry* ce = (CondLogEntry*)(c + 6);
+
+            for (int k = 0; k < m and condAt + 6 + (k + 1) * (long)sizeof(CondLogEntry) <= historyLeft; k++)
+                CondLogAdd(ce[k].line, ce[k].branch, ce[k].depth, ce[k].time, ce[k].a, ce[k].b);
+        }
     }
 
     delete cd.data;
@@ -505,6 +634,12 @@ int SaveCampaignEvents(char* filename)
         fwrite(&magic, sizeof(int), 1, fp);
         fwrite(&n, sizeof(short), 1, fp);
         fwrite(EventLog, sizeof(EventLogEntry), EventLogCount, fp);
+
+        int cmagic = COND_LOG_MAGIC;
+        short m = (short)CondLogCount;
+        fwrite(&cmagic, sizeof(int), 1, fp);
+        fwrite(&m, sizeof(short), 1, fp);
+        fwrite(CondLog, sizeof(CondLogEntry), CondLogCount, fp);
     }
     else
     {
@@ -542,6 +677,20 @@ int ReadScriptedTriggerFile(char* filename)
     Objective o;
     Team team;
 
+    // For the condition history: the #IF that opened each stack level, whether we are in its
+    // #ELSE, and what it measured.
+    int line = 0, nextLine = 1;
+    int condLine[MAX_STACK + 1] = {0}, condElse[MAX_STACK + 1] = {0};
+    int condA[MAX_STACK + 1], condB[MAX_STACK + 1];
+
+    // Records the #IF chain above the action about to run.
+    auto logChain = [&]()
+    {
+        for (int k = 1; k <= curr_stack and k <= MAX_STACK; k++)
+            if (condLine[k])
+                CondLogAdd(condLine[k], condElse[k], k, TheCampaign.CurrentTime, condA[k], condB[k]);
+    };
+
     if ((fp = OpenCampFile(filename, "tri", "r")) == NULL)
     {
         ShiAssert(0);
@@ -550,13 +699,17 @@ int ReadScriptedTriggerFile(char* filename)
 
     ShiAssert(CE_Events > 0);
 
-    // Read # of events
-    ReadToken(fp, token, 120);
+    // Read # of events (the first line, whatever it is, as ReadToken did)
+    {
+        char first[256];
+
+        if (fgets(first, sizeof(first), fp) and strchr(first, '\n'))
+            nextLine++;
+    }
 
     while (not done)
     {
-        ReadComments(fp);
-        ReadToken(fp, token, 120);
+        ReadScriptLine(fp, token, 120, &line, &nextLine);
 
         // #104: these parse loops only terminated on a specific end-token (#ENDINIT / #END...). A missing or
         // unmatched end-token (e.g. a CRLF '\r' left on it on Linux, or a truncated file) made ReadToken return
@@ -589,11 +742,21 @@ int ReadScriptedTriggerFile(char* filename)
                 stack_active[curr_stack] = 0;
             else
                 stack_active[curr_stack] = 1;
+
+            if (curr_stack <= MAX_STACK)
+            {
+                condLine[curr_stack] = line;
+                condElse[curr_stack] = 0;
+                condA[curr_stack] = condB[curr_stack] = COND_NO_VALUE;
+            }
         }
         else if (strcmp(token, "#ELSE") == 0)
         {
             if (curr_stack > 0 and stack_active[curr_stack - 1])
                 stack_active[curr_stack] = not stack_active[curr_stack];
+
+            if (curr_stack > 0 and curr_stack <= MAX_STACK)
+                condElse[curr_stack] = 1;
 
             continue;
         }
@@ -634,6 +797,8 @@ int ReadScriptedTriggerFile(char* filename)
                         stack_active[curr_stack] = 0;
                     else
                         stack_active[curr_stack] = 1;
+
+                    condA[curr_stack] = stack_active[curr_stack];
                 }
                 else if (strncmp(token, "#IF_MAIN_TARGET", 15) == 0)
                 {
@@ -710,7 +875,12 @@ int ReadScriptedTriggerFile(char* filename)
                             o = (Objective)GetEntityByCampID(atoi(sptr));
 
                             if (o and o->GetTeam() not_eq team)
+                            {
                                 stack_active[curr_stack] = 0;
+                                // the first one not held, and who holds it
+                                condA[curr_stack] = atoi(sptr);
+                                condB[curr_stack] = o->GetTeam();
+                            }
 
                             if (sptr = strchr(sptr, ' '))
                                 sptr++;
@@ -727,7 +897,12 @@ int ReadScriptedTriggerFile(char* filename)
                             o = (Objective)GetEntityByCampID(atoi(sptr));
 
                             if (o and o->GetTeam() == team)
+                            {
                                 stack_active[curr_stack] = 1;
+                                // the one held
+                                condA[curr_stack] = atoi(sptr);
+                                condB[curr_stack] = team;
+                            }
 
                             if (sptr = strchr(sptr, ' '))
                                 sptr++;
@@ -745,6 +920,8 @@ int ReadScriptedTriggerFile(char* filename)
 
                     if (sptr = strchr(sptr, ' '))
                         sptr++;
+
+                    condA[curr_stack] = TeamInfo[team]->GetInitiative();
 
                     if (*sptr == 'G')
                     {
@@ -779,6 +956,8 @@ int ReadScriptedTriggerFile(char* filename)
                     if (sptr = strchr(sptr, ' '))
                         sptr++;
 
+                    condA[curr_stack] = TeamInfo[team]->GetCurrentStats()->supplyLevel;
+
                     if (*sptr == 'G')
                     {
                         if (sptr = strchr(sptr, ' '))
@@ -806,6 +985,8 @@ int ReadScriptedTriggerFile(char* filename)
 
                     if (sptr = strchr(token, ' '))
                         sptr++;
+
+                    condA[curr_stack] = PlayerOptions.CampaignEnemyGroundExperience();
 
                     if (*sptr == 'G')
                     {
@@ -859,6 +1040,8 @@ int ReadScriptedTriggerFile(char* filename)
                         stack_active[curr_stack] = 1;
                     else
                         stack_active[curr_stack] = 0;
+
+                    condA[curr_stack] = controlled;
                 }
                 else if (strncmp(token, "#IF_ON_OFFENSIVE", 16) == 0)
                 {
@@ -946,8 +1129,11 @@ int ReadScriptedTriggerFile(char* filename)
                         break;
                     }
 
-                    ratio = os * 10 / ts;
+                    // The other side having none at all divided by zero; that is as large as a ratio gets.
+                    ratio = ts > 0 ? os * 10 / ts : (os > 0 ? INT_MAX : 0);
                     stack_active[curr_stack] = 0;
+                    condA[curr_stack] = os;
+                    condB[curr_stack] = ts;
 
                     if (func == 'G' and ratio >= i)
                         stack_active[curr_stack] = 1;
@@ -965,10 +1151,13 @@ int ReadScriptedTriggerFile(char* filename)
                         stack_active[curr_stack] = 1;
                     else
                         stack_active[curr_stack] = 0;
+
+                    condA[curr_stack] = (int)((TheCampaign.CurrentTime - TheCampaign.lastMajorEvent) / CampaignHours);
                 }
                 else if (strncmp(token, "#IF_CAMPAIGN_DAY", 16) == 0)
                 {
                     stack_active[curr_stack] = 0;
+                    condA[curr_stack] = TheCampaign.GetCampaignDay();
 
                     if (sptr = strchr(token, ' '))
                         sptr++;
@@ -1002,6 +1191,8 @@ int ReadScriptedTriggerFile(char* filename)
                     if (sptr = strchr(sptr, ' '))
                         sptr++;
 
+                    condA[curr_stack] = TeamInfo[team]->GetReinforcement();
+
                     if (*sptr == 'G')
                     {
                         if (sptr = strchr(sptr, ' '))
@@ -1026,7 +1217,9 @@ int ReadScriptedTriggerFile(char* filename)
                     if (sptr = strchr(token, ' '))
                         sptr++;
 
-                    if ((rand() % 100) < atoi(sptr))
+                    condA[curr_stack] = rand() % 100;
+
+                    if (condA[curr_stack] < atoi(sptr))
                         stack_active[curr_stack] = 1;
                 }
                 else
@@ -1046,6 +1239,7 @@ int ReadScriptedTriggerFile(char* filename)
                     sptr++;
 
                 i = atoi(sptr);
+                logChain();
                 // queue movie
                 // AddIndexedStringToBuffer(1160+i-100,str);
                 // UI_AddMovieToList(i,TheCampaign.CurrentTime,str);
@@ -1075,6 +1269,7 @@ int ReadScriptedTriggerFile(char* filename)
 
                 if (TeamInfo[team] and TeamInfo[with])
                 {
+                    logChain();
                     SetTTRelations(team, with, rel);
 
                     if (rel == Allied)
@@ -1092,7 +1287,12 @@ int ReadScriptedTriggerFile(char* filename)
                 i = atoi(sptr);
 
                 if (i < CE_Events and i > 0)
+                {
+                    if (not CampEvents[i]->HasFired())
+                        logChain();
+
                     CampEvents[i]->DoEvent();
+                }
 
                 continue;
             }
@@ -1137,6 +1337,7 @@ int ReadScriptedTriggerFile(char* filename)
                 if (sptr = strchr(token, ' '))
                     sptr++;
 
+                logChain();
                 // Post the campaign over message
                 PostMessage(FalconDisplay.appWin, FM_CAMPAIGN_OVER, atoi(sptr),
                             1);

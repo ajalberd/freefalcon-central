@@ -1386,5 +1386,9 @@ tr.mine .tag { margin-left: 8px; }
 .ev-chip.fired { border-color: #3fa96b; background: rgba(63, 169, 107, .16); color: var(--ink); }
 .ev-chip.fired em { color: #5ed08c; }
 .sl-fired { background: rgba(63, 169, 107, .14); border-left: 3px solid #3fa96b; }
+.sl-taken { display: inline-block; margin-left: 10px; padding: 0 6px; border-radius: 3px; font-size: 11px;
+  color: #5ed08c; background: rgba(63, 169, 107, .14); }
+.sl-taken.no { color: var(--ink-dim); background: rgba(128, 128, 128, .12); }
+.sl-taken.guess { border: 1px dashed currentColor; }
 .ev-hist { margin: 10px 0 4px; font-size: 12px; color: var(--ink-dim); display: grid; gap: 2px; }
 .ev-hist b { color: #5ed08c; font-weight: 600; }
