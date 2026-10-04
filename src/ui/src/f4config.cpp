@@ -436,9 +436,9 @@ int g_nWeatherFronts = 1;
 // 0 = the old round-to-nearest, under which 553 of 1024 grid coordinates read back one cell too
 // high and a ground unit could never step onto one of them in a decreasing direction.
 int g_nSimToGridFix = 1;
-int g_nGtmReservesPerCycle = 1; // campaign: ground units the GTM may move up from reserve per tasking cycle (stock 1)
+int g_nGtmReservesPerCycle = 8; // campaign: ground units the GTM may move up from reserve per tasking cycle (stock 1)
 int g_nGtmKeepCaptureStall = 6; // campaign: with GtmKeepCapture, hours a kept attacker may sit without moving 1 km before it is re-tasked (0 = never)
-int g_nGtmCaptureUnits = 1; // campaign: battalions the GTM may send at one capture objective per cycle (stock 1)
+int g_nGtmCaptureUnits = 3; // campaign: battalions the GTM may send at one capture objective per cycle (stock 1)
 int g_nBattalionReinforceFix = 1; // campaign: 1 = keep a loaded battalion's reinforcement hour, 0 = old (all arrive at once)
 // New fronts per campaign day, on average. 0 = only the ones already there.
 float g_fWeatherFrontsPerDay = 3.0f;
@@ -712,15 +712,15 @@ bool g_bSmartCombatAP = true; // JB 010224
 float g_fDragDilutionFactor = 1.0; // JB 010707
 bool g_bRealisticAttrition = false; // JB 010710
 bool g_bGtmReserveFarthest = false; // campaign: the ground AI moves up its rear-most reserves first (stock: closest first)
-bool g_bWaterObjectiveFix = false; // campaign: ground units stop next to (and capture) objectives on water cells (stock: unreachable, units retry forever)
-bool g_bGtmReserveFix = false; // campaign: reserves are chosen from units still free this cycle (stock: none move up while on the offensive)
-bool g_bGtmCaptureFront = false; // campaign: non-secondary enemy objectives on the front line are capture targets too (stock: only secondaries, so a chain of bridges/junctions can block the way for good)
-bool g_bSupplyNeedFix = false; // campaign: resupply counts only positive needs, and a squadron's need only its own table's weapon types (stock: off-table stores in reinforcement squadrons stop all battalion resupply)
-bool g_bGridPathPartial = false; // campaign: a ground unit follows the partial route when its grid path search hits its length/node limit (stock: discarded, the unit retries the same far waypoint forever)
-bool g_bReserveHold = false; // campaign: a reserve battalion on one of our objectives away from the front keeps it (stock: kicked off any non-secondary objective, it fell back 3 links again and again, burning supply)
-bool g_bSupplySplitShares = false; // campaign: the supply pool is shared between ground units and squadrons by what each actually uses, each with its own ratio (stock: one ratio over everyone's need, which squadrons' unused stores gap dominates)
-bool g_bGtmKeepCapture = false; // campaign: a battalion keeps a capture order while its target is still a valid one (stock: re-planned every cycle)
-bool g_bSupplyExactLoss = false; // campaign: supply road losses computed once per trip, not truncated per node (stock: small shipments vanish)
+bool g_bWaterObjectiveFix = true; // campaign: ground units stop next to (and capture) objectives on water cells (stock: unreachable, units retry forever)
+bool g_bGtmReserveFix = true; // campaign: reserves are chosen from units still free this cycle (stock: none move up while on the offensive)
+bool g_bGtmCaptureFront = true; // campaign: non-secondary enemy objectives on the front line are capture targets too (stock: only secondaries, so a chain of bridges/junctions can block the way for good)
+bool g_bSupplyNeedFix = true; // campaign: resupply counts only positive needs, and a squadron's need only its own table's weapon types (stock: off-table stores in reinforcement squadrons stop all battalion resupply)
+bool g_bGridPathPartial = true; // campaign: a ground unit follows the partial route when its grid path search hits its length/node limit (stock: discarded, the unit retries the same far waypoint forever)
+bool g_bReserveHold = true; // campaign: a reserve battalion on one of our objectives away from the front keeps it (stock: kicked off any non-secondary objective, it fell back 3 links again and again, burning supply)
+bool g_bSupplySplitShares = true; // campaign: the supply pool is shared between ground units and squadrons by what each actually uses, each with its own ratio (stock: one ratio over everyone's need, which squadrons' unused stores gap dominates)
+bool g_bGtmKeepCapture = true; // campaign: a battalion keeps a capture order while its target is still a valid one (stock: re-planned every cycle)
+bool g_bSupplyExactLoss = true; // campaign: supply road losses computed once per trip, not truncated per node (stock: small shipments vanish)
 bool g_bPlayerGroundHold = false; // Artscout - 2026 (WORK IN PROGRESS, off by default): a battalion the player moves on the campaign map keeps that order until it arrives or breaks. campsim holdtest: some held units stop moving, see WIP-NOTES.md
 bool g_bIFFRWR = false; // JB 010727
 int g_nRelocationWait = 3; // JB 010728
