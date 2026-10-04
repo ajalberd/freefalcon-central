@@ -502,8 +502,15 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
             if (unit->GetTeam() == who and
                 (unit->IsBattalion() or unit->IsSquadron()))
             {
-                sneeded += unit->GetUnitSupplyNeed(FALSE);
-                fneeded += unit->GetUnitFuelNeed(FALSE);
+                // Artscout - 2026 (g_bSupplyNeedFix, off = stock): a unit holding more than it wants reports
+                // a negative need. Stock summed those in, so a surplus anywhere could take the team total to
+                // zero or below -- and then sratio stays 0 and no unit at all is resupplied. Count only what
+                // is actually needed; the surplus is still drawn back below, unit by unit.
+                extern bool g_bSupplyNeedFix;
+                int sn = unit->GetUnitSupplyNeed(FALSE), fn = unit->GetUnitFuelNeed(FALSE);
+
+                sneeded += (g_bSupplyNeedFix and sn < 0) ? 0 : sn;
+                fneeded += (g_bSupplyNeedFix and fn < 0) ? 0 : fn;
                 rneeded +=
                     unit->GetFullstrengthVehicles() - unit->GetTotalVehicles();
 

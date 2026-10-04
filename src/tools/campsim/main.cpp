@@ -48,6 +48,7 @@
 #include "atm.h"
 #include "playerop.h"
 #include "battalion.h"
+#include "squadron.h"
 #include <dbghelp.h>
 #include "package.h"
 #include "entity.h"
@@ -389,6 +390,105 @@ static void GtmLog(int hour)
 
         memcpy(prev[t], gGtmDiag[t], sizeof(prev[t]));
         memcpy(prevAct[t], gGtmAction[t], sizeof(prevAct[t]));
+    }
+
+    // Supply need, split: SupplyUnits (supply.cpp) gives each unit need * pool / (sum of needs), and only
+    // when that sum is positive. Units holding more than they want report a NEGATIVE need, so a surplus
+    // in some units can zero the sum and cut everyone off. Per team: positive and negative needs of
+    // battalions and squadrons, and the worst surplus holders.
+    for (int t : {2, 6})
+    {
+        long bp = 0, bn = 0, sp = 0, sn = 0;
+        int nbn = 0, nsn = 0, worst[3] = {0, 0, 0};
+        unsigned worstId[3] = {0, 0, 0};
+        VuListIterator uit(AllUnitList);
+
+        for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+        {
+            if (u->GetTeam() != t || !(u->IsBattalion() || u->IsSquadron()))
+                continue;
+
+            int sq = u->IsSquadron();
+            int need = 0;
+
+            if (!sq)
+                need = u->GetUnitSupplyNeed(FALSE);
+            else
+            {
+                // SquadronClass::GetUnitSupplyNeed also relocates and scrambles the squadron (squadron.cpp),
+                // so the logger must not call it; same formula, read only.
+                UnitClassDataType *uc = u->GetUnitClassData();
+                int want = 0, got = 0;
+
+                for (int i = 0; uc && i < MAXIMUM_WEAPTYPES; i++)
+                {
+                    want += SquadronStoresDataTable[uc->SpecialIndex].Stores[i];
+                    got += ((SquadronClass *)u)->GetUnitStores(i);
+                }
+
+                need = (want - got) / SQUADRON_PT_SUPPLY;
+            }
+
+            if (need >= 0)
+                (sq ? sp : bp) += need;
+            else
+            {
+                (sq ? sn : bn) += need, (sq ? nsn : nbn)++;
+
+                for (int k = 0; k < 3; k++)
+                    if (need < worst[k])
+                    {
+                        for (int m = 2; m > k; m--)
+                            worst[m] = worst[m - 1], worstId[m] = worstId[m - 1];
+
+                        worst[k] = need, worstId[k] = (unsigned)u->Id().num_ | (sq ? 0x80000000u : 0);
+                        break;
+                    }
+            }
+        }
+
+        printf("SUPNEED h=%d team %d: battalions +%ld %ld (%d in surplus), squadrons +%ld %ld (%d in surplus), "
+               "sum %ld | worst:", hour, t, bp, bn, nbn, sp, sn, nsn, bp + bn + sp + sn);
+
+        for (int k = 0; k < 3 && worst[k]; k++)
+            printf(" %s %u %d", (worstId[k] & 0x80000000u) ? "sq" : "bn", worstId[k] & 0x7fffffffu, worst[k]);
+
+        printf("\n");
+
+        // The worst squadron's stores against its table: weapon types it holds that the table does not
+        // stock (never drawn down by SupplyUnit), and types above their table amount.
+        if (worstId[0] & 0x80000000u)
+        {
+            Unit w = NULL;
+            VuListIterator wit(AllUnitList);
+
+            for (Unit u = GetFirstUnit(&wit); u; u = GetNextUnit(&wit))
+                if (u->IsSquadron() && (unsigned)u->Id().num_ == (worstId[0] & 0x7fffffffu))
+                    w = u;
+
+            UnitClassDataType *uc = w ? w->GetUnitClassData() : NULL;
+
+            if (uc)
+            {
+                int offTable = 0, offSum = 0, over = 0, overSum = 0, at255 = 0;
+
+                for (int i = 0; i < MAXIMUM_WEAPTYPES; i++)
+                {
+                    int want = SquadronStoresDataTable[uc->SpecialIndex].Stores[i];
+                    int got = ((SquadronClass *)w)->GetUnitStores(i);
+                    at255 += got == 255;
+
+                    if (!want && got)
+                        offTable++, offSum += got;
+                    else if (got > want)
+                        over++, overSum += got - want;
+                }
+
+                printf("SUPNEED   sq %u (stores table %d): %d weapon types held but not in its table (%d shots), "
+                       "%d above table (+%d), %d types at the 255 cap\n",
+                       worstId[0] & 0x7fffffffu, (int)uc->SpecialIndex, offTable, offSum, over, overSum, at255);
+            }
+        }
     }
 
     // Every DPRK-held objective within 40 km of Pyongyang, once a day: can ROK be ordered to take it
@@ -1793,6 +1893,39 @@ extern int g_nNoPlayerPlay;
 //   exp=A:G         enemy air / ground experience (0 green .. 4 ace, default from player options)
 extern void AdjustCampaignOptions(void);
 
+// Squadron stores against their stores table, at load: how many squadrons hold weapon types their table
+// does not stock (SupplyUnit never draws those down, so they count as a permanent surplus), active
+// versus waiting in the reinforcement (inactive) list.
+static void StoresAudit(const char *when)
+{
+    for (int pass = 0; pass < 2; pass++)
+    {
+        int n = 0, bad = 0;
+        long off = 0;
+        VuListIterator it(pass ? (VuLinkedList *)InactiveList : (VuLinkedList *)AllUnitList);
+
+        for (Unit u = GetFirstUnit(&it); u; u = GetNextUnit(&it))
+        {
+            UnitClassDataType *uc = u->IsSquadron() ? u->GetUnitClassData() : NULL;
+
+            if (!uc)
+                continue;
+
+            int types = 0;
+
+            for (int i = 0; i < MAXIMUM_WEAPTYPES; i++)
+                if (!SquadronStoresDataTable[uc->SpecialIndex].Stores[i] && ((SquadronClass *)u)->GetUnitStores(i))
+                    types++, off += ((SquadronClass *)u)->GetUnitStores(i);
+
+            n++;
+            bad += types > 0;
+        }
+
+        printf("STORES %s %s: %d squadrons, %d hold weapon types not in their table (%ld shots in all)\n", when,
+               pass ? "inactive (reinforcements)" : "active", n, bad, off);
+    }
+}
+
 static void ApplyNewGame(int argc, char **argv, const char *savefile)
 {
     // A save no campaign event has fired in yet is a campaign start (save0 and every variant built
@@ -1985,6 +2118,12 @@ static void ApplyKnobs(int argc, char **argv)
             extern bool g_bGtmReserveFix;
             g_bGtmReserveFix = atoi(val) != 0;
             printf("KNOB g_bGtmReserveFix = %d\n", (int)g_bGtmReserveFix);
+        }
+        else if (!strcmp(key, "needfix"))
+        {
+            extern bool g_bSupplyNeedFix;
+            g_bSupplyNeedFix = atoi(val) != 0;
+            printf("KNOB g_bSupplyNeedFix = %d\n", (int)g_bSupplyNeedFix);
         }
         else if (!strcmp(key, "capfront"))
         {
@@ -2488,7 +2627,9 @@ int main(int argc, char **argv)
 
     STEP("campaign loaded");
 
+    StoresAudit("loaded");
     ApplyNewGame(argc, argv, savefile);
+    StoresAudit("after new-game setup");
     ApplyKnobs(argc, argv);
 
     // The campaign thread is running; keep it parked while we tick by hand.
