@@ -932,6 +932,36 @@ static void NudgeToEnterable(Unit u, GridIndex *x, GridIndex *y)
                 }
 }
 
+// g_bGridPathPartial: waypoint routes laid along a partial objective route, per team (campsim MOVE line)
+int gMoveObjPartial[8] = {0};
+// BuildGroundWP failures by cause, per team: [0] objective route, [1] grid path to the first waypoint
+int gWPFail[8][2] = {{0}};
+int gWPFailLeg[3] = {0}; // the last first-leg failure: first waypoint x, y and its objective
+
+
+// Does this partial objective route end at least 5 km nearer t than o? Off -> always no.
+static int PartialObjPathGetsCloser(BasePathClass *p, Objective o, Objective t)
+{
+    extern bool g_bGridPathPartial;
+
+    if (not g_bGridPathPartial or p->GetLength() <= 0)
+        return 0;
+
+    Objective e = o;
+
+    for (int i = 0; i < p->GetLength() and e; i++)
+        e = e->GetNeighbor(p->GetDirection(i));
+
+    if (not e)
+        return 0;
+
+    GridIndex ox, oy, ex, ey, tx, ty;
+    o->GetLocation(&ox, &oy);
+    e->GetLocation(&ex, &ey);
+    t->GetLocation(&tx, &ty);
+    return Distance(ex, ey, tx, ty) + 5.0F <= Distance(ox, oy, tx, ty);
+}
+
 int BuildGroundWP(Unit u)
 {
     PathClass path, path2;
@@ -984,6 +1014,18 @@ int BuildGroundWP(Unit u)
     else
         o = FindNearestObjective(ux, uy, NULL);
 
+    // Artscout - 2026 (g_bGridPathPartial, off = stock): last_obj is only updated when a unit passes an
+    // objective, so after a cross-country move it can be 85-140 km behind the unit (campsim MOVE: 99% of
+    // "no waypoints" were the grid path from the unit back to that first waypoint, over the 96-step cap,
+    // the same handful of battalions failing ~45 times each in 6 h). Start the route from where we are.
+    {
+        extern bool g_bGridPathPartial;
+        GridIndex lx, ly;
+
+        if (g_bGridPathPartial and o and (o->GetLocation(&lx, &ly), Distance(ux, uy, lx, ly) > 10.0F))
+            o = FindNearestObjective(ux, uy, NULL);
+    }
+
     if (u->GetUnitTactic() == GTACTIC_MOVE_MARINE)
     {
         if (o and o->GetType() == TYPE_PORT)
@@ -1012,7 +1054,20 @@ int BuildGroundWP(Unit u)
     if (not o or not t)
         return 0;
 
-    if (u->GetUnitObjectivePath(&path, o, t) < 1) // Avoid enemy objectives
+    int found = u->GetUnitObjectivePath(&path, o, t);
+
+    // Artscout - 2026 (g_bGridPathPartial, off = stock): an objective route is at most MAX_DISTANCE (96)
+    // hops, so a cross-country move (China's army leaving the Yalu, 300+ km) comes back as 0 plus the
+    // partial route. Stock then failed here, MoveUnit cleared the unit's objective and it sat until
+    // retasked (campsim MOVE "no waypoints": 6770 for ROK and 3098 for DPRK in 4 x 6 days). Lay waypoints
+    // along the partial route when it ends nearer the target; the unit builds the rest from there.
+    if (found < 1 and PartialObjPathGetsCloser(&path, o, t))
+    {
+        gMoveObjPartial[us % 8]++;
+        found = 1;
+    }
+
+    if (found < 1) // Avoid enemy objectives
     {
         int ok = u->CheckForSurrender();
 #ifdef LOG_ERRORS
@@ -1049,6 +1104,7 @@ int BuildGroundWP(Unit u)
         }
 
 #endif
+        gWPFail[us % 8][0]++; // campsim: objective route
         return -1;
     }
 
@@ -1113,6 +1169,8 @@ int BuildGroundWP(Unit u)
         }
 
 #endif
+        gWPFail[us % 8][1]++; // campsim: first leg grid path
+        gWPFailLeg[0] = ox, gWPFailLeg[1] = oy, gWPFailLeg[2] = o->GetCampID();
         return -1;
     }
 

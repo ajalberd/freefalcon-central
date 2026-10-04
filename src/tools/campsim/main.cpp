@@ -762,12 +762,17 @@ static void CapLog(int hour)
 // (rivers) and the bridges within 3 km of it (status, owner).
 extern "C++" int gMoveDiag[NUM_TEAMS][4];
 extern "C++" int gMovePartial[8];
+extern "C++" int gMoveObjPartial[8];
+extern "C++" int gWPFail[8][2];
+extern "C++" int gWPFailLeg[3];
 extern "C++" void (*gMoveFailHook)(BattalionClass *u, int why, GridIndex x, GridIndex y, GridIndex nx, GridIndex ny);
 
 struct MoveFail
 {
     int count, why, team;
     GridIndex x, y, nx, ny;
+    GridIndex lx, ly; // "no waypoints" from the first leg: where that first waypoint was
+    int lobj;
 };
 static std::map<unsigned, MoveFail> gMoveFails;
 
@@ -776,6 +781,8 @@ static void MoveFailHook(BattalionClass *u, int why, GridIndex x, GridIndex y, G
     MoveFail &f = gMoveFails[u->Id().num_];
     f.count++, f.why = why, f.team = u->GetTeam();
     f.x = x, f.y = y, f.nx = nx, f.ny = ny;
+    if (why == 1)
+        f.lx = gWPFailLeg[0], f.ly = gWPFailLeg[1], f.lobj = gWPFailLeg[2];
 }
 
 static void MoveLog(int hour)
@@ -794,12 +801,20 @@ static void MoveLog(int hour)
         for (std::map<unsigned, MoveFail>::iterator it = gMoveFails.begin(); it != gMoveFails.end(); ++it)
             units += it->second.team == t;
 
-        static int prevPartial[NUM_TEAMS];
+        static int prevPartial[NUM_TEAMS], prevObjPartial[NUM_TEAMS];
         int partial = gMovePartial[t % 8] - prevPartial[t];
+        int objPartial = gMoveObjPartial[t % 8] - prevObjPartial[t];
         prevPartial[t] = gMovePartial[t % 8];
+        prevObjPartial[t] = gMoveObjPartial[t % 8];
 
-        printf("MOVE h=%d team %d: no grid path %d, no waypoints %d, column wait %d, hold %d, partial path taken %d "
-               "(last 6 h); %d battalions with path failures\n", hour, t, d[0], d[1], d[2], d[3], partial, units);
+        static int prevWP[NUM_TEAMS][2];
+        int wp0 = gWPFail[t % 8][0] - prevWP[t][0], wp1 = gWPFail[t % 8][1] - prevWP[t][1];
+        prevWP[t][0] = gWPFail[t % 8][0];
+        prevWP[t][1] = gWPFail[t % 8][1];
+
+        printf("MOVE h=%d team %d: no grid path %d, no waypoints %d (objective route %d, first leg %d), column wait %d, "
+               "hold %d, partial path taken %d, partial objective route taken %d (last 6 h); %d battalions with path "
+               "failures\n", hour, t, d[0], d[1], wp0, wp1, d[2], d[3], partial, objPartial, units);
 
         std::vector<std::pair<int, unsigned>> v;
 
@@ -849,6 +864,17 @@ static void MoveLog(int hour)
             printf("MOVE   bn %u: %d failures (%s) at (%d,%d) -> (%d,%d) %d km: water cells %d/%d, bridges:%s\n",
                    v[i].second, f.count, f.why ? "no waypoints" : "no grid path", f.x, f.y, f.nx, f.ny, len, water,
                    cells, nb ? bridges : " none within 3 km");
+
+            if (f.why == 1 && f.lobj)
+            {
+                Objective lo = (Objective)GetEntityByCampID(f.lobj);
+                printf("MOVE     first leg to #%d (type %d, team %d) at (%d,%d), %.0f km from the unit; cell cost here "
+                       "%.1f there %.1f (road ok %.1f)\n",
+                       f.lobj, lo ? (int)lo->GetType() : -1, lo ? (int)lo->GetTeam() : -1, f.lx, f.ly,
+                       Distance(f.x, f.y, f.lx, f.ly), GetMovementCost(f.x, f.y, Tracked, 0, Here),
+                       GetMovementCost(f.lx, f.ly, Tracked, 0, Here),
+                       GetMovementCost(f.lx, f.ly, Tracked, PATH_ROADOK, Here));
+            }
         }
     }
 
