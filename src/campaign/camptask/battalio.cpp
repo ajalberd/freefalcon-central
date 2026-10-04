@@ -573,14 +573,33 @@ int BattalionClass::MoveUnit(CampaignTime time)
     // Check if we have a valid objective
     lo = GetUnitObjective();
 
+    // Artscout - 2026 (g_bReserveHold, off = stock): a RESERVE objective is only "valid" if it is a secondary
+    // objective, but the fall-back below (FindRetreatPath, 3 links back) lands on a road, junction or bridge
+    // ~90% of the time -- invalid again, so the unit fell back again on its next check, and the GTM sent it
+    // forward again next cycle. campsim CHURN, ROK day 1: 1843 such hops (~7 per battalion, 11 km each),
+    // half of all order changes; driving costs 2% supply per 21 km, which is what emptied rear reserves.
+    // With the switch, a reserve unit on one of our objectives away from the front stays put, and a
+    // fall-back that lands on a non-secondary objective moves up to its secondary parent.
+    extern bool g_bReserveHold;
+    const bool holdReserve = g_bReserveHold and lo and GetOrders() == GORD_RESERVE and
+                             lo->GetTeam() == GetTeam() and not lo->IsNearfront();
+
     // (a player-held unit keeps the objective the player chose even if the GTM would not)
     if (not lo or
-        (Parent() and not PlayerHeld() and (FalconLocalGame->GetGameType() == game_Campaign) and
+        (Parent() and not PlayerHeld() and not holdReserve and (FalconLocalGame->GetGameType() == game_Campaign) and
          not TeamInfo[GetTeam()]->gtm->IsValidObjective(GetOrders(), lo)))
     {
         if (Parent())
         {
             lo = FindRetreatPath(this, 3, 0);
+
+            if (g_bReserveHold and lo and not lo->IsSecondary())
+            {
+                Objective so = lo->GetObjectiveParent();
+
+                if (so and TeamInfo[GetTeam()]->gtm->IsValidObjective(GORD_RESERVE, so))
+                    lo = so;
+            }
         }
 
         if (lo)

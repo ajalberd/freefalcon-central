@@ -722,7 +722,54 @@ static std::map<unsigned, CampaignTime> gCapStart;
 static int gCapAssigned[NUM_TEAMS], gCapLife[NUM_TEAMS][4]; // ended after <1 h, 1-6 h, 6-24 h, >24 h
 static std::map<unsigned, std::pair<int, int>> gCapPos;    // last snapshot position of capture holders
 
-static void CapOrderHook(BattalionClass *u, int oldOrders, int newOrders, VU_ID, void *caller)
+static const char *CallerName(void *addr);
+
+// Order churn: every order or objective change of an ROK/DPRK battalion, by (team, old order, new order,
+// caller), and how far the new objective is from the old one. Printed daily as CHURN.
+struct ChurnKey
+{
+    int team, oldOrders, newOrders;
+    void *caller;
+    bool operator<(const ChurnKey &o) const
+    {
+        if (team != o.team) return team < o.team;
+        if (oldOrders != o.oldOrders) return oldOrders < o.oldOrders;
+        if (newOrders != o.newOrders) return newOrders < o.newOrders;
+        return caller < o.caller;
+    }
+};
+struct ChurnVal
+{
+    int n;
+    double km;
+};
+static std::map<ChurnKey, ChurnVal> gChurn;
+static int gChurnSame[NUM_TEAMS]; // calls that changed nothing (same order, same objective)
+
+// RESERVE -> RESERVE re-assignments from BattalionClass::MoveUnit (its objective failed IsValidObjective, so it
+// fell back to FindRetreatPath): why the old objective failed, and whether the new one passes the same test.
+// [0] old none, [1] old not secondary, [2] old not ours, [3] old near the front, [4] old valid(?),
+// [5] new one valid for RESERVE, [6] new one invalid
+static int gResWhy[NUM_TEAMS][7];
+
+static int ReserveFailReason(int t, Objective o)
+{
+    if (!o)
+        return 0;
+
+    if (!o->IsSecondary())
+        return 1;
+
+    if (o->GetTeam() != t)
+        return 2;
+
+    if (o->IsNearfront())
+        return 3;
+
+    return 4;
+}
+
+static void CapOrderHook(BattalionClass *u, int oldOrders, int newOrders, VU_ID oid, void *caller)
 {
     int t = u->GetTeam();
 
@@ -730,6 +777,34 @@ static void CapOrderHook(BattalionClass *u, int oldOrders, int newOrders, VU_ID,
         return;
 
     unsigned id = u->Id().num_;
+
+    {
+        Objective oldObj = u->GetUnitObjective(), newObj = (Objective)vuDatabase->Find(oid);
+
+        if (oldOrders == GORD_RESERVE && newOrders == GORD_RESERVE && oldObj != newObj &&
+            strstr(CallerName(caller), "MoveUnit"))
+        {
+            gResWhy[t][ReserveFailReason(t, oldObj)]++;
+            gResWhy[t][TeamInfo[t]->gtm->IsValidObjective(GORD_RESERVE, newObj) ? 5 : 6]++;
+        }
+
+        if (oldOrders == newOrders && oldObj == newObj)
+            gChurnSame[t]++;
+        else
+        {
+            ChurnKey k = {t, oldOrders, newOrders, caller};
+            ChurnVal &v = gChurn[k];
+            v.n++;
+
+            if (oldObj && newObj)
+            {
+                GridIndex ax, ay, bx, by;
+                oldObj->GetLocation(&ax, &ay);
+                newObj->GetLocation(&bx, &by);
+                v.km += Distance(ax, ay, bx, by);
+            }
+        }
+    }
 
     if (oldOrders == GORD_CAPTURE)
     {
@@ -786,9 +861,59 @@ static const char *CallerName(void *addr)
     return (cache[addr] = out).c_str();
 }
 
+static void ChurnLog(int hour)
+{
+    static const char *ord[] = {"RES", "CAP", "SEC", "ASL", "ABN", "CMD", "DEF", "SUP", "REP", "AD", "RCN", "RAD"};
+
+    for (int t : {2, 6})
+    {
+        int total = 0, bns = 0;
+        std::vector<std::pair<int, ChurnKey>> v;
+
+        for (std::map<ChurnKey, ChurnVal>::iterator it = gChurn.begin(); it != gChurn.end(); ++it)
+            if (it->first.team == t)
+                total += it->second.n, v.push_back(std::make_pair(it->second.n, it->first));
+
+        VuListIterator uit(AllUnitList);
+        std::set<unsigned> seen;
+
+        for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+            if (u->GetTeam() == t && u->IsBattalion() && seen.insert((unsigned)u->Id().num_).second)
+                bns++;
+
+        std::sort(v.begin(), v.end(), [](const std::pair<int, ChurnKey> &a, const std::pair<int, ChurnKey> &b) {
+            return a.first > b.first;
+        });
+        printf("CHURN h=%d team %d: %d order/objective changes in 24 h (%.1f per battalion), %d calls that changed "
+               "nothing\n", hour, t, total, bns ? (double)total / bns : 0.0, gChurnSame[t]);
+
+        for (size_t i = 0; i < v.size() && i < 8; i++)
+        {
+            const ChurnVal &c = gChurn[v[i].second];
+            printf("CHURN   %5d  %s -> %s by %s, new objective %.0f km from the old on average\n", c.n,
+                   v[i].second.oldOrders >= 0 && v[i].second.oldOrders < 12 ? ord[v[i].second.oldOrders] : "?",
+                   v[i].second.newOrders >= 0 && v[i].second.newOrders < 12 ? ord[v[i].second.newOrders] : "?",
+                   CallerName(v[i].second.caller), c.n ? c.km / c.n : 0.0);
+        }
+
+        int *r = gResWhy[t];
+        printf("CHURN   reserve fall-backs in MoveUnit: old objective none %d, not secondary %d, not ours %d, near the "
+               "front %d, valid %d | the retreat objective is valid for RESERVE %d, invalid %d\n",
+               r[0], r[1], r[2], r[3], r[4], r[5], r[6]);
+        memset(gResWhy[t], 0, sizeof(gResWhy[t]));
+        gChurnSame[t] = 0;
+    }
+
+    for (std::map<ChurnKey, ChurnVal>::iterator it = gChurn.begin(); it != gChurn.end(); ++it)
+        it->second.n = 0, it->second.km = 0;
+}
+
 static void CapLog(int hour)
 {
     static const char *ord[] = {"RES", "CAP", "SEC", "ASL", "ABN", "CMD", "DEF", "SUP", "REP", "AD", "RCN", "RAD"};
+
+    if (hour % 24 == 0)
+        ChurnLog(hour);
     int hold[NUM_TEAMS] = {0}, moving[NUM_TEAMS] = {0}, stuck[NUM_TEAMS] = {0}, lowsup[NUM_TEAMS] = {0},
         broken[NUM_TEAMS] = {0}, bns[NUM_TEAMS] = {0}, bnLow[NUM_TEAMS] = {0}, bnBroken[NUM_TEAMS] = {0};
     std::map<unsigned, std::pair<int, int>> pos;
@@ -2235,6 +2360,12 @@ static void ApplyKnobs(int argc, char **argv)
         else if (!strcmp(key, "objpathsearch"))
             OBJ_GROUND_PATH_MAX_SEARCH = (short)atoi(val),
             printf("KNOB ObjGroundPathMaxSearch = %d\n", (int)OBJ_GROUND_PATH_MAX_SEARCH);
+        else if (!strcmp(key, "reshold"))
+        {
+            extern bool g_bReserveHold;
+            g_bReserveHold = atoi(val) != 0;
+            printf("KNOB g_bReserveHold = %d\n", (int)g_bReserveHold);
+        }
         else if (!strcmp(key, "partialpath"))
         {
             extern bool g_bGridPathPartial;
