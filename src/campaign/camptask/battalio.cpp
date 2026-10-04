@@ -20,6 +20,34 @@ extern void (*gMoveFailHook)(BattalionClass *u, int why, GridIndex x, GridIndex 
 #include "path.h"
 #include "find.h"
 #include "campaign.h"
+
+// g_bGridPathPartial: moves taken on a partial grid path, per team (campsim MOVE line)
+int gMovePartial[8] = {0};
+
+// Does this partial grid path end at least 2 km nearer (nx, ny) than (x, y)? Off -> always no.
+static int PartialPathGetsCloser(BasePathClass *p, GridIndex x, GridIndex y, GridIndex nx, GridIndex ny)
+{
+    extern bool g_bGridPathPartial;
+
+    if (not g_bGridPathPartial or p->GetLength() <= 0)
+        return 0;
+
+    GridIndex ex = x, ey = y;
+
+    for (int i = 0; i < p->GetLength(); i++)
+    {
+        int d = p->GetDirection(i);
+
+        if (d < 0 or d >= 8)
+            break;
+
+        ex += dx[d];
+        ey += dy[d];
+    }
+
+    float before = (float)DistSqu(x, y, nx, ny), after = (float)DistSqu(ex, ey, nx, ny);
+    return sqrtf(after) + 2.0F <= sqrtf(before);
+}
 #include "manager.h"
 #include "update.h"
 #include "loadout.h"
@@ -830,7 +858,21 @@ int BattalionClass::MoveUnit(CampaignTime time)
 
         if (GetNextMoveDirection() == Here)
         {
-            if (GetUnitGridPath(&temp_path, x, y, nx, ny) <= 0)
+            int found = GetUnitGridPath(&temp_path, x, y, nx, ny);
+
+            // Artscout - 2026 (g_bGridPathPartial, off = stock): a grid path is at most MAX_DISTANCE (96)
+            // steps and the search stops after GroundPathMax nodes; past either it returns 0 with the
+            // partial route so far, which stock discarded -- the unit cleared its waypoints, rebuilt the same
+            // far waypoint and failed again, every tick (campsim MOVE: the same battalions failing 100s of
+            // times on 70-230 km legs, China's army never leaving the Yalu). The unit only keeps 8 steps
+            // anyway (SmallPathClass), so take the partial route when it ends nearer the target than we are.
+            if (found <= 0 and PartialPathGetsCloser(&temp_path, x, y, nx, ny))
+            {
+                gMovePartial[GetTeam() % NUM_TEAMS]++;
+                found = 1;
+            }
+
+            if (found <= 0)
             {
 #ifdef LOG_ERRORS
                 char buffer[1280], name1[80], timestr[80];

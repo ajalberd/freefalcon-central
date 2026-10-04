@@ -716,6 +716,7 @@ bool g_bWaterObjectiveFix = false; // campaign: ground units stop next to (and c
 bool g_bGtmReserveFix = false; // campaign: reserves are chosen from units still free this cycle (stock: none move up while on the offensive)
 bool g_bGtmCaptureFront = false; // campaign: non-secondary enemy objectives on the front line are capture targets too (stock: only secondaries, so a chain of bridges/junctions can block the way for good)
 bool g_bSupplyNeedFix = false; // campaign: resupply counts only positive needs, and a squadron's need only its own table's weapon types (stock: off-table stores in reinforcement squadrons stop all battalion resupply)
+bool g_bGridPathPartial = false; // campaign: a ground unit follows the partial route when its grid path search hits its length/node limit (stock: discarded, the unit retries the same far waypoint forever)
 bool g_bGtmKeepCapture = false; // campaign: a battalion keeps a capture order while its target is still a valid one (stock: re-planned every cycle)
 bool g_bSupplyExactLoss = false; // campaign: supply road losses computed once per trip, not truncated per node (stock: small shipments vanish)
 bool g_bPlayerGroundHold = false; // Artscout - 2026 (WORK IN PROGRESS, off by default): a battalion the player moves on the campaign map keeps that order until it arrives or breaks. campsim holdtest: some held units stop moving, see WIP-NOTES.md
@@ -1822,6 +1823,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"GtmReserveFix", &g_bGtmReserveFix}, // 1 = reserves move up while the side is on the offensive
     {"GtmCaptureFront", &g_bGtmCaptureFront}, // 1 = capture orders also go to front-line bridges, junctions and other non-secondary objectives
     {"SupplyNeedFix", &g_bSupplyNeedFix}, // 1 = a unit's surplus can no longer zero everyone's resupply
+    {"GridPathPartial", &g_bGridPathPartial}, // 1 = units heading for a far waypoint move on along the partial route
     {"GtmKeepCapture", &g_bGtmKeepCapture}, // 1 = attacking battalions keep their target while it stays valid
     {"SupplyExactLoss", &g_bSupplyExactLoss}, // 1 = small supply shipments are not rounded away on long roads
     {"GreyScaleMFD", &g_bGreyScaleMFD},

@@ -761,6 +761,7 @@ static void CapLog(int hour)
 // failed most often, with what lies on the straight line to where they wanted to go: water cells
 // (rivers) and the bridges within 3 km of it (status, owner).
 extern "C++" int gMoveDiag[NUM_TEAMS][4];
+extern "C++" int gMovePartial[8];
 extern "C++" void (*gMoveFailHook)(BattalionClass *u, int why, GridIndex x, GridIndex y, GridIndex nx, GridIndex ny);
 
 struct MoveFail
@@ -793,8 +794,12 @@ static void MoveLog(int hour)
         for (std::map<unsigned, MoveFail>::iterator it = gMoveFails.begin(); it != gMoveFails.end(); ++it)
             units += it->second.team == t;
 
-        printf("MOVE h=%d team %d: no grid path %d, no waypoints %d, column wait %d, hold %d (last 6 h); "
-               "%d battalions with path failures\n", hour, t, d[0], d[1], d[2], d[3], units);
+        static int prevPartial[NUM_TEAMS];
+        int partial = gMovePartial[t % 8] - prevPartial[t];
+        prevPartial[t] = gMovePartial[t % 8];
+
+        printf("MOVE h=%d team %d: no grid path %d, no waypoints %d, column wait %d, hold %d, partial path taken %d "
+               "(last 6 h); %d battalions with path failures\n", hour, t, d[0], d[1], d[2], d[3], partial, units);
 
         std::vector<std::pair<int, unsigned>> v;
 
@@ -2099,6 +2104,14 @@ static void ApplyKnobs(int argc, char **argv)
         else if (!strcmp(key, "objpathsearch"))
             OBJ_GROUND_PATH_MAX_SEARCH = (short)atoi(val),
             printf("KNOB ObjGroundPathMaxSearch = %d\n", (int)OBJ_GROUND_PATH_MAX_SEARCH);
+        else if (!strcmp(key, "partialpath"))
+        {
+            extern bool g_bGridPathPartial;
+            g_bGridPathPartial = atoi(val) != 0;
+            printf("KNOB g_bGridPathPartial = %d\n", (int)g_bGridPathPartial);
+        }
+        else if (!strcmp(key, "gpathmax"))
+            GROUND_PATH_MAX = (short)atoi(val), printf("KNOB GroundPathMax = %d\n", (int)GROUND_PATH_MAX);
         else if (!strcmp(key, "holdtest"))
             gHoldTest = atoi(val);
         else if (!strcmp(key, "playerhold"))
