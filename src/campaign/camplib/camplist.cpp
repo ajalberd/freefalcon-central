@@ -1367,10 +1367,16 @@ void InactivateUnit(UnitClass *unit)
 {
     // avoid unit deletion when removing from lists
     VuBin<UnitClass> safe(unit);
-    // remove from lists
-    AllUnitList->Remove(unit);
-    AllParentList->Remove(unit);
-    AllRealList->Remove(unit);
+    // remove from lists -- every copy (Artscout - 2026: a duplicated entry used to survive here)
+    while (AllUnitList->Find(unit) and AllUnitList->Remove(unit) == VU_SUCCESS)
+        ;
+
+    while (AllParentList->Find(unit) and AllParentList->Remove(unit) == VU_SUCCESS)
+        ;
+
+    while (AllRealList->Find(unit) and AllRealList->Remove(unit) == VU_SUCCESS)
+        ;
+
     RealUnitProxList->Remove(unit);
     // insert into inactive (idempotent: a unit can be seen inactive by more
     // than one scan before its flag is cleared, and the list allows duplicates)

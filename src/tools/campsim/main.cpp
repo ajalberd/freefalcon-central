@@ -337,6 +337,7 @@ static void CountUnitList(L *list, int counts[NUM_TEAMS][6], int *total)
 extern "C++" int gGtmDiag[NUM_TEAMS][GORD_LAST][5];
 extern "C++" int gGtmAction[NUM_TEAMS][8];
 extern "C++" int gGtmWhy[NUM_TEAMS][10];
+extern "C++" int gSupplyUse[8][4];
 
 static void GtmLog(int hour)
 {
@@ -488,6 +489,110 @@ static void GtmLog(int hour)
                        "%d above table (+%d), %d types at the 255 cap\n",
                        worstId[0] & 0x7fffffffu, (int)uc->SpecialIndex, offTable, offSum, over, overSum, at255);
             }
+        }
+    }
+
+    // Where battalion supply goes (battalio.cpp / unit.cpp gSupplyUse), summed supply-% points per 6 h
+    {
+        static int prevUse[8][4];
+
+        for (int t : {2, 6})
+        {
+            int d[4];
+
+            for (int k = 0; k < 4; k++)
+                d[k] = gSupplyUse[t][k] - prevUse[t][k], prevUse[t][k] = gSupplyUse[t][k];
+
+            printf("SUPUSE h=%d team %d: battalion supply %% points used -- moving %d, firing at aircraft %d, "
+                   "firing at ground %d, waiting to move %d (last 6 h)\n", hour, t, d[0], d[1], d[2], d[3]);
+        }
+    }
+
+    // Who is short of supply, once a day: ROK battalions under 50%, by distance to the front, whether in
+    // combat, moving or airmobile, and how long since SupplyUnits last served them against their own
+    // resupply interval (a unit is only resupplied once that interval has passed).
+    if (hour % 24 == 0)
+    {
+        int n = 0, low = 0, near10 = 0, near30 = 0, beyond30 = 0, engaged = 0, moving = 0, airmob = 0, overdue = 0;
+        long sinceSum = 0, intervalSum = 0;
+        VuListIterator lit(AllUnitList);
+        std::set<unsigned> seenLow;
+
+        for (Unit u = GetFirstUnit(&lit); u; u = GetNextUnit(&lit))
+        {
+            if (u->GetTeam() != 2 || !u->IsBattalion() || !seenLow.insert((unsigned)u->Id().num_).second)
+                continue;
+
+            n++;
+
+            if (u->GetUnitSupply() >= 50)
+                continue;
+
+            low++;
+            GridIndex x, y;
+            u->GetLocation(&x, &y);
+            float df = DistanceToFront(x, y);
+            (df <= 10 ? near10 : df <= 30 ? near30 : beyond30)++;
+            engaged += u->Engaged() ? 1 : 0;
+            moving += u->Moving() ? 1 : 0;
+            airmob += u->GetSType() == STYPE_UNIT_AIRMOBILE || u->GetSType() == STYPE_UNIT_INFANTRY;
+            long since = (long)((TheCampaign.CurrentTime - u->GetLastResupplyTime()) / CampaignMinutes);
+            long interval = (long)(u->GetUnitSupplyTime() / CampaignMinutes);
+            sinceSum += since, intervalSum += interval;
+            overdue += since > 2 * interval;
+        }
+
+        printf("LOWSUP h=%d ROK: %d of %d battalions under 50%% | front distance <=10 km %d, 10-30 km %d, >30 km %d | "
+               "engaged %d, moving %d, infantry/airmobile %d | last resupplied %ld min ago on average, interval %ld min, "
+               "more than 2 intervals overdue %d\n",
+               hour, low, n, near10, near30, beyond30, engaged, moving, airmob, low ? sinceSum / low : 0,
+               low ? intervalSum / low : 0, overdue);
+    }
+
+    // AllUnitList should hold each unit once. Every system that walks it (supply needs, statistics, the
+    // GTM) double-counts duplicates. Once a day: entries vs unique units per team, and what the duplicated
+    // ones are (infantry / carried as cargo / flagged inactive / how many copies).
+    if (hour % 24 == 0)
+    {
+        std::map<unsigned, int> copies;
+        std::map<unsigned, Unit> byId;
+        VuListIterator dit(AllUnitList);
+
+        for (Unit u = GetFirstUnit(&dit); u; u = GetNextUnit(&dit))
+            copies[(unsigned)u->Id().num_]++, byId[(unsigned)u->Id().num_] = u;
+
+        for (int t : {2, 6})
+        {
+            int entries = 0, unique = 0, dupUnits = 0, inf = 0, cargo = 0, inactive = 0, maxc = 0;
+            char ex[256];
+            int en = 0;
+            ex[0] = 0;
+
+            for (std::map<unsigned, int>::iterator it = copies.begin(); it != copies.end(); ++it)
+            {
+                Unit u = byId[it->first];
+
+                if (u->GetTeam() != t)
+                    continue;
+
+                entries += it->second, unique++;
+
+                if (it->second > 1)
+                {
+                    dupUnits++;
+                    inf += u->GetSType() == STYPE_UNIT_INFANTRY;
+                    cargo += u->Cargo() ? 1 : 0;
+                    inactive += u->Inactive() ? 1 : 0;
+                    maxc = it->second > maxc ? it->second : maxc;
+
+                    if (en < 200)
+                        en += sprintf(ex + en, " %u%s x%d", it->first, u->IsBattalion() ? "bn" : u->IsBrigade() ? "bde" : "",
+                                      it->second);
+                }
+            }
+
+            printf("UNITLIST h=%d team %d: %d entries, %d unique units, %d duplicated (infantry %d, cargo %d, "
+                   "inactive %d, most copies %d) |%s\n", hour, t, entries, unique, dupUnits, inf, cargo, inactive, maxc, ex);
         }
     }
 

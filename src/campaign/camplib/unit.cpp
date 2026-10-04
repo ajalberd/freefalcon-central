@@ -3141,14 +3141,23 @@ void UnitClass::SetInactive(int f)
             // (ui/src/common/units.cpp), so airmobile infantry gained a copy
             // every time: one save held three battalions ~43,000 times each,
             // wrapped the 16-bit unit count, and would not load.
+            // Artscout - 2026: and only into lists that do not already hold it. The guard above was not
+            // enough: airmobile infantry still gained a copy per helicopter trip (campsim UNITLIST, save0:
+            // 38 ROK battalions held 2-28 times each by h96, 1203 AllUnitList entries for 945 units), and
+            // every walk of AllUnitList -- supply needs, statistics, the GTM -- counted them that many times.
             if (listed)
             {
-                AllUnitList->Insert(this);
-                AllParentList->Insert(this);
+                if (not AllUnitList->Find(this))
+                    AllUnitList->Insert(this);
+
+                if (not AllParentList->Find(this))
+                    AllParentList->Insert(this);
 
                 if (Real())
                 {
-                    AllRealList->Insert(this);
+                    if (not AllRealList->Find(this))
+                        AllRealList->Insert(this);
+
                     RealUnitProxList->Insert(this);
                 }
             }
@@ -4947,6 +4956,13 @@ int UnitClass::CollectWeapons(uchar* dam, MoveType m, short w[], uchar wc[],
 
     if (sup < 0)
         sup = 0;
+
+    if (IsBattalion())
+    {
+        // campsim diagnostic: supply % used firing, by target domain ([1] aircraft, [2] ground/sea)
+        extern int gSupplyUse[8][4];
+        gSupplyUse[GetTeam() % 8][MOVE_AIR(m) ? 1 : 2] += GetUnitSupply() - sup;
+    }
 
     SetUnitSupply(sup);
     return cw;

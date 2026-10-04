@@ -24,6 +24,10 @@ extern void (*gMoveFailHook)(BattalionClass *u, int why, GridIndex x, GridIndex 
 // g_bGridPathPartial: moves taken on a partial grid path, per team (campsim MOVE line)
 int gMovePartial[8] = {0};
 
+// campsim diagnostic: battalion supply % used, per team: [0] moving, [1] firing at aircraft, [2] firing
+// at ground/sea targets (unit.cpp CollectWeapons), [3] waiting to move (the "use supply when not moving" rule)
+int gSupplyUse[8][4] = {{0}};
+
 // Does this partial grid path end at least 2 km nearer (nx, ny) than (x, y)? Off -> always no.
 static int PartialPathGetsCloser(BasePathClass *p, GridIndex x, GridIndex y, GridIndex nx, GridIndex ny)
 {
@@ -1029,6 +1033,7 @@ int BattalionClass::MoveUnit(CampaignTime time)
                 // RV - Biker - Reduce supply at higher rate
                 //supply--;
                 supply -= 2;
+                gSupplyUse[GetTeam() % 8][0] += 2;
                 // fatigue++;
                 SetUnitMoved(0);
             }
@@ -1074,6 +1079,7 @@ int BattalionClass::MoveUnit(CampaignTime time)
             if (GetMoveTime() > 3 * DEG_TO_SEC * SEC_TO_MSEC and supply > 2)
             {
                 supply -= 2;
+                gSupplyUse[GetTeam() % 8][3] += 2;
             }
         }
     }
