@@ -19,7 +19,10 @@ from concurrent.futures import ThreadPoolExecutor
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXE_DIR = os.path.normpath(os.environ.get("CAMPSIM_EXE_DIR") or os.path.join(
     HERE, "..", "..", "src", "Falcon4___x64_Release", "Tools", "campsim"))  # CAMPSIM_EXE_DIR: a frozen copy
-GAME = r"C:\FreeFalcon6"
+# gamework/ when it exists (as the README says): it holds the variant saves and .tri scripts (both,
+# bothwr, ...) and fixed player options, so results do not shift when the install's pilot settings
+# change. Running against the install silently read no variant script -- no trigger fired at all.
+GAME = os.path.join(HERE, "gamework") if os.path.isdir(os.path.join(HERE, "gamework")) else r"C:\FreeFalcon6"
 BLUE = (1, 2, 3)
 RED = (5, 6)   # PRC is folded into DPRK by the engine within the first half hour
 

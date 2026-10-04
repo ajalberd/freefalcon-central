@@ -335,6 +335,7 @@ static void CountUnitList(L *list, int counts[NUM_TEAMS][6], int *total)
 // call, units newly assigned and units confirmed in orders they already had.
 extern "C++" int gGtmDiag[NUM_TEAMS][GORD_LAST][5];
 extern "C++" int gGtmAction[NUM_TEAMS][8];
+extern "C++" int gGtmWhy[NUM_TEAMS][10];
 
 static void GtmLog(int hour)
 {
@@ -366,9 +367,132 @@ static void GtmLog(int hour)
         }
 
         printf("%s\n", buf);
+
+        // Why units were or were not offered for capture (gtm.cpp gGtmWhy), per GTM cycle.
+        {
+            static int prevWhy[NUM_TEAMS][10];
+            static const char *why[] = {"keptCAP", "keptOther", "immobile", "broken", "supply<50",
+                                        "singleRole", "CAPcand", "notCapable", "(kept SEC", "kept DEF)"};
+            int calls = 0;
+
+            for (int a = 0; a < 8; a++)
+                calls += gGtmAction[t][a] - prevAct[t][a];
+
+            n = sprintf(buf, "GTMWHY h=%d team %d per cycle:", hour, t);
+
+            for (int k = 0; k < 10; k++)
+                n += sprintf(buf + n, " %s %d", why[k], calls ? (gGtmWhy[t][k] - prevWhy[t][k]) / calls : 0);
+
+            printf("%s\n", buf);
+            memcpy(prevWhy[t], gGtmWhy[t], sizeof(prevWhy[t]));
+        }
+
         memcpy(prev[t], gGtmDiag[t], sizeof(prev[t]));
         memcpy(prevAct[t], gGtmAction[t], sizeof(prevAct[t]));
     }
+
+    // Every DPRK-held objective within 40 km of Pyongyang, once a day: can ROK be ordered to take it
+    // (IsValidObjective(CAPTURE) = secondary, near the front, capture allowed) and who is attacking it.
+    if (hour % 24 == 0)
+    {
+        std::map<int, int> attackers;
+        VuListIterator uit(AllUnitList);
+
+        for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+            if (u->GetTeam() == 2 && u->IsBattalion() && u->GetUnitOrders() == GORD_CAPTURE && u->GetUnitObjective())
+                attackers[u->GetUnitObjective()->GetCampID()]++;
+
+        VuListIterator oit(AllObjList);
+        int nNear = 0, valid = 0, sec = 0, front = 0, attacked = 0;
+        char list[2048];
+        int ln = 0;
+
+        list[0] = 0;
+
+        for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+        {
+            GridIndex x, y;
+            o->GetLocation(&x, &y);
+            float dd = sqrtf((float)((x - 301) * (x - 301) + (y - 580) * (y - 580)));
+
+            if (o->GetTeam() != 6 || dd > 40.0F)
+                continue;
+
+            nNear++;
+            int s = o->IsSecondary() ? 1 : 0, f = o->IsNearfront() ? 1 : 0;
+            int a = attackers.count(o->GetCampID()) ? attackers[o->GetCampID()] : 0;
+            sec += s;
+            front += f;
+            valid += s && f && GetRoE(2, 6, ROE_GROUND_CAPTURE) == ROE_ALLOWED;
+            attacked += a > 0;
+
+            if (s && ln < 1900)
+                ln += sprintf(list + ln, " #%d@%.0fkm%s%s", o->GetCampID(), dd, f ? "/front" : "", a ? "/ATTACKED" : "");
+        }
+
+        printf("PYOBJ h=%d DPRK objectives within 40 km of Pyongyang: %d, secondary %d, near front %d, valid capture "
+               "targets %d, under ROK attack %d | secondary:%s\n",
+               hour, nNear, sec, front, valid, attacked, list);
+
+        // From each Pyongyang city objective, the shortest route over the objective link network to an
+        // ROK-held objective: link count and every objective on it (id, type, owner, S = secondary,
+        // F/2/3 = front/second/third line). Capture orders only reach secondaries within three links of
+        // the front; the objectives in between are taken only by units passing through.
+        for (int target : {260, 680})
+        {
+            Objective start = (Objective)GetEntityByCampID(target);
+
+            if (!start || start->GetTeam() == 2)
+                continue;
+
+            std::map<Objective, Objective> prevOf;
+            std::vector<Objective> q;
+            Objective found = NULL;
+            prevOf[start] = NULL;
+            q.push_back(start);
+
+            for (size_t qi = 0; qi < q.size() && !found; qi++)
+            {
+                Objective c = q[qi];
+
+                for (int l = 0; l < c->NumLinks(); l++)
+                {
+                    Objective nb = c->GetNeighbor(l);
+
+                    if (!nb || prevOf.count(nb))
+                        continue;
+
+                    prevOf[nb] = c;
+
+                    if (nb->GetTeam() == 2)
+                    {
+                        found = nb;
+                        break;
+                    }
+
+                    q.push_back(nb);
+                }
+            }
+
+            char route[1024];
+            int rn = 0, hops = 0;
+            route[0] = 0;
+
+            for (Objective c = found; c && rn < 960; c = prevOf[c], hops++)
+            {
+                GridIndex x, y;
+                c->GetLocation(&x, &y);
+                rn += sprintf(route + rn, " #%d(t%d %s%s%s %d,%d)", c->GetCampID(), c->GetType(),
+                              c->GetTeam() == 2 ? "ROK" : "DPRK", c->IsSecondary() ? " S" : "",
+                              c->IsFrontline() ? " F" : c->IsSecondline() ? " 2" : c->IsThirdline() ? " 3" : "", x, y);
+            }
+
+            printf("PYPATH h=%d #%d -> nearest ROK objective: %d links:%s\n", hour, target, found ? hops - 1 : -1,
+                   route);
+        }
+    }
+
+    fflush(stdout);
 }
 
 // CAPTURE order life cycle (battalio.cpp gOrderChangeHook), ROK and DPRK battalions: who ends a capture
@@ -1862,6 +1986,12 @@ static void ApplyKnobs(int argc, char **argv)
             g_bGtmReserveFix = atoi(val) != 0;
             printf("KNOB g_bGtmReserveFix = %d\n", (int)g_bGtmReserveFix);
         }
+        else if (!strcmp(key, "capfront"))
+        {
+            extern bool g_bGtmCaptureFront;
+            g_bGtmCaptureFront = atoi(val) != 0;
+            printf("KNOB g_bGtmCaptureFront = %d\n", (int)g_bGtmCaptureFront);
+        }
         else if (!strcmp(key, "keepcap"))
         {
             extern bool g_bGtmKeepCapture;
@@ -1998,6 +2128,13 @@ static void ApplyKnobs(int argc, char **argv)
             // CheckTriggers re-reads the file every pass, so switching after load takes effect.
             TheCampaign.SetScenario((char *)val);
             printf("KNOB tri: triggers from %s.tri\n", val);
+            {
+                char p[_MAX_PATH];
+                sprintf(p, "%s/%s.tri", FalconCampUserSaveDirectory, val);
+
+                if (GetFileAttributesA(p) == INVALID_FILE_ATTRIBUTES)
+                    printf("KNOB tri: WARNING %s does not exist -- no trigger will fire\n", p);
+            }
         }
         else if (!strcmp(key, "hcg"))
             HitChanceGround = (float)atof(val), printf("KNOB 2DHitChanceGround = %.2f\n", HitChanceGround);

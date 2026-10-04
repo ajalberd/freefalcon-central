@@ -434,6 +434,18 @@ void GroundTaskingManagerClass::Cleanup(void)
     Assigned = 0;
 }
 
+// Artscout - 2026 (g_bGtmCaptureFront, off = stock): an enemy objective on the front line that is not
+// a secondary -- a bridge, junction, SAM site, rail stop -- may be a capture target. Stock only targets
+// secondaries within three links of the front; the rest change hands only when a unit passes through.
+// When the next secondaries sit four or more links behind a chain of such objectives nothing is ever
+// sent, and the front freezes. campsim seed 103: Pyongyang (#680) stayed 4 links behind ROK's #259
+// (SAM site -> town -> junction) from h48 to the end, with zero valid capture targets near the city.
+static int CaptureFrontOK(Objective o)
+{
+    extern bool g_bGtmCaptureFront;
+    return g_bGtmCaptureFront and o->IsFrontline();
+}
+
 // Determine if this objective can accept the passed orders
 int GroundTaskingManagerClass::IsValidObjective(int orders, Objective o)
 {
@@ -443,7 +455,7 @@ int GroundTaskingManagerClass::IsValidObjective(int orders, Objective o)
     switch (orders)
     {
     case GORD_CAPTURE:
-        if (o->IsSecondary() and o->IsNearfront() and
+        if ((o->IsSecondary() or CaptureFrontOK(o)) and o->IsNearfront() and
             GetRoE(owner, o->GetTeam(), ROE_GROUND_CAPTURE) == ROE_ALLOWED)
             return 1;
 
@@ -536,7 +548,7 @@ int GroundTaskingManagerClass::GetAddBits(Objective o, int to_collect)
         return 0;
 
     if (not o->IsSecondary())
-        add_now and_eq compl(COLLECT_RESERVE bitor COLLECT_CAPTURE bitor
+        add_now and_eq compl(COLLECT_RESERVE bitor (CaptureFrontOK(o) ? 0 : COLLECT_CAPTURE) bitor
                              COLLECT_SECURE bitor COLLECT_ASSAULT bitor
                              COLLECT_AIRBORNE bitor COLLECT_DEFEND);
 
@@ -704,9 +716,11 @@ int GroundTaskingManagerClass::BuildObjectiveLists(int to_collect)
                     objList[i]->Insert(new_node, GODN_SORT_BY_PRIORITY);
 
                 // KCK EXPERIMENTAL: Try adding certain objectives twice
+                // (non-secondary objectives, which g_bGtmCaptureFront lets in, can have no primary)
                 if (i == GORD_CAPTURE and
                     TeamInfo[owner]->GetGroundActionType() ==
                         GACTION_OFFENSIVE and
+                    o->GetObjectivePrimary() and
                     TeamInfo[owner]->GetGroundAction()->actionObjective ==
                         o->GetObjectivePrimary()->Id())
                 {
@@ -796,9 +810,16 @@ static int CaptureStalled(Unit u, Objective o)
            TheCampaign.CurrentTime - p.since > (CampaignTime)g_nGtmKeepCaptureStall * CampaignHours;
 }
 
+// Why each unit is or is not offered for a capture order, per AddToLists call (campsim GTMWHY):
+// [0] kept capture, [1] kept another valid order, [2] immobile, [3] broken, [4] supply < 50,
+// [5] single-role (artillery/AD/engineer), [6] capture candidate, [7] mobile but not capture-capable,
+// [8] kept order was SECURE, [9] kept order was DEFEND.
+int gGtmWhy[NUM_TEAMS][10] = {{0}};
+
 void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
 {
     int i, role;
+    int* why = gGtmWhy[owner];
 
     // Artscout - 2026 (g_bGtmKeepCapture, off = stock): a unit attacking a target that is still a
     // valid capture objective keeps it. Stock re-plans it every cycle: it is only kept when the side is
@@ -814,6 +835,7 @@ void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
         {
             sOffensiveAssigned++;
             AssignUnit(u, GORD_CAPTURE, o, 999);
+            why[0]++;
 
             if (objList[GORD_CAPTURE])
                 objList[GORD_CAPTURE] = objList[GORD_CAPTURE]->Remove(o);
@@ -844,6 +866,9 @@ void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
                     UnitCount[orders]++;
 #endif
                     AssignUnit(u, orders, o, 999);
+                    why[orders == GORD_CAPTURE ? 0 : 1]++;
+                    why[8] += orders == GORD_SECURE;
+                    why[9] += orders == GORD_DEFEND;
 
                     // Their objective is removed from the satisfy list
                     if (objList[orders])
@@ -878,6 +903,7 @@ void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
 #ifdef KEV_GDEBUG
         UnitCount[i]++;
 #endif
+        why[2]++;
         AssignUnit(u, i, o, 999);
 
         if (objList[i])
@@ -889,6 +915,7 @@ void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
     // Broken/unsupplied units get tasked as reserve only
     if (u->Broken() or u->GetUnitSupply() < 50)
     {
+        why[u->Broken() ? 3 : 4]++;
         AddToList(u, GORD_RESERVE);
         return;
     }
@@ -902,10 +929,17 @@ void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
     if (role == GRO_FIRESUPPORT or role == GRO_AIRDEFENSE or
         role == GRO_ENGINEER) // KCK: Radar units here?
     {
+        why[5]++;
         AddToList(u, GetGroundOrders(role));
         AddToList(u, GORD_RESERVE);
         return;
     }
+
+    if ((to_collect bitand (0x01 << GORD_CAPTURE)) and
+        u->GetUnitRoleScore(GetGroundRole(GORD_CAPTURE), CALC_MAX, 0) > MIN_ALLOWABLE_ROLE_SCORE)
+        why[6]++;
+    else
+        why[7]++;
 
     // Add it to a list for each type of orders it's capible of performing
     for (i = 0; i < GORD_LAST; i++)

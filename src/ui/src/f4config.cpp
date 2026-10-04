@@ -714,6 +714,7 @@ bool g_bRealisticAttrition = false; // JB 010710
 bool g_bGtmReserveFarthest = false; // campaign: the ground AI moves up its rear-most reserves first (stock: closest first)
 bool g_bWaterObjectiveFix = false; // campaign: ground units stop next to (and capture) objectives on water cells (stock: unreachable, units retry forever)
 bool g_bGtmReserveFix = false; // campaign: reserves are chosen from units still free this cycle (stock: none move up while on the offensive)
+bool g_bGtmCaptureFront = false; // campaign: non-secondary enemy objectives on the front line are capture targets too (stock: only secondaries, so a chain of bridges/junctions can block the way for good)
 bool g_bGtmKeepCapture = false; // campaign: a battalion keeps a capture order while its target is still a valid one (stock: re-planned every cycle)
 bool g_bSupplyExactLoss = false; // campaign: supply road losses computed once per trip, not truncated per node (stock: small shipments vanish)
 bool g_bPlayerGroundHold = false; // Artscout - 2026 (WORK IN PROGRESS, off by default): a battalion the player moves on the campaign map keeps that order until it arrives or breaks. campsim holdtest: some held units stop moving, see WIP-NOTES.md
@@ -1818,6 +1819,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"GtmReserveFarthest", &g_bGtmReserveFarthest}, // 1 = rear reserves are moved forward first
     {"WaterObjectiveFix", &g_bWaterObjectiveFix}, // 1 = ports and coastal objectives can be reached and captured
     {"GtmReserveFix", &g_bGtmReserveFix}, // 1 = reserves move up while the side is on the offensive
+    {"GtmCaptureFront", &g_bGtmCaptureFront}, // 1 = capture orders also go to front-line bridges, junctions and other non-secondary objectives
     {"GtmKeepCapture", &g_bGtmKeepCapture}, // 1 = attacking battalions keep their target while it stays valid
     {"SupplyExactLoss", &g_bSupplyExactLoss}, // 1 = small supply shipments are not rounded away on long roads
     {"GreyScaleMFD", &g_bGreyScaleMFD},
