@@ -4961,7 +4961,9 @@ int UnitClass::CollectWeapons(uchar* dam, MoveType m, short w[], uchar wc[],
     {
         // campsim diagnostic: supply % used firing, by target domain ([1] aircraft, [2] ground/sea)
         extern int gSupplyUse[8][4];
+        extern float gSupplyUseGround[]; // supply.cpp, g_bSupplySplitShares
         gSupplyUse[GetTeam() % 8][MOVE_AIR(m) ? 1 : 2] += GetUnitSupply() - sup;
+        gSupplyUseGround[GetTeam() % NUM_TEAMS] += (float)(GetUnitSupply() - sup) * GetTotalVehicles() / 100.0F;
     }
 
     SetUnitSupply(sup);

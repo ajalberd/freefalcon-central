@@ -51,6 +51,8 @@ enum
 extern int gSupplyDiag[NUM_TEAMS][SUPDIAG_LAST];
 extern int gSupplySplit[NUM_TEAMS][2]; // supply received: [0] battalions, [1] squadrons
 extern int gStoresFlow[NUM_TEAMS][2]; // squadron stores (weapon units): [0] loaded onto sorties, [1] returned unused
+extern float gSupplyUseGround[NUM_TEAMS], gSupplyUseAir[NUM_TEAMS]; // g_bSupplySplitShares: recent real use, supply points
+extern int gSupplyShareG[NUM_TEAMS]; // ground share of the pool last computed, %
 extern int gSupplyRatio[NUM_TEAMS][3]; // supply, fuel, replacement distribution ratio x1000
 
 // SendSupply trips (cumulative, per sending team): why a shipment arrives empty.

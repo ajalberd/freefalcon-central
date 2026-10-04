@@ -1439,6 +1439,7 @@ void SquadronClass::UpdateSquadronStores(short weapon[HARDPOINT_MAX],
             n = 255;
 
         gStoresFlow[GetTeam() % NUM_TEAMS][0] += GetUnitStores(weaparray[i]) - n; // campsim: loaded
+        gSupplyUseAir[GetTeam() % NUM_TEAMS] += (float)(GetUnitStores(weaparray[i]) - n) / SQUADRON_PT_SUPPLY;
         SetUnitStores(weaparray[i], n);
     }
 
@@ -1521,6 +1522,7 @@ void SquadronClass::ResupplySquadronStores(short weapon[HARDPOINT_MAX],
             n = 255;
 
         gStoresFlow[GetTeam() % NUM_TEAMS][1] += n - GetUnitStores(weaparray[i]); // campsim: returned
+        gSupplyUseAir[GetTeam() % NUM_TEAMS] -= (float)(n - GetUnitStores(weaparray[i])) / SQUADRON_PT_SUPPLY;
         SetUnitStores(weaparray[i], n);
     }
 

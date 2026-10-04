@@ -27,6 +27,7 @@ int gMovePartial[8] = {0};
 // campsim diagnostic: battalion supply % used, per team: [0] moving, [1] firing at aircraft, [2] firing
 // at ground/sea targets (unit.cpp CollectWeapons), [3] waiting to move (the "use supply when not moving" rule)
 int gSupplyUse[8][4] = {{0}};
+extern float gSupplyUseGround[]; // supply.cpp, g_bSupplySplitShares
 
 // Does this partial grid path end at least 2 km nearer (nx, ny) than (x, y)? Off -> always no.
 static int PartialPathGetsCloser(BasePathClass *p, GridIndex x, GridIndex y, GridIndex nx, GridIndex ny)
@@ -1053,6 +1054,7 @@ int BattalionClass::MoveUnit(CampaignTime time)
                 //supply--;
                 supply -= 2;
                 gSupplyUse[GetTeam() % 8][0] += 2;
+                gSupplyUseGround[GetTeam() % NUM_TEAMS] += 2.0F * GetTotalVehicles() / 100.0F;
                 // fatigue++;
                 SetUnitMoved(0);
             }
@@ -1099,6 +1101,7 @@ int BattalionClass::MoveUnit(CampaignTime time)
             {
                 supply -= 2;
                 gSupplyUse[GetTeam() % 8][3] += 2;
+                gSupplyUseGround[GetTeam() % NUM_TEAMS] += 2.0F * GetTotalVehicles() / 100.0F;
             }
         }
     }

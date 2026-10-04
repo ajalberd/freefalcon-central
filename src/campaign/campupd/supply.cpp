@@ -48,6 +48,10 @@ extern bool g_bPowerGrid;
 int gSupplyDiag[NUM_TEAMS][SUPDIAG_LAST] = {{0}};
 int gSupplySplit[NUM_TEAMS][2] = {{0}};
 int gStoresFlow[NUM_TEAMS][2] = {{0}};
+// g_bSupplySplitShares: decaying averages of supply points actually used by ground units (moving, firing) and
+// squadrons (stores loaded minus returned), and the ground share of the pool last computed (%)
+float gSupplyUseGround[NUM_TEAMS] = {0}, gSupplyUseAir[NUM_TEAMS] = {0};
+int gSupplyShareG[NUM_TEAMS] = {0};
 // Last distribution ratios (x1000): share of each unit's need the pool could cover, capped at 500.
 int gSupplyRatio[NUM_TEAMS][3] = {{0}};
 int gSupplyPath[NUM_TEAMS][SUPPATH_LAST] = {{0}};
@@ -457,6 +461,7 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
     Unit unit;
     int supply, fuel, replacements, gots, gotf, type;
     int sneeded = 0, fneeded = 0, rneeded = 0;
+    int sneededGround = 0, sneededAir = 0; // g_bSupplySplitShares
     float sratio, fratio, rratio;
     GridIndex x, y;
     MissionRequestClass mis;
@@ -513,6 +518,9 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
 
                 sneeded += (g_bSupplyNeedFix and sn < 0) ? 0 : sn;
                 fneeded += (g_bSupplyNeedFix and fn < 0) ? 0 : fn;
+
+                if (sn > 0)
+                    (unit->IsSquadron() ? sneededAir : sneededGround) += sn;
                 rneeded +=
                     unit->GetFullstrengthVehicles() - unit->GetTotalVehicles();
 
@@ -559,6 +567,41 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
 
     if (sratio > MAX_SUPPLY_RATIO)
         sratio = MAX_SUPPLY_RATIO;
+
+    // Artscout - 2026 (g_bSupplySplitShares, off = stock): share the pool between ground and air by what each
+    // actually uses, then give each side a ratio from its own need. Stock used one ratio, pool / (everyone's
+    // need), and squadron need is the gap to a full stores table -- which squadrons barely draw down (campsim
+    // SUPSPLIT, ROK: ~98% of loaded weapons come back unused, ~50-100 points/day used, 8000-11000 points of
+    // "need"). That diluted every battalion's share to ~4% per trip; the rest of the pool decayed unused.
+    float sratioGround = sratio, sratioAir = sratio;
+    {
+        extern bool g_bSupplySplitShares;
+
+        if (g_bSupplySplitShares)
+        {
+            float useG = gSupplyUseGround[who], useA = gSupplyUseAir[who];
+
+            if (useA < 0.0F) // weapons returned from sorties loaded before this window
+                useA = 0.0F;
+            float shareG = (useG + useA > 1.0F) ? useG / (useG + useA) : 0.5F;
+            float pool = (float)TeamInfo[who]->GetSupplyAvail();
+
+            sratioGround = sneededGround > 0 ? pool * shareG / sneededGround : 0.0F;
+            sratioAir = sneededAir > 0 ? pool * (1.0F - shareG) / sneededAir : 0.0F;
+
+            if (sratioGround > MAX_SUPPLY_RATIO)
+                sratioGround = MAX_SUPPLY_RATIO;
+
+            if (sratioAir > MAX_SUPPLY_RATIO)
+                sratioAir = MAX_SUPPLY_RATIO;
+
+            gSupplyShareG[who] = FloatToInt32(shareG * 100.0F);
+        }
+
+        // decay the use averages: each supply pass keeps 80% of the history
+        gSupplyUseGround[who] *= 0.8F;
+        gSupplyUseAir[who] *= 0.8F;
+    }
 
     if (fneeded > 0)
         fratio = (float)TeamInfo[who]->GetFuelAvail() / fneeded;
@@ -642,8 +685,8 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                 if (typeBonus < 0.0F)
                     typeBonus = 0.0F;
 
-                supply = FloatToInt32(unit->GetUnitSupplyNeed(FALSE) * sratio *
-                                      typeBonus);
+                supply = FloatToInt32(unit->GetUnitSupplyNeed(FALSE) *
+                                      (unit->IsSquadron() ? sratioAir : sratioGround) * typeBonus);
                 fuel = FloatToInt32(unit->GetUnitFuelNeed(FALSE) * fratio *
                                     typeBonus);
 

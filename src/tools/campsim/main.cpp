@@ -542,10 +542,11 @@ static void GtmLog(int hour)
                 under50 += h * 2 < w;
             }
 
-            printf("SUPSPLIT h=%d team %d (24 h): supply received -- battalions %d, squadrons %d | squadron stores "
-                   "loaded onto sorties %d pts, returned unused %d pts | %d squadrons, stores %.0f%% full, %d at 90%%+, "
-                   "%d under 50%%\n", hour, t, got[0], got[1], flow[0] / SQUADRON_PT_SUPPLY,
-                   flow[1] / SQUADRON_PT_SUPPLY, sq, want ? 100.0 * have / want : 0.0, full90, under50);
+            printf("SUPSPLIT h=%d team %d (24 h): supply received -- battalions %d, squadrons %d (ground share %d%%) | "
+                   "squadron stores loaded onto sorties %d pts, returned unused %d pts | %d squadrons, stores %.0f%% "
+                   "full, %d at 90%%+, %d under 50%%\n", hour, t, got[0], got[1], gSupplyShareG[t],
+                   flow[0] / SQUADRON_PT_SUPPLY, flow[1] / SQUADRON_PT_SUPPLY, sq, want ? 100.0 * have / want : 0.0,
+                   full90, under50);
         }
     }
 
@@ -2417,6 +2418,12 @@ static void ApplyKnobs(int argc, char **argv)
         else if (!strcmp(key, "objpathsearch"))
             OBJ_GROUND_PATH_MAX_SEARCH = (short)atoi(val),
             printf("KNOB ObjGroundPathMaxSearch = %d\n", (int)OBJ_GROUND_PATH_MAX_SEARCH);
+        else if (!strcmp(key, "splitshares"))
+        {
+            extern bool g_bSupplySplitShares;
+            g_bSupplySplitShares = atoi(val) != 0;
+            printf("KNOB g_bSupplySplitShares = %d\n", (int)g_bSupplySplitShares);
+        }
         else if (!strcmp(key, "reshold"))
         {
             extern bool g_bReserveHold;
