@@ -1966,18 +1966,12 @@ static void MakeBar(C_Line *line, long valueID, long Team)
 
         break;
 
+    // Artscout - 2026: the bar-chart menus (art/campaign/intel/int_win.scf) label STAT_6 "Airbases",
+    // STAT_7 "Aircraft" and STAT_8 "Ground Vehicles", but these cases drew fuel level, airbases and
+    // aircraft -- so "Aircraft" showed the airbase count (near full on both sides) and "Airbases"
+    // showed fuel. Draw what the labels say. (The force-level graph, forcelvl.scf, numbers its own
+    // menu differently and was already right.)
     case STAT_6:
-        value = TeamInfo[Team]->GetCurrentStats()->fuelLevel;
-
-        if (TeamInfo[2]->startStats.fuelLevel >
-            TeamInfo[6]->startStats.fuelLevel)
-            max = TeamInfo[2]->startStats.fuelLevel;
-        else
-            max = TeamInfo[6]->startStats.fuelLevel;
-
-        break;
-
-    case STAT_7:
         value = TeamInfo[Team]->GetCurrentStats()->airbases;
 
         if (TeamInfo[2]->startStats.airbases > TeamInfo[6]->startStats.airbases)
@@ -1987,13 +1981,24 @@ static void MakeBar(C_Line *line, long valueID, long Team)
 
         break;
 
-    case STAT_8:
+    case STAT_7:
         value = TeamInfo[Team]->GetCurrentStats()->aircraft;
 
         if (TeamInfo[2]->startStats.aircraft > TeamInfo[6]->startStats.aircraft)
             max = TeamInfo[2]->startStats.aircraft;
         else
             max = TeamInfo[6]->startStats.aircraft;
+
+        break;
+
+    case STAT_8:
+        value = TeamInfo[Team]->GetCurrentStats()->groundVehs;
+
+        if (TeamInfo[2]->startStats.groundVehs >
+            TeamInfo[6]->startStats.groundVehs)
+            max = TeamInfo[2]->startStats.groundVehs;
+        else
+            max = TeamInfo[6]->startStats.groundVehs;
 
         break;
 
