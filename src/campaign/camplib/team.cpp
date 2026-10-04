@@ -1488,8 +1488,20 @@ void TeamClass::SelectAirActions(void)
         bo->GetLocation(&tx, &ty);
         fo = FindNearestObjective(FrontList, tx, ty, NULL);
         ShiAssert(fo);
+
+        // Artscout - 2026: with no front left (one side holds every contested objective) there is no
+        // front objective, and this dereferenced NULL (campsim seed 102, day 8 of a run past its end).
+        if (not fo)
+        {
+            delete objectiveList;
+            return;
+        }
+
         fo->GetLocation(&fx, &fy);
         dist = FloatToInt32(Distance(fx, fy, tx, ty));
+
+        if (dist < 1)
+            dist = 1; // the per-step offsets below divide by it
         xd = (float)(tx - fx) / dist;
         yd = (float)(ty - fy) / dist;
 
