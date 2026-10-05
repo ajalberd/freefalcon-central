@@ -421,6 +421,11 @@ float GetMovementCost(GridIndex x, GridIndex y, MoveType move, int flags,
         break;
 
     case Naval:
+        // Artscout - 2026 (g_bNavalSeaMask): a cover-grid water cell the 3D terrain shows as land is land for
+        // ships too (campterr.cpp SeaMaskLand); the port/beach exception below still lets them dock
+        if (cost <= MAX_COST and SeaMaskLand(x, y))
+            cost = 99.0F; // as the cost table's land cells
+
         if (cost > MAX_COST)
         {
             o = FindNearestObjective(x, y, NULL);

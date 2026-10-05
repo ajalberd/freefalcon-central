@@ -53,12 +53,67 @@ void InitTheaterTerrain(void)
     memset(TheaterCells, 0, sizeof(CellDataType) * Map_Max_X * Map_Max_Y);
 }
 
+// Artscout - 2026 (g_bNavalSeaMask): cells the 1 km cover grid calls water but the 3D terrain shows as land
+// (<theater>.SEA, built by tools/terrain/make_sea_mask.py; same [x][y] order as TheaterCells, 1 byte a cell).
+// Ships routed by the cover grid alone sailed over peninsulas and moored on airfields in 3D -- ship_debug.cam:
+// the 65th Destroyer task force on the Kalma peninsula at Wonsan, a cell 14% water in 3D. No file, no mask.
+static unsigned char *TheaterSeaMask = NULL;
+int gSeaMaskSuspend = 0;
+
+static void FreeSeaMask(void)
+{
+    delete[] TheaterSeaMask;
+    TheaterSeaMask = NULL;
+}
+
+static void LoadSeaMask(char *name)
+{
+    FreeSeaMask();
+
+    CampaignData cd = ReadCampFile(name, "sea");
+
+    if (cd.dataSize == -1)
+        return;
+
+    short mx = 0, my = 0;
+
+    if (cd.dataSize >= (long)(2 * sizeof(short) + Map_Max_X * Map_Max_Y)) // ReadCampFile adds a trailing 0
+    {
+        memcpy(&mx, cd.data, sizeof(short));
+        memcpy(&my, cd.data + sizeof(short), sizeof(short));
+    }
+
+    if (mx == Map_Max_X and my == Map_Max_Y)
+    {
+        TheaterSeaMask = new unsigned char[Map_Max_X * Map_Max_Y];
+        memcpy(TheaterSeaMask, cd.data + 2 * sizeof(short), Map_Max_X * Map_Max_Y);
+    }
+
+    delete cd.data;
+}
+
+int SeaMaskLand(GridIndex x, GridIndex y)
+{
+    extern bool g_bNavalSeaMask;
+
+    if (not g_bNavalSeaMask or gSeaMaskSuspend or not TheaterSeaMask or x < 0 or x >= Map_Max_X or y < 0 or y >= Map_Max_Y)
+        return 0;
+
+    return TheaterSeaMask[x * Map_Max_Y + y];
+}
+
+int ShipWater(GridIndex x, GridIndex y)
+{
+    return GetCover(x, y) == Water and not SeaMaskLand(x, y);
+}
+
 void FreeTheaterTerrain(void)
 {
     if (TheaterCells)
         delete[] TheaterCells;
 
     TheaterCells = NULL;
+    FreeSeaMask();
 }
 
 int LoadTheaterTerrain(char *name)
@@ -91,6 +146,8 @@ int LoadTheaterTerrain(char *name)
               sizeof(CellDataType) * Map_Max_X * Map_Max_Y, &rem);
 
     delete cd.data;
+
+    LoadSeaMask(name);
 
     return 1;
 }

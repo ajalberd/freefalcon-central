@@ -489,6 +489,10 @@ int TaskForceClass::GetDeaggregationPoint(int slot, CampEntity *installation)
 // ============================================
 
 extern int g_nNavalAI;
+// campsim NAVAL: [0] voyages/patrols planned over water, [1] plans that found no route, [2] fallbacks to the
+// stock straight 20 km patrol (no terrain check on the way), [3] of those, started on a sea-mask land cell
+int gNavalDiag[8][8]; // [4] moves onto a sea-mask land cell, [5] of those with the 45-degree turn limit
+// bending the heading, [6] routes found only on the grid alone (sea mask relaxed)
 extern int g_nNavalTankerFuel;
 
 static int NavalIsSupportShip(TaskForce tf)
@@ -553,10 +557,24 @@ static int NavalRoute(TaskForce tf, GridIndex x, GridIndex y, GridIndex tx,
     CampaignTime now = Camp_GetCurrentTime();
     WayPoint w;
 
-    tf->GetUnitGridPath(&path, x, y, tx, ty);
+    const int found = tf->GetUnitGridPath(&path, x, y, tx, ty);
 
     if (path.GetLength() < 3)
+    {
+        // campsim NAVAL: why a route failed (first 40)
+        static int logged = 0;
+
+        if (logged < 40)
+        {
+            logged++;
+            printf("NAVALFAIL team %d (%d,%d)->(%d,%d) %.0f km: search %d, path %d, target cost %.0f, start "
+                       "mask %d, target mask %d\n", tf->GetTeam(), x, y, tx, ty, Distance(x, y, tx, ty), found,
+                       path.GetLength(), GetMovementCost(tx, ty, tf->GetMovementType(), 0, Here),
+                       SeaMaskLand(x, y), SeaMaskLand(tx, ty));
+        }
+
         return 0;
+    }
 
     if (not append)
         tf->DisposeWayPoints();
@@ -689,7 +707,7 @@ static int NavalPlan(TaskForce tf, GridIndex x, GridIndex y, Objective inport)
                           qy = (GridIndex)(y + cy * r);
 
                 if (qx < 0 or qy < 0 or qx >= Map_Max_X or qy >= Map_Max_Y or
-                    GetCover(qx, qy) not_eq Water)
+                    not ShipWater(qx, qy))
                     continue;
 
                 // Away from the enemy: not within 60 degrees of the way to them (relaxed on the
@@ -774,7 +792,7 @@ int TaskForceOrderStation(TaskForce tf, GridIndex tx, GridIndex ty)
     // looks like open water can be a land cell and the other way round. A drop within 3 km of a
     // friendly working port is an order to dock there; any other drop on land is moved to the
     // nearest water cell within 6 km (and refused if there is none).
-    if (GetCover(tx, ty) not_eq Water)
+    if (not ShipWater(tx, ty))
     {
         Objective port = NavalFindPort(tf, tx, ty, 0, 3, FALSE);
 
@@ -795,7 +813,7 @@ int TaskForceOrderStation(TaskForce tf, GridIndex tx, GridIndex ty)
 
                         GridIndex qx = (GridIndex)(tx + i), qy = (GridIndex)(ty + j);
 
-                        if (qx >= 0 and qy >= 0 and qx < Map_Max_X and qy < Map_Max_Y and GetCover(qx, qy) == Water)
+                        if (qx >= 0 and qy >= 0 and qx < Map_Max_X and qy < Map_Max_Y and ShipWater(qx, qy))
                         {
                             tx = qx;
                             ty = qy;
@@ -879,8 +897,15 @@ int TaskForceClass::MoveUnit(CampaignTime time)
             }
         }
 
+        extern int gNavalDiag[8][8];
+
         if (NavalPlan(this, x, y, port))
+        {
             w = GetCurrentUnitWP();
+            gNavalDiag[GetTeam() % 8][0]++;
+        }
+        else
+            gNavalDiag[GetTeam() % 8][1]++;
     }
 
     // RV - Biker - If we are in port and have no WPs do nothing
@@ -892,6 +917,9 @@ int TaskForceClass::MoveUnit(CampaignTime time)
     // If not in port and no WPs... create a repeating path 20 km north and back
     if (not w)
     {
+        extern int gNavalDiag[8][8];
+        gNavalDiag[GetTeam() % 8][2]++;
+        gNavalDiag[GetTeam() % 8][3] += SeaMaskLand(x, y) ? 1 : 0;
         DisposeWayPoints();
 
         w = AddUnitWP(x, y, 0, 60, TheCampaign.CurrentTime + (rand() % 15), 0,
@@ -899,7 +927,7 @@ int TaskForceClass::MoveUnit(CampaignTime time)
         w->SetWPFlags(WPF_REPEAT);
 
         // This should prevent naval units to run into ground
-        if (GetCover(x, y + 20) == Water)
+        if (ShipWater(x, y + 20))
         {
             w = AddUnitWP(x, y + 20, 0, 60,
                           TheCampaign.CurrentTime +
@@ -944,8 +972,17 @@ int TaskForceClass::MoveUnit(CampaignTime time)
         else
             GetLocation(&ox, &oy);
 
+        // Artscout - 2026 (g_bNavalMoveFix, 0 = stock): ChangeUnitLocation moves one cell a call, but this
+        // loop steered every step of the tick from where the ship was when the tick began -- one compass
+        // heading for the whole tick, and the arrival test (DirectionTo returns Here at the waypoint) never
+        // saw the waypoint, so ships overshot their turns and cut across coasts.
+        extern bool g_bNavalMoveFix;
+
         while (moving)
         {
+            if (g_bNavalMoveFix)
+                GetLocation(&x, &y);
+
             h = DirectionTo(ox, oy, nx, ny, x, y);
 
             if (h > 7)
@@ -972,9 +1009,21 @@ int TaskForceClass::MoveUnit(CampaignTime time)
             }
 
             //this moves the unit
+            const int wanted = DirectionTo(ox, oy, nx, ny, x, y); // before the turn limit, for campsim NAVAL
+
             if (ChangeUnitLocation(h) > 0)
             {
                 last_direction = h;
+
+                GridIndex mx, my;
+                GetLocation(&mx, &my);
+
+                if (SeaMaskLand(mx, my))
+                {
+                    extern int gNavalDiag[8][8];
+                    gNavalDiag[GetTeam() % 8][4]++;
+                    gNavalDiag[GetTeam() % 8][5] += (h not_eq wanted) ? 1 : 0;
+                }
             }
             else
             {

@@ -583,6 +583,15 @@ static void GtmLog(int hour)
                    hour, t, d[0], d[1], d[2], d[3]);
         }
 
+        // ship routing (navunit.cpp gNavalDiag), cumulative
+        extern int gNavalDiag[8][8];
+
+        for (int t : {1, 2, 6})
+            printf("NAVAL h=%d team %d: routes planned %d, no route %d, fallback straight patrols %d (from a "
+                   "sea-mask land cell %d), grid-only routes %d | moves onto 3D land %d (turn-limited %d) "
+                   "(cumulative)\n", hour, t, gNavalDiag[t][0], gNavalDiag[t][1], gNavalDiag[t][2],
+                   gNavalDiag[t][3], gNavalDiag[t][6], gNavalDiag[t][4], gNavalDiag[t][5]);
+
         // ALERT flights rejected for too few aircraft: how many they had vs how many the request wanted
         extern int gAlertVeh[8][2][8];
 
@@ -2519,6 +2528,18 @@ static void ApplyKnobs(int argc, char **argv)
             extern bool g_bInitTrueLosses;
             g_bInitTrueLosses = atoi(val) != 0;
             printf("KNOB g_bInitTrueLosses = %d\n", (int)g_bInitTrueLosses);
+        }
+        else if (!strcmp(key, "seamask"))
+        {
+            extern bool g_bNavalSeaMask;
+            g_bNavalSeaMask = atoi(val) != 0;
+            printf("KNOB g_bNavalSeaMask = %d\n", (int)g_bNavalSeaMask);
+        }
+        else if (!strcmp(key, "navmove"))
+        {
+            extern bool g_bNavalMoveFix;
+            g_bNavalMoveFix = atoi(val) != 0;
+            printf("KNOB g_bNavalMoveFix = %d\n", (int)g_bNavalMoveFix);
         }
         else if (!strcmp(key, "capinit"))
         {

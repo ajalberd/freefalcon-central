@@ -2786,7 +2786,7 @@ static void NavalStationRefresh(C_PopupList *menu)
     menu->SetItemLabel(MID_NAVAL_STATION, label);
     menu->SetItemFlagBitOff(MID_NAVAL_STATION, C_BIT_INVISIBLE);
 
-    if (GetCover(gNavStationX, gNavStationY) == Water)
+    if (ShipWater(gNavStationX, gNavStationY))
         menu->SetItemFlagBitOn(MID_NAVAL_STATION, C_BIT_ENABLED);
     else
         menu->SetItemFlagBitOff(MID_NAVAL_STATION, C_BIT_ENABLED);

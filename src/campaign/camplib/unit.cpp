@@ -4591,6 +4591,31 @@ int UnitClass::GetUnitGridPath(Path p, GridIndex x, GridIndex y, GridIndex xx,
     // 2001-07-27 REMOVED BY S.G. ALLOWED IN RP5
     // ShiAssert ( GetMovementType() not_eq Air and GetMovementType() not_eq LowAir );
 
+    // Artscout - 2026 (g_bNavalSeaMask): a ship's route skirts the 3D coast (sea mask), which can mean a long
+    // detour through a bay -- ship_debug.cam: Incheon anchorage to port is 76 steps on the grid, 125 around the
+    // tidal flats. The ground units' node budget (GroundPathMax 800) ran out and the ship fell back to the stock
+    // straight patrol over land (campsim NAVAL: 165 failed routes in 2 days). Ships get the full pool, and a route
+    // the mask makes unfindable is searched again on the grid alone -- never worse than stock.
+    extern bool g_bNavalSeaMask;
+
+    if (g_bNavalSeaMask and GetDomain() == DOMAIN_SEA)
+    {
+        maxSearch = MAX_SEARCH;
+        retval = GetGridPath(p, x, y, xx, yy, GetMovementType(), GetTeam(), flags);
+
+        if (p->GetLength() < 3)
+        {
+            gSeaMaskSuspend = 1; // campaign thread only; SeaMaskLand reads it
+            retval = GetGridPath(p, x, y, xx, yy, GetMovementType(), GetTeam(), flags);
+            gSeaMaskSuspend = 0;
+
+            extern int gNavalDiag[8][8];
+            gNavalDiag[GetTeam() % 8][6]++;
+        }
+
+        return retval;
+    }
+
     maxSearch = GROUND_PATH_MAX;
     retval = GetGridPath(p, x, y, xx, yy, GetMovementType(), GetTeam(), flags);
     maxSearch = MAX_SEARCH;

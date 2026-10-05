@@ -988,6 +988,8 @@ bool g_bLogCampMenu =
     false; // Artscout - 2026: log what the "Build package" submenu decided, every time a campaign popup opens -- which menu, what was right-clicked, how many squadrons the theater offered and why the rest were dropped, and whether the parent item ended up enabled. The item is a submenu, so a disabled parent and a parent nobody thought to hover over look identical from the outside, and the candidate filter is three separate rejections (wrong team, no airframes, no role against this target) that all end in the same silence. "LogCampMenu".
 bool g_bCampMapIconHealth =
     true; // Artscout - 2026: objective icons on the campaign map darken with damage (status 100 = as drawn, 0 = CampMapIconMin brightness), so a flattened target reads at a glance without switching the damage overlay on. 0 = stock icons.
+bool g_bNavalMoveFix = true; // Artscout - 2026: a ship steers from where it is each step of a move, so it follows its route and stops at waypoints (stock: steered from its start-of-tick position, overshooting turns across coasts). "NavalMoveFix".
+bool g_bNavalSeaMask = false; // Artscout - 2026 (OFF until ships also stop parking on 3D land -- campsim: ship-hours on 3D land 200 -> 255 with it on): ships treat cover-grid water that the 3D terrain shows as land (<theater>.SEA) as land. 0 = stock. "NavalSeaMask".
 bool g_bCampMapNeutralShips = true; // Artscout - 2026: ships of a team we are not at war with (e.g. Russia's fleet before it joins) show on the campaign map without being spotted. 0 = stock (invisible). "CampMapNeutralShips".
 bool g_bCampMapShipGhosts =
     true; // Artscout - 2026: an enemy ship you spotted and then lost does not vanish from the campaign map: it stays at its LAST KNOWN position as a dimmed icon (tooltip says so) until you spot it again, and is dropped only when it is destroyed. Stock hid every movable enemy unit the moment its spotted timer lapsed, so ships popped out of existence at sea. The ghost never moves and shows nothing the player has not seen. 0 = stock. "CampMapShipGhosts".
@@ -1741,6 +1743,8 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bObjPixelLight}, // Artscout - 2026: per-pixel object lighting (small lamps stop washing whole panels)
     {"CampMapShipWrecks",
      &g_bCampMapShipWrecks}, // Artscout - 2026: destroyed ships stay as dark wreck markers
+    {"NavalMoveFix", &g_bNavalMoveFix}, // 1 = ships follow their route cell by cell
+    {"NavalSeaMask", &g_bNavalSeaMask}, // 1 = ships keep off 3D land the 1 km grid calls water
     {"CampMapNeutralShips", &g_bCampMapNeutralShips}, // 1 = neutral ships are drawn without being spotted
     {"CampMapShipGhosts",
      &g_bCampMapShipGhosts}, // Artscout - 2026: lost enemy ships stay as dim last-known icons
