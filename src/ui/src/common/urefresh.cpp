@@ -17,6 +17,19 @@
 #include "classtbl.h"
 #include "userids.h"
 #include "textids.h"
+#include "team.h"
+
+// Artscout - 2026 (g_bCampMapNeutralShips, 0 = stock): ships of a team we are not at war with -- Russia's
+// fleet off Wonsan before Russia joins -- are drawn without being spotted. Unspotted, they stayed invisible
+// however close they sailed (Auto Save day 1 11:05: all ten Russian ships spotted by nobody while the DPRK
+// frigate beside them was spotted by ROK).
+extern bool g_bCampMapNeutralShips;
+
+static bool NeutralShipShown(CampEntity e, int team)
+{
+    return g_bCampMapNeutralShips and e and e->IsTaskForce() and team >= 0 and e->GetTeam() not_eq team and
+           GetTTRelations((Team)team, e->GetTeam()) not_eq War;
+}
 
 extern bool g_bAWACSSupport;
 extern bool g_bAWACSFuel;
@@ -314,7 +327,7 @@ void UI_Refresher::AddMapItem(CampEntity entity)
             Owner_->TeamNo_ >= 0 and not entity->IsSquadron())
         {
             if (not entity->GetSpotted(static_cast<uchar>(Owner_->TeamNo_)) and
-                entity->GetMovementType() not_eq NoMove)
+                entity->GetMovementType() not_eq NoMove and not NeutralShipShown(entity, Owner_->TeamNo_))
             {
                 MapItem_->Flags or_eq C_BIT_INVISIBLE;
 
@@ -534,7 +547,8 @@ void UI_Refresher::UpdateMapItem(CampEntity entity)
     float y = Owner_->Map_->GetMaxY() - entity->XPos();
 
     if (g_bCampMapShipGhosts and entity->IsTaskForce() and Owner_->TeamNo_ >= 0 and
-        entity->GetTeam() not_eq Owner_->TeamNo_ and not(TheCampaign.Flags bitand CAMP_TACTICAL_EDIT))
+        entity->GetTeam() not_eq Owner_->TeamNo_ and not(TheCampaign.Flags bitand CAMP_TACTICAL_EDIT) and
+        not NeutralShipShown(entity, Owner_->TeamNo_))
     {
         if (entity->GetSpotted(static_cast<uchar>(Owner_->TeamNo_)))
             gShipLastKnown[ShipKey(entity)] = std::make_pair(x, y);
@@ -613,7 +627,8 @@ void UI_Refresher::UpdateMapItem(CampEntity entity)
             MapItem_->Ghost = ghost ? 1 : 0;
 
             if (not entity->GetSpotted(static_cast<uchar>(Owner_->TeamNo_)) and
-                entity->GetMovementType() not_eq NoMove and not ghost)
+                entity->GetMovementType() not_eq NoMove and not ghost and
+                not NeutralShipShown(entity, Owner_->TeamNo_))
             {
                 MapItem_->Flags or_eq C_BIT_INVISIBLE;
 
