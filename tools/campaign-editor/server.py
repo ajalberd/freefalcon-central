@@ -389,6 +389,17 @@ def api_campaign(q, _body):
     }
 
 
+def api_clock(q, _body):
+    """The save's in-game time, for the file bar."""
+    ws = _ws(q)
+    name = (q.get("file") or [""])[0]
+    hdr = ws.campaign(name).header
+    if hdr is None:
+        return {"file": name, "clock": ""}
+    return {"file": name, "time": hdr.fields["CurrentTime"],
+            "clock": _clock(hdr.fields["CurrentTime"])}
+
+
 def api_campaign_edit(_q, body):
     ws = SESSION.workspace(body["theater"])
     cam = ws.campaign(body["file"])
@@ -2755,6 +2766,7 @@ ROUTES_GET = {
     "/api/table": api_table,
     "/api/row": api_row,
     "/api/campaign": api_campaign,
+    "/api/clock": api_clock,
     "/api/lookup": api_lookup,
     "/api/map": api_map,
     "/api/unit": api_unit,

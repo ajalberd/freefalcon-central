@@ -151,6 +151,14 @@ function drawHeader() {
       ? S.gamedir + '\\' + S.info.campaign_dir + '\\' + S.file
       : 'no campaign open — pick one on the left',
       S.file ? '' : 'faint');
+  if (S.file) {
+    row('Game time', '…');
+    const value = strip.lastChild;
+    const file = S.file;
+    api('/api/clock?' + qs({file: file})).then(d => {
+      if (S.file === file) value.textContent = d.clock || 'unknown';
+    }).catch(() => { value.textContent = 'unknown'; });
+  }
   row('Theater', S.info.name + '   ·   ' + S.info.tdf);
   row('Database', S.gamedir + '\\' + S.info.db_dir);
 }
