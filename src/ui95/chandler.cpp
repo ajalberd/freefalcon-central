@@ -3003,8 +3003,14 @@ long C_Handler::EventHandler(HWND hwnd, UINT message, WPARAM wParam,
             }
             else if (UI_ABS(MouseX - Grab_.StartX_) < 3 and
                      UI_ABS(MouseY - Grab_.StartY_) < 3)
-                gPopupMgr->OpenMenu(Grab_.Control_->GetMenu(), MouseX, MouseY,
-                                    Grab_.Control_);
+            {
+                if (Grab_.Control_->GetMenu() == 0 and
+                    Grab_.Control_->_GetCType_() == _CNTL_TREELIST_)
+                    Grab_.Control_->Process(Grab_.ID_, (short)MessageType);
+                else
+                    gPopupMgr->OpenMenu(Grab_.Control_->GetMenu(), MouseX,
+                                        MouseY, Grab_.Control_);
+            }
         }
         else
         {

@@ -415,6 +415,47 @@ UI_Refresher *FindMissionItem(Flight flight)
     return NULL;
 }
 
+// Right-click on a flight in the ATO: select its mission, take its squadron as the player's and
+// take the first free seat -- the same three things the mission screen does when the player picks
+// a flight by hand. Returns FALSE (and does nothing) when the flight cannot be joined.
+BOOL JoinFlightFromATO(Flight flight)
+{
+    Unit squadron;
+
+    if (not flight or not flight->IsFlight() or flight->IsDead() or
+        not flight->Final() or not flight->GetTotalVehicles())
+        return (FALSE);
+
+    if ((TheCampaign.Flags bitand CAMP_TACTICAL_EDIT) or gTimeModeServer or g_bServer)
+        return (FALSE);
+
+    if (flight->GetTeam() not_eq FalconLocalSession->GetTeam())
+        return (FALSE);
+
+    if (not(gCommsMgr and gCommsMgr->Online()) and
+        GetFlightStatusID(flight) >= _MIS_EGRESS)
+        return (FALSE);
+
+    if (not FindMissionItem(flight)) // also selects the mission in the list
+        return (FALSE);
+
+    squadron = flight->GetUnitSquadron();
+
+    if (squadron and squadron->IsSquadron() and
+        squadron->Id() not_eq FalconLocalSession->GetPlayerSquadronID())
+        FalconLocalSession->SetPlayerSquadron((Squadron)squadron);
+
+    if (FalconLocalSession->GetPlayerFlight() not_eq flight or
+        FalconLocalSession->GetPilotSlot() == 255)
+        RequestACSlot(flight, 0,
+                      static_cast<uchar>(flight->GetAdjustedAircraftSlot(0)), 0,
+                      0, 1);
+
+    gCurrentFlightID = flight->Id();
+    UpdateMissionWindow(CB_MISSION_SCREEN);
+    return (TRUE);
+}
+
 C_Mission *MakeMissionItem(C_TreeList *tree, Flight element)
 {
     C_Mission *mission;
