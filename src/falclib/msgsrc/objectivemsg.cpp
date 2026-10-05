@@ -93,7 +93,11 @@ int FalconObjectiveMessage::Process(uchar autodisp)
         if (o->IsPrimary())
             TheCampaign.lastMajorEvent = TheCampaign.CurrentTime;
 
-        TransferInitiative(oldteam, GetTeam((uchar)dataBlock.data1), 5);
+        // Artscout - 2026 (g_nCaptureInitiative, stock 5): initiative handed to the captor per objective.
+        // ROK takes ~600 objectives in two days, so at 5 DPRK is drained to ~6 between recalculations and a
+        // counterattack (CounterAttackInitiative) only fires 1-3% of the time.
+        extern int g_nCaptureInitiative;
+        TransferInitiative(oldteam, GetTeam((uchar)dataBlock.data1), g_nCaptureInitiative);
         UpdateCampMap(MAP_OWNERSHIP, TheCampaign.CampMapData, x, y);
         updates++;
 

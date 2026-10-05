@@ -606,6 +606,18 @@ static void GtmLog(int hour)
                        "built %d (cumulative)\n", hour, t, cls[c], w[0], w[1], w[2], w[3], w[4]);
             }
 
+        // requests no squadron could fill, by the furthest check a squadron of the right role passed (atm.cpp)
+        extern int gNoFlightWhy[8][4][11];
+
+        for (int t : {2, 6})
+            for (int c = 0; c < 2; c++)
+            {
+                int *w = gNoFlightWhy[t][c];
+                printf("NOFLIGHT h=%d team %d %-7s no squadron with the role %d, relocating %d, capabilities %d, "
+                       "range %d, speed %d, schedule %d, no aircraft free %d, airbase full %d, passed all %d "
+                       "(cumulative)\n", hour, t, cls[c], w[0], w[1], w[2], w[5], w[6], w[7], w[8], w[9], w[10]);
+            }
+
         // initiative inputs (team.cpp gInitDiag), last calculation
         extern int gInitDiag[8][12];
 
@@ -2507,6 +2519,12 @@ static void ApplyKnobs(int argc, char **argv)
             extern bool g_bInitTrueLosses;
             g_bInitTrueLosses = atoi(val) != 0;
             printf("KNOB g_bInitTrueLosses = %d\n", (int)g_bInitTrueLosses);
+        }
+        else if (!strcmp(key, "capinit"))
+        {
+            extern int g_nCaptureInitiative;
+            g_nCaptureInitiative = atoi(val);
+            printf("KNOB g_nCaptureInitiative = %d\n", g_nCaptureInitiative);
         }
         else if (!strcmp(key, "counterinit"))
         {

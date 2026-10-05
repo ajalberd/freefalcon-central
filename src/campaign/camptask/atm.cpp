@@ -1576,13 +1576,19 @@ void AirTaskingManagerClass::ProcessRequest(MissionRequest request)
 // This finds the best squadron to assign to a given mission.
 // CAMPSIM DIAGNOSTIC: FindBestAir rejection reasons / BuildPackage results per team
 int gAtmDiag[NUM_TEAMS][24] = {{0}};
-#define ATMD(r) (gAtmDiag[owner][(r)]++)
+// campsim NOFLIGHT: requests FindBestAir could not fill, per team and mission class (0 strike/SEAD/OCA/bombing,
+// 1 CAS/BAI/interdiction, 2 counter-air, 3 other), by the furthest check any squadron of the right role passed:
+// [0] none had the role, [1] relocating, [2] capabilities, [3] stealth by day, [4] NPC-only, [5] out of range,
+// [6] speed, [7] schedule/time, [8] no aircraft free, [9] airbase slots full, [10] passed everything
+int gNoFlightWhy[8][4][11];
+#define ATMD(r) (gAtmDiag[owner][(r)]++, furthest = (r) == 1 ? furthest : max(furthest, (r) == 0 ? 1 : (r)))
 
 Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
                                              GridIndex by)
 {
     Squadron sq, ns, bs = NULL;
     int score, best = 0, bq = 0, av, sb, fb, role, na, sc = 0, lowestScore;
+    int furthest = 0; // campsim NOFLIGHT
     uchar slots[4];
     float d, speed;
     short stats, caps, service;
@@ -1854,6 +1860,8 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
                 }
             }
 
+            furthest = 10; // campsim NOFLIGHT: this squadron passed every check (its score decides)
+
             if (score <= best)
                 continue;
 
@@ -1872,7 +1880,13 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
     }
 
     if (not bs)
+    {
+        const int m = mis->mission;
+        const int cls = (m >= AMIS_SEADSTRIKE and m <= AMIS_STRATBOMB) ? 0 : (m >= AMIS_ONCALLCAS and m <= AMIS_BAI) ? 1 :
+                        (m >= AMIS_BARCAP and m <= AMIS_ESCORT) ? 2 : 3;
+        gNoFlightWhy[owner % 8][cls][furthest]++;
         return NULL;
+    }
 
     // Record service of the selected aircraft and other info
     if (not service)

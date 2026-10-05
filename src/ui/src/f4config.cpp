@@ -724,6 +724,7 @@ bool g_bSupplySplitShares = true; // campaign: the supply pool is shared between
 bool g_bReserveNoPullback = true; // campaign: idle healthy battalions within 25 km of the front hold instead of taking a reserve order 20-60 km back (stock: the front-most idle units were the ones sent back)
 bool g_bAlertScramble = false; // campaign: an alert flight may scramble against an intercept with the 2 planes it has (stock: requests want 4, so alert flights never launched)
 bool g_bInitTrueLosses = false; // campaign: initiative counts vehicles actually destroyed (stock: start minus current, which reinforcements hide)
+int g_nCaptureInitiative = 5; // campaign: initiative points the captor takes from the loser per objective captured (stock 5)
 int g_nCounterAttackInitiative = 0; // campaign: a defending side with at least this initiative may launch a full counteroffensive (0 = stock: never while the enemy is attacking)
 float g_fEnemyTownPathCost = 4.0f; // campaign: ground route cost multiplier through an enemy town or an objective under an enemy-held parent (stock 4)
 bool g_bGtmKeepCapture = true; // campaign: a battalion keeps a capture order while its target is still a valid one (stock: re-planned every cycle)
@@ -2210,6 +2211,7 @@ static ConfigOption<int> IntOpts[] = {
     {"WeatherFronts", &g_nWeatherFronts}, // Artscout - 2026 (FRONTS): 0 = one condition everywhere
     {"BattalionReinforceFix", &g_nBattalionReinforceFix},
     {"GtmReservesPerCycle", &g_nGtmReservesPerCycle}, // reserve units the ground AI moves up per cycle (stock 1)
+    {"CaptureInitiative", &g_nCaptureInitiative}, // initiative per captured objective (stock 5)
     {"CounterAttackInitiative", &g_nCounterAttackInitiative}, // a defending side with this much initiative may counterattack (0 = stock)
     {"GtmCaptureUnits", &g_nGtmCaptureUnits}, // battalions the ground AI sends at one capture objective per cycle (stock 1)
     {"GtmKeepCaptureStall", &g_nGtmKeepCaptureStall}, // hours a kept attacker may stand still before it is re-tasked
