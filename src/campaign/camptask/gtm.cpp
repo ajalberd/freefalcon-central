@@ -75,6 +75,9 @@ extern costtype CostToArrive(Unit u, int orders, GridIndex x, GridIndex y,
 
 #define COLLECTABLE_HP_OBJECTIVES 5
 
+// campsim GTMNEAR: far capture orders re-pointed at a nearer target [0], or left (none in reach) [1]
+int gGtmNearest[8][2];
+
 #define COLLECT_RESERVE 0x01
 #define COLLECT_CAPTURE 0x02
 #define COLLECT_SECURE 0x04
@@ -366,6 +369,67 @@ int GroundTaskingManagerClass::Task(void)
         AssignUnits(GORD_REPAIR, GTM_MODE_FASTEST);
         AssignUnits(GORD_RADAR, GTM_MODE_FASTEST);
         AssignUnits(GORD_RESERVE, GTM_MODE_BEST);
+
+        // Artscout - 2026 (g_bGtmCaptureNearest, off = stock): a battalion sent to capture something farther
+        // than g_nGtmCaptureMaxKm (60 km if unset) is re-pointed at the nearest objective that is a valid
+        // capture target for us, even one that already has its units -- it attacks where it stands rather than
+        // crossing the front.
+        extern bool g_bGtmCaptureNearest;
+        extern int g_nGtmCaptureMaxKm;
+
+        if (g_bGtmCaptureNearest and action == GACTION_OFFENSIVE)
+        {
+            const float lim = g_nGtmCaptureMaxKm > 0 ? (float)g_nGtmCaptureMaxKm : 60.0F;
+            VuListIterator uit(AllParentList);
+
+            for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+            {
+                if (u->GetTeam() not_eq owner or not u->IsBattalion() or u->GetUnitOrders() not_eq GORD_CAPTURE or
+                    u->PlayerHeld())
+                    continue;
+
+                Objective t = u->GetUnitObjective();
+                GridIndex ux, uy, tx, ty;
+                u->GetLocation(&ux, &uy);
+
+                if (not t)
+                    continue;
+
+                t->GetLocation(&tx, &ty);
+
+                if (Distance(ux, uy, tx, ty) <= lim)
+                    continue;
+
+                Objective best = NULL;
+                float bestd = lim;
+                VuListIterator oit(AllObjList);
+
+                for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+                {
+                    GridIndex ox, oy;
+                    o->GetLocation(&ox, &oy);
+                    const float d = Distance(ux, uy, ox, oy);
+
+                    if (d < bestd and IsValidObjective(GORD_CAPTURE, o))
+                    {
+                        bestd = d;
+                        best = o;
+                    }
+                }
+
+                if (best)
+                {
+                    extern int gGtmNearest[8][2];
+                    gGtmNearest[owner % 8][0]++;
+                    ((Battalion)u)->SetUnitOrders(GORD_CAPTURE, best->Id());
+                }
+                else
+                {
+                    extern int gGtmNearest[8][2];
+                    gGtmNearest[owner % 8][1]++;
+                }
+            }
+        }
     }
 
     // Check if our tasking failed to meet at least 50 of our offensive requests
@@ -1439,6 +1503,23 @@ int GroundTaskingManagerClass::ScoreUnit(USNode curu, GODNode curo, int orders,
 #endif
 
     curu->unit->GetLocation(&ux, &uy);
+
+    // Artscout - 2026 (g_nGtmCaptureMaxKm, 0 = stock): a capture target farther than this is not offered to
+    // the unit. Targets are filled one at a time, each taking the best free unit, so a western target with no
+    // free local units took armour from the east coast (pathing_debug.cam: 6 of 58 capture orders over
+    // 100 km, the 8th Armored 160 km to Wondomal with an enemy town 4 km from it).
+    {
+        extern int g_nGtmCaptureMaxKm;
+
+        if (g_nGtmCaptureMaxKm > 0 and orders == GORD_CAPTURE)
+        {
+            curo->obj->GetLocation(&ox, &oy);
+
+            if (Distance(ox, oy, ux, uy) > (float)g_nGtmCaptureMaxKm)
+                return score;
+        }
+    }
+
     cost = CostToArrive(curu->unit, orders, ux, uy, curo->obj);
 
     if (cost >= OBJ_GROUND_PATH_MAX_COST)

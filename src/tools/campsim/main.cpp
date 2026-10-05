@@ -583,6 +583,13 @@ static void GtmLog(int hour)
                    hour, t, d[0], d[1], d[2], d[3]);
         }
 
+        // far capture orders re-pointed at a nearer target (gtm.cpp gGtmNearest), cumulative
+        extern int gGtmNearest[8][2];
+
+        for (int t : {2, 6})
+            printf("GTMNEAR h=%d team %d: far capture orders re-pointed %d, none in reach %d (cumulative)\n", hour, t,
+                   gGtmNearest[t][0], gGtmNearest[t][1]);
+
         // ship routing (navunit.cpp gNavalDiag), cumulative
         extern int gNavalDiag[8][8];
 
@@ -2534,6 +2541,18 @@ static void ApplyKnobs(int argc, char **argv)
             extern bool g_bNavalSeaMask;
             g_bNavalSeaMask = atoi(val) != 0;
             printf("KNOB g_bNavalSeaMask = %d\n", (int)g_bNavalSeaMask);
+        }
+        else if (!strcmp(key, "capmaxkm"))
+        {
+            extern int g_nGtmCaptureMaxKm;
+            g_nGtmCaptureMaxKm = atoi(val);
+            printf("KNOB g_nGtmCaptureMaxKm = %d\n", g_nGtmCaptureMaxKm);
+        }
+        else if (!strcmp(key, "capnearest"))
+        {
+            extern bool g_bGtmCaptureNearest;
+            g_bGtmCaptureNearest = atoi(val) != 0;
+            printf("KNOB g_bGtmCaptureNearest = %d\n", (int)g_bGtmCaptureNearest);
         }
         else if (!strcmp(key, "navmove"))
         {
