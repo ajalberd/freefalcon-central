@@ -2857,6 +2857,12 @@ static long CampaignMapTip(long iconID)
 
             if (u->GetTotalVehicles() > 1)
                 at += sprintf(&text[at], " x%d", (int)u->GetTotalVehicles());
+
+            // health: what is left of the unit's full strength (vehicles, ships or aircraft)
+            const int full = u->GetFullstrengthVehicles();
+
+            if (full > 0)
+                at += sprintf(&text[at], " - %d%% strength", (u->GetTotalVehicles() * 100 + full / 2) / full);
         }
         else if (e->IsObjective())
             at += sprintf(&text[at], " - %d%%",
