@@ -585,9 +585,18 @@ int BattalionClass::MoveUnit(CampaignTime time)
     const bool holdReserve = g_bReserveHold and lo and GetOrders() == GORD_RESERVE and
                              lo->GetTeam() == GetTeam() and not lo->IsNearfront();
 
+    // Artscout - 2026 (g_bReserveNoPullback, off = stock): a capture order turns invalid the moment its target
+    // is ours -- usually because a neighbour took it first -- and stock then fell back 3 links as RESERVE: the
+    // winning unit drove ~49 km BACK (campsim CHURN, ROK: CAP -> RES by MoveUnit ~300 a day, the largest
+    // pull-back source). A healthy unit whose objective is ours now holds it until the GTM re-tasks it.
+    extern bool g_bReserveNoPullback;
+    const bool holdWon = g_bReserveNoPullback and lo and lo->GetTeam() == GetTeam() and not Broken() and
+                         GetUnitSupply() >= 50;
+
     // (a player-held unit keeps the objective the player chose even if the GTM would not)
     if (not lo or
-        (Parent() and not PlayerHeld() and not holdReserve and (FalconLocalGame->GetGameType() == game_Campaign) and
+        (Parent() and not PlayerHeld() and not holdReserve and not holdWon and
+         (FalconLocalGame->GetGameType() == game_Campaign) and
          not TeamInfo[GetTeam()]->gtm->IsValidObjective(GetOrders(), lo)))
     {
         if (Parent())

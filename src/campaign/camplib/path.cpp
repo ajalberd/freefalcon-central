@@ -649,6 +649,12 @@ void GetNeighborCoord(AS_DataClass* asd, void* o, void* t)
     }
 }
 
+// Artscout - 2026: cost multiplier for routing through an enemy town, or an enemy objective under an
+// enemy-held parent (stock 4; any other enemy objective costs 2). At 4 a route through our own ground up
+// to ~4x longer wins, so 3% of capture orders drove 30%+ further, worst 2.5x (Sep'o depot: 110 km around
+// instead of 50 km through Sinan-ni, Hyon-ni and Sep'o). f4config: EnemyTownPathCost.
+extern float g_fEnemyTownPathCost;
+
 costtype GetObjectiveMovementCost(Objective o, Objective t, int neighbor,
                                   MoveType type, Team team, int flags)
 {
@@ -680,7 +686,7 @@ costtype GetObjectiveMovementCost(Objective o, Objective t, int neighbor,
                     ; // This is ok.
                 else if (n->IsSecondary())
                     // return 255.0F;
-                    mult = 4.0F;
+                    mult = g_fEnemyTownPathCost;
                 else if (not t)
                     return 255.0F;
                 else if (n->GetObjectiveParentID() not_eq t->Id())
@@ -689,7 +695,7 @@ costtype GetObjectiveMovementCost(Objective o, Objective t, int neighbor,
 
                     if (p and p->GetTeam() not_eq team)
                         // return 255.0F;
-                        mult = 4.0F;
+                        mult = g_fEnemyTownPathCost;
                 }
             }
             else

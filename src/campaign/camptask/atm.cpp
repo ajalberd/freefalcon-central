@@ -1073,6 +1073,10 @@ int AirTaskingManagerClass::BuildPackage(Package *pc, MissionRequest mis)
     return PRET_CANCELED;
 }
 
+// campsim SCRAMBLE: divert outcomes per team: [0] intercept requests reaching a flight search, [1] a flight
+// was diverted to one, [2] of those, an ALERT flight waiting on the ground (a scramble), [3] no flight found
+int gScramble[8][4];
+
 int AirTaskingManagerClass::BuildDivert(MissionRequest mis)
 {
     int time, ls, hs, tr;
@@ -1117,6 +1121,20 @@ int AirTaskingManagerClass::BuildDivert(MissionRequest mis)
 
     flight = TeamInfo[mis->who]->atm->FindBestAirFlight(
         mis); // We divert a current flight
+
+    if (mis->mission == AMIS_INTERCEPT)
+    {
+        int *g = gScramble[mis->who % 8];
+        g[0]++;
+
+        if (not flight)
+            g[3]++;
+        else
+        {
+            g[1]++;
+            g[2] += flight->GetUnitMission() == AMIS_ALERT;
+        }
+    }
 
     if (not flight)
     {
@@ -1873,6 +1891,12 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
 }
 
 // This finds the best in-flight Flight to assign to a given mission.
+// campsim SCRAMBLE: why an ALERT flight was passed over for an intercept, per team: [0] team (never counted),
+// [1] its priority is too high, [2] aborted/diverted, [3] capabilities, [4] too few aircraft or priority,
+// [5] over 250 km, [6] busy with a better target, [7] another flight scored better, [8] chosen
+int gAlertWhy[8][9];
+#define ALERT_WHY(k) if (cf->GetUnitMission() == AMIS_ALERT and mis->mission == AMIS_INTERCEPT and cf->GetTeam() == mis->who) gAlertWhy[mis->who % 8][k]++
+
 Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
 {
     Flight bf = NULL;
@@ -1914,24 +1938,24 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
 
         // Check for team
         if (cf->GetTeam() not_eq mis->who)
-            continue;
+            { ALERT_WHY(0); continue; }
 
         // Check if it's busy (Flights should reduce their priority to 0 when they're done with their current task)
         if (mis->flags bitand AMIS_HELP_REQUEST)
         {
             if (cf->GetUnitPriority() > mis->priority + 50)
-                continue;
+                { ALERT_WHY(1); continue; }
         }
         else
         {
             if (cf->GetUnitPriority() * 2 > mis->priority)
-                continue;
+                { ALERT_WHY(1); continue; }
         }
 
         // Verify it's not aborting or diverted (if diverted, reevaluate if help request)
         if (cf->Aborted() or
             cf->Diverted() and not(mis->flags bitand AMIS_HELP_REQUEST))
-            continue;
+            { ALERT_WHY(2); continue; }
 
         // Check to make sure it's taken off (unless it's an alert mission)
         if (cf->GetUnitMission() not_eq AMIS_ALERT and
@@ -1946,7 +1970,7 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
 
         if (score <= 0 or (caps bitand stats) not_eq caps or
             (service and not(service bitand stats)))
-            continue;
+            { ALERT_WHY(3); continue; }
 
         // Check for aircraft and priority
         // 2001-10-27 MODIFIED BY S.G. Doesn't matter how many vehicle if it's a help request. Hopefully, the one requesting help will assist us
@@ -1958,7 +1982,16 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
              cf->GetUnitPriority() >= mis->priority) or
             (mis->flags bitand AMIS_HELP_REQUEST) and
                 cf->GetUnitPriority() >= mis->priority + 20)
+        {
+            ALERT_WHY(4);
+
+            // [4] split: [0] too few aircraft (slot 0 is otherwise unused -- the team check is never counted)
+            if (cf->GetUnitMission() == AMIS_ALERT and mis->mission == AMIS_INTERCEPT and
+                not(mis->flags bitand AMIS_HELP_REQUEST) and cf->GetTotalVehicles() < mis->aircraft)
+                gAlertWhy[mis->who % 8][0]++;
+
             continue;
+        }
 
         // Check speed vs required
         speed = (float)cf->GetCombatSpeed();
@@ -2004,7 +2037,7 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
         //continue;
         if (cf->GetUnitMission() == AMIS_ALERT and
             d > 250.0f /*MAX_SCRAMBLE_DISTANCE*/)
-            continue;
+            { ALERT_WHY(5); continue; }
 
         if (d < cf->GetUnitRange() / 4) // Bonus if within 1/4 range
             score++;
@@ -2048,7 +2081,7 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
             }
 
             if (oldreact + 2 > newreact)
-                continue;
+                { ALERT_WHY(6); continue; }
         }
 
         // Adjust for current priority
@@ -2091,7 +2124,7 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
          */
 
         if (score <= best)
-            continue;
+            { ALERT_WHY(7); continue; }
 
         best = score;
         bf = (Flight)cf;
@@ -2099,6 +2132,9 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
         // if (t == quickest)
         // bq = 1;
     }
+
+    if (bf and bf->GetUnitMission() == AMIS_ALERT and mis->mission == AMIS_INTERCEPT)
+        gAlertWhy[mis->who % 8][8]++;
 
     if (not bf)
         return NULL;

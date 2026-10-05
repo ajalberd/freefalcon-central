@@ -1161,6 +1161,36 @@ int GroundTaskingManagerClass::AssignUnits(int orders, int mode)
         }
     }
 
+    // Artscout - 2026 (g_bReserveNoPullback, off = stock): reserve objectives are always 20-60 km behind
+    // the front (GetObjectiveScore), so a reserve order to an idle unit already near the front is a step
+    // backwards. Stock kept the candidates CLOSEST to the action objective -- the front line -- and sent a
+    // healthy front battalion >10 km back ~115 times a run (campsim, 48 h). Idle front units now hold where
+    // they are; reserves are drawn from further back.
+    {
+        extern bool g_bReserveNoPullback;
+
+        if (g_bReserveNoPullback and orders == GORD_RESERVE)
+        {
+            GridIndex x, y;
+            nextu = canidateList[orders];
+
+            while (nextu)
+            {
+                curu = nextu;
+                nextu = curu->next;
+                curu->unit->GetLocation(&x, &y);
+
+                // broken or unsupplied units still fall back to refit
+                if (not curu->unit->Broken() and curu->unit->GetUnitSupply() >= 50 and
+                    DistanceToFront(x, y) < 25.0F)
+                    canidateList[orders] = canidateList[orders]->Remove(curu);
+            }
+
+            if (not canidateList[orders])
+                return 0;
+        }
+    }
+
     // Special case for reserve orders -
     // We're only going to reorder the unit farthest from our primary objective
     if (orders == GORD_RESERVE)

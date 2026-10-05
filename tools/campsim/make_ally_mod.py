@@ -33,11 +33,8 @@ TEAMS = {"prc": (5,), "prc+cis": (5, 4), "prcair": (5,)}
 U_INACTIVE = 0x20000
 
 
-def build(variant, out_dir, src="save0.cam"):
-    S = workspace.Session(GAME)
-    ws = S.workspace(TDF)
-    cam = ws.units(src)
-    objs = ws.objectives(src).objectives or []
+def stage(cam, objs, variant):
+    """Move the variant's battalions/squadrons forward in cam.units_raw; returns (stream, report)."""
     base = entities.base_offsets(cam.version)
     raw = bytearray(cam.units_raw)
 
@@ -76,7 +73,16 @@ def build(variant, out_dir, src="save0.cam"):
         if variant == "prcair" and u["unitFlags"] & U_INACTIVE:
             struct.pack_into("<I", raw, s0 + base["campId"] + 2 + 4 + 4, u["unitFlags"] & ~U_INACTIVE)
 
-    stream = bytes(raw)
+    return bytes(raw), "moved %d battalions onto %d objectives (y %d-%d), rehomed %d squadrons to %d airbases" % (
+        moved_bn, len(spots), BAND[0], BAND[1], moved_sq, len(bases))
+
+
+def build(variant, out_dir, src="save0.cam"):
+    S = workspace.Session(GAME)
+    ws = S.workspace(TDF)
+    cam = ws.units(src)
+    objs = ws.objectives(src).objectives or []
+    stream, report = stage(cam, objs, variant)
     cam.units_raw = stream
     cam.units = entities.walk_units(stream, cam.version, ws.db.class_rows())
     cam.members[cam._member_name("uni")] = entities.encode_units(stream, len(cam.units))
@@ -87,8 +93,7 @@ def build(variant, out_dir, src="save0.cam"):
     tri = os.path.splitext(os.path.join(ws.campaign_dir, src))[0] + ".tri"
     if os.path.isfile(tri):
         shutil.copy(tri, os.path.splitext(out)[0] + ".tri")
-    print("%s: moved %d battalions onto %d objectives (y %d-%d), rehomed %d squadrons to %d airbases -> %s" % (
-        variant, moved_bn, len(spots), BAND[0], BAND[1], moved_sq, len(bases), out))
+    print("%s: %s -> %s" % (variant, report, out))
     return out
 
 

@@ -566,6 +566,36 @@ static void GtmLog(int hour)
         }
     }
 
+    // Scrambles (atm.cpp gScramble): intercept requests, flights diverted to them, how many of those were ALERT
+    // flights waiting on the ground, and requests that found no flight -- per team, last 6 h
+    {
+        extern int gScramble[8][4];
+        static int prevScr[8][4];
+
+        for (int t : {1, 2, 6})
+        {
+            int d[4];
+
+            for (int k = 0; k < 4; k++)
+                d[k] = gScramble[t][k] - prevScr[t][k], prevScr[t][k] = gScramble[t][k];
+
+            printf("SCRAMBLE h=%d team %d: intercept requests %d, diverted %d (from ALERT %d), no flight %d (last 6 h)\n",
+                   hour, t, d[0], d[1], d[2], d[3]);
+        }
+
+        // why ALERT flights were passed over (atm.cpp gAlertWhy), cumulative
+        extern int gAlertWhy[8][9];
+
+        for (int t : {2, 6})
+        {
+            int *w = gAlertWhy[t];
+            printf("SCRAMBLE h=%d team %d ALERT flights passed over: priority %d, aborted/diverted %d, caps %d, "
+                   "aircraft/priority %d (too few aircraft %d), >250 km %d, busy %d, outscored %d | chosen %d "
+                   "(cumulative)\n",
+                   hour, t, w[1], w[2], w[3], w[4], w[0], w[5], w[6], w[7], w[8]);
+        }
+    }
+
     // Who is short of supply, once a day: ROK battalions under 50%, by distance to the front, whether in
     // combat, moving or airmobile, and how long since SupplyUnits last served them against their own
     // resupply interval (a unit is only resupplied once that interval has passed).
@@ -2423,6 +2453,18 @@ static void ApplyKnobs(int argc, char **argv)
             extern bool g_bSupplySplitShares;
             g_bSupplySplitShares = atoi(val) != 0;
             printf("KNOB g_bSupplySplitShares = %d\n", (int)g_bSupplySplitShares);
+        }
+        else if (!strcmp(key, "nopullback"))
+        {
+            extern bool g_bReserveNoPullback;
+            g_bReserveNoPullback = atoi(val) != 0;
+            printf("KNOB g_bReserveNoPullback = %d\n", (int)g_bReserveNoPullback);
+        }
+        else if (!strcmp(key, "towncost"))
+        {
+            extern float g_fEnemyTownPathCost;
+            g_fEnemyTownPathCost = (float)atof(val);
+            printf("KNOB g_fEnemyTownPathCost = %.1f\n", g_fEnemyTownPathCost);
         }
         else if (!strcmp(key, "reshold"))
         {
