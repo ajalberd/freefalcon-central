@@ -1617,3 +1617,46 @@ FF6's Blue air is twice vanilla's and over three times BMS's.
 - DPRK strike/CAS is aircraft-bound ("no aircraft free"); Blue air still decides the war (~5,200 DPRK
   vehicles lost to air by h48 vs ~200 ROK).
 - Force counts above are on paper; compare post-slider counts in a new campaign if balance work starts.
+
+### Tooltip: real-mouse failure fixed (2026-10-04)
+
+The tooltip never showed in the real game although it did in the harness. The `[TIP]` trace (chandler.cpp
+`TipLog`, deduped, 1500-line cap; plus `[TIP] map icon ... hook` in cicons.cpp) showed correct text being armed
+(objectives, ships, battalions, even the stock "Time Acceleration" button) and **no `show` ever**: the game
+re-delivers WM_MOUSEMOVE at the SAME pixel while the mouse is still (55-65 per rest), and each one ran
+`HelpOff()` + re-arm, restarting the 250 ms delay. Fix in `C_Handler::ProcessMessage` WM_MOUSEMOVE: a move to
+the pixel the pending/showing tip was armed at is ignored. Confirmed working by the user. Also: ship tooltips
+had no name (task forces return an empty GetName) -> falls back to the unit class name; and the output thread
+now wakes Update() when a tip's delay has passed (idle screen) -- not the cause, harmless. The `[TIP]` logging
+can be stripped.
+Observed, not fixed: a corvette task force tooltip read "supply 250%" -- task force supply can exceed 100, so the
+"%" label is wrong and `NavalPlan`'s "go to port below 30% supply" rule should be checked against the real
+range of `GetUnitSupply()`.
+
+### Campaign map zoom to the mission (2026-10-04)
+
+`C_Map::FitFlightPlan` (cmap.cpp) hard-coded 1640 ft/pixel (and `/ 1000` = 1.64 per stock pixel). The terrain-
+derived map is finer (`s_mapFeetPerPixel`), so waypoint-area centre and zoom came out at half the true value:
+the view sat north-west against the China border. Now uses `FEET_PER_PIXEL`; identical maths for the stock map.
+Harness: `fitflight [team|-1]` + `tools/uitest/fit.txt` (needs ~90 s after START_CAMP for flights to exist).
+User confirmed it works.
+
+### Add Package: two Add Flight windows (2026-10-04) -- NOT reproduced
+
+User screenshot: two ADD FLIGHT windows, one filled in, one with only the static defaults. Checked: Te_flght.scf
+defines one TAC_FLIGHT_WIN; PACKAGE.scf comes from CMN_SCF.LST, Te_flght.scf only from cp_pkg_scf.lst (campaign)
+and TE_SCF.LST (TE); FFDebug.log shows exactly one load per session; the harness (1932x768 and 1365x768) opens
+one window via right-click -> Add Package -> NEW. `[UIDUP]` (cparser.cpp) logs any window id loaded twice. The
+user later said it "seems alright now". If it returns: send FFDebug.log and note the exact clicks.
+
+### Other 2026-10-04 facts
+
+- Installed exe: `C:\FreeFalcon6\FFViper.exe` was NOT the stale Sep 26 build I first claimed; it is whatever the
+  user's VS build last copied (check LastWriteTime, not memory). The user also runs `FFViper-ai.exe` (a build of
+  the AI-fix worktree `ff-ai-build`); these UI changes are only in the `freefalcon-central` main checkout.
+- `FFViper.cfg` `set g_nUiWidth/Height -1` overrides `-uisize` on the command line; to test another surface size
+  edit the cfg (and restore it). `tools/uitest/run.ps1 -ExeName FFViper-test.exe` runs a scratch copy while the
+  game is open.
+- Harness commands added this session: hovericon/hovership, rclickship, listships (prints ghost flag), mapmove,
+  mapzoom, curinfo, spotships, sinkship, compress, fitflight, freeze. Scripts: hover*.txt, ghost.txt,
+  wreck.txt, music.txt, fit.txt, hang.txt, addpkg3.txt, recon*.txt, ship*.txt.
