@@ -11,7 +11,7 @@ What changes (Korea save0 only, applies to NEW campaigns):
   - Falcon4.AII: ObjGroundPathMaxCost 2000 (stock 500), without which rear units are never picked for orders.
 
 Writes:
-  C:/FreeFalcon6/MODS/Korea Escalation/campaign/SAVE/{save0.cam, save0.tri, Falcon4.AII} + README.txt
+  C:/FreeFalcon6/MODS/Korea Escalation/campaign/SAVE/{save0.cam, save0.tri, Falcon4.AII} + "Korea Escalation README.txt" (lands in the game folder when enabled)
   gamework/campaign/SAVE/escal.cam + escal.tri  (run campsim with --save escal --set tri=escal)
 Units stay PRC (neutral) until the trigger script brings China in, like the originals.
 """
@@ -138,7 +138,10 @@ README = """Korea Escalation (JSGME) - Korea theater, save0 only. Applies to NEW
 - DPRK gets bombers like vanilla Falcon 4.0's Tu-16s: H-6A (China's Tu-16) squadrons, 1 active at Sunan,
   reinforcements at Sunan (h48) and Toksan (h72). The squadron count above includes these 3.
 - Falcon4.AII: ObjGroundPathMaxCost 2000 (stock 500), so rear units can be given orders at all.
-Same files as campsim's gamework escal.cam/escal.tri (tools/campsim/make_escalation_mod.py).
+Play it with FFViper-ai.exe and, in FFViper.cfg: set g_bAlertScramble 1 / set g_bInitTrueLosses 1 /
+set g_nCounterAttackInitiative 15 / set g_nCaptureInitiative 2 (campsim: war ends ~h81 instead of h34-45).
+Same files as campsim's gamework escal.cam/escal.tri (tools/campsim/make_escalation_mod.py);
+details in tools/campsim/KOREA-ESCALATION.md.
 Disable in JSGME to restore stock.
 """
 
@@ -176,7 +179,7 @@ def build(clones, install):
     if install:
         with open(os.path.join(MOD, "campaign", "SAVE", "Falcon4.AII"), "wb") as f:
             f.write(aii_text)
-        with open(os.path.join(MOD, "README.txt"), "w") as f:
+        with open(os.path.join(MOD, "Korea Escalation README.txt"), "w") as f:
             f.write(README % (nb, ns))
     print("staged: %s; cloned %d battalions, %d squadrons -> %s" % (report, nb, ns, ", ".join(d for d, _ in outs)))
 
