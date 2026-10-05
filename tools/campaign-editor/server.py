@@ -1890,7 +1890,37 @@ def api_objective(q, _body):
         "features": features[:64],
         "links": [{"id": l["id"], "costs": l["costs"]} for l in o["links"]],
         "objRow": drow,
+        "squadrons": based_squadrons(ws, name, o, names),
     }
+
+
+def based_squadrons(ws, name, o, names):
+    """Squadrons in this file whose home base (airbaseId) is the objective -- its own aircraft, as the
+    airbase pane lists them. A file without a unit list (a bare scenario objective set) has none."""
+    try:
+        cam = ws.units(name)
+    except Exception:  # noqa: BLE001 -- no unit member in this file
+        return []
+    out = []
+    for i, u in enumerate(cam.units):
+        if u["kind"] != "squadron" or not u.get("airbaseId") or u["airbaseId"][0] != o["id"][0]:
+            continue
+        _t, drow = ws.db.data_row(u["classIndex"])
+        aircraft = ""
+        if drow and "VehicleType" in drow:
+            aircraft = names.get(drow["VehicleType"][0], "")
+        out.append({
+            "n": i,
+            "title": composed_name(names, u["classIndex"], u.get("nameId")),
+            "role": names.get(u["classIndex"], ""),
+            "aircraft": aircraft,
+            "planes": sum((u["roster"] >> (2 * g)) & 3 for g in range(16)),
+            "owner": u["owner"],
+            "reinforcement": u.get("reinforcement", 0) if u["unitFlags"] & 0x20000 else 0,
+            "inactive": bool(u["unitFlags"] & 0x20000),
+        })
+    out.sort(key=lambda s: (s["inactive"], s["role"], s["aircraft"]))
+    return out
 
 
 def api_objective_edit(_q, body):

@@ -874,7 +874,10 @@ async function mapPanel(file) {
                              '&file=' + encodeURIComponent(file) + '&n=' + hit.item.n);
       detail.textContent = '';
       detail.appendChild(objectiveDetail(info, hit.item, file, draw,
-                                         () => show(hit)));
+                                         () => show(hit), n => {
+        const u = data.units.find(x => x.n === n);
+        if (u) show({sort: 'unit', item: u});
+      }));
     }
     draw();
   });
@@ -1818,7 +1821,8 @@ async function unitDetail(info, u, file, redraw, reload) {
   return wrap;
 }
 
-function objectiveDetail(info, o, file, redraw, reload) {
+// openUnit(n), when given, opens unit n in the sidebar (the map view passes it; tables do not).
+function objectiveDetail(info, o, file, redraw, reload, openUnit) {
   const wrap = el('div');
   const v = info.values;
   const canEdit = info.canEdit;
@@ -1854,6 +1858,32 @@ function objectiveDetail(info, o, file, redraw, reload) {
       el('p', {class: 'note warn', text:
         'This file has no objective list of its own, so objectives here are ' +
         'read-only. Open the scenario it was started from to edit them.'})));
+  }
+
+  // Squadrons whose home base is this objective (server: based_squadrons).
+  if (info.squadrons && info.squadrons.length) {
+    const active = info.squadrons.filter(s => !s.inactive);
+    const planes = active.reduce((a, s) => a + s.planes, 0);
+    wrap.appendChild(el('div', {class: 'group'}, [
+      el('h4', {text: 'Squadrons based here (' + info.squadrons.length + ')'}),
+      el('p', {class: 'hint', text: active.length + ' active, ' + planes + ' aircraft' +
+        (active.length < info.squadrons.length
+          ? '; ' + (info.squadrons.length - active.length) +
+            (info.squadrons.length - active.length === 1
+              ? ' arrives as a reinforcement' : ' arrive as reinforcements') : '')}),
+      el('ul', {class: 'wp-list'}, info.squadrons.map(s =>
+        el('li', {
+          class: openUnit ? 'clickable' : '',
+          title: openUnit ? 'Open this squadron' : '',
+          onclick: openUnit ? () => openUnit(s.n) : null,
+        }, [
+          el('span', {class: 'swatch', style: 'background:' + teamColour(s.owner)}),
+          el('span', {text: s.title || s.role}),
+          el('span', {class: 'i', text: [s.aircraft, s.planes + ' ac',
+            s.inactive ? 'reinforcement' + (s.reinforcement ? ' ' + s.reinforcement : '') : '']
+            .filter(Boolean).join(' · ')}),
+        ]))),
+    ]));
   }
 
   const num = (key, label, lo, hi) => {
