@@ -37,10 +37,12 @@ PRC = 5
 # (donor H-6A squadron campId, DPRK airbase, reinforcement hour; 0 = active from the start) -- vanilla F4's Tu-16s
 BOMBERS = [(4304, "Sunan Airbase", 0), (4306, "Sunan Airbase", 48), (4306, "Toksan Airbase", 72)]
 # Russia's Pacific Fleet: (class index, x, y, naval orders) -- NORD_ATTACK 1, the carrier as the US one (3)
-KUZNETSOV, NAKHIMOV, KILO, OSA = 2158, 3261, 2793, 828
-FLEET = [(KUZNETSOV, 600, 660, 3), (NAKHIMOV, 580, 635, 1), (KILO, 565, 600, 1),
-         (OSA, 530, 615, 1), (OSA, 533, 619, 1), (OSA, 545, 640, 1), (OSA, 548, 644, 1),
-         (OSA, 560, 665, 1), (OSA, 563, 669, 1), (OSA, 540, 590, 1), (OSA, 543, 594, 1)]
+KUZNETSOV, KIEV_GROUP, NAKHIMOV, KILO, OSA = 2158, 3584, 3261, 2793, 828
+# air defence first (Andrew: "boats with great anti-air capabilities"): the Kiev group (Kiev, 2 Admiral Nakhimov,
+# 6 Najin) and 3 Admiral Nakhimov cruisers reach 64 km at full hit chance; the Osa II's reach is 4 km
+FLEET = [(KUZNETSOV, 600, 660, 3), (KIEV_GROUP, 620, 640, 1),
+         (NAKHIMOV, 580, 635, 1), (NAKHIMOV, 560, 620, 1), (NAKHIMOV, 590, 688, 1), (KILO, 565, 600, 1),
+         (OSA, 530, 615, 1), (OSA, 545, 640, 1), (OSA, 560, 665, 1), (OSA, 540, 590, 1)]
 SU33, SU27_DONOR = 2169, 4783  # Su-33 squadron class; Russia's Su-27 squadron record it is cloned from
 
 
@@ -183,8 +185,9 @@ README = """Korea Escalation (JSGME) - Korea theater, save0 only. Applies to NEW
   (%d battalions, %d squadrons added); Russia is staged only.
 - DPRK gets bombers like vanilla Falcon 4.0's Tu-16s: H-6A (China's Tu-16) squadrons, 1 active at Sunan,
   reinforcements at Sunan (h48) and Toksan (h72). The squadron count above includes these 3.
-- Russia's Pacific Fleet off Wonsan (stock: no Russian ships): Kuznetsov carrier with an Su-33 squadron aboard,
-  Admiral Nakhimov missile cruiser, a Kilo submarine and 8 Osa II missile boats. It joins with Russia.
+- Russia's Pacific Fleet off Wonsan (stock: no Russian ships), built for air defence: Kuznetsov carrier with an
+  Su-33 squadron aboard, the Kiev battle group (Kiev, 2 Admiral Nakhimov, 6 Najin), 3 more Admiral Nakhimov
+  cruisers (SAMs to 64 km), a Kilo submarine and 4 Osa II missile-boat groups (12 boats). It joins with Russia.
 - Falcon4.AII: ObjGroundPathMaxCost 2000 (stock 500), so rear units can be given orders at all.
 Play it with FFViper-ai.exe and, in FFViper.cfg: set g_bAlertScramble 1 / set g_bInitTrueLosses 1 /
 set g_nCounterAttackInitiative 15 / set g_nCaptureInitiative 2 (campsim: war ends ~h81 instead of h34-45).

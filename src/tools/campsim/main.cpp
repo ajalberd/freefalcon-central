@@ -60,7 +60,7 @@
 extern "C" {
 #include "codelib/resources/reslib/src/resmgr.h"
 extern "C++" int gAtmDiag[NUM_TEAMS][24];
-extern "C++" int gLossDiag[NUM_TEAMS][8];
+extern "C++" int gLossDiag[NUM_TEAMS][10];
 #include "cmpevent.h"
 extern "C++" EventClass **CampEvents;
 extern "C++" short CE_Events;
@@ -3255,9 +3255,9 @@ int main(int argc, char **argv)
             if ((iter % 360) == 0)
                 for (int tm : {1, 2, 6})
                     printf("LOSS h=%d team %d: ground<-air %d  <-artillery %d  <-ground %d  <-naval %d | air<-air %d  "
-                           "<-ground %d | ships<-air %d  <-surface %d\n",
+                           "<-ground %d (of which <-ships %d) | ships<-air %d  <-surface %d\n",
                            iter / 60, tm, gLossDiag[tm][0], gLossDiag[tm][1], gLossDiag[tm][2], gLossDiag[tm][3],
-                           gLossDiag[tm][4], gLossDiag[tm][5], gLossDiag[tm][6], gLossDiag[tm][7]);
+                           gLossDiag[tm][4], gLossDiag[tm][5], gLossDiag[tm][8], gLossDiag[tm][6], gLossDiag[tm][7]);
         }
 
         CampsimPumpMessages();

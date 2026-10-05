@@ -2149,7 +2149,7 @@ void NewInitiativePointSetting(Team who)
     // ROK 0-13 "lost" vs DPRK 1,800-4,000, while ROK really lost ~1,000 by h54). Count vehicles actually
     // destroyed in campaign combat instead (unit.cpp gLossDiag, by the losing team).
     extern bool g_bInitTrueLosses;
-    extern int gLossDiag[NUM_TEAMS][8];
+    extern int gLossDiag[NUM_TEAMS][10];
 
     if (g_bInitTrueLosses)
     {

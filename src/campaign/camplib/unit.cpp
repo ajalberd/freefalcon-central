@@ -584,7 +584,7 @@ void UnitClass::BroadcastUnitMessage(VU_ID id, short msg, short d1, short d2,
 // HOWEVER, it them broadcasts a FalconWeaponFireMessage which will generate visual effects,
 // update remote copies of this entity, call the mission evaluation/event storage routines,
 // and add any craters we require.
-int gLossDiag[NUM_TEAMS][8] = {{0}};
+int gLossDiag[NUM_TEAMS][10] = {{0}};
 
 int UnitClass::ApplyDamage(FalconCampWeaponsFire* cwfm, uchar bonusToHit)
 {
@@ -763,7 +763,7 @@ int UnitClass::ApplyDamage(FalconCampWeaponsFire* cwfm, uchar bonusToHit)
     // ground, 3 battalion<-naval/other, 4 flight<-flight, 5 flight<-ground/naval, 6 ship<-flight,
     // 7 ship<-ship/ground.
     {
-        extern int gLossDiag[NUM_TEAMS][8];
+        extern int gLossDiag[NUM_TEAMS][10];
         int t = GetTeam(), k = -1;
 
         if (IsBattalion())
@@ -776,6 +776,10 @@ int UnitClass::ApplyDamage(FalconCampWeaponsFire* cwfm, uchar bonusToHit)
 
         if (k >= 0 and t >= 0 and t < NUM_TEAMS)
             gLossDiag[t][k] += currentLosses;
+
+        // 8 flight<-ship (a subset of 5): what ship air defence shoots down
+        if (IsFlight() and shooter->IsTaskForce() and t >= 0 and t < NUM_TEAMS)
+            gLossDiag[t][8] += currentLosses;
     }
 
 #ifdef KEEP_STATISTICS

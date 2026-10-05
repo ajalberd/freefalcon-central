@@ -19,7 +19,7 @@ and Wonsan, in which China and Russia actually join the fighting. It applies to 
 | `campaign/SAVE/save0.cam` | China's 43 and Russia's 8 battalions staged on DPRK objectives 100-170 km behind the front, their squadrons on DPRK airbases (`make_ally_mod.stage(..., "prc+cis")`) | China ~340 km, Russia ~500 km back |
 | | Every PRC battalion and active squadron cloned once: 86 battalions (2,136 vehicles), 26 squadrons. Clones have no brigade (U_PARENT), new ids and names | 43 battalions, 13 squadrons |
 | | DPRK bombers laid out like vanilla Falcon 4.0's Tu-16s: H-6A squadrons (China's Tu-16) cloned to DPRK, 1 active at Sunan, reinforcements at Sunan (h48) and Toksan (h72) | DPRK has no bomber-role squadrons |
-| | Russia's Pacific Fleet, 44-127 km off Wonsan: Kuznetsov carrier with an Su-33 squadron based on it, Admiral Nakhimov missile cruiser, a Kilo submarine, 8 Osa II groups (24 missile boats). Neutral until Russia joins | Russia has no ships |
+| | Russia's Pacific Fleet, 44-137 km off Wonsan, built for air defence: Kuznetsov carrier with an Su-33 squadron based on it, the Kiev battle group (Kiev, 2 Admiral Nakhimov, 6 Najin), 3 more Admiral Nakhimov cruisers (SAMs to 64 km), a Kilo submarine, 4 Osa II groups (12 missile boats). Neutral until Russia joins. Blue aircraft shot down by ships: median 80 -> 156 a run vs an Osa-heavy fleet | Russia has no ships |
 | `campaign/SAVE/Falcon4.AII` | `ObjGroundPathMaxCost = 2000` | 500: rear units are never picked for orders |
 
 China and Russia stay their own (neutral) countries until the trigger brings them in, then fold into DPRK as
