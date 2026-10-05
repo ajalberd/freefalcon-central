@@ -583,6 +583,42 @@ static void GtmLog(int hour)
                    hour, t, d[0], d[1], d[2], d[3]);
         }
 
+        // ALERT flights rejected for too few aircraft: how many they had vs how many the request wanted
+        extern int gAlertVeh[8][2][8];
+
+        for (int t : {2, 6})
+        {
+            int *a = gAlertVeh[t][0], *b = gAlertVeh[t][1];
+            printf("SCRAMBLE h=%d team %d too-few: alert flight planes 0:%d 1:%d 2:%d 3:%d 4:%d 5:%d 6:%d 7+:%d | "
+                   "request wants 0:%d 1:%d 2:%d 3:%d 4:%d 5:%d 6:%d 7+:%d (cumulative)\n", hour, t, a[0], a[1], a[2],
+                   a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]);
+        }
+
+        // why packages fail (package.cpp gPkgWhy), cumulative
+        extern int gPkgWhy[8][4][5];
+        static const char *cls[] = {"strike", "cas/bai", "counter-air", "other"};
+
+        for (int t : {2, 6})
+            for (int c = 0; c < 4; c++)
+            {
+                int *w = gPkgWhy[t][c];
+                printf("ATMWHY h=%d team %d %-11s too dangerous %d, no flight %d, could not reach %d, cancelled %d, "
+                       "built %d (cumulative)\n", hour, t, cls[c], w[0], w[1], w[2], w[3], w[4]);
+            }
+
+        // initiative inputs (team.cpp gInitDiag), last calculation
+        extern int gInitDiag[8][12];
+
+        for (int t = 0; t < 8; t++)
+        {
+            int *g = gInitDiag[t];
+
+            if (g[0] || g[1])
+                printf("INIT h=%d team %d vs %d: ground %d vs %d, aircraft %d vs %d, ground losses %d vs %d | terms "
+                       "ground %d air %d losses %d -> long run %d, initiative %d\n", hour, t, g[11], g[0], g[1], g[2],
+                       g[3], g[4], g[5], g[6], g[7], g[8], g[9], g[10]);
+        }
+
         // why ALERT flights were passed over (atm.cpp gAlertWhy), cumulative
         extern int gAlertWhy[8][9];
 

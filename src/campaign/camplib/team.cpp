@@ -2084,6 +2084,10 @@ void ApplyPlayerInput(Team who, VU_ID poid, int rating)
 }
 
 
+// campsim INIT: inputs of NewInitiativePointSetting per calling team -- our/their ground vehicles, our/their
+// aircraft, our/their ground losses, the three long-run terms, their blend, the new initiative, the enemy team
+int gInitDiag[8][12];
+
 // A.S. begin 2001-12-09, New Procedure for Initiative Points
 void NewInitiativePointSetting(Team who)
 {
@@ -2152,6 +2156,15 @@ void NewInitiativePointSetting(Team who)
     TeamInfo[who]->SetInitiative(initiative);
     TeamInfo[et]->SetInitiative(
         (100 - initiative)); // enemy team gets 100 minus our initiative points
+
+    // campsim INIT: the inputs of the last calculation, per calling team
+    {
+        extern int gInitDiag[8][12];
+        int *g = gInitDiag[who % 8];
+        g[0] = os, g[1] = ts, g[2] = oa, g[3] = ta, g[4] = (int)oloss, g[5] = (int)tloss;
+        g[6] = longRunInitiative1, g[7] = longRunInitiative2, g[8] = longRunInitiative3;
+        g[9] = longRunInitiative, g[10] = initiative, g[11] = et;
+    }
 
     //debug
     //FILE *deb;

@@ -1895,6 +1895,7 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
 // [1] its priority is too high, [2] aborted/diverted, [3] capabilities, [4] too few aircraft or priority,
 // [5] over 250 km, [6] busy with a better target, [7] another flight scored better, [8] chosen
 int gAlertWhy[8][9];
+int gAlertVeh[8][2][8]; // [team][0 = alert flight planes, 1 = request wants][count, 7 = 7+]
 #define ALERT_WHY(k) if (cf->GetUnitMission() == AMIS_ALERT and mis->mission == AMIS_INTERCEPT and cf->GetTeam() == mis->who) gAlertWhy[mis->who % 8][k]++
 
 Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
@@ -1988,7 +1989,12 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
             // [4] split: [0] too few aircraft (slot 0 is otherwise unused -- the team check is never counted)
             if (cf->GetUnitMission() == AMIS_ALERT and mis->mission == AMIS_INTERCEPT and
                 not(mis->flags bitand AMIS_HELP_REQUEST) and cf->GetTotalVehicles() < mis->aircraft)
+            {
+                extern int gAlertVeh[8][2][8];
                 gAlertWhy[mis->who % 8][0]++;
+                gAlertVeh[mis->who % 8][0][min(cf->GetTotalVehicles(), 7)]++; // planes the alert flight has
+                gAlertVeh[mis->who % 8][1][min((int)mis->aircraft, 7)]++;    // planes the request wants
+            }
 
             continue;
         }
