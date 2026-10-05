@@ -1977,7 +1977,15 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
         // 2001-10-27 MODIFIED BY S.G. Doesn't matter how many vehicle if it's a help request. Hopefully, the one requesting help will assist us
         // 2001-12-18 M.N. give a help request mission priority some more points..
         // if (cf->GetTotalVehicles() < mis->aircraft or cf->GetUnitPriority() >= mis->priority)
-        if ((not(mis->flags bitand AMIS_HELP_REQUEST) and
+        // Artscout - 2026 (g_bAlertScramble, off = stock): alert flights always hold 2 planes and intercept
+        // requests always want 4, so no alert flight ever scrambled (campsim SCRAMBLE: 0 of ~73,000 DPRK
+        // checks in 24 h). An alert flight answers with what it has; the request stays queued for more
+        // aircraft if the strength is short (BuildDivert's match_strength check).
+        extern bool g_bAlertScramble;
+        const bool alertOk = g_bAlertScramble and cf->GetUnitMission() == AMIS_ALERT and
+                             mis->mission == AMIS_INTERCEPT and cf->GetTotalVehicles() > 0;
+
+        if ((not(mis->flags bitand AMIS_HELP_REQUEST) and not alertOk and
              cf->GetTotalVehicles() < mis->aircraft) or
             (not(mis->flags bitand AMIS_HELP_REQUEST) and
              cf->GetUnitPriority() >= mis->priority) or
@@ -1987,7 +1995,7 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
             ALERT_WHY(4);
 
             // [4] split: [0] too few aircraft (slot 0 is otherwise unused -- the team check is never counted)
-            if (cf->GetUnitMission() == AMIS_ALERT and mis->mission == AMIS_INTERCEPT and
+            if (cf->GetUnitMission() == AMIS_ALERT and mis->mission == AMIS_INTERCEPT and not alertOk and
                 not(mis->flags bitand AMIS_HELP_REQUEST) and cf->GetTotalVehicles() < mis->aircraft)
             {
                 extern int gAlertVeh[8][2][8];

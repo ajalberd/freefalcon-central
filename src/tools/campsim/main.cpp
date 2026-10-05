@@ -2496,6 +2496,24 @@ static void ApplyKnobs(int argc, char **argv)
             g_bReserveNoPullback = atoi(val) != 0;
             printf("KNOB g_bReserveNoPullback = %d\n", (int)g_bReserveNoPullback);
         }
+        else if (!strcmp(key, "scramble"))
+        {
+            extern bool g_bAlertScramble;
+            g_bAlertScramble = atoi(val) != 0;
+            printf("KNOB g_bAlertScramble = %d\n", (int)g_bAlertScramble);
+        }
+        else if (!strcmp(key, "truelosses"))
+        {
+            extern bool g_bInitTrueLosses;
+            g_bInitTrueLosses = atoi(val) != 0;
+            printf("KNOB g_bInitTrueLosses = %d\n", (int)g_bInitTrueLosses);
+        }
+        else if (!strcmp(key, "counterinit"))
+        {
+            extern int g_nCounterAttackInitiative;
+            g_nCounterAttackInitiative = atoi(val);
+            printf("KNOB g_nCounterAttackInitiative = %d\n", g_nCounterAttackInitiative);
+        }
         else if (!strcmp(key, "towncost"))
         {
             extern float g_fEnemyTownPathCost;

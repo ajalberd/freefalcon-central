@@ -721,7 +721,10 @@ bool g_bSupplyNeedFix = true; // campaign: resupply counts only positive needs, 
 bool g_bGridPathPartial = true; // campaign: a ground unit follows the partial route when its grid path search hits its length/node limit (stock: discarded, the unit retries the same far waypoint forever)
 bool g_bReserveHold = true; // campaign: a reserve battalion on one of our objectives away from the front keeps it (stock: kicked off any non-secondary objective, it fell back 3 links again and again, burning supply)
 bool g_bSupplySplitShares = true; // campaign: the supply pool is shared between ground units and squadrons by what each actually uses, each with its own ratio (stock: one ratio over everyone's need, which squadrons' unused stores gap dominates)
-bool g_bReserveNoPullback = false; // campaign: idle healthy battalions within 25 km of the front hold instead of taking a reserve order 20-60 km back (stock: the front-most idle units were the ones sent back)
+bool g_bReserveNoPullback = true; // campaign: idle healthy battalions within 25 km of the front hold instead of taking a reserve order 20-60 km back (stock: the front-most idle units were the ones sent back)
+bool g_bAlertScramble = false; // campaign: an alert flight may scramble against an intercept with the 2 planes it has (stock: requests want 4, so alert flights never launched)
+bool g_bInitTrueLosses = false; // campaign: initiative counts vehicles actually destroyed (stock: start minus current, which reinforcements hide)
+int g_nCounterAttackInitiative = 0; // campaign: a defending side with at least this initiative may launch a full counteroffensive (0 = stock: never while the enemy is attacking)
 float g_fEnemyTownPathCost = 4.0f; // campaign: ground route cost multiplier through an enemy town or an objective under an enemy-held parent (stock 4)
 bool g_bGtmKeepCapture = true; // campaign: a battalion keeps a capture order while its target is still a valid one (stock: re-planned every cycle)
 bool g_bSupplyExactLoss = true; // campaign: supply road losses computed once per trip, not truncated per node (stock: small shipments vanish)
@@ -1842,6 +1845,8 @@ static ConfigOption<bool> BoolOpts[] = {
     {"GridPathPartial", &g_bGridPathPartial}, // 1 = units heading for a far waypoint move on along the partial route
     {"ReserveHold", &g_bReserveHold}, // 1 = reserves stop shuttling back and forth
     {"SupplySplitShares", &g_bSupplySplitShares}, // 1 = ground and air get separate shares of the supply pool
+    {"AlertScramble", &g_bAlertScramble}, // 1 = alert flights scramble against intercepts
+    {"InitTrueLosses", &g_bInitTrueLosses}, // 1 = initiative counts real losses
     {"ReserveNoPullback", &g_bReserveNoPullback}, // 1 = idle front-line battalions are not pulled back as reserves
     {"GtmKeepCapture", &g_bGtmKeepCapture}, // 1 = attacking battalions keep their target while it stays valid
     {"SupplyExactLoss", &g_bSupplyExactLoss}, // 1 = small supply shipments are not rounded away on long roads
@@ -2205,6 +2210,7 @@ static ConfigOption<int> IntOpts[] = {
     {"WeatherFronts", &g_nWeatherFronts}, // Artscout - 2026 (FRONTS): 0 = one condition everywhere
     {"BattalionReinforceFix", &g_nBattalionReinforceFix},
     {"GtmReservesPerCycle", &g_nGtmReservesPerCycle}, // reserve units the ground AI moves up per cycle (stock 1)
+    {"CounterAttackInitiative", &g_nCounterAttackInitiative}, // a defending side with this much initiative may counterattack (0 = stock)
     {"GtmCaptureUnits", &g_nGtmCaptureUnits}, // battalions the ground AI sends at one capture objective per cycle (stock 1)
     {"GtmKeepCaptureStall", &g_nGtmKeepCaptureStall}, // hours a kept attacker may stand still before it is re-tasked
     {"NavalAI", &g_nNavalAI}, // campaign: 1 = ships sortie, patrol and sail port to port, 0 = old behaviour

@@ -1200,9 +1200,28 @@ void TeamClass::SelectGroundAction(void)
         groundAction.actionType = GACTION_CONSOLIDATE;
     }
 
+    // Artscout - 2026 (g_nCounterAttackInitiative, 0 = stock): a side on the defensive stays there for as long
+    // as any enemy is on the offensive, and initiative is one pool split with the player's team, so the side
+    // that loses the air war never gets a turn (campsim: DPRK DEFENSIVE in 55 of 59 hourly frames at 20-25
+    // initiative; China and Russia, folded into DPRK, never received a capture order). With the setting, a
+    // defending side whose initiative reaches it may counterattack -- at most once per action timeout -- and
+    // the counterattack is a full offensive (a minor offensive only secures and defends, it never captures).
+    extern int g_nCounterAttackInitiative;
+    static CampaignTime counterReady[NUM_TEAMS];
+    const int caMin = g_nCounterAttackInitiative > 0 ? g_nCounterAttackInitiative : MIN_COUNTER_ATTACK_INITIATIVE;
+    const int fullMin = g_nCounterAttackInitiative > 0 ? caMin : MIN_FULL_OFFENSIVE_INITIATIVE;
+
+    if (g_nCounterAttackInitiative > 0 and groundAction.actionType == GACTION_DEFENSIVE and
+        initiative >= caMin and TheCampaign.CurrentTime >= counterReady[who % NUM_TEAMS])
+    {
+        groundAction.actionType = GACTION_CONSOLIDATE;
+        groundAction.actionTimeout = TheCampaign.CurrentTime - ACTION_RATE;
+        counterReady[who % NUM_TEAMS] = TheCampaign.CurrentTime + ACTION_TIMEOUT;
+    }
+
     // If we're not currently in an action, see if we can start one
     if (groundAction.actionType == GACTION_CONSOLIDATE and POList and
-        initiative >= MIN_COUNTER_ATTACK_INITIATIVE and
+        initiative >= caMin and
         TheCampaign.CurrentTime >= groundAction.actionTimeout + ACTION_RATE)
     {
         // Select our objective
@@ -1232,7 +1251,7 @@ void TeamClass::SelectGroundAction(void)
         if (bo)
         {
             // Offensive Action Yahoo
-            if (initiative >= MIN_FULL_OFFENSIVE_INITIATIVE)
+            if (initiative >= fullMin)
                 groundAction.actionType = GACTION_OFFENSIVE;
             else
                 groundAction.actionType = GACTION_MINOROFFENSIVE;
@@ -1302,7 +1321,7 @@ void TeamClass::SelectGroundAction(void)
         // A.S. begin, 2001-12-09  if initiative < 40 then consolidate
         if (NewInitiativePoints)
         {
-            if (groundAction.actionPoints and bo and initiative >= 40)
+            if (groundAction.actionPoints and bo and initiative >= (caMin < 40 ? caMin : 40))
                 return; // We've still got umph, or havn't started yet, and havn't captured our objective
         }
         else // *** old code ***
@@ -2124,10 +2143,36 @@ void NewInitiativePointSetting(Team who)
 
     oloss = (os_start * 1.0f - os * 1.0f);
 
+    // Artscout - 2026 (g_bInitTrueLosses, off = stock): stock "losses" are start minus current vehicles, and
+    // the start baseline is raised whenever reinforcements push current above it -- so a side that is
+    // reinforced faster than it bleeds shows ~0 losses and the loss term pins at 100 for it (campsim INIT:
+    // ROK 0-13 "lost" vs DPRK 1,800-4,000, while ROK really lost ~1,000 by h54). Count vehicles actually
+    // destroyed in campaign combat instead (unit.cpp gLossDiag, by the losing team).
+    extern bool g_bInitTrueLosses;
+    extern int gLossDiag[NUM_TEAMS][8];
+
+    if (g_bInitTrueLosses)
+    {
+        oloss = 0.0f;
+
+        for (int k = 0; k < 4; k++)
+            oloss += gLossDiag[who][k];
+    }
+
     if (oloss == 0)
         oloss = 1;
 
     tloss = (ts_start * 1.0f - ts * 1.0f);
+
+    if (g_bInitTrueLosses)
+    {
+        tloss = 0.0f;
+
+        for (i = 0; i < NUM_TEAMS; i++)
+            if (GetTTRelations(i, who) == War)
+                for (int k = 0; k < 4; k++)
+                    tloss += gLossDiag[i][k];
+    }
 
     if (tloss == 0)
         tloss = 1;
