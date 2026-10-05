@@ -1487,3 +1487,133 @@ stream state, and every stream callback (msg 2 = FADE_IN_DONE, 3 = FADE_OUT_DONE
 movie handshake is healthy (FadeOut_Pause -> FADE_OUT_DONE -> Resume -> FADE_IN_DONE); the user's silence
 after the intro video is not reproduced. Candidate to check in his log: a FADE_OUT_DONE arriving after
 Resume with flags == 0 takes gMusicCallback's else-branch and StopStream()s the resumed stream.
+
+## 2026-10-03/04: campaign AI fixes, Korea Escalation mod, initiative (read this first for the ground/air war)
+
+Andrew's rule: fix AI mechanics (paths, supply, orders) before balance; then make China/Russia matter. Every
+change is an f4config switch; `set g_x 0` in FFViper.cfg restores stock. campsim knob in brackets.
+
+### Commits (main, local, not pushed)
+- 58af75fa trigger log: the .evt member gets a CND1 trailer recording which #IF branch fired each action;
+  the campaign editor lights only the branch that ran. (China in china_test fired at 14:05 day 1 on the
+  air-ratio check, DPRK 258 vs ROK 391 aircraft.)
+- f90bb897 **GtmCaptureFront** [capfront]: capture targets also include non-secondary front-line objectives
+  (stock: only secondaries <= 3 links from the front, so a chain of bridges/junctions froze a front).
+  Pyongyang reached in 8/8 runs vs 2/8.
+- 1494ce22 **SupplyNeedFix** [needfix]: a squadron's need counts only its own stores-table weapons; stock
+  summed off-table stores, the team's need went negative and ALL battalion resupply stopped from ~h12.
+- 144223e4 / ea1717cf **GridPathPartial** [partialpath]: grid and objective routes over the 96-step cap
+  follow the partial route; a stale `last_obj` (85-140 km behind) is replaced. Path failures 9,765 -> 12.
+- 9b55d4dc SelectAirActions crash with no front left; a8142c2d AllUnitList duplicates (airmobile infantry
+  re-inserted per helicopter trip, up to 28 copies -- earlier GTM candidate counts were inflated).
+- 4e5959a6 **ReserveHold** [reshold]: reserves on our own objectives away from the front stop hopping
+  back 3 links every check (halved order churn).
+- 33fa3f11 **SupplySplitShares** [splitshares]: ground and air get separate shares of the supply pool
+  (squadrons' never-used stores gap diluted battalions to ~4% a trip). ROK battalions under 50%: 34 -> 0.
+- 27b36e59 all of the above ON by default; GtmReservesPerCycle 8, GtmCaptureUnits 3. Falcon4.AII
+  ObjGroundPathMaxCost 500 -> 2000 (rear units were never picked for orders) -- now shipped in the mod.
+- fb01730f intel bar charts: Airbases/Aircraft/Ground Vehicles drew fuel/airbases/aircraft.
+- 146ab072 the naval/UI thread's work (ship ghosts/wrecks, naval AI legs, Recon hang fix, music trace),
+  committed at Andrew's request.
+- 44e938b6 **ReserveNoPullback** [nopullback] (ON since aaef1490): a healthy unit whose capture target was
+  taken by a neighbour holds it instead of falling back 3 links as RESERVE (BattalionClass::MoveUnit, ~300
+  a day for ROK, ~49 km back each -> 24-87); idle healthy units within 25 km of the front get no reserve
+  order (reserve objectives are always 20-60 km back). **EnemyTownPathCost** [towncost] (stock 4): route
+  cost through enemy towns; at 4, 3% of capture orders drive 30%+ further (Sep'o depot 110 km vs 50 km).
+  Player drag-orders use the same route builder (tactical_set_orders -> BuildGroundWP).
+- 40324378 campsim diagnostics: SCRAMBLE, ATMWHY, INIT (see below).
+- aaef1490 **AlertScramble** [scramble], **InitTrueLosses** [truelosses], **CounterAttackInitiative**
+  [counterinit]; d6fbd2cb **CaptureInitiative** [capinit] and the NOFLIGHT diagnostic.
+
+### Root causes found 2026-10-04
+- **Scrambles never happened:** alert flights always hold 2 planes; counter-air requests are set to 4
+  (FindBestAir: `mis->aircraft = 4` when match_strength); FindBestAirFlight rejects any flight with fewer
+  planes. DPRK: ~73,000 rejections / 24 h, 0 scrambles. AlertScramble: ~700-800 DPRK, ~150 ROK a run.
+- **DPRK never attacks** (China/Russia folded in never got a capture order): a DEFENSIVE side stays
+  defensive while any enemy is on the offensive (ROK is, all war); offensives need initiative >= 50/55;
+  initiative is one 100-point pool with the player's team; ROK's loss term is pinned at 100 because
+  reinforcements raise its start baseline (losses read 0-13); and every captured objective hands the
+  captor 5 points (objectivemsg.cpp), ~600 captures in 2 days -> DPRK ~6. A MINOROFFENSIVE never captures.
+- **China/Russia as separate factions** (campsim escalfac.tri: Friendly with DPRK, War with Blue): worse.
+  Non-player teams' initiative drifts to ~40 (leak code); they sat idle ~130 km back. Keep the merge.
+- **DPRK strikes**: packages fail on "no aircraft free" (NOFLIGHT, DPRK strike 18,177 / 24 h vs range 937),
+  not on broken loadouts. DPRK builds about as many strike packages as ROK (255 vs 319 / 24 h).
+- **Front units sent back as "Reserve <town>"**: stock GTM reserve step keeps the candidates CLOSEST to the
+  action objective (the comment says farthest) and reserve objectives are 20-60 km back; the bigger source
+  was MoveUnit's 3-link fall-back after a neighbour captured the target (fixed by ReserveNoPullback).
+
+### Korea Escalation JSGME mod (C:\FreeFalcon6\MODS\Korea Escalation; tools/campsim/make_escalation_mod.py)
+Byte-identical to campsim's gamework `escal.cam`/`escal.tri` (run with `--save escal --set tri=escal`).
+- save0.tri = gamework bothwr.tri: Blue wins only with Pyongyang AND Wonsan; Russia joins when Wonsan falls.
+- save0.cam: China and Russia staged 100-170 km behind the front (make_ally_mod "prc+cis"), every PRC
+  battalion and active squadron cloned once (clones: no brigade, U_PARENT), and DPRK bombers laid out like
+  vanilla's Tu-16s: H-6A (China's Tu-16) squadrons, 1 active at Sunan, reinforcements Sunan h48 / Toksan h72.
+- Falcon4.AII with ObjGroundPathMaxCost 2000. The install's own Falcon4.AII is stock again
+  (backup Falcon4.AII.bak-objpathcost500), so play with the mod enabled.
+
+### Measured (campsim, mod, Andrew's sliders 2:2:2:2 + Ace, 6 seeds x 4 days, medians)
+"War ends" = Blue holds both Pyongyang and Wonsan (the mod's rule); Pyongyang is always the later one.
+
+| Setting | War ends | Wonsan falls | DPRK offensive | Red capture orders/h (China+Russia) | Scrambles DPRK/ROK |
+|---|---|---|---|---|---|
+| stock rule (either city), fixes on | h34-45 | h34-45 | 0% | 0 | 0 / 0 |
+| mod, ReserveNoPullback on | h72 | | 0% | 0 | 0 / 0 |
+| + AlertScramble | h65 | | 0% | 0 | 658 / 142 |
+| + scramble, true losses, counter 20, capture 5 | h77 | | 2% | 6.9 (2.6) | 770 / 180 |
+| + ... counter 15, capture 2 (**live cfg**) | h81 | h44-63 | 4% | 9.8 (4.2) | 829 / 178 |
+| + ... counter 10, capture 2 | h74 | | 4% | 10.7 (4.9) | 773 / 228 |
+
+China in the mod loses ~55% of its 1,566 vehicles (stock China ~70); Russia staged takes losses after joining
+but never advances. DPRK bombers: ROK ground lost to air by h48 187 -> 207. Blue wins every run.
+
+### Live setup (2026-10-04)
+FFViper-ai.exe built from the clean worktree ff-ai-build at d6fbd2cb (backups .bak-27b36e59, .bak-fb01730f).
+FFViper.cfg block appended (backup FFViper.cfg.bak-pre-escalation): AlertScramble 1, InitTrueLosses 1,
+CounterAttackInitiative 15, CaptureInitiative 2. Enable "Korea Escalation" in JSGME, start a NEW campaign.
+
+### Force counts on paper vs Falcon 4.0 and BMS 4.37
+Save files as shipped; a new campaign rescales them by the challenge sliders (at 2:2:2:2 campsim's DPRK starts
+with ~7,050 vehicles, not 10,320). Active units, then inactive reinforcements. BMS units are read with a
+lighter decoder (its squadron records are longer); treat its active/reinforcement split as approximate.
+
+| Save | Side | Battalions | Ground veh | + reinf bns / veh | Squadrons | Aircraft | + reinf sq / ac |
+|---|---|---|---|---|---|---|---|
+| FF6 save0 | US | 32 | 592 | 20 / 613 | 19 | 397 | 21 / 361 |
+| | ROK | 183 | 6,616 | 32 / 1,380 | 30 | 756 | 9 / 208 |
+| | Japan | 1 | 32 | - | - | - | - |
+| | DPRK | 405 | 10,320 | 22 / 680 | 46 | 1,120 | - |
+| | China | 43 | 1,068 | - | 13 | 267 | 12 / 263 |
+| | Russia | 8 | 216 | - | 4 | 43 | 4 / 64 |
+| | **Blue** | 216 | 7,240 | 52 / 1,993 | 49 | 1,153 | 30 / 569 |
+| | **Red** | 456 | 11,604 | 22 / 680 | 63 | 1,430 | 16 / 327 |
+| FF6 + Escalation | China | 86 | 2,136 | - | 26 | 534 | 12 / 263 |
+| | DPRK air | | | | 47 | 1,152 | 2 / 64 |
+| | **Red** | 499 | 12,672 | 22 / 680 | 77 | 1,729 | 18 / 391 |
+| Falcon 4.0 save0 | US | 8 | 234 | 24 / 1,016 | 11 | 228 | 13 / 280 |
+| | ROK | 137 | 4,691 | 32 / 1,315 | 12 | 288 | - |
+| | Japan | 5 | 83 | - | - | - | - |
+| | DPRK | 405 | 14,171 | 27 / 1,109 | 27 | 648 | 13 / 270 |
+| | China | 43 | 1,829 | - | 10 | 212 | - |
+| | Russia | 8 | 232 | - | 8 | 139 | - |
+| | **Blue** | 150 | 5,008 | 56 / 2,331 | 23 | 516 | 13 / 280 |
+| | **Red** | 456 | 16,232 | 27 / 1,109 | 45 | 999 | 13 / 270 |
+| BMS 4.37 Save0 | US | 1 | 17 | - | 18 | 249 | - |
+| | ROK | 228 | 6,182 | - | 4 | 94 | - |
+| | DPRK | 161 | 3,959 | - | 15 | 260 | 3 / 50 |
+| | China | 39 | 948 | - | 12 | 178 | - |
+| | Russia | 0 | 0 | - | 4 | 42 | - |
+| | **Blue** | 229 | 6,199 | - | 22 | 343 | - |
+| | **Red** | 200 | 4,907 | - | 31 | 480 | 3 / 50 |
+
+DPRK air by type. FF6: 1,120 active (fighters 480: MiG-21/23/29, J-7; attack 368: H-5 x160, Su-25BM, Q-5,
+A-5, Su-7; helicopters 128; transport 144), no bomber-role squadrons. Vanilla: 648 + 270 (MiG-19/21/23/29,
+Su-27 and MiG-25 in reserve; Il-28, Su-25, Mi-24; **Tu-16 bombers 24 + 48**). BMS: 260 + 50 (MiG-21/23/29,
+J-5/6/7/8, Q-5N, Su-25, Il-28). Vanilla's Red ground force is the largest (16,232 vs FF6 11,604 vs BMS 4,907);
+FF6's Blue air is twice vanilla's and over three times BMS's.
+
+### Open
+- Counterattacks only ~4% of hours: capped at one per action timeout (18 h). Next lever: that cooldown.
+- Russia staged but never advances; China never reaches the front line in force.
+- DPRK strike/CAS is aircraft-bound ("no aircraft free"); Blue air still decides the war (~5,200 DPRK
+  vehicles lost to air by h48 vs ~200 ROK).
+- Force counts above are on paper; compare post-slider counts in a new campaign if balance work starts.
