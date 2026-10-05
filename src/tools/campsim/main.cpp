@@ -2548,6 +2548,12 @@ static void ApplyKnobs(int argc, char **argv)
             g_nGtmCaptureMaxKm = atoi(val);
             printf("KNOB g_nGtmCaptureMaxKm = %d\n", g_nGtmCaptureMaxKm);
         }
+        else if (!strcmp(key, "capbest"))
+        {
+            extern bool g_bGtmCaptureBestScore;
+            g_bGtmCaptureBestScore = atoi(val) != 0;
+            printf("KNOB g_bGtmCaptureBestScore = %d\n", (int)g_bGtmCaptureBestScore);
+        }
         else if (!strcmp(key, "capnearest"))
         {
             extern bool g_bGtmCaptureNearest;

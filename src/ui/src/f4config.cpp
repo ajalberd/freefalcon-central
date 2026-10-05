@@ -725,6 +725,7 @@ bool g_bReserveNoPullback = true; // campaign: idle healthy battalions within 25
 bool g_bAlertScramble = false; // campaign: an alert flight may scramble against an intercept with the 2 planes it has (stock: requests want 4, so alert flights never launched)
 bool g_bInitTrueLosses = false; // campaign: initiative counts vehicles actually destroyed (stock: start minus current, which reinforcements hide)
 int g_nGtmCaptureMaxKm = 0; // campaign: capture targets farther than this many km are not offered to a battalion (0 = stock: any distance)
+bool g_bGtmCaptureBestScore = false; // campaign: like GtmCaptureNearest, but the best-scoring valid capture target within reach (the GTM's own target score), nearest on a tie
 bool g_bGtmCaptureNearest = false; // campaign: a battalion sent to capture something beyond GtmCaptureMaxKm (60 if unset) attacks the nearest valid target instead
 int g_nCaptureInitiative = 5; // campaign: initiative points the captor takes from the loser per objective captured (stock 5)
 int g_nCounterAttackInitiative = 0; // campaign: a defending side with at least this initiative may launch a full counteroffensive (0 = stock: never while the enemy is attacking)
@@ -1856,6 +1857,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"SupplySplitShares", &g_bSupplySplitShares}, // 1 = ground and air get separate shares of the supply pool
     {"AlertScramble", &g_bAlertScramble}, // 1 = alert flights scramble against intercepts
     {"InitTrueLosses", &g_bInitTrueLosses}, // 1 = initiative counts real losses
+    {"GtmCaptureBestScore", &g_bGtmCaptureBestScore}, // far capture orders re-pointed at the best-scoring target in reach
     {"GtmCaptureNearest", &g_bGtmCaptureNearest}, // far capture orders re-pointed at the nearest valid target
     {"ReserveNoPullback", &g_bReserveNoPullback}, // 1 = idle front-line battalions are not pulled back as reserves
     {"GtmKeepCapture", &g_bGtmKeepCapture}, // 1 = attacking battalions keep their target while it stays valid

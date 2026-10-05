@@ -110,6 +110,7 @@ int ScoreObjectiveOffensive(float uod, float odd, float ofd, float ufd,
                             float im, float sm, int basescore, int priority);
 int ScoreObjectiveDefensive(float uod, float odd, float ofd, float ufd,
                             float im, float sm, int basescore, int priority);
+int ScoreObj(int orders, int os, int ss, int ps, int pps, int fs);
 int GetTopPriorityObjectives(int team,
                              _TCHAR* buffers[COLLECTABLE_HP_OBJECTIVES]);
 void CleanupUnitlist(VuLinkedList* unitList);
@@ -374,10 +375,14 @@ int GroundTaskingManagerClass::Task(void)
         // than g_nGtmCaptureMaxKm (60 km if unset) is re-pointed at the nearest objective that is a valid
         // capture target for us, even one that already has its units -- it attacks where it stands rather than
         // crossing the front.
+        // g_bGtmCaptureBestScore: instead of the nearest, the best-scoring valid target within reach -- the GTM's
+        // own capture score (ScoreObj: its priority + its secondary's + its primary's - distance to the front),
+        // the nearest one on a tie.
         extern bool g_bGtmCaptureNearest;
+        extern bool g_bGtmCaptureBestScore;
         extern int g_nGtmCaptureMaxKm;
 
-        if (g_bGtmCaptureNearest and action == GACTION_OFFENSIVE)
+        if ((g_bGtmCaptureNearest or g_bGtmCaptureBestScore) and action == GACTION_OFFENSIVE)
         {
             const float lim = g_nGtmCaptureMaxKm > 0 ? (float)g_nGtmCaptureMaxKm : 60.0F;
             VuListIterator uit(AllParentList);
@@ -402,6 +407,7 @@ int GroundTaskingManagerClass::Task(void)
 
                 Objective best = NULL;
                 float bestd = lim;
+                int bests = -1000000;
                 VuListIterator oit(AllObjList);
 
                 for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
@@ -410,7 +416,26 @@ int GroundTaskingManagerClass::Task(void)
                     o->GetLocation(&ox, &oy);
                     const float d = Distance(ux, uy, ox, oy);
 
-                    if (d < bestd and IsValidObjective(GORD_CAPTURE, o))
+                    if (d > lim or not IsValidObjective(GORD_CAPTURE, o))
+                        continue;
+
+                    if (g_bGtmCaptureBestScore)
+                    {
+                        Objective so = o->IsSecondary() ? o : o->GetObjectiveParent();
+                        Objective po = (so and not so->IsPrimary()) ? so->GetObjectiveParent() : so;
+                        const int sc = ScoreObj(GORD_CAPTURE, o->GetObjectivePriority(),
+                                                so ? so->GetObjectivePriority() : 0,
+                                                po ? po->GetObjectivePriority() : 0, 0,
+                                                FloatToInt32(DistanceToFront(ox, oy)));
+
+                        if (sc > bests or (sc == bests and d < bestd))
+                        {
+                            bests = sc;
+                            bestd = d;
+                            best = o;
+                        }
+                    }
+                    else if (d < bestd)
                     {
                         bestd = d;
                         best = o;
