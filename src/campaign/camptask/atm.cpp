@@ -1077,6 +1077,32 @@ int AirTaskingManagerClass::BuildPackage(Package *pc, MissionRequest mis)
 // was diverted to one, [2] of those, an ALERT flight waiting on the ground (a scramble), [3] no flight found
 int gScramble[8][4];
 
+// campsim SCRAMBLEKM: the same outcomes bucketed by how far the detected package was from the team's nearest
+// ALERT flight (<50, <100, <150, <250, 250+ km, no alert flight at all). gScrambleKm[team][bucket]: [0] packages
+// spotted (RequestIntercept), [1] divert attempts, [2] ALERT flight scrambled, [3] other flight diverted, [4] none
+int gScrambleKm[8][6][5];
+
+int AlertDistanceBucket(int team, GridIndex x, GridIndex y)
+{
+    float best = -1.0F;
+    VuListIterator it(AllAirList);
+
+    for (Unit u = GetFirstUnit(&it); u; u = GetNextUnit(&it))
+    {
+        if (not u->IsFlight() or u->GetTeam() not_eq team or u->GetUnitMission() not_eq AMIS_ALERT)
+            continue;
+
+        GridIndex fx, fy;
+        u->GetLocation(&fx, &fy);
+        float d = Distance(x, y, fx, fy);
+
+        if (best < 0.0F or d < best)
+            best = d;
+    }
+
+    return best < 0.0F ? 5 : best < 50.0F ? 0 : best < 100.0F ? 1 : best < 150.0F ? 2 : best < 250.0F ? 3 : 4;
+}
+
 int AirTaskingManagerClass::BuildDivert(MissionRequest mis)
 {
     int time, ls, hs, tr;
@@ -1125,14 +1151,20 @@ int AirTaskingManagerClass::BuildDivert(MissionRequest mis)
     if (mis->mission == AMIS_INTERCEPT)
     {
         int *g = gScramble[mis->who % 8];
+        int *k = gScrambleKm[mis->who % 8][AlertDistanceBucket(mis->who, mis->tx, mis->ty)];
         g[0]++;
+        k[1]++;
 
         if (not flight)
+        {
             g[3]++;
+            k[4]++;
+        }
         else
         {
             g[1]++;
             g[2] += flight->GetUnitMission() == AMIS_ALERT;
+            k[flight->GetUnitMission() == AMIS_ALERT ? 2 : 3]++;
         }
     }
 
@@ -2981,6 +3013,7 @@ void RequestIntercept(FlightClass *enemy, int who, RequIntHint hint)
     w->GetWPLocation(&nx, &ny);
     mis.min_to = DirectionTo(x, y, nx, ny);
 
+    gScrambleKm[who % 8][AlertDistanceBucket(who, mis.tx, mis.ty)][0]++;
     mis.RequestMission();
 }
 

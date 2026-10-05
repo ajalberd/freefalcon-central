@@ -610,6 +610,18 @@ static void GtmLog(int hour)
                    a[3], a[4], a[5], a[6], a[7], b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]);
         }
 
+        // intercepts by distance from the detected package to the team's nearest ALERT flight (atm.cpp)
+        extern int gScrambleKm[8][6][5];
+        static const char *kmb[] = {"<50km", "50-100km", "100-150km", "150-250km", "250km+", "no-alert"};
+
+        for (int t : {2, 6})
+            for (int b = 0; b < 6; b++)
+            {
+                int *k = gScrambleKm[t][b];
+                printf("SCRAMBLEKM h=%d team %d %-9s spotted %d, divert attempts %d, alert scrambled %d, other "
+                       "diverted %d, none %d (cumulative)\n", hour, t, kmb[b], k[0], k[1], k[2], k[3], k[4]);
+            }
+
         // why packages fail (package.cpp gPkgWhy), cumulative
         extern int gPkgWhy[8][4][5];
         static const char *cls[] = {"strike", "cas/bai", "counter-air", "anti-ship"};
