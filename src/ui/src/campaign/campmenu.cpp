@@ -34,6 +34,11 @@
 #include "textids.h"
 #include "fflog.h" // Artscout - 2026: "Build package" submenu trace
 #include "falcsess.h" // Artscout - 2026: FalconLocalSession, for the player's team
+#include "navunit.h" // Artscout - 2026: TaskForceOrderStation
+#include "campterr.h" // GetCover
+#include "cicons.h" // gMapIconTipHook
+#include <map>
+#include <string>
 
 void DeleteGroupList(long ID);
 void AddObjectiveToTargetTree(Objective obj);
@@ -2703,6 +2708,192 @@ void CampaignPackageMenuAttach(C_PopupList *menu)
     }
 }
 
+// Artscout - 2026: orders for the selected task force. Select a ship (its route is drawn), then
+// right-click open water: "Send <ship> here" sails it there by a water route and holds it; a ship
+// on station gets "Resume patrol". Like Build package these items are added at hookup.
+static VU_ID gNavStationUnit = FalconNullId;
+static GridIndex gNavStationX = 0, gNavStationY = 0;
+
+static void MenuNavalStationCB(long ID, short hittype, C_Base *)
+{
+    if (hittype not_eq C_TYPE_LMOUSEUP)
+        return;
+
+    gPopupMgr->CloseMenu();
+
+    Unit un = (Unit)vuDatabase->Find(gNavStationUnit);
+
+    if (not un or not un->IsTaskForce())
+        return;
+
+    if (ID == MID_NAVAL_STATION)
+        TaskForceOrderStation((TaskForce)un, gNavStationX, gNavStationY);
+    else
+        TaskForceReleaseStation((TaskForce)un);
+
+    gMapMgr->SetCurrentWaypointList(un->Id());
+    gMapMgr->DrawMap();
+}
+
+static void NavalStationAttach(C_PopupList *menu)
+{
+    static _TCHAR lblStation[] = "Send ship here";
+    static _TCHAR lblResume[] = "Resume patrol";
+
+    if (not menu)
+        return;
+
+    if (menu->AddItem(MID_NAVAL_STATION, C_TYPE_ITEM, lblStation, 0))
+    {
+        menu->SetCallback(MID_NAVAL_STATION, MenuNavalStationCB);
+        menu->SetItemFlagBitOn(MID_NAVAL_STATION, C_BIT_INVISIBLE);
+    }
+
+    if (menu->AddItem(MID_NAVAL_RESUME, C_TYPE_ITEM, lblResume, 0))
+    {
+        menu->SetCallback(MID_NAVAL_RESUME, MenuNavalStationCB);
+        menu->SetItemFlagBitOn(MID_NAVAL_RESUME, C_BIT_INVISIBLE);
+    }
+}
+
+// Called as the map menu opens: show the items only for one of the player's own task forces
+static void NavalStationRefresh(C_PopupList *menu)
+{
+    menu->SetItemFlagBitOn(MID_NAVAL_STATION, C_BIT_INVISIBLE);
+    menu->SetItemFlagBitOn(MID_NAVAL_RESUME, C_BIT_INVISIBLE);
+    gNavStationUnit = FalconNullId;
+
+    Unit un = (Unit)vuDatabase->Find(gMapMgr->GetCurWPID());
+
+    if (not un or not un->IsTaskForce() or un->IsDead() or
+        un->GetTeam() not_eq CampPkgPlayerTeam())
+        return;
+
+    short px = 0, py = 0;
+    gPopupMgr->GetCurrentXY(&px, &py);
+    gMapMgr->GetMapRelativeXY(&px, &py);
+    const float scale = gMapMgr->GetMapScale();
+    const float maxy = gMapMgr->GetMaxY();
+    gNavStationX = SimToGrid(px / scale);
+    gNavStationY = SimToGrid(maxy - py / scale);
+    gNavStationUnit = un->Id();
+
+    _TCHAR name[48] = {0};
+    un->GetName(name, 40, FALSE);
+
+    _TCHAR label[96];
+    sprintf(label, "Send %s here", name);
+    menu->SetItemLabel(MID_NAVAL_STATION, label);
+    menu->SetItemFlagBitOff(MID_NAVAL_STATION, C_BIT_INVISIBLE);
+
+    if (GetCover(gNavStationX, gNavStationY) == Water)
+        menu->SetItemFlagBitOn(MID_NAVAL_STATION, C_BIT_ENABLED);
+    else
+        menu->SetItemFlagBitOff(MID_NAVAL_STATION, C_BIT_ENABLED);
+
+    if (un->GetUnitOrders() == NORD_STATION)
+    {
+        menu->SetItemFlagBitOff(MID_NAVAL_RESUME, C_BIT_INVISIBLE);
+        menu->SetItemFlagBitOn(MID_NAVAL_RESUME, C_BIT_ENABLED);
+    }
+}
+
+// Artscout - 2026: hover tooltip for map icons. The UI's tooltip engine (250 ms) already asked each
+// map icon for help text, but it only had the name label, which exists only with Names on, and it
+// was not rebuilt when the mouse slid from one icon to the next. This builds "name - kind - side"
+// from the entity itself. An enemy contact the player's side has not identified says only that.
+static long CampaignMapTip(long iconID)
+{
+    UI_Refresher *urec = (UI_Refresher *)gGps->Find(iconID);
+
+    if (not urec)
+        return 0;
+
+    CampEntity e = (CampEntity)vuDatabase->Find(urec->GetID());
+
+    if (not e)
+        return 0;
+
+    const uchar me = CampPkgPlayerTeam();
+    _TCHAR text[220];
+    _TCHAR name[48] = {0};
+    int at = 0;
+
+    if (e->IsUnit() and e->GetTeam() not_eq me and
+        not(TheCampaign.Flags bitand CAMP_TACTICAL_EDIT) and
+        not e->GetIdentified(me))
+    {
+        strcpy(text, "Unidentified contact");
+    }
+    else if (e->IsTaskForce() and e->GetTeam() not_eq me and not(TheCampaign.Flags bitand CAMP_TACTICAL_EDIT) and
+             not e->GetSpotted(me))
+    {
+        // a dimmed last-known icon: say so, and give away nothing the player cannot see now
+        e->GetName(name, 40, FALSE);
+        sprintf(text, "%s - last known position", name);
+    }
+    else
+    {
+        e->GetName(name, 40, FALSE);
+
+        // task forces come back with no name at all; fall back to the unit type (Destroyer, Tanker...)
+        if (not name[0] and e->IsUnit())
+        {
+            UnitClassDataType *ucd = ((Unit)e)->GetUnitClassData();
+
+            if (ucd)
+                sprintf(name, "%s", ucd->Name);
+        }
+
+        at = sprintf(text, "%s", name);
+
+        if (e->IsUnit())
+        {
+            Unit u = (Unit)e;
+            VehicleClassDataType *vc = GetVehicleClassData(u->GetVehicleID(0));
+
+            if (vc and vc->Name and strstr(name, vc->Name) == NULL)
+                at += sprintf(&text[at], " - %s", vc->Name);
+
+            if (u->GetTotalVehicles() > 1)
+                at += sprintf(&text[at], " x%d", (int)u->GetTotalVehicles());
+        }
+        else if (e->IsObjective())
+            at += sprintf(&text[at], " - %d%%",
+                          (int)((Objective)e)->GetObjectiveStatus());
+
+        if (e->IsTaskForce())
+        {
+            TaskForce tf = (TaskForce)e;
+
+            at += sprintf(&text[at], " - supply %d%%", tf->GetUnitSupply());
+
+            if (tf->GetUnitOrders() == NORD_STATION)
+                at += sprintf(&text[at], " - on station");
+            else if (tf->GetUnitOrders() == NORD_TRANSPORT)
+                at += sprintf(&text[at], " - under way to port");
+        }
+
+        if (TeamInfo[e->GetTeam()])
+            sprintf(&text[at], " (%s)", TeamInfo[e->GetTeam()]->GetName());
+    }
+
+    // The string table keeps every string it is given; reuse the id for one it has seen
+    static std::map<std::string, long> seen;
+
+    if (seen.size() > 600)
+        seen.clear();
+
+    std::map<std::string, long>::iterator it = seen.find(text);
+
+    if (it != seen.end())
+        return it->second;
+
+    long id = gStringMgr->AddText(text);
+    seen[text] = id;
+    return id;
+}
+
 // Artscout - 2026: the stock "Add Flight" / "Add Package" items stay hidden in the campaign.
 //
 // They were un-hidden here first, on the reasoning that the machinery behind them is complete --
@@ -2751,6 +2942,7 @@ void SetupCampaignMenus()
 
     GameType = 1;
     EditMode = 0;
+    gMapIconTipHook = CampaignMapTip;
     // Map Menu
     menu = gPopupMgr->GetMenu(MAP_POP);
 
@@ -2994,6 +3186,7 @@ void MapMenuOpenCB(C_Base *themenu, C_Base *caller)
     menu = (C_PopupList *)themenu;
 
     CampaignPackageMenuRebuild(menu, caller);
+    NavalStationRefresh(menu);
 
     // Enable certain stuff for TE VC window
     if (caller->Parent_->GetID() == TAC_VC_WIN)
@@ -3405,6 +3598,7 @@ void HookupCampaignMenus()
         }
 
         CampaignPackageMenuAttach(menu);
+        NavalStationAttach(menu);
     }
 
     menu = gPopupMgr->GetMenu(OBJECTIVE_POP);

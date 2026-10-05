@@ -2364,9 +2364,15 @@ void C_Map::FitFlightPlan()
         CurWPArea_.bottom < 0)
         return;
 
-    w = (CurWPArea_.right - CurWPArea_.left) /
-        1000; // 1100 = ft -> 500m * 1.64 (allow for icons to fit on map also)
-    h = (CurWPArea_.bottom - CurWPArea_.top) / 1000;
+    // Artscout - 2026: this assumed the stock bitmap's 1640 ft per map pixel (the "/ 1640" below, and the
+    // "/ 1000" here, which is 1.64 per stock pixel). The terrain-derived map is finer (FEET_PER_PIXEL is
+    // about half that), so every position came out at half its true value: the view sat in the
+    // north-west, up against the China border, instead of on the flight plan. Convert with the real scale;
+    // for the stock map this is the same arithmetic as before.
+    const float feetPerPixel = FEET_PER_PIXEL;
+
+    w = (long)((CurWPArea_.right - CurWPArea_.left) / feetPerPixel * 1.64f); // 1.64: room for the icons
+    h = (long)((CurWPArea_.bottom - CurWPArea_.top) / feetPerPixel * 1.64f);
 
     if (w > h)
         ZoomLevel_ = w;
@@ -2379,10 +2385,8 @@ void C_Map::FitFlightPlan()
     if (ZoomLevel_ > MinZoomLevel_)
         ZoomLevel_ = MinZoomLevel_;
 
-    cx = (CurWPArea_.top / 1640 + CurWPArea_.bottom / 1640) / 2;
-    cy = static_cast<long>(
-        ((maxy - CurWPArea_.left) / 1640 + (maxy - CurWPArea_.right) / 1640) /
-        2);
+    cx = static_cast<long>((CurWPArea_.top / feetPerPixel + CurWPArea_.bottom / feetPerPixel) / 2);
+    cy = static_cast<long>(((maxy - CurWPArea_.left) / feetPerPixel + (maxy - CurWPArea_.right) / feetPerPixel) / 2);
 
     SetMapCenter(cx, cy);
 }

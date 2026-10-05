@@ -1,5 +1,6 @@
 #include "falclib.h"
 #include "chandler.h"
+#include "graphics/include/fflog.h"
 #include "ui/include/textids.h"
 
 extern bool g_bHiResUI; // M.N.
@@ -984,6 +985,14 @@ BOOL C_Parser::LoadWindowList(char *filename)
 
                 if (win)
                 {
+                    if (Handler_->FindWindow(win->GetID()))
+                    {
+                        char dup[300];
+                        sprintf_s(dup, sizeof(dup), "[UIDUP] window %ld from %s is already loaded"
+                                  " -- a second copy exists\n", win->GetID(), lfp);
+                        FFDebugLog(dup);
+                    }
+
                     UI95_AdaptWindow(win, lfp); // Artscout - 2026: a no-op at 1024x768
                     WindowList_[WinLoaded_++] = win->GetID();
                     Handler_->AddWindow(win, win->GetFlags());

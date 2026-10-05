@@ -43,7 +43,7 @@ path** (so the client->surface mapping is exercised), and writes to `<install>\u
   the image size and cover mode; lint for off-canvas windows and controls outside their window.
 
 `tools\uitest\run.ps1 -Script campaign.txt -UiSize 1600x900 [-UiScale 1.25] -Deploy -Png <dir>`
-deploys the build as `<install>\FFViper-ui.exe` (**never touches `FFViper.exe`**, the rail build),
+with `-Deploy` copies the build over `<install>\FFViper.exe` (it used to deploy as `FFViper-ui.exe`; the UI work is in main now, so there is one exe),
 runs one script, prints the log, keeps PNGs/JSON/logs in `<dir>`, and slices this run's
 `FFDebug.log` (the `[UIADAPT]` lines) into `<script>.ffdebug.txt`. `tools\uitest\montage.ps1`
 tiles a folder of PNGs into one contact sheet. Scripts live in `tools\uitest\*.txt`

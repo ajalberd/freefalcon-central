@@ -6,6 +6,29 @@
 #include "cmusic.h"
 #include "platform/win32shim/dsound.h" // Artscout - 2026: OpenAL-backed DirectSound on BOTH platforms (see dsound_openal.cpp)
 
+#include <stdarg.h>
+#include <stdio.h>
+#include "graphics/include/fflog.h"
+
+// Artscout - 2026: [MUSIC] trace in FFDebug.log. Music went silent after the campaign intro movie and the
+// reason is somewhere in the pause / fade / resume / queue handshake; this records each step with the
+// engine flags and whether the stream is playing, so the next silence names the step that was missed.
+static void MusicLog(const char *fmt, ...)
+{
+    static int count = 0;
+
+    if (++count > 600)
+        return;
+
+    char buf[256];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf) - 2, fmt, ap);
+    va_end(ap);
+    strcat_s(buf, sizeof(buf), "\n");
+    FFDebugLog(buf);
+}
+
 C_Music *gMusic = NULL;
 
 static BOOL PlayingInteractive = FALSE;
@@ -20,6 +43,9 @@ void gMusicCallback(SOUNDSTREAM *Stream, int MessageID)
 {
     if (not Stream or not gMusic)
         return;
+
+    MusicLog("[MUSIC] callback msg %d flags %d stream %ld status %lx", MessageID, (int)gMusic->GetFlags(),
+             (long)Stream->ID, (unsigned long)Stream->Status);
 
     switch (MessageID)
     {
@@ -218,6 +244,7 @@ void C_Music::Play(SOUND_RES *snd)
 
 void C_Music::Stop()
 {
+    MusicLog("[MUSIC] Stop: flags %d sound %d playing %d", (int)MusicFlags_, Sound_ ? 1 : 0, (Sound_ and Sound_->IsStreamPlaying(StreamID_[StreamUsed_])) ? 1 : 0);
     if (Sound_)
         Sound_->StopStream(StreamID_[StreamUsed_]);
 
@@ -226,6 +253,7 @@ void C_Music::Stop()
 
 void C_Music::FadeOut_Stop()
 {
+    MusicLog("[MUSIC] FadeOut_Stop: flags %d sound %d playing %d", (int)MusicFlags_, Sound_ ? 1 : 0, (Sound_ and Sound_->IsStreamPlaying(StreamID_[StreamUsed_])) ? 1 : 0);
     if (Sound_)
     {
         MusicFlags_ = MUSIC_STOP;
@@ -235,6 +263,7 @@ void C_Music::FadeOut_Stop()
 
 void C_Music::Pause()
 {
+    MusicLog("[MUSIC] Pause: flags %d sound %d playing %d", (int)MusicFlags_, Sound_ ? 1 : 0, (Sound_ and Sound_->IsStreamPlaying(StreamID_[StreamUsed_])) ? 1 : 0);
     if (Sound_)
     {
         MusicFlags_ = MUSIC_PAUSE;
@@ -244,6 +273,7 @@ void C_Music::Pause()
 
 void C_Music::FadeOut_Pause()
 {
+    MusicLog("[MUSIC] FadeOut_Pause: flags %d sound %d playing %d", (int)MusicFlags_, Sound_ ? 1 : 0, (Sound_ and Sound_->IsStreamPlaying(StreamID_[StreamUsed_])) ? 1 : 0);
     if (Sound_)
     {
         MusicFlags_ = MUSIC_PAUSE_FADE;
@@ -253,6 +283,7 @@ void C_Music::FadeOut_Pause()
 
 void C_Music::Resume()
 {
+    MusicLog("[MUSIC] Resume: flags %d sound %d playing %d", (int)MusicFlags_, Sound_ ? 1 : 0, (Sound_ and Sound_->IsStreamPlaying(StreamID_[StreamUsed_])) ? 1 : 0);
     if (Sound_)
     {
         if (MusicFlags_ == MUSIC_PAUSE_FADE)
@@ -323,6 +354,7 @@ void C_Music::ClearQ()
 
 void C_Music::PlayQ()
 {
+    MusicLog("[MUSIC] PlayQ: flags %d sound %d playing %d", (int)MusicFlags_, Sound_ ? 1 : 0, (Sound_ and Sound_->IsStreamPlaying(StreamID_[StreamUsed_])) ? 1 : 0);
     SOUND_RES *snd;
     int i;
 

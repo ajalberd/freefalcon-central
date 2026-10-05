@@ -13,6 +13,7 @@
 #include "cmap.h"
 #include "gps.h"
 #include "urefresh.h"
+#include <map>
 #include "classtbl.h"
 #include "userids.h"
 #include "textids.h"
@@ -56,6 +57,7 @@ UI_Refresher::UI_Refresher()
     ATO_ = NULL;
     OOB_ = NULL;
     Threat_ = NULL;
+    Ship_ = false;
 }
 
 UI_Refresher::~UI_Refresher()
@@ -286,6 +288,7 @@ void UI_Refresher::AddMapItem(CampEntity entity)
     else if (entity->IsTaskForce())
     {
         MapItem_ = Owner_->Map_->AddUnit((Unit)entity);
+        Ship_ = true;
     }
     else if (entity->IsObjective())
     {
@@ -339,8 +342,19 @@ void UI_Refresher::AddMapItem(Division div)
     MapItem_ = Owner_->Map_->AddDivision(div);
 }
 
+// Artscout - 2026: where the player last SAW each enemy ship, so a ship whose spotted timer lapses
+// stays on the map as a dimmed icon there instead of vanishing. Kept across icon-list rebuilds.
+extern bool g_bCampMapShipGhosts;
+static std::map<unsigned long long, std::pair<float, float> > gShipLastKnown;
+
+static unsigned long long ShipKey(CampEntity e)
+{
+    return ((unsigned long long)e->Id().creator_ << 32) bitor (unsigned long long)e->Id().num_;
+}
+
 void UI_Refresher::UpdateMapItem(CampEntity entity)
 {
+    bool ghost = false;
     long curstr, totalstr;
     long perc = 0, heading = 0;
     WayPoint wp;
@@ -519,6 +533,27 @@ void UI_Refresher::UpdateMapItem(CampEntity entity)
     float x = entity->YPos();
     float y = Owner_->Map_->GetMaxY() - entity->XPos();
 
+    if (g_bCampMapShipGhosts and entity->IsTaskForce() and Owner_->TeamNo_ >= 0 and
+        entity->GetTeam() not_eq Owner_->TeamNo_ and not(TheCampaign.Flags bitand CAMP_TACTICAL_EDIT))
+    {
+        if (entity->GetSpotted(static_cast<uchar>(Owner_->TeamNo_)))
+            gShipLastKnown[ShipKey(entity)] = std::make_pair(x, y);
+        else if (not((Unit)entity)->Inactive())
+        {
+            std::map<unsigned long long, std::pair<float, float> >::iterator lk = gShipLastKnown.find(ShipKey(entity));
+
+            if (lk not_eq gShipLastKnown.end())
+            {
+                // frozen: nothing the player has not seen reaches the icon (position, strength, heading)
+                x = lk->second.first;
+                y = lk->second.second;
+                perc = MapItem_->Status;
+                heading = MapItem_->state;
+                ghost = true;
+            }
+        }
+    }
+
     if (MapItem_->Owner->UpdateInfo(MapItem_, x, y, perc, heading))
     {
         Owner_->SetFlags(Owner_->GetFlags() bitor _GPS_MAP_REFRESH_);
@@ -549,6 +584,8 @@ void UI_Refresher::UpdateMapItem(CampEntity entity)
      }
      }
     */
+    const long showBefore = MapItem_ ? ((MapItem_->Flags bitand C_BIT_INVISIBLE) bitor (MapItem_->Ghost << 1)) : 0;
+
     if (MapItem_ and entity->IsUnit() and
         entity->GetTeam() not_eq Owner_->TeamNo_)
     {
@@ -573,8 +610,10 @@ void UI_Refresher::UpdateMapItem(CampEntity entity)
         }
         else
         {
+            MapItem_->Ghost = ghost ? 1 : 0;
+
             if (not entity->GetSpotted(static_cast<uchar>(Owner_->TeamNo_)) and
-                entity->GetMovementType() not_eq NoMove)
+                entity->GetMovementType() not_eq NoMove and not ghost)
             {
                 MapItem_->Flags or_eq C_BIT_INVISIBLE;
 
@@ -625,6 +664,12 @@ void UI_Refresher::UpdateMapItem(CampEntity entity)
             MapItem_->Flags or_eq C_BIT_INVISIBLE;
 
         // END OF ADDED SECTION 2002-02-21
+
+        // Artscout - 2026: a ship that goes dim (or comes back) must repaint; the map only redraws on
+        // movement, and a ghost does not move.
+        if (entity->IsTaskForce() and
+            showBefore not_eq ((MapItem_->Flags bitand C_BIT_INVISIBLE) bitor (MapItem_->Ghost << 1)))
+            MapItem_->Owner->RepaintIcon(MapItem_);
     }
 }
 
@@ -634,6 +679,28 @@ void UI_Refresher::UpdateMapItem(Division)
 
 void UI_Refresher::RemoveMapItem()
 {
+    // Artscout - 2026: a ship that is gone (destroyed, or deleted from the campaign) leaves a dark wreck
+    // marker where it was last on the map instead of vanishing. Only what the player could see: an enemy
+    // ship that was hidden (never spotted) is removed as before. The icon is orphaned on purpose -- no
+    // refresher owns it any more, it never updates, cannot be hit, and is replaced if its id is reused.
+    extern bool g_bCampMapShipWrecks;
+
+    if (g_bCampMapShipWrecks and Ship_ and MapItem_ and not(MapItem_->Flags bitand C_BIT_INVISIBLE))
+    {
+        CampEntity gone = (CampEntity)vuDatabase->Find(ID_);
+
+        if (not gone or gone->IsDead())
+        {
+            if (gMapMgr)
+                gMapMgr->RemoveFromCurIcons(MapItem_->ID);
+
+            MapItem_->Ghost = 2;
+            MapItem_->Owner->RepaintIcon(MapItem_);
+            MapItem_ = NULL;
+            return;
+        }
+    }
+
     if (gMapMgr)
         gMapMgr->RemoveFromCurIcons(MapItem_->ID);
 

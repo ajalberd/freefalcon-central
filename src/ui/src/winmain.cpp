@@ -546,6 +546,202 @@ static LONG __stdcall FFCrashFilter(EXCEPTION_POINTERS *pExPtrs)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+// ============================================================================
+// Artscout - 2026: a hang watchdog. FFCrash.log only catches crashes; the ship-Recon freeze left
+// Windows event 1002 ("stopped interacting") and nothing else. This thread asks the game window
+// for a reply once a second. If none comes for 6 s it writes FFHang.log: the time and a symbolised
+// stack of EVERY thread in the process (UI, sim, campaign, render), so a lock cycle shows both
+// sides. One report per freeze; it re-arms when the window answers again. A long load that never
+// pumps messages will also log; the time stamp tells them apart.
+// ============================================================================
+#include <tlhelp32.h>
+
+static void FFHangDumpThread(HANDLE log, DWORD tid, const char *label)
+{
+    HANDLE th = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, tid);
+
+    if (not th)
+        return;
+
+    char head[96];
+    wsprintfA(head, "\r\n-- thread %lu %s\r\n", tid, label);
+    FFCrashWrite(log, head);
+
+    if (SuspendThread(th) not_eq (DWORD)-1)
+    {
+        CONTEXT ctx;
+        ZeroMemory(&ctx, sizeof(ctx));
+        ctx.ContextFlags = CONTEXT_FULL;
+
+        if (GetThreadContext(th, &ctx))
+        {
+            // GetFirstStackTraceString cannot unwind x64 (it gave one unresolved frame per thread), so
+            // walk with the unwind tables the exe and every system DLL carry, and print module+offset;
+            // an offset resolves against RedViper.pdb, and FFHang.dmp has the same stacks with symbols.
+            CONTEXT c = ctx;
+
+            for (int depth = 0; depth < 48 and c.Rip; depth++)
+            {
+                char modPath[MAX_PATH] = "?";
+                HMODULE hm = NULL;
+                DWORD64 base = 0;
+
+                if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS bitor GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                       (LPCSTR)c.Rip, &hm) and hm)
+                {
+                    GetModuleFileNameA(hm, modPath, MAX_PATH);
+                    base = (DWORD64)hm;
+                }
+
+                const char *name = modPath;
+
+                for (const char *p = modPath; *p; p++)
+                    if (*p == '\\' or *p == '/')
+                        name = p + 1;
+
+                char line[200];
+                sprintf_s(line, sizeof(line), "  %s+0x%llx  (rip %llx rsp %llx)\r\n", name,
+                          (unsigned long long)(c.Rip - base), (unsigned long long)c.Rip, (unsigned long long)c.Rsp);
+                FFCrashWrite(log, line);
+
+                DWORD64 imageBase = 0;
+                PRUNTIME_FUNCTION fe = RtlLookupFunctionEntry(c.Rip, &imageBase, NULL);
+
+                if (fe)
+                {
+                    PVOID handlerData = NULL;
+                    DWORD64 frame[2] = {0, 0};
+                    RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, c.Rip, fe, &c, &handlerData, frame, NULL);
+                }
+                else
+                {
+                    // a leaf with no table: the return address is on top of the stack
+                    if (not c.Rsp or IsBadReadPtr((const void *)c.Rsp, 8))
+                        break;
+
+                    c.Rip = *(DWORD64 *)c.Rsp;
+                    c.Rsp += 8;
+                }
+            }
+        }
+
+        ResumeThread(th);
+    }
+
+    CloseHandle(th);
+}
+
+static DWORD WINAPI FFHangWatchdog(LPVOID)
+{
+    bool reported = false;
+
+    for (;;)
+    {
+        Sleep(1000);
+
+        HWND wnd = FalconDisplay.appWin;
+
+        if (not wnd or not IsWindow(wnd))
+            continue;
+
+        DWORD_PTR reply = 0;
+        const LRESULT ok = SendMessageTimeoutA(wnd, WM_NULL, 0, 0, SMTO_BLOCK, 6000, &reply);
+
+        if (ok)
+        {
+            reported = false;
+            continue;
+        }
+
+        if (reported)
+            continue;
+
+        reported = true;
+
+        char path[MAX_PATH];
+        DWORD n = GetModuleFileNameA(NULL, path, MAX_PATH);
+
+        if (n == 0 or n >= MAX_PATH)
+            continue;
+
+        while (n > 0 and path[n - 1] not_eq '\\' and path[n - 1] not_eq '/')
+            n--;
+
+        path[n] = 0;
+        lstrcatA(path, "FFHang.log");
+        HANDLE log = CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS,
+                                 FILE_ATTRIBUTE_NORMAL, NULL);
+
+        if (log == INVALID_HANDLE_VALUE)
+            continue;
+
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        char when[160];
+        wsprintfA(when,
+                  "\r\n==================== FFViper hang ====================\r\n"
+                  "time   : %04d-%02d-%02d %02d:%02d:%02d (window silent for 6 s)\r\n",
+                  st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+        FFCrashWrite(log, when);
+
+        DWORD uiThread = GetWindowThreadProcessId(wnd, NULL);
+        HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+
+        if (snap not_eq INVALID_HANDLE_VALUE)
+        {
+            THREADENTRY32 te;
+            te.dwSize = sizeof(te);
+
+            if (Thread32First(snap, &te))
+            {
+                do
+                {
+                    if (te.th32OwnerProcessID == GetCurrentProcessId() and te.th32ThreadID not_eq GetCurrentThreadId())
+                        FFHangDumpThread(log, te.th32ThreadID, te.th32ThreadID == uiThread ? "(window / UI)" : "");
+
+                    te.dwSize = sizeof(te);
+                } while (Thread32Next(snap, &te));
+            }
+
+            CloseHandle(snap);
+        }
+
+        FFCrashWrite(log, "=======================================================\r\n");
+        FlushFileBuffers(log);
+        CloseHandle(log);
+
+        // A minidump too, beside the log (FFHang.dmp, replaced each time): the stacks above only say
+        // where each thread is parked, the dump says what it was waiting on. dbghelp is loaded here
+        // and nowhere else, so a missing DLL costs only the dump.
+        {
+            char dumpPath[MAX_PATH];
+            lstrcpyA(dumpPath, path);
+            const int len = lstrlenA(dumpPath);
+
+            if (len > 3)
+            {
+                dumpPath[len - 3] = 'd';
+                dumpPath[len - 2] = 'm';
+                dumpPath[len - 1] = 'p';
+                typedef BOOL(WINAPI * MiniDumpFn)(HANDLE, DWORD, HANDLE, DWORD, void *, void *, void *);
+                HMODULE dbg = LoadLibraryA("dbghelp.dll");
+                MiniDumpFn write = dbg ? (MiniDumpFn)GetProcAddress(dbg, "MiniDumpWriteDump") : NULL;
+                HANDLE df = write ? CreateFileA(dumpPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL)
+                                  : INVALID_HANDLE_VALUE;
+
+                if (df not_eq INVALID_HANDLE_VALUE)
+                {
+                    // DataSegs | HandleData | IndirectlyReferencedMemory | ThreadInfo
+                    write(GetCurrentProcess(), GetCurrentProcessId(), df, 0x1 bitor 0x4 bitor 0x40 bitor 0x1000, NULL, NULL, NULL);
+                    CloseHandle(df);
+                }
+            }
+        }
+    }
+
+    return 0;
+}
+
 signed int PASCAL handle_WinMain(HINSTANCE h_instance,
                                  HINSTANCE h_previous_instance,
                                  LPSTR command_line, signed int command_show)
@@ -559,6 +755,7 @@ signed int PASCAL handle_WinMain(HINSTANCE h_instance,
     // FFCrashFilter above -- the handler has been in the tree and linked all along with
     // nothing switching it on.
     SetCrashHandlerFilter(FFCrashFilter);
+    CreateThread(NULL, 0, FFHangWatchdog, NULL, 0, NULL);
 
 #ifdef _WIN32
     // Artscout - 2026: DPI aware, before any window exists. Unaware, a scaled desktop (125%, 150%)
@@ -1891,6 +2088,13 @@ LRESULT CALLBACK FalconMessageHandler(HWND hwnd, UINT message, WPARAM wParam,
 {
     LRESULT retval = 0;
     static int InTimer = 0;
+
+    // -uitest "freeze <ms>": stall this (the window) thread, to exercise the hang watchdog
+    if (message == WM_APP + 0x7EE)
+    {
+        Sleep((DWORD)lParam);
+        return 0;
+    }
 
     // Looking for multiplayer stomp...
     ShiAssert(TeamInfo[1] == NULL or TeamInfo[1]->cteam not_eq 0xFC);

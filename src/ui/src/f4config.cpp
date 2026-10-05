@@ -436,6 +436,8 @@ int g_nWeatherFronts = 1;
 // 0 = the old round-to-nearest, under which 553 of 1024 grid coordinates read back one cell too
 // high and a ground unit could never step onto one of them in a decreasing direction.
 int g_nSimToGridFix = 1;
+int g_nNavalAI = 1; // campaign: 1 = ships sortie, patrol over water and sail port to port, 0 = old (idle in port, 20 km north and back)
+int g_nNavalTankerFuel = 50; // campaign: fuel one docked sea tanker adds to its team pool, scaled by missing refinery output (0 = off)
 int g_nGtmReservesPerCycle = 8; // campaign: ground units the GTM may move up from reserve per tasking cycle (stock 1)
 int g_nGtmKeepCaptureStall = 6; // campaign: with GtmKeepCapture, hours a kept attacker may sit without moving 1 km before it is re-tasked (0 = never)
 int g_nGtmCaptureUnits = 3; // campaign: battalions the GTM may send at one capture objective per cycle (stock 1)
@@ -980,6 +982,12 @@ bool g_bLogCampMenu =
     false; // Artscout - 2026: log what the "Build package" submenu decided, every time a campaign popup opens -- which menu, what was right-clicked, how many squadrons the theater offered and why the rest were dropped, and whether the parent item ended up enabled. The item is a submenu, so a disabled parent and a parent nobody thought to hover over look identical from the outside, and the candidate filter is three separate rejections (wrong team, no airframes, no role against this target) that all end in the same silence. "LogCampMenu".
 bool g_bCampMapIconHealth =
     true; // Artscout - 2026: objective icons on the campaign map darken with damage (status 100 = as drawn, 0 = CampMapIconMin brightness), so a flattened target reads at a glance without switching the damage overlay on. 0 = stock icons.
+bool g_bCampMapShipGhosts =
+    true; // Artscout - 2026: an enemy ship you spotted and then lost does not vanish from the campaign map: it stays at its LAST KNOWN position as a dimmed icon (tooltip says so) until you spot it again, and is dropped only when it is destroyed. Stock hid every movable enemy unit the moment its spotted timer lapsed, so ships popped out of existence at sea. The ghost never moves and shows nothing the player has not seen. 0 = stock. "CampMapShipGhosts".
+bool g_bCampMapShipWrecks =
+    true; // Artscout - 2026: a destroyed ship stays on the campaign map as a dark wreck marker where it went down (only if you could see it), instead of its icon being deleted. The marker is inert -- not clickable, no tooltip -- and lasts until the map is rebuilt. 0 = stock. "CampMapShipWrecks".
+float g_fCampMapGhostBright =
+    0.30f; // Artscout - 2026: brightness of a last-known-position ship icon (1 = full, 0 = black). "CampMapGhostBright".
 float g_fCampMapIconMin =
     0.35f; // Artscout - 2026: brightness of a 0%-status objective icon (1 = never darkens). Linear in status between this and 1.
 int g_nPathDamageCost =
@@ -1724,6 +1732,10 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bObjFog}, // Artscout - 2026: fog lit world objects like the terrain (D3D12)
     {"ObjPixelLight",
      &g_bObjPixelLight}, // Artscout - 2026: per-pixel object lighting (small lamps stop washing whole panels)
+    {"CampMapShipWrecks",
+     &g_bCampMapShipWrecks}, // Artscout - 2026: destroyed ships stay as dark wreck markers
+    {"CampMapShipGhosts",
+     &g_bCampMapShipGhosts}, // Artscout - 2026: lost enemy ships stay as dim last-known icons
     {"CampMapIconHealth",
      &g_bCampMapIconHealth}, // Artscout - 2026: darken objective icons by damage
     {"PitShadow",
@@ -2192,6 +2204,8 @@ static ConfigOption<int> IntOpts[] = {
     {"GtmReservesPerCycle", &g_nGtmReservesPerCycle}, // reserve units the ground AI moves up per cycle (stock 1)
     {"GtmCaptureUnits", &g_nGtmCaptureUnits}, // battalions the ground AI sends at one capture objective per cycle (stock 1)
     {"GtmKeepCaptureStall", &g_nGtmKeepCaptureStall}, // hours a kept attacker may stand still before it is re-tasked
+    {"NavalAI", &g_nNavalAI}, // campaign: 1 = ships sortie, patrol and sail port to port, 0 = old behaviour
+    {"NavalTankerFuel", &g_nNavalTankerFuel}, // fuel per docked sea tanker, scaled by missing refinery output (0 = off)
     {"SimToGridFix", &g_nSimToGridFix}, // campaign: 1 = floor the sim->grid conversion (ground units can move again), 0 = old rounding
     {"RwrFont", &g_nRwrFont}, // Artscout - 2026 (RWR): -1 = one size below the MFD font, else 0..3
     {"CanopyAttenuation", &g_nCanopyAttenuation}, // Artscout - 2026: extra dB of canopy muffling, 0 = off
@@ -2367,6 +2381,7 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fSunTodDimRef}, // Artscout - 2026: sun fades below this TOD light level (0 = off)
     {"ToneMapExposure",
      &g_fToneMapExposure}, // Artscout - 2026: scene exposure into the GT7 curve (1 = scene white on paper white)
+    {"CampMapGhostBright", &g_fCampMapGhostBright}, // Artscout - 2026: dim level of a last-known ship icon
     {"CampMapIconMin",
      &g_fCampMapIconMin}, // Artscout - 2026: brightness of a 0%-status objective icon
     {"CpuNearClip",

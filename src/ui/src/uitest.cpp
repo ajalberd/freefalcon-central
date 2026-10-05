@@ -16,6 +16,7 @@
 //   hold <CTRLID> <dy> <ms>       press dy px below a control's centre for ms (panners repeat)
 //   text <CTRLID>                 log a text control's current text
 //   rclickicon <WINID> [n]        right click the n-th map icon ui95 would hit (default 0)
+//   hovericon <WINID> [n] [ms]    move the mouse onto that icon, no click, wait ms (default 700)
 //   shot <name>                   the ui95 surface as ui95 drew it -> out\<name>.bmp
 //   wshot <name>                  the window as it is on screen (PrintWindow) -> out\<name>.bmp
 //   layout <name>                 every shown window and control, with lint -> out\<name>.json
@@ -40,6 +41,16 @@
 #include "ctile.h"
 #include "ui95_ext.h"
 #include "uitest.h"
+#include "entity.h"
+#include "find.h"
+#include "cmpclass.h"
+#include "division.h"
+#include "cmap.h"
+#include "gps.h"
+#include "urefresh.h"
+#include "unit.h"
+#include "campaign.h"
+extern GlobalPositioningSystem *gGps;
 
 extern C_Handler *gMainHandler;
 extern C_Parser *gMainParser;
@@ -459,7 +470,7 @@ static void Click(long ctrlId, long winId, const char *label)
 // Right-click the n-th map icon (0-based) in a window that ui95 itself would hit at the icon's
 // centre -- i.e. one not hidden under another window or control. The map popups (recon, ...)
 // hang off icons, which are not controls of their own.
-static void RightClickIcon(long winId, int n, const char *label)
+static void RightClickIcon(long winId, int n, const char *label, long hoverMs = 0, bool shipsOnly = false)
 {
     gMainHandler->EnterCritical();
     C_Window *win = gMainHandler->FindWindow(winId);
@@ -484,6 +495,15 @@ static void RightClickIcon(long winId, int n, const char *label)
             if ((ic->Flags bitand C_BIT_INVISIBLE) or not(ic->Flags bitand C_BIT_ENABLED) or not ic->Icon)
                 continue;
 
+            if (shipsOnly)
+            {
+                UI_Refresher *urec = (UI_Refresher *)gGps->Find(ic->ID);
+                CampEntity ce = urec ? (CampEntity)vuDatabase->Find(urec->GetID()) : NULL;
+
+                if (not ce or not ce->IsTaskForce())
+                    continue;
+            }
+
             const long x = win->GetX() + win->VX_[c->GetClient()] + ic->x + ic->Icon->GetX() + ic->Icon->GetW() / 2;
             const long y = win->GetY() + win->VY_[c->GetClient()] + ic->y + ic->Icon->GetY() + ic->Icon->GetH() / 2;
             long hitId = 0;
@@ -502,6 +522,16 @@ static void RightClickIcon(long winId, int n, const char *label)
     if (not found)
     {
         Log("FAIL rclickicon %s: %d hittable icons, wanted #%d", label, seen, n);
+        return;
+    }
+
+    if (hoverMs > 0)
+    {
+        // Mouse move only, then wait: the tooltip engine shows its box after 250 ms
+        SurfaceToClient(&sx, &sy);
+        PostMessage(gMainHandler->GetAppWnd(), WM_MOUSEMOVE, 0, MAKELPARAM((WORD)sx, (WORD)sy));
+        Sleep((DWORD)hoverMs);
+        Log("OK hovericon %s #%d (icon %ld) for %ld ms", label, n, iconId, hoverMs);
         return;
     }
 
@@ -646,6 +676,15 @@ static bool WaitFor(long id, bool shown, DWORD ms)
     return false;
 }
 
+// freeze command: runs on the window thread (see "freeze")
+static DWORD g_uiTestFreezeMs = 0;
+static void CALLBACK UiTestFreezeProc(HWND, UINT, UINT_PTR, DWORD)
+{
+    Log("INFO freeze callback running on thread %lu", GetCurrentThreadId());
+    Sleep(g_uiTestFreezeMs);
+    Log("INFO freeze callback finished");
+}
+
 static void RunLine(char *line, int lineNo)
 {
     char *ctx = NULL;
@@ -787,6 +826,245 @@ static void RunLine(char *line, int lineNo)
             Log("FAIL rclickicon %s: unknown window", a1);
         else
             RightClickIcon(win, a2 ? atoi(a2) : 0, a1);
+    }
+    else if (!_stricmp(cmd, "mapzoom"))
+    {
+        // mapzoom [level]: log the campaign map's zoom level, or set it
+        extern C_Map *gMapMgr;
+        gMainHandler->EnterCritical();
+
+        if (gMapMgr)
+        {
+            if (a1)
+            {
+                gMapMgr->SetZoomLevel((short)atoi(a1));
+                gMapMgr->DrawMap();
+            }
+
+            Log("OK mapzoom: level %ld", gMapMgr->GetZoomLevel());
+        }
+
+        gMainHandler->LeaveCritical();
+    }
+    else if (!_stricmp(cmd, "mapmove") and a1 and a2)
+    {
+        // mapmove <dx> <dy>: pan the campaign map by that many pixels
+        extern C_Map *gMapMgr;
+        gMainHandler->EnterCritical();
+
+        if (gMapMgr)
+        {
+            gMapMgr->MoveCenter(atol(a1), atol(a2));
+            gMapMgr->DrawMap();
+        }
+
+        gMainHandler->LeaveCritical();
+        Log("OK mapmove %s %s", a1, a2);
+    }
+    else if (!_stricmp(cmd, "compress") and a1)
+    {
+        // compress <n>: campaign time compression (0 = stopped), as the clock box does
+        extern void SetTimeCompression(int newComp);
+        SetTimeCompression(atoi(a1));
+        Log("OK compress %s", a1);
+    }
+    else if (!_stricmp(cmd, "sinkship") and a1)
+    {
+        // sinkship <team> [n]: DeleteUnit() the n-th (default 0) task force of that team. Wreck-marker test.
+        const int team = atoi(a1), want = a2 ? atoi(a2) : 0;
+        int n = 0, done = 0;
+        CampEnterCriticalSection();
+        VuListIterator it(AllUnitList);
+
+        for (CampEntity ce = (CampEntity)it.GetFirst(); ce; ce = (CampEntity)it.GetNext())
+        {
+            if (not ce->IsTaskForce() or ce->GetTeam() != team)
+                continue;
+
+            if (n++ == want)
+            {
+                // what the campaign does when a dead unit times out: dispose and remove it
+                Unit u = (Unit)ce;
+                Unit el = u->GetFirstUnitElement();
+
+                while (el)
+                {
+                    u->RemoveChild(el->Id());
+                    vuDatabase->Remove(el);
+                    el = u->GetFirstUnitElement();
+                }
+
+                u->KillUnit();
+                vuDatabase->Remove(u);
+                done = 1;
+                break;
+            }
+        }
+
+        CampLeaveCriticalSection();
+        Log("OK sinkship team %d #%d: %s", team, want, done ? "killed" : "no such ship");
+    }
+    else if (!_stricmp(cmd, "freeze") and a1)
+    {
+        // freeze <ms>: stall the thread that runs the script (the window thread), to exercise the hang
+        // watchdog: it should write FFHang.log and FFHang.dmp after 6 s of silence.
+        // WM_TIMER with a callback in lParam: DispatchMessage runs the callback on the window thread
+        g_uiTestFreezeMs = (DWORD)atoi(a1);
+        Log("INFO freezing the window thread for %lu ms", g_uiTestFreezeMs);
+        PostMessage(gMainHandler->GetAppWnd(), WM_APP + 0x7EE, 0, (LPARAM)g_uiTestFreezeMs);
+        Log("OK freeze %s", a1);
+    }
+    else if (!_stricmp(cmd, "fitflight"))
+    {
+        // fitflight [team]: select the first flight of that team (default 2; -1 = any) that has a waypoint list and fit
+        // the campaign map to it, as picking a mission does. Logs where the map ended up.
+        extern VU_ID gCurrentFlightID;
+        extern C_Map *gMapMgr;
+        const int team = a1 ? atoi(a1) : 2;
+        int found = 0;
+        gMainHandler->EnterCritical();
+        CampEnterCriticalSection();
+        VuListIterator it(AllAirList);
+
+        for (CampEntity ce = (CampEntity)it.GetFirst(); ce and not found; ce = (CampEntity)it.GetNext())
+        {
+            if (not ce->IsFlight() or (team >= 0 and ce->GetTeam() != team) or ce->IsDead() or not((Flight)ce)->GetFirstUnitWP())
+                continue;
+
+            gCurrentFlightID = ce->Id();
+            gMapMgr->SetCurrentWaypointList(gCurrentFlightID);
+            gMapMgr->FitFlightPlan();
+            gMapMgr->DrawMap();
+            found = 1;
+        }
+
+        CampLeaveCriticalSection();
+        gMainHandler->LeaveCritical();
+        Log("OK fitflight team %d: %s", team, found ? "fitted" : "no flight with waypoints");
+    }
+    else if (!_stricmp(cmd, "spotships") and a1)
+    {
+        // spotships <1|0> [team]: 1 = every task force NOT on <team> (default 2, the player) is spotted by
+        // it now; 0 = their spotted timer is backdated so the next look finds them lost. Ghost test.
+        const int on = atoi(a1);
+        const Team me = a2 ? (Team)atoi(a2) : (Team)2;
+        int n = 0;
+        CampEnterCriticalSection();
+        VuListIterator it(AllUnitList);
+
+        for (CampEntity ce = (CampEntity)it.GetFirst(); ce; ce = (CampEntity)it.GetNext())
+        {
+            if (not ce->IsTaskForce() or ce->GetTeam() == me)
+                continue;
+
+            if (on)
+                ce->SetSpotted(me, Camp_GetCurrentTime(), 1);
+            else
+                ce->SetSpottedTime(0);
+
+            n++;
+        }
+
+        CampLeaveCriticalSection();
+        Log("OK spotships %d: %d enemy task forces", on, n);
+    }
+    else if (!_stricmp(cmd, "listships") and a1)
+    {
+        // listships <WINID>: log every task force icon on the map window with its surface position
+        const long winId = ParseId(a1);
+        gMainHandler->EnterCritical();
+        C_Window *win = winId ? gMainHandler->FindWindow(winId) : NULL;
+        int n = 0;
+
+        for (CONTROLLIST *cur = win ? win->GetControlList() : NULL; cur; cur = cur->Next)
+        {
+            C_Base *c = cur->Control_;
+
+            if (not c or c->_GetCType_() != _CNTL_MAPICON_)
+                continue;
+
+            C_MapIcon *mi = (C_MapIcon *)c;
+            C_HASHNODE *node;
+            long idx;
+
+            for (MAPICONLIST *ic = (MAPICONLIST *)mi->GetRoot()->GetFirst(&node, &idx); ic;
+                 ic = (MAPICONLIST *)mi->GetRoot()->GetNext(&node, &idx))
+            {
+                UI_Refresher *urec = (UI_Refresher *)gGps->Find(ic->ID);
+                CampEntity ce = urec ? (CampEntity)vuDatabase->Find(urec->GetID()) : NULL;
+
+                if (not ce or not ce->IsTaskForce() or not ic->Icon)
+                    continue;
+
+                const long x = win->GetX() + win->VX_[c->GetClient()] + ic->x + ic->Icon->GetX() + ic->Icon->GetW() / 2;
+                const long y = win->GetY() + win->VY_[c->GetClient()] + ic->y + ic->Icon->GetY() + ic->Icon->GetH() / 2;
+                Log("INFO ship %d team %d at %ld,%ld flags %x ghost %ld", n++, (int)ce->GetTeam(), x, y, (unsigned)ic->Flags, ic->Ghost);
+            }
+        }
+
+        gMainHandler->LeaveCritical();
+        Log("OK listships %s: %d task forces", a1, n);
+    }
+    else if (!_stricmp(cmd, "curinfo"))
+    {
+        // curinfo: the unit whose waypoints the map is showing: where it is, what it is doing
+        extern C_Map *gMapMgr;
+        gMainHandler->EnterCritical();
+        Unit un = gMapMgr ? (Unit)vuDatabase->Find(gMapMgr->GetCurWPID()) : NULL;
+
+        if (not un)
+            Log("INFO curinfo: nothing selected");
+        else
+        {
+            GridIndex ux, uy;
+            un->GetLocation(&ux, &uy);
+            char nm[48] = "";
+            un->GetName(nm, 40, FALSE);
+            Log("INFO curinfo: %s at %d,%d orders %d supply %d", nm, (int)ux, (int)uy, un->GetUnitOrders(),
+                un->GetUnitSupply());
+            int i = 0;
+
+            for (WayPoint w = un->GetFirstUnitWP(); w; w = w->GetNextWP(), i++)
+            {
+                GridIndex wx, wy;
+                w->GetWPLocation(&wx, &wy);
+                Log("INFO   wp %d at %d,%d flags %x%s", i, (int)wx, (int)wy, (unsigned)w->GetWPFlags(),
+                    w == un->GetCurrentUnitWP() ? " <- current" : "");
+            }
+        }
+
+        gMainHandler->LeaveCritical();
+    }
+    else if (!_stricmp(cmd, "rclickship") and a1)
+    {
+        // rclickship <WINID> [n]: right click the n-th task force icon ui95 would hit
+        const long win = ParseId(a1);
+
+        if (!win)
+            Log("FAIL rclickship %s: unknown window", a1);
+        else
+            RightClickIcon(win, a2 ? atoi(a2) : 0, a1, 0, true);
+    }
+    else if (!_stricmp(cmd, "hovership") and a1)
+    {
+        char *a3 = strtok_s(NULL, " \t\r\n", &ctx);
+        const long win = ParseId(a1);
+
+        if (!win)
+            Log("FAIL hovership %s: unknown window", a1);
+        else
+            RightClickIcon(win, a2 ? atoi(a2) : 0, a1, a3 ? atol(a3) : 700, true);
+    }
+    else if (!_stricmp(cmd, "hovericon") and a1)
+    {
+        // hovericon <WINID> [n] [ms]: park the mouse on the n-th hittable map icon (no click)
+        char *a3 = strtok_s(NULL, " \t\r\n", &ctx);
+        const long win = ParseId(a1);
+
+        if (!win)
+            Log("FAIL hovericon %s: unknown window", a1);
+        else
+            RightClickIcon(win, a2 ? atoi(a2) : 0, a1, a3 ? atol(a3) : 700);
     }
     else if (!_stricmp(cmd, "shot") and a1)
         Shot(a1);

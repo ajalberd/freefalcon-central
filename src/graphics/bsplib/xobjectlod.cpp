@@ -471,8 +471,27 @@ void ObjectLOD::WaitUpdates(void)
     // Pause the Loader...
     TheLoader.SetPause(true);
 
-    while (!TheLoader.Paused())
-        ;
+    // Artscout - 2026 (hang-fix): this spun forever when the loader never acknowledged the pause. A dump of
+    // a frozen Recon screen had this thread here (and holding the UI handler's lock, so the window thread
+    // froze behind it) with Loader::paused stuck at PAUSING and the loader thread asleep in its INFINITE
+    // wait: the wake-up had been lost. TextureBankClass::WaitUpdates already carried this fix; this copy
+    // did not. Re-send the pause request (it re-wakes the loader) while waiting, and give up after 2 s
+    // rather than hang -- whatever is still queued is picked up by the loader's own passes.
+    {
+        const DWORD t0 = GetTickCount();
+
+        while (!TheLoader.Paused())
+        {
+            if (GetTickCount() - t0 > 2000)
+            {
+                TheLoader.SetPause(false);
+                return;
+            }
+
+            TheLoader.SetPause(true);
+            Sleep(1);
+        }
+    }
 
     // Not slow loading
     RatedLoad = false;

@@ -3,6 +3,7 @@
 #include <process.h>
 #include "dispcfg.h"
 #include "chandler.h"
+#include "graphics/include/fflog.h"
 #include "sim/include/ascii.h"
 
 
@@ -862,10 +863,33 @@ void C_Handler::WindowToFront(C_Window *thewin) // move to end of list
                           0);
 }
 
+// Artscout - 2026: [TIP] lines in FFDebug.log, to see where a tooltip that never appears is lost: was the
+// control armed, what text did it get, did the box get drawn, was it cleared. Capped per run.
+static void TipLog(const char *what, void *ctrl, const _TCHAR *text, long x, long y)
+{
+    static int count = 0;
+    static char last[300] = "";
+
+    if (count > 1500)
+        return;
+
+    char line[300];
+    sprintf_s(line, sizeof(line), "[TIP] %s ctrl=%p at %ld,%ld text=\"%.120s\"\n", what, ctrl, x, y,
+              text ? (const char *)text : "(none)");
+
+    if (not strcmp(line, last)) // the same event again (a parked mouse re-arms every message)
+        return;
+
+    strcpy_s(last, sizeof(last), line);
+    count++;
+    FFDebugLog(line);
+}
+
 void C_Handler::HelpOff()
 {
     if (OverLast_.HelpOn_)
     {
+        TipLog("hide", OverLast_.Control_, OverLast_.Tip_, OverLast_.MouseX_, OverLast_.MouseY_);
         RefreshAll(&OverLast_.Area_); // Tell windows to refresh this area
     }
 
@@ -890,6 +914,7 @@ void C_Handler::CheckHelpText(SCREEN *surface)
         if (not OverLast_.HelpOn_ and font)
         {
             OverLast_.HelpOn_ = 1;
+            TipLog("show", OverLast_.Control_, OverLast_.Tip_, OverLast_.MouseX_, OverLast_.MouseY_);
 
             OverLast_.Area_.left =
                 OverLast_.MouseX_ - font->Width(OverLast_.Tip_) / 2;
@@ -1875,6 +1900,14 @@ void C_Handler::DoOutputLoop()
 
             EnterCritical();
 
+            // Artscout - 2026: a tooltip is only ever drawn from Update(), and Update() only runs when a
+            // window is dirty. On a still screen (campaign stopped, nothing animating) nothing is dirty,
+            // so the tip never appeared however long the mouse rested. Once its delay has passed, call
+            // that a reason to run Update(): it draws the box and queues the copy to the screen.
+            if (OverLast_.Control_ and OverLast_.Tip_ and OverLast_.Time_ and not OverLast_.HelpOn_ and
+                GetCurrentTime() > (DWORD)(OverLast_.Time_ + 250))
+                UpdateFlag or_eq C_DRAW_REFRESH;
+
             if (UpdateFlag bitand C_DRAW_REFRESH)
                 Update();
 
@@ -2642,6 +2675,7 @@ long C_Handler::EventHandler(HWND hwnd, UINT message, WPARAM wParam,
                         gStringMgr->GetString(OverControl_->GetHelpText());
                     OverLast_.MouseX_ = MouseX;
                     OverLast_.MouseY_ = MouseY;
+                    TipLog("arm", OverControl_, OverLast_.Tip_, MouseX, MouseY);
                 }
             }
         }
@@ -2707,6 +2741,17 @@ long C_Handler::EventHandler(HWND hwnd, UINT message, WPARAM wParam,
         break;
 
     case WM_MOUSEMOVE:
+        // Artscout - 2026: the game keeps delivering WM_MOUSEMOVE at the SAME pixel while the mouse is
+        // still (the [TIP] log showed 55+ arms at one position). Each one cancelled the tooltip and
+        // restarted its 250 ms delay, so a tip never got to show. A move to where the mouse already is
+        // is not movement: leave the pending or showing tip alone.
+        if (OverLast_.Control_ and OverLast_.Tip_ and (long)(short)LOWORD(lParam) == OverLast_.MouseX_ and
+            (long)(short)HIWORD(lParam) == OverLast_.MouseY_)
+        {
+            retval = 0;
+            break;
+        }
+
         HelpOff();
 
         if (OldInputMessage())
@@ -2831,6 +2876,7 @@ long C_Handler::EventHandler(HWND hwnd, UINT message, WPARAM wParam,
                     gStringMgr->GetString(OverControl_->GetHelpText());
                 OverLast_.MouseX_ = MouseX;
                 OverLast_.MouseY_ = MouseY;
+                TipLog("arm", OverControl_, OverLast_.Tip_, MouseX, MouseY);
             }
         }
 
@@ -2990,6 +3036,7 @@ long C_Handler::EventHandler(HWND hwnd, UINT message, WPARAM wParam,
                         gStringMgr->GetString(OverControl_->GetHelpText());
                     OverLast_.MouseX_ = MouseX;
                     OverLast_.MouseY_ = MouseY;
+                    TipLog("arm", OverControl_, OverLast_.Tip_, MouseX, MouseY);
                 }
             }
         }

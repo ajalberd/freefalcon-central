@@ -11,6 +11,7 @@
 #include <stdio.h>
 
 extern "C" void F4SilenceVoices();
+extern "C" void F4HearVoices();
 
 // Movies under the GPU backends: the DDraw player (movie/) has no surface to blit to, so the
 // clip is played by Media Foundation (MFPlay) in a borderless window laid over the game window.
@@ -165,6 +166,10 @@ void PlayMovieMF(const char *filename, HWND game)
 
     if (win)
         DestroyWindow(win);
+
+    // The DDraw player pairs F4SilenceVoices with F4HearVoices (winmain.cpp). Without this the comms
+    // voices stay muted (volume -10000, exitChannel set) for the rest of the session.
+    F4HearVoices();
 
     MFShutdown();
 

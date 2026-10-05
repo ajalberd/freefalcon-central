@@ -94,7 +94,9 @@ here.**
   - *Built 2026-10-03: naval AI v0* (`navunit.cpp`, cfg `NavalAI` default 1, `NavalTankerFuel` default 50).
     A ship with no waypoints now plans a water route (A* over the Naval cost table, one waypoint per
     change of direction): warships sortie from port after a 15-120 min rest, patrol 15-45 km out, and
-    return to the nearest friendly port when 60+ km from one (or 1 time in 3); sea tankers, cargo and
+    patrol a triangle S -> P1 -> P2 -> S from where they are (S = the ship's position when it needs a plan; every route ends at S, so no stored station; points on a 10-25 km ring for carriers/cruisers/battleships/amphibious, 15-45 km for the rest, picked away from the nearest hostile objective; out-and-back if no second point; was random out-and-back first) (stay on station; the first version
+    sent every ship home when 60+ km from a port, which was 21 of 25 Blue ships on day 0) and go to port
+    only when supply < 30%, where docking resupplies them to 100; sea tankers, cargo and
     supply ships sail between friendly ports with a 60-150 min rest at each. A docked tanker adds
     `NavalTankerFuel` x (missing refinery output %) to its team's fuel pool, so it pays nothing while
     all refineries work. Why plain waypoints never sailed: `ResetCurrentWP` skips a flag-less waypoint
@@ -104,7 +106,48 @@ here.**
     1 day, seed 1): 49 of 51 task forces moved >3 km (before: ships idle or 20 km north and back).
     **Not yet checked:** the fuel delivery (refineries were intact, so it adds 0), ships in 3D (a
     deaggregated ship near land halts for good, `gndai.cpp` ~1198), no port resupply (deliberately
-    skipped until ships fight more), no player orders yet.
+    skipped until ships fight more).
+  - *Player orders v0 (compiled, NOT yet clicked in the game).* Select one of your task forces (its route
+    is drawn), right-click open water on the campaign map: "Send <ship> here" (`TaskForceOrderStation`,
+    `navunit.cpp`) routes it over water and holds it (`orders = NORD_STATION`; `MoveUnit` returns early
+    when the route is done); a ship on station also gets "Resume patrol". Items are added to MAP_POP at
+    hookup (`NavalStationAttach`, `campmenu.cpp`), like Build package. Assumes the selected ship is
+    `gMapMgr->GetCurWPID()`. Local only: nothing is sent for multiplayer.
+  - *Map hover tooltip (compiled, NOT yet seen in the game).* The ui95 tooltip engine (250 ms,
+    `C_Handler::CheckHelpText`) already asked `C_MapIcon::GetHelpText`, which only had the name label
+    (needs Names on) and was not rebuilt when the mouse moved between icons of one control. Now
+    `gMapIconTipHook` (`cicons.cpp`, set in `SetupCampaignMenus`) builds "name - kind xN - side" (+ supply
+    and orders for ships, status for objectives) from the entity; an enemy unit the player's side has not
+    identified says "Unidentified contact"; `C_Handler::ResetHelp` is called when the icon under the mouse
+    changes.
+    Checked in the `-uitest` harness (new commands `hovericon`, `hovership`, `rclickship`, `listships`,
+    `mapmove`; scripts `hover.txt`, `hover2.txt`, `shiprecon.txt`): the tip shows for ships and
+    objectives. Known defect: a tooltip box is not erased when the mouse moves on (stale fragments stay
+    on the map until it redraws). A Recon on a Blue ship at campaign start opened fine in the harness;
+    Andrew's report of a hang (WER 1002, no FFCrash entry) after right-click ship -> Recon is NOT reproduced.
+  - *Route line + dragging (measured with the harness `curinfo`).* The map draws a non-flight unit's route from
+    the waypoint BEFORE its current one (`C_Map::BuildCurrentWPList`, `cmap.cpp:1455`), not from the unit, so the
+    line need not touch the ship. The waypoint control is already marked draggable for ships (`cmap.cpp:1507`), but
+    the drag handler ignores them: `waypoint.cpp` MOUSEMOVE returns `if (not un->IsFlight())`. Next step for
+    drag-to-edit: let it move a ship waypoint, treat the edited route as a player order (`NORD_STATION`-style
+    hold so the planner does not overwrite it), and decide what happens when a dragged leg crosses land.
+  - *Ship drag/drop (2026-10-03).* A dropped ship waypoint is an order (`waypoint.cpp` -> `TaskForceOrderStation`);
+    a drop on a land cell within 3 km of a friendly working port docks the ship there, otherwise it snaps to the
+    nearest water cell within 6 km (the map picture and the 1 km cover cells disagree at coasts). Not yet tried
+    with the mouse (the harness cannot drag).
+  - *Ships "disappear".* Measured, campsim save0 2 days seed 5: 9 of 58 task forces are gone with the naval AI on
+    AND off (first losses at 3 h / 5 h on, 30 h off), so they are being sunk; patrolling reaches the war sooner.
+  - *Hang after Recon on a ship (WER 1002 at 16:49 and 18:02; log ends with THREADSYNC lines): NOT reproduced.*
+    The harness cannot see the live 3D view (two shots 8 s apart are byte-identical for a ship AND an objective
+    Recon). `FFHang.log` (new watchdog in `winmain.cpp`, `FFHangWatchdog`): if the game window does not answer
+    for 6 s it writes a symbolised stack of every thread. Read it after the next hang.
+  - *Fixed: Recon could not be panned in the adaptive UI (2026-10-03).* `RECON_PANNER` (350x240 drag area, stock
+    x 337 of 1024, so its centre is exactly 512) fell into "right half" in `PlaceEdges` (`cadapt.cpp`) and moved by
+    the whole 908 px growth instead of half: x 1245 instead of 791, right of the pane centre (966). A loose
+    control centred on its container (within 8 px) now stays centred. Checked in the harness: panner at 791,
+    and `hold RECON_PANNER 90 1500` changes the real-window capture (`reconpan2.txt`).
+  - *Fixed: voices stay silent after a campaign movie.* `PlayMovieMF` (`MovieMF.cpp`) called `F4SilenceVoices()`
+    but never `F4HearVoices()`; the DDraw player pairs them. Music/effects after a movie not investigated.
 - **TODO: build the JSOW the way BMS 4.32/4.38 has it.** The data rows exist in Korea's
   `FALCON4.WCD` -- 298 `AGM-154A JSOW` (BLU-97 cluster payload, kinetic, 1250 ft blast)
   and 313 `AGM-154C JSOW` (unitary penetrator, `SimDataIdx` 99) -- both with a 90 km
@@ -1394,3 +1437,53 @@ loss + damage. Trigger supply% = units have/(have+need) - stays 96-101% for DPRK
 the air ratio). DPRK supply capacity falls to 41% by day 10. Replacement pools pile up unused (ROK 15,593 by
 day 10; battalions got ~212 total) - Korea runs the old replacement code (NoTypeBonusRepl absent = 0); verify
 before acting. Logger: `"sp"` frame field + supply_report.py; engine counters gSupplyDiag/gSupplyRatio.
+
+## Lost enemy ships stay on the map as dim ghosts (2026-10-04)
+
+Stock hid every movable enemy unit the moment its spotted timer lapsed (`UI_Refresher::UpdateMapItem`,
+urefresh.cpp), so ships popped out of existence at sea. Now an enemy task force the player has SEEN stays
+at its last known position as a dimmed icon (`MAPICONLIST::Ghost`, drawn at `CampMapGhostBright`, default
+0.30); the tooltip says "last known position" and shows no live detail. Position, strength and heading are
+frozen. It goes away only when the unit is removed (destroyed / inactive). A ship never spotted stays hidden.
+Last-known positions live in a static map in urefresh.cpp, so they survive icon-list rebuilds but not a
+restart or a save/load. Config: `set g_bCampMapShipGhosts 0` = stock, `set g_fCampMapGhostBright 0.3`.
+Header change (new MAPICONLIST member): Rebuild All. Harness: `tools/uitest/ghost.txt` with the new
+`spotships 1|0` command; `listships` now prints the ghost flag. Verified hidden -> shown -> dim ghost.
+
+### Wrecks and tooltip follow-ups (2026-10-04)
+
+- A destroyed ship now leaves a dark wreck marker (`MAPICONLIST::Ghost == 2`, half the ghost brightness).
+  `UI_Refresher::RemoveMapItem` orphans the icon when the entity is gone/dead and the player could see it;
+  the marker never updates, is skipped by `CheckHotSpots`/`MouseOver` (no click, no tooltip), and
+  `C_MapIcon::AddIcon` replaces it if a new unit reuses the id. It lasts until the map is rebuilt.
+  `set g_bCampMapShipWrecks 0` = stock. Harness: `tools/uitest/wreck.txt` (`sinkship <team> [n]`).
+  Note: `ce->IsDead()` through a CampEntity pointer returns 0 for a unit with U_DEAD set (UnitClass's
+  `IsDead() const` does not override FalconEntity's non-const one), so dead ships keep their icon until the
+  campaign deletes the unit; the wreck path keys on the entity being gone from vuDatabase.
+- Tooltip: ship tips had no name ("- supply 100%"); now falls back to the unit class name. The output
+  thread only called Update() (the only place a tip is drawn) when a window was dirty; it now also wakes
+  once a tip's delay has passed. NOT reproduced as the cause: the harness screen is never idle, so the
+  tooltip worked with or without that change. Real-mouse failure still unexplained.
+
+### Recon hang root cause + hang watchdog v2 (2026-10-04)
+
+FFHang.dmp from a live freeze (read with cdb + RedViper.pdb): the UI **output thread** was in
+`C_Handler::Update -> C_Window::DrawWindow -> C_3dViewer::ViewGreyOTW -> RenderOTW::PreLoadScene ->
+ObjectLOD::WaitUpdates`, spinning at ObjectLOD.cpp `while (not TheLoader.Paused());`, **holding the handler
+critical section**; the window thread then blocked in `C_Handler::EnterCritical` (ProcessUserCallbacks). The
+loader was stuck at `Loader::paused == PAUSING` with its thread asleep in `WaitForSingleObject(INFINITE)`:
+the pause wake-up was lost. `TextureBankClass::WaitUpdates` already had a 2 s timeout for exactly this race
+(an old "PHASE 5 hang-fix" comment); `ObjectLOD::WaitUpdates` and the xobjectlod copy did not.
+Fix: ObjectLOD/xObjectLOD WaitUpdates re-send the pause request while waiting and bail after 2 s;
+`Loader::MainLoop` waits 250 ms instead of INFINITE. The exact lost-wake interleaving is not proven.
+Watchdog v2 (winmain.cpp): RtlVirtualUnwind stacks with module+offset, plus FFHang.dmp (MiniDumpWriteDump via
+dbghelp, loaded on demand). Harness: `freeze <ms>` + `tools/uitest/hang.txt`. Analyse with:
+`cdb -z FFHang.dmp -y <build dir> -c ".lines -e; ~*kc 15; q"`.
+
+### Music trace (2026-10-04)
+
+`[MUSIC]` lines in FFDebug.log (cmusic.cpp): Stop/FadeOut_Stop/Pause/FadeOut_Pause/Resume/PlayQ with flags and
+stream state, and every stream callback (msg 2 = FADE_IN_DONE, 3 = FADE_OUT_DONE). In the harness the intro
+movie handshake is healthy (FadeOut_Pause -> FADE_OUT_DONE -> Resume -> FADE_IN_DONE); the user's silence
+after the intro video is not reproduced. Candidate to check in his log: a FADE_OUT_DONE arriving after
+Resume with flags == 0 takes gMusicCallback's else-branch and StopStream()s the resumed stream.

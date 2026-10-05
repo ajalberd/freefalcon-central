@@ -64,6 +64,7 @@ public:
     short x, y;
     float worldx, worldy;
     long Status;
+    long Ghost; // Artscout - 2026: 1 = drawn dimmed at its last known position (an enemy ship nobody sees now)
     long ImageID;
     short Dragable;
     DETECTOR *Detect;
@@ -74,6 +75,10 @@ public:
     O_Output *Bat;
     O_Output *Label;
 };
+
+// Artscout - 2026: if set, builds the hover tooltip for a map icon from its entity (returns a
+// string id, or 0 to fall back to the icon's name label). Installed by the campaign UI.
+extern long (*gMapIconTipHook)(long iconID);
 
 class C_MapIcon : public C_Control
 {
@@ -199,6 +204,7 @@ public:
         return (0);
     }
     void Refresh(MAPICONLIST *icon);
+    void RepaintIcon(MAPICONLIST *icon); // Artscout - 2026: Refresh under the UI lock, for state changes that do not move the icon
 
     // Use SetMainImage... and when done, call this to update the IMAGE_RSC pointers
     void RemapIconImages();
