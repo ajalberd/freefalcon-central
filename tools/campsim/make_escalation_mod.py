@@ -25,6 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "campaign-editor"))
 from ffcamp import entities, workspace  # noqa: E402
 import make_ally_mod  # noqa: E402
+import saves  # noqa: E402
 
 GAME = r"C:\FreeFalcon6"
 TDF = make_ally_mod.TDF
@@ -35,6 +36,12 @@ U_INACTIVE = 0x20000
 PRC = 5
 # (donor H-6A squadron campId, DPRK airbase, reinforcement hour; 0 = active from the start) -- vanilla F4's Tu-16s
 BOMBERS = [(4304, "Sunan Airbase", 0), (4306, "Sunan Airbase", 48), (4306, "Toksan Airbase", 72)]
+# Russia's Pacific Fleet: (class index, x, y, naval orders) -- NORD_ATTACK 1, the carrier as the US one (3)
+KUZNETSOV, NAKHIMOV, KILO, OSA = 2158, 3261, 2793, 828
+FLEET = [(KUZNETSOV, 600, 660, 3), (NAKHIMOV, 580, 635, 1), (KILO, 565, 600, 1),
+         (OSA, 530, 615, 1), (OSA, 533, 619, 1), (OSA, 545, 640, 1), (OSA, 548, 644, 1),
+         (OSA, 560, 665, 1), (OSA, 563, 669, 1), (OSA, 540, 590, 1), (OSA, 543, 594, 1)]
+SU33, SU27_DONOR = 2169, 4783  # Su-33 squadron class; Russia's Su-27 squadron record it is cloned from
 
 
 def clone_prc(cam, ws, objs, clones):
@@ -126,7 +133,46 @@ def clone_prc(cam, ws, objs, clones):
         struct.pack_into("<I", rec, base["campId"] + 2 + 4 + 4, flags)
         added.append(bytes(rec))
         nbomb += 1
-    return raw + b"".join(added), nb, ns + nbomb
+
+    # Russia's Pacific Fleet (save0 gives Russia no ships at all): a Kuznetsov carrier with an Su-33 squadron
+    # aboard, an Admiral Nakhimov missile cruiser, a Kilo submarine and 8 Osa II missile boats, 44-127 km off
+    # Wonsan (open water checked against KOREA.THR). Russian (neutral) until the trigger brings Russia in at
+    # Wonsan, then folded into DPRK like the rest of Russia's forces.
+    nship = 0
+    carrier_vu = None
+    for cls, x, y, orders in FLEET:
+        u = saves.load_tables(saves.SOURCES["ff6"])[1][cls]
+        roster = 0
+        for g in range(16):
+            roster |= min(3, int(u["NumElements"][g])) << (2 * g)
+        vu, c = new_ids()
+        added.append(entities.build_unit("taskforce", cam.version, cls + entities.VU_LAST_ENTITY_TYPE, x, y, 4, vu,
+                                         c, roster=roster, orders=orders, supply=100, unit_flags=U_PARENT))
+        nship += 1
+        if cls == KUZNETSOV:
+            carrier_vu, cx, cy = vu, x, y
+
+    # Su-33 squadron on the carrier: Russia's Su-27 squadron record (nearest stores) switched to the Su-33 class
+    u = camp[SU27_DONOR]
+    s0, s1 = u["_span"]
+    at = u["_at"]
+    rel = lambda p: p - s0
+    rec = bytearray(raw[s0:s1])
+    vu, c = new_ids()
+    t = SU33 + entities.VU_LAST_ENTITY_TYPE
+    struct.pack_into("<h", rec, 0, t)                 # dispatch type
+    struct.pack_into("<II", rec, 2, vu, u["id"][1])
+    struct.pack_into("<H", rec, 10, t)                # entityType
+    struct.pack_into("<h", rec, base["x"], cx)
+    struct.pack_into("<h", rec, base["y"], cy)
+    struct.pack_into("<h", rec, base["campId"], c)
+    struct.pack_into("<hh", rec, rel(at["destX"]), cx, cy)
+    struct.pack_into("<II", rec, rel(at["airbaseId"]), carrier_vu, 0)
+    struct.pack_into("<h", rec, rel(at["nameId"]), name)
+    struct.pack_into("<h", rec, rel(at["nameId"]) + 2, 0)   # no reinforcement delay
+    struct.pack_into("<I", rec, base["campId"] + 2 + 4 + 4, u["unitFlags"] & ~U_INACTIVE)
+    added.append(bytes(rec))
+    return raw + b"".join(added), nb, ns + nbomb + 1, nship
 
 
 README = """Korea Escalation (JSGME) - Korea theater, save0 only. Applies to NEW campaigns.
@@ -137,6 +183,8 @@ README = """Korea Escalation (JSGME) - Korea theater, save0 only. Applies to NEW
   (%d battalions, %d squadrons added); Russia is staged only.
 - DPRK gets bombers like vanilla Falcon 4.0's Tu-16s: H-6A (China's Tu-16) squadrons, 1 active at Sunan,
   reinforcements at Sunan (h48) and Toksan (h72). The squadron count above includes these 3.
+- Russia's Pacific Fleet off Wonsan (stock: no Russian ships): Kuznetsov carrier with an Su-33 squadron aboard,
+  Admiral Nakhimov missile cruiser, a Kilo submarine and 8 Osa II missile boats. It joins with Russia.
 - Falcon4.AII: ObjGroundPathMaxCost 2000 (stock 500), so rear units can be given orders at all.
 Play it with FFViper-ai.exe and, in FFViper.cfg: set g_bAlertScramble 1 / set g_bInitTrueLosses 1 /
 set g_nCounterAttackInitiative 15 / set g_nCaptureInitiative 2 (campsim: war ends ~h81 instead of h34-45).
@@ -157,9 +205,9 @@ def build(clones, install):
     stream, report = make_ally_mod.stage(cam, objs, "prc+cis")
     cam.units_raw = stream
     cam.units = entities.walk_units(stream, cam.version, ws.db.class_rows())
-    stream, nb, ns = clone_prc(cam, ws, objs, clones)
+    stream, nb, ns, nship = clone_prc(cam, ws, objs, clones)
     units = entities.walk_units(stream, cam.version, ws.db.class_rows())
-    assert len(units) == len(cam.units) + nb + ns, (len(units), len(cam.units), nb, ns)
+    assert len(units) == len(cam.units) + nb + ns + nship, (len(units), len(cam.units), nb, ns, nship)
     cam.units_raw, cam.units = stream, units
     cam.members[cam._member_name("uni")] = entities.encode_units(stream, len(units))
     tri = os.path.join(GW, "bothwr.tri")
@@ -181,7 +229,7 @@ def build(clones, install):
             f.write(aii_text)
         with open(os.path.join(MOD, "Korea Escalation README.txt"), "w") as f:
             f.write(README % (nb, ns))
-    print("staged: %s; cloned %d battalions, %d squadrons -> %s" % (report, nb, ns, ", ".join(d for d, _ in outs)))
+    print("staged: %s; cloned %d battalions, %d squadrons; %d Russian ships -> %s" % (report, nb, ns, nship, ", ".join(d for d, _ in outs)))
 
 
 if __name__ == "__main__":

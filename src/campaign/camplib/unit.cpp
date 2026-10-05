@@ -760,7 +760,8 @@ int UnitClass::ApplyDamage(FalconCampWeaponsFire* cwfm, uchar bonusToHit)
 
     // Artscout - 2026: who kills whom, always on (read by tools/campsim; the game never reads it).
     // Indexed by the TARGET's team: 0 battalion<-flight, 1 battalion<-artillery, 2 battalion<-other
-    // ground, 3 battalion<-naval/other, 4 flight<-flight, 5 flight<-ground/naval.
+    // ground, 3 battalion<-naval/other, 4 flight<-flight, 5 flight<-ground/naval, 6 ship<-flight,
+    // 7 ship<-ship/ground.
     {
         extern int gLossDiag[NUM_TEAMS][8];
         int t = GetTeam(), k = -1;
@@ -770,6 +771,8 @@ int UnitClass::ApplyDamage(FalconCampWeaponsFire* cwfm, uchar bonusToHit)
                 shooter->IsBattalion() ? 2 : 3;
         else if (IsFlight())
             k = shooter->IsFlight() ? 4 : 5;
+        else if (IsTaskForce()) // 6 ship<-flight, 7 ship<-ship/ground
+            k = shooter->IsFlight() ? 6 : 7;
 
         if (k >= 0 and t >= 0 and t < NUM_TEAMS)
             gLossDiag[t][k] += currentLosses;

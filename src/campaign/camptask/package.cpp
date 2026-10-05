@@ -790,7 +790,7 @@ int PackageClass::CheckNeedRequests(void)
 }
 
 // campsim ATMWHY: why packages fail, per team and mission class ([0] strike/SEAD/OCA/bombing, [1] CAS/BAI/
-// interdiction, [2] counter-air, [3] other): [0] target too dangerous, [1] no flight could be attached (no
+// interdiction, [2] counter-air, [3] anti-ship): [0] target too dangerous, [1] no flight could be attached (no
 // squadron/aircraft), [2] a flight could not reach the target, [3] a flight cancelled (weapons/route),
 // [4] built
 int gPkgWhy[8][4][5];
@@ -805,9 +805,19 @@ static int PkgClass(int m)
     if (m >= AMIS_BARCAP and m <= AMIS_ESCORT)
         return 2;
 
-    return 3;
+    if (m == AMIS_ASHIP)
+        return 3;
+
+    return -1; // not counted
 }
-#define PKG_WHY(k) gPkgWhy[mis->who % 8][PkgClass(mis->mission)][k]++
+static void PkgWhy(MissionRequest mis, int k)
+{
+    const int c = PkgClass(mis->mission);
+
+    if (c >= 0)
+        gPkgWhy[mis->who % 8][c][k]++;
+}
+#define PKG_WHY(k) PkgWhy(mis, (k))
 
 int PackageClass::BuildPackage(MissionRequest mis, F4PFList assemblyList)
 {

@@ -596,7 +596,7 @@ static void GtmLog(int hour)
 
         // why packages fail (package.cpp gPkgWhy), cumulative
         extern int gPkgWhy[8][4][5];
-        static const char *cls[] = {"strike", "cas/bai", "counter-air", "other"};
+        static const char *cls[] = {"strike", "cas/bai", "counter-air", "anti-ship"};
 
         for (int t : {2, 6})
             for (int c = 0; c < 4; c++)
@@ -3255,9 +3255,9 @@ int main(int argc, char **argv)
             if ((iter % 360) == 0)
                 for (int tm : {1, 2, 6})
                     printf("LOSS h=%d team %d: ground<-air %d  <-artillery %d  <-ground %d  <-naval %d | air<-air %d  "
-                           "<-ground %d\n",
+                           "<-ground %d | ships<-air %d  <-surface %d\n",
                            iter / 60, tm, gLossDiag[tm][0], gLossDiag[tm][1], gLossDiag[tm][2], gLossDiag[tm][3],
-                           gLossDiag[tm][4], gLossDiag[tm][5]);
+                           gLossDiag[tm][4], gLossDiag[tm][5], gLossDiag[tm][6], gLossDiag[tm][7]);
         }
 
         CampsimPumpMessages();
