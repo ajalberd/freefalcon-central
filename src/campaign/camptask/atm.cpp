@@ -1082,6 +1082,9 @@ int gScramble[8][4];
 // spotted (RequestIntercept), [1] divert attempts, [2] ALERT flight scrambled, [3] other flight diverted, [4] none
 int gScrambleKm[8][6][5];
 
+// campsim SCRAMBLESQ: ALERT flights scrambled, per squadron (VU id number, low 13 bits)
+int gAlertScrambleSq[8192];
+
 int AlertDistanceBucket(int team, GridIndex x, GridIndex y)
 {
     float best = -1.0F;
@@ -1165,6 +1168,9 @@ int AirTaskingManagerClass::BuildDivert(MissionRequest mis)
             g[1]++;
             g[2] += flight->GetUnitMission() == AMIS_ALERT;
             k[flight->GetUnitMission() == AMIS_ALERT ? 2 : 3]++;
+
+            if (flight->GetUnitMission() == AMIS_ALERT)
+                gAlertScrambleSq[flight->GetUnitSquadronID().num_ % 8192]++;
         }
     }
 

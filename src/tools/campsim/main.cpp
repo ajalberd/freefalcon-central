@@ -614,7 +614,7 @@ static void GtmLog(int hour)
         extern int gScrambleKm[8][6][5];
         static const char *kmb[] = {"<50km", "50-100km", "100-150km", "150-250km", "250km+", "no-alert"};
 
-        for (int t : {2, 6})
+        for (int t : {1, 2, 6})
             for (int b = 0; b < 6; b++)
             {
                 int *k = gScrambleKm[t][b];
@@ -3333,6 +3333,37 @@ int main(int argc, char **argv)
 
         CampsimDumpMoveDiag();
         DumpCampaign("final");
+
+        // ALERT scrambles per squadron (atm.cpp gAlertScrambleSq), plus how many alert flights each has right now
+        {
+            extern int gAlertScrambleSq[8192];
+            VuListIterator sit(AllAirList);
+
+            for (Unit u = GetFirstUnit(&sit); u; u = GetNextUnit(&sit))
+            {
+                if (not u->IsSquadron())
+                    continue;
+
+                int alerts = 0;
+                VuListIterator fit(AllAirList);
+
+                for (Unit f = GetFirstUnit(&fit); f; f = GetNextUnit(&fit))
+                    if (f->IsFlight() and f->GetUnitMission() == AMIS_ALERT and
+                        ((Flight)f)->GetUnitSquadronID() == u->Id())
+                        alerts++;
+
+                int n = gAlertScrambleSq[u->Id().num_ % 8192];
+
+                if (n or alerts)
+                {
+                    _TCHAR name[80];
+                    u->GetName(name, 80, FALSE);
+                    printf("SCRAMBLESQ team %d %-36s id %u scrambles %d, alert flights now %d%s\n", u->GetTeam(), name,
+                           (unsigned)u->Id().num_, n, alerts,
+                           u->Id() == FalconLocalSession->GetPlayerSquadronID() ? " (PLAYER SQUADRON)" : "");
+                }
+            }
+        }
 
         if (gSaveCam[0])
         {
