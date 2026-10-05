@@ -725,7 +725,7 @@ bool g_bReserveNoPullback = true; // campaign: idle healthy battalions within 25
 bool g_bAlertScramble = false; // campaign: an alert flight may scramble against an intercept with the 2 planes it has (stock: requests want 4, so alert flights never launched)
 bool g_bInitTrueLosses = false; // campaign: initiative counts vehicles actually destroyed (stock: start minus current, which reinforcements hide)
 int g_nGtmCaptureMaxKm = 0; // campaign: capture targets farther than this many km are not offered to a battalion (0 = stock: any distance)
-bool g_bGtmCaptureBestScore = false; // campaign: like GtmCaptureNearest, but the best-scoring valid capture target within reach (the GTM's own target score), nearest on a tie
+bool g_bGtmCaptureBestScore = true; // campaign (Andrew 2026-10-05, campsim: capture trips median 45 -> 31 km, >100 km 15.4% -> 2.1%): like GtmCaptureNearest, but the best-scoring valid capture target within reach (the GTM's own target score), nearest on a tie
 bool g_bGtmCaptureNearest = false; // campaign: a battalion sent to capture something beyond GtmCaptureMaxKm (60 if unset) attacks the nearest valid target instead
 int g_nCaptureInitiative = 5; // campaign: initiative points the captor takes from the loser per objective captured (stock 5)
 int g_nCounterAttackInitiative = 0; // campaign: a defending side with at least this initiative may launch a full counteroffensive (0 = stock: never while the enemy is attacking)
