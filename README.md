@@ -48,6 +48,16 @@ instancing / multiview), **quad views and foveated rendering** where the headset
 - Menus that fill any window size at any DPI ([UI-OVERHAUL.md](UI-OVERHAUL.md)).
 
 ### A campaign that fights a war
+
+![The campaign screen at ultrawide resolution: the squadron's frag order, a strike package routed
+from Osan to Kojo Highway Strip, both armies along the front, and the news feed](media/campaign-ui-ultrawide.webp)
+
+![The same campaign map zoomed in near the DMZ: terrain-coloured ground, roads, rivers and lakes,
+and unit icons on both sides of the front](media/campaign-ui-ultrawide-zoom.webp)
+
+*The campaign screen at ultrawide: menus fill any window, and the map is coloured from the terrain
+itself. Zoomed in on the DMZ, it shows the ground, the roads and both armies' units.*
+
 The dynamic campaign looked alive but its ground war was stuck. Measured with a headless simulator
 (below), the root causes were bugs, not balance — and they are fixed:
 - **Ground units could not move south or west.** `SimToGrid` rounded where it should floor. One-line
