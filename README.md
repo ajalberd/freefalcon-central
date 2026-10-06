@@ -4,7 +4,7 @@ A campaign-based, multiplayer, open-source flight simulator in the Falcon 4.0 li
 modern engine, flown in VR, and given a campaign that actually fights a war.
 
 ![The campaign editor on Korea's save0, showing the railway network: the North and South Korean main
-lines and the Chinese and Russian lines that cross into them](docs/images/campaign-editor-rail.jpg)
+lines and the Chinese and Russian lines that cross into them](media/campaign-editor-rail.jpg)
 
 *The campaign editor (`tools/campaign-editor`) on Korea's opening campaign, with the railway layer:
 21 routes from OpenStreetMap, from Shenyang and the Russian border down to Busan.*
