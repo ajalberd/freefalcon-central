@@ -309,6 +309,34 @@ no change of line inside Shenyang). The campaign's own north-east objectives are
 places (Hunchun, Vladivostok), so the Khasan track does not sit among them neatly. The border bridges have
 no bridge objectives yet, so bombing cannot cut China off.
 
+## The "Korea Rail War" JSGME mod (2026-10-06)
+
+Everything rail ships as one JSGME mod, built by `tools/rail-mod/make_rail_mod.py` into
+`C:\FreeFalcon6\MODS\Korea Rail War` (38 files, ~17.6 MB):
+
+| Part | Files |
+|---|---|
+| the rail build | `FFViper-rail.exe` (rail-tracks; `FFViper.exe` stays the main build) |
+| the network | `terrdata\koreaail.txt` + `rail.json`, from `tools/rail-mod/korea/` (21 routes) |
+| Train class + 71 rail-bridge classes | `FALCON4.ct/.UCD/.OCD/.FED` in `terrdata\objects` and the three `campaigndb` copies; `teunits.lst` x3 |
+| campaign | Korea Escalation's `save0.cam/.tri` + `Falcon4.AII` (from `MODS\Korea Escalation`), and every Korea base file (save0-2, te_new.tac, three theaters) with 71 rail-bridge objectives (Yalu at Sinuiju = Rail Bridge 68, 984 m) |
+| settings | `config\mods\Korea Rail War.cfg` (RailTrains, troop trains, RailWave China+Russia 12 trains, Escalation's recommended cfg) |
+
+`ReadFalcon4Config` reads `config\mods\*.cfg` after FFViper.cfg (rail build only), which is what lets
+a mod carry settings. The builder stages a copy of the install (tables and campaign folders copied,
+the rest junctioned), runs `install_train_class.py` and `add_rail_bridges.py` there, and packages the
+files that differ from stock. Rebuild after a main merge or an Escalation change: build the solution,
+then `python tools/rail-mod/make_rail_mod.py`. `--check` reports whether the install is clean.
+
+The install was cleaned the same day (`tools/rail-mod/clean_install.py`): rail.txt/json, the Train
+class, teunits.lst and FFViper-rail.exe came out; backup + restore.bat in
+`C:\FreeFalcon6\_rail-clean-backup61006-175309`. campsim's gamework	errdata is a junction to the
+install, so campsim sees rail only while the mod is enabled.
+
+Use: in JSGME disable Korea Escalation (both change save0.cam), enable Korea Rail War, run
+FFViper-rail.exe, new campaign. Saves made with the mod need it (the Train class exists only in its
+tables).
+
 ---
 
 ## Drawing the track in 3D

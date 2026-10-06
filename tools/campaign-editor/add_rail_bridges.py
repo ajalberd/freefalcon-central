@@ -222,6 +222,15 @@ def main():
     used_stypes = {r["classInfo_"][3] for r in db0.table("class").rows if r["classInfo_"][:3] == [3, 4, 6]}
 
     cs = crossings(g, os.path.join(g, args.rail), args.min_m, args.clear_km)
+    # Each new class needs a bridge SType of its own, and the stock tables leave 71 (185-255). With
+    # the cross-border lines there are 73 crossings of 300 m: keep the longest that fit.
+    free_stypes = [s for s in range(STYPE_BASE, 256) if s not in used_stypes]
+    if len(cs) > len(free_stypes):
+        cut = sorted(cs, key=lambda c: c["km"])[:len(cs) - len(free_stypes)]
+        for c in cut:
+            print("  (no free SType: leaving out the %.0f m crossing on the %s at (%.1f E, %.1f N))"
+                  % (c["km"] * 1000, c["route"], c["mid"][0], c["mid"][1]))
+        cs = [c for c in cs if c not in cut]
     print("%d rail crossings of %d m or more with no bridge objective within %.1f km:"
           % (len(cs), args.min_m, args.clear_km))
     for k, c in enumerate(cs):

@@ -125,16 +125,22 @@ def route_ends(doc):
 
 
 def snap_ends(lines, old_ends, log):
-    """Move each new line's end points onto an old route end within SNAP_KM (the shared station)."""
+    """Move the one new line end nearest each old route end onto it, if within SNAP_KM (the shared
+    station). Only the nearest: snapping every end in reach pulled a second Shendan piece 8.5 km across
+    the Yalu estuary as a plain chord, and the route took it instead of the track over the bridge."""
     targets = [p for _n, a, b in old_ends for p in (a, b)]
     moved = 0
-    for ln in lines:
-        for k in (0, -1):
-            x, y = ln["pts"][k]
-            best = min(targets, key=lambda t: math.hypot(t[0] - x, t[1] - y)) if targets else None
-            if best and math.hypot(best[0] - x, best[1] - y) <= SNAP_KM:
-                ln["pts"][k] = [best[0], best[1]]
-                moved += 1
+    for t in targets:
+        best, bd = None, SNAP_KM
+        for ln in lines:
+            for k in (0, -1):
+                d = math.hypot(ln["pts"][k][0] - t[0], ln["pts"][k][1] - t[1])
+                if d <= bd:
+                    best, bd = (ln, k), d
+        if best and bd > 0.0:
+            best[0]["pts"][best[1]] = [t[0], t[1]]
+            moved += 1
+            log("  %s: end moved %.1f km onto the route end at (%.0f, %.0f)" % (best[0]["name"], bd, t[0], t[1]))
     log("snapped %d new line ends onto existing route ends (within %.0f km)" % (moved, SNAP_KM))
 
 
@@ -168,7 +174,9 @@ def close_gaps(lines, log):
 
 
 def _off_route(piece, route, tol_km=1.0):
-    """True if most of the piece is more than tol_km from the route polyline."""
+    """True if most of the piece is more than tol_km from the route polyline, or either of its ends is:
+    a second track that runs beside the route and then leaves it (the Shendan Line's Yalu bridge track,
+    which the route did not take) reaches somewhere the route does not."""
     r = np.asarray(route, float)
     a, b = r[:-1], r[1:]
     d = b - a
@@ -178,7 +186,13 @@ def _off_route(piece, route, tol_km=1.0):
         t = np.clip(((p[0] - a[:, 0]) * d[:, 0] + (p[1] - a[:, 1]) * d[:, 1]) / l2, 0, 1)
         q = a + d * t[:, None]
         far += np.hypot(q[:, 0] - p[0], q[:, 1] - p[1]).min() > tol_km
-    return far > len(piece) / 2
+
+    def off(p):
+        t = np.clip(((p[0] - a[:, 0]) * d[:, 0] + (p[1] - a[:, 1]) * d[:, 1]) / l2, 0, 1)
+        q = a + d * t[:, None]
+        return np.hypot(q[:, 0] - p[0], q[:, 1] - p[1]).min() > tol_km
+
+    return far > len(piece) / 2 or off(piece[0]) or off(piece[-1])
 
 
 def _next_branch(name):
@@ -215,6 +229,8 @@ def main():
     ap.add_argument("--theater", default=r"terrdata\theaterdefinition\korea.tdf")
     ap.add_argument("--line", action="append", help='"OSM name=Label" (repeat); default: the Korea border set')
     ap.add_argument("--area", action="append", help='"Label=s,w,n,e" (repeat)')
+    ap.add_argument("--src", help="start from this rail.json instead of the theater's (e.g. the nine-line "
+                                  "rail.json.bak-pre-addlines, to rebuild the additions)")
     ap.add_argument("--out", help="write rail.json + rail.txt into this folder")
     ap.add_argument("--write", action="store_true", help="write into the theater's terrain folder")
     ap.add_argument("--refresh", action="store_true")
@@ -222,7 +238,7 @@ def main():
 
     ws = TheaterWorkspace(a.gamedir, a.theater)
     terr = ws.terrain()
-    src = os.path.join(terr.dir, rail.FILENAME)
+    src = a.src or os.path.join(terr.dir, rail.FILENAME)
     with open(src, encoding="utf-8") as f:
         doc = json.load(f)
     w = h = terr.size_km
@@ -270,8 +286,8 @@ def main():
     for n, v in sorted(km.items()):
         print("  new line %-36s %6.1f km on the map" % (n, v))
     close_gaps(new, print)
+    snap_ends(new, old_ends, print)  # before the branch split: a snapped end decides which piece reaches Korea
     split_branches(new, set(km), print)
-    snap_ends(new, old_ends, print)
     doc["lines"] += new
     doc.setdefault("added", []).append({"when": time.strftime("%Y-%m-%dT%H:%M:%S"),
                                         "lines": sorted(km), "projection": "affine airbase fit"})
