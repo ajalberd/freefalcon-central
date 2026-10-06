@@ -89,6 +89,8 @@ int RailGetTrains(RailTrainInfo *out, int max);
 bool RailTryBoard(UnitClass *u, short dx, short dy);
 bool RailMoveRider(UnitClass *u, int *ret);
 bool RailIsRiding(UnitClass *u); // the GTM leaves riders alone
+// A group on its way to a railhead under rail mobilisation (RailWave): the GTM leaves it alone too.
+bool RailIsMobilising(UnitClass *u);
 // Battalions riding right now (position along their journey), for the campaign map.
 int RailGetRiders(RailTrainInfo *out, int max);
 // Distance in km from a sim position to the nearest rail line; -1 if the theater has none.

@@ -913,7 +913,7 @@ void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
 
     // Artscout - 2026: a train, or a battalion riding one, is run by railnet.cpp (BattalionClass::MoveUnit
     // hands it over), so it takes no orders here and must not use up a reserve slot (GtmReservesPerCycle).
-    if (u->IsTrain() or RailIsRiding(u))
+    if (u->IsTrain() or RailIsRiding(u) or RailIsMobilising(u))
         return;
 
     // Artscout - 2026 (g_bGtmKeepCapture, off = stock): a unit attacking a target that is still a

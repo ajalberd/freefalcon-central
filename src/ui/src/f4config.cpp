@@ -5,6 +5,9 @@
 
 #include <stdio.h>
 #include <windows.h>
+#include <algorithm> // Artscout - 2026: config\mods\*.cfg in name order
+#include <string>
+#include <vector>
 #include "../../sim/include/phyconst.h" //JAM 19Sep03
 #include "../../graphics/include/nearclip.h" // Artscout - 2026: g_fCpuNearClip lives in CpuNearClip()
 
@@ -1043,6 +1046,13 @@ int g_nRailTroopSavePct = 25; // Artscout - 2026: the rail journey must take at 
 int g_nRailTroopStandoffKm = 20; // Artscout - 2026: troops only detrain where no enemy-held track is within this many km along the line (supply trains use RailFrontStandoff). At 10, 60 of 82 rides per campsim run ended in contact at the stop. "RailTroopStandoffKm".
 int g_nRailTroopContactKm = 5; // Artscout - 2026: a riding battalion gets off when its ground target is this close, km. Farther targets (it picks them at detection range, median 40 km in campsim) do not stop the train. "RailTroopContactKm".
 int g_nRailTroopTrains = 6; // Artscout - 2026: troop trains per side running at once (one battalion each); with all in use, battalions march. "RailTroopTrains".
+bool g_bRailWave =
+    false; // Artscout - 2026: when a country in RailWaveCountries is at war, its battalions far from the front go there by rail (railnet.cpp "rail mobilisation"): each hour, as many as there are free wave trains are ordered -- and held, like a player order -- to a friendly objective near a safe railhead RailWaveFrontMinKm..RailWaveFrontMaxKm behind the front, and ride. Off by default; the Rail China Wave mod turns it on (config\mods). "RailWave".
+char g_strRailWaveCountries[0x100] = "5"; // Artscout - 2026: countries that mobilise by rail, comma-separated country numbers (5 PRC, 4 CIS). "RailWaveCountries".
+int g_nRailWaveTrains = 12; // Artscout - 2026: mobilisation trains per side at once, on top of RailTroopTrains; one battalion each. "RailWaveTrains".
+int g_nRailWaveFarKm = 80; // Artscout - 2026: only battalions farther than this from the nearest enemy objective are mobilised, km. "RailWaveFarKm".
+int g_nRailWaveFrontMinKm = 20; // Artscout - 2026: nearest a mobilisation railhead objective may be to the enemy, km. "RailWaveFrontMinKm".
+int g_nRailWaveFrontMaxKm = 60; // Artscout - 2026: farthest a mobilisation railhead objective may be from the enemy, km. "RailWaveFrontMaxKm".
 int g_nCloudDepthAlpha = 60; // Artscout - 2026: texture alpha, in percent, at which a cumulus puff also writes depth (a second, colour-masked pass in the D3D12 renderer). The puffs are DX2D quads, which never wrote depth, so everything drawn after them showed through: the GPU particles (see ParticlesLast) and, in an external view, your own aircraft (drawn in a later flush). The dense core now occludes them; the soft edge below this alpha still only blends. Objects drawn before the clouds -- other aircraft, ground -- are unaffected: they already sat behind a ~90% opaque puff. 0 = off. "CloudDepthAlpha".
 bool g_bParticlesLast =
     true; // Artscout - 2026: draw the GPU particles (dust, smoke columns, explosions) after the DX2D world quads -- the cumulus puffs, smoke trails and the rail strip -- instead of partway through the scene. Neither writes depth, so whichever draws last paints over the other: with the particles first, a cloud behind a dust plume drew over it. Costs the rarer case, a puff between the eye and the plume. 0 = the old order. "ParticlesLast".
@@ -1799,6 +1809,7 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bCampMapIconHealth}, // Artscout - 2026: darken objective icons by damage
     {"RailTrains", &g_bRailTrains}, // Artscout - 2026: trains on the rail routes (railnet.cpp)
     {"RailTroops", &g_bRailTroops}, // Artscout - 2026: battalions may ride the railway
+    {"RailWave", &g_bRailWave}, // Artscout - 2026: rail mobilisation (China wave)
     {"CampRailLines", &g_bCampRailLines}, // Artscout - 2026: campaign map draws the rail routes
     {"RailMapAllTrains", &g_bRailMapAllTrains}, // Artscout - 2026: mark enemy trains too (test aid)
     {"RailBridgeCuts", &g_bRailBridgeCuts}, // Artscout - 2026: a dropped bridge cuts the railway
@@ -2275,6 +2286,10 @@ static ConfigOption<int> IntOpts[] = {
     {"RailTroopStandoffKm", &g_nRailTroopStandoffKm}, // Artscout - 2026: troop stop distance from the enemy
     {"RailTroopContactKm", &g_nRailTroopContactKm}, // Artscout - 2026: ground foe this close stops a rider
     {"RailTroopTrains", &g_nRailTroopTrains}, // Artscout - 2026: troop trains per side at once
+    {"RailWaveTrains", &g_nRailWaveTrains}, // Artscout - 2026: mobilisation trains per side
+    {"RailWaveFarKm", &g_nRailWaveFarKm}, // Artscout - 2026: mobilise units farther than this
+    {"RailWaveFrontMinKm", &g_nRailWaveFrontMinKm}, // Artscout - 2026: railhead band, near edge
+    {"RailWaveFrontMaxKm", &g_nRailWaveFrontMaxKm}, // Artscout - 2026: railhead band, far edge
     {"CloudDepthAlpha", &g_nCloudDepthAlpha}, // Artscout - 2026: cumulus cores write depth above this alpha %
     {"PathDamageCost",
      &g_nPathDamageCost}, // Artscout - 2026: damaged roads/bridges cost more to ROUTE through (0 = stock)
@@ -2419,6 +2434,7 @@ static ConfigOption<int> IntOpts[] = {
 static ConfigOption<char> StringOpts[] = {
     {"MasterServerName", &g_strMasterServerName[0]},
     {"RailTrainLines", &g_strRailTrainLines[0]}, // Artscout - 2026: routes that get a train
+    {"RailWaveCountries", &g_strRailWaveCountries[0]}, // Artscout - 2026: countries that mobilise by rail
     {"SoundDevice", &g_strSoundDevice[0]}, // OpenAL output device substring ("" = default)
     {"ServerName", &g_strServerName[0]},
     {"ServerLocation", &g_strServerLocation[0]},
@@ -3050,6 +3066,44 @@ void ReadFalcon4Config()
     /*if ( not g_bwoeir)
     { g_bMLU = false;
       g_bIFF = false;}*/
+
+    // Artscout - 2026: settings that belong to a JSGME mod. JSGME can only add or replace whole files,
+    // so a mod cannot edit FFViper.cfg; it drops its own config\mods\<mod name>.cfg instead. Read after
+    // FFViper.cfg (a mod's keys win), in name order; disabling the mod removes its file and its keys.
+    {
+        char pattern[1024];
+        sprintf_s(pattern, "%s/config/mods/*.cfg", FalconDataDirectory);
+        std::vector<std::string> names;
+        WIN32_FIND_DATAA fd;
+        HANDLE h = FindFirstFileA(pattern, &fd);
+
+        if (h not_eq INVALID_HANDLE_VALUE)
+        {
+            do
+            {
+                if (not(fd.dwFileAttributes bitand FILE_ATTRIBUTE_DIRECTORY))
+                    names.push_back(fd.cFileName);
+            }
+            while (FindNextFileA(h, &fd));
+
+            FindClose(h);
+        }
+
+        std::sort(names.begin(), names.end());
+
+        for (const std::string &n : names)
+        {
+            char path[1024];
+            sprintf_s(path, "%s/config/mods/%s", FalconDataDirectory, n.c_str());
+            FILE *mf = fopen(path, "r");
+
+            if (mf)
+            {
+                ParseFalcon4Config(mf);
+                fclose(mf);
+            }
+        }
+    }
 
     delete[] strDir;
     delete[] strAppPath;

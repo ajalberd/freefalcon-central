@@ -22,6 +22,7 @@
 #include "falcgame.h"
 #include "fflog.h"
 #include "railnet.h"
+#include "gtm.h"
 
 extern bool g_bRailTrains;
 extern char g_strRailTrainLines[];
@@ -1547,6 +1548,12 @@ extern int g_nRailTroopSavePct;
 extern int g_nRailTroopTrains;
 extern int g_nRailTroopStandoffKm;
 extern int g_nRailTroopContactKm;
+extern bool g_bRailWave;
+extern char g_strRailWaveCountries[];
+extern int g_nRailWaveTrains;
+extern int g_nRailWaveFarKm;
+extern int g_nRailWaveFrontMinKm;
+extern int g_nRailWaveFrontMaxKm;
 
 namespace
 {
@@ -1590,10 +1597,53 @@ struct Rider
     bool stopped;            // cut short: detrains at (sx, sy)
     float sx, sy;
     float destX, destY;
+    bool wave;               // a rail mobilisation ride: counts against RailWaveTrains
 };
 
 std::vector<Rider> g_riders;
 std::vector<std::pair<VU_ID, double>> g_reboard; // detrained at; no new ride before + REBOARD_SEC
+
+// Rail mobilisation (RailWave): groups (brigades, or battalions with no brigade) sent to a railhead.
+struct Mobilising
+{
+    VU_ID id;
+    int team;
+    VU_ID obj;
+    double t0;
+    int elements;
+};
+
+std::vector<Mobilising> g_mob;
+std::vector<VU_ID> g_mobDone; // mobilised once already: never again
+double g_mobLast = -1.0;
+
+struct MobStats
+{
+    int groups, battalions, arrived, timedOut, noRailhead;
+    double hoursSum;
+} g_mobStats = {0};
+
+bool IsMobilisingId(VU_ID id)
+{
+    for (const Mobilising &m : g_mob)
+        if (m.id == id)
+            return true;
+
+    return false;
+}
+
+// The unit, or the brigade it belongs to, is on its way to a railhead (g_lock held).
+bool InWave(UnitClass *u)
+{
+    if (g_mob.empty() or not u)
+        return false;
+
+    if (IsMobilisingId(u->Id()))
+        return true;
+
+    Unit p = u->GetUnitParent();
+    return p and IsMobilisingId(p->Id());
+}
 
 struct TroopStats
 {
@@ -1901,6 +1951,8 @@ void LogTroopStats(double now, bool force)
 }
 } // namespace
 
+void RailWaveTick(double now);
+
 // Called from RailCampaignTick each stage, after the bridge pass.
 void RailTroopTick(const std::vector<std::vector<char>> &downs)
 {
@@ -1909,6 +1961,7 @@ void RailTroopTick(const std::vector<std::vector<char>> &downs)
 
     TroopRefresh(downs);
     const double now = GameSeconds();
+    RailWaveTick(now);
     std::lock_guard<std::mutex> hold(g_lock);
 
     // dead riders off the books
@@ -2118,12 +2171,15 @@ bool RailTryBoard(UnitClass *u, GridIndex dx, GridIndex dy)
         return false;
     }
 
+    // Two pools of rolling stock: ordinary troop trains, and the mobilisation's own (RailWaveTrains).
+    const bool wave = InWave(u);
+    const int cap = wave ? g_nRailWaveTrains : g_nRailTroopTrains;
     int riding = 0;
 
     for (const Rider &r : g_riders)
-        riding += r.team == team ? 1 : 0;
+        riding += (r.team == team and r.wave == wave) ? 1 : 0;
 
-    if (riding >= g_nRailTroopTrains)
+    if (riding >= cap)
     {
         g_tstats.full++;
         return false;
@@ -2151,6 +2207,7 @@ bool RailTryBoard(UnitClass *u, GridIndex dx, GridIndex dy)
     rd.sx = rd.sy = 0.0F;
     rd.destX = qx;
     rd.destY = qy;
+    rd.wave = wave;
     g_riders.push_back(rd);
     g_tstats.rode++;
 
@@ -2160,12 +2217,13 @@ bool RailTryBoard(UnitClass *u, GridIndex dx, GridIndex dy)
         changes += SampleRoute(path[k]) not_eq SampleRoute(path[k + 1]) ? 1 : 0;
 
     const int r0 = SampleRoute(path.front()), r1 = SampleRoute(alight);
-    Log("rail: troops -- battalion %d (team %d, country %d) rides %.0f km, %s km %.0f to %s km %.0f, %d change(s): "
+    Log("rail: troops -- battalion %d (team %d, country %d%s) rides %.0f km, %s km %.0f to %s km %.0f, %d change(s): "
         "%.1f h by rail vs %.1f h on the road (%.0f km away); %d of %d trains in use",
-        u->GetCampID(), team, (int)u->GetCountry(), rideFt / GRID_SIZE_FT, g_routes[r0].name.c_str(),
+        u->GetCampID(), team, (int)u->GetCountry(), wave ? ", mobilising" : "", rideFt / GRID_SIZE_FT,
+        g_routes[r0].name.c_str(),
         (path.front() - g_sampleBase[r0]) * SAMPLE_FT / GRID_SIZE_FT, g_routes[r1].name.c_str(),
         (alight - g_sampleBase[r1]) * SAMPLE_FT / GRID_SIZE_FT, changes, (railSec) / 3600.0,
-        roadSec / 3600.0, trip / GRID_SIZE_FT, riding + 1, g_nRailTroopTrains);
+        roadSec / 3600.0, trip / GRID_SIZE_FT, riding + 1, cap);
 
     u->DisposeWayPoints();
     u->ClearUnitPath();
@@ -2356,4 +2414,352 @@ bool RailRiderPose(UnitClass *u, int car, float *x, float *y, float *yaw, float 
     }
 
     return true;
+}
+
+// ---------------------------------------------------------------- rail mobilisation (RailWave)
+//
+// Stock FF6 keeps China's armies in Manchuria, ~340 km behind the front, and the GTM never gives them
+// a march order (it scores units by distance), so troop trains alone carried 2 Chinese rides a run.
+// This is the order: once a country in RailWaveCountries is at war, each hour its groups (brigades,
+// and battalions with no brigade) more than RailWaveFarKm from the nearest enemy objective, with a
+// line within RailTroopWalkKm, are sent RESERVE to a friendly objective RailWaveFrontMinKm..MaxKm
+// behind the front that has a safe railhead within RailTroopWalkKm -- as many as there are free
+// mobilisation trains (RailWaveTrains, one battalion each). A brigade then posts its battalions round
+// that objective, and each battalion takes the train by the troop-train rule, in the mobilisation's
+// own pool. The GTM leaves a mobilising group alone until every battalion is within 20 km of the
+// objective (or 48 h pass); then it is an ordinary reserve near the front.
+
+namespace
+{
+bool WaveCountry(int c)
+{
+    const char *p = g_strRailWaveCountries;
+
+    while (*p)
+    {
+        while (*p and (*p < '0' or *p > '9'))
+            p++;
+
+        if (not *p)
+            break;
+
+        if (atoi(p) == c)
+            return true;
+
+        while (*p >= '0' and *p <= '9')
+            p++;
+    }
+
+    return false;
+}
+
+// Where a group is: its battalions' mean for a brigade.
+bool GroupPos(Unit g, float *x, float *y, int *elements)
+{
+    if (not g->IsBrigade())
+    {
+        *x = g->XPos();
+        *y = g->YPos();
+        *elements = 1;
+        return true;
+    }
+
+    float sx = 0.0F, sy = 0.0F;
+    int n = 0;
+
+    for (Unit e = g->GetFirstUnitElement(); e; e = g->GetNextUnitElement())
+    {
+        sx += e->XPos();
+        sy += e->YPos();
+        n++;
+    }
+
+    if (not n)
+        return false;
+
+    *x = sx / n;
+    *y = sy / n;
+    *elements = n;
+    return true;
+}
+
+// Nearest sample of any route within reach (sim feet) that `ok` accepts; < 0 = none (g_lock held).
+template <class F>
+float NearestSampleFt(float x, float y, float reach, F ok)
+{
+    float best = -1.0F;
+
+    for (const std::vector<Sample> &v : g_samples)
+        for (const Sample &sm : v)
+        {
+            const float d = hypotf(sm.x - x, sm.y - y);
+
+            if (d <= reach and (best < 0.0F or d < best) and ok(sm))
+                best = d;
+        }
+
+    return best;
+}
+} // namespace
+
+bool RailIsMobilising(UnitClass *u)
+{
+    if (not u or g_mob.empty())
+        return false;
+
+    std::lock_guard<std::mutex> hold(g_lock);
+    return InWave(u);
+}
+
+void RailWaveTick(double now)
+{
+    if (not g_bRailWave or not g_bRailTroops)
+        return;
+
+    if (g_mobLast >= 0.0 and now - g_mobLast < 3600.0)
+        return;
+
+    g_mobLast = now;
+    const float walk = (g_nRailTroopWalkKm > 0 ? g_nRailTroopWalkKm : 0) * GRID_SIZE_FT;
+    const float farFt = g_nRailWaveFarKm * GRID_SIZE_FT;
+    const float fMin = g_nRailWaveFrontMinKm * GRID_SIZE_FT, fMax = g_nRailWaveFrontMaxKm * GRID_SIZE_FT;
+
+    for (int team = 1; team < NUM_TEAMS; team++)
+    {
+        if (not TeamInfo[team] or not TeamInfo[team]->gtm)
+            continue;
+
+        bool atWar = false;
+
+        for (int t = 1; t < NUM_TEAMS and not atWar; t++)
+            atWar = t not_eq team and TeamInfo[t] and IsHostile(team, t);
+
+        if (not atWar)
+            continue;
+
+        // Enemy objectives: the front, for this team.
+        std::vector<std::pair<float, float>> enemy;
+        {
+            VuListIterator it(AllObjList);
+
+            for (Objective o = GetFirstObjective(&it); o; o = GetNextObjective(&it))
+                if (o->GetTeam() > 0 and IsHostile(team, o->GetTeam()))
+                    enemy.push_back(std::make_pair(o->XPos(), o->YPos()));
+        }
+
+        if (enemy.empty())
+            continue;
+
+        auto front = [&](float x, float y) {
+            float b = 1e30F;
+
+            for (const auto &e : enemy)
+            {
+                const float d = hypotf(e.first - x, e.second - y);
+                b = d < b ? d : b;
+            }
+
+            return b;
+        };
+
+        // Groups on their way: arrived, gone, or out of time.
+        int busy = 0;
+        {
+            std::lock_guard<std::mutex> hold(g_lock);
+
+            for (size_t i = g_mob.size(); i-- > 0;)
+            {
+                Mobilising &m = g_mob[i];
+
+                if (m.team not_eq team)
+                    continue;
+
+                Unit g = (Unit)vuDatabase->Find(m.id);
+                Objective o = (Objective)vuDatabase->Find(m.obj);
+
+                if (not g or g->IsDead() or not o)
+                {
+                    g_mob.erase(g_mob.begin() + i);
+                    continue;
+                }
+
+                int away = 0, n = 0;
+
+                for (Unit e = g->IsBrigade() ? g->GetFirstUnitElement() : g; e;
+                     e = g->IsBrigade() ? g->GetNextUnitElement() : nullptr)
+                {
+                    n++;
+
+                    if (hypotf(e->XPos() - o->XPos(), e->YPos() - o->YPos()) > 20.0F * GRID_SIZE_FT)
+                    {
+                        away++;
+
+                        if (not FindRider(e->Id()))
+                            busy++; // still to board (or marching): holds a train in reserve
+                    }
+                }
+
+                const double hours = (now - m.t0) / 3600.0;
+
+                if (not away or hours > 48.0)
+                {
+                    if (away)
+                        g_mobStats.timedOut++;
+                    else
+                        g_mobStats.arrived++, g_mobStats.hoursSum += hours;
+
+                    Log("rail: wave -- group %d %s after %.1f h (%d of %d battalions within 20 km of objective %d)",
+                        g->GetCampID(), away ? "released, out of time," : "arrived", hours, n - away, n,
+                        o->GetCampID());
+                    g_mob.erase(g_mob.begin() + i);
+                }
+            }
+
+            for (const Rider &r : g_riders)
+                busy += (r.team == team and r.wave) ? 1 : 0;
+        }
+
+        int free = g_nRailWaveTrains - busy;
+
+        if (free <= 0)
+            continue;
+
+        // Railheads: our objectives the GTM accepts as a reserve post, in the band behind the front,
+        // with a safe stop on the line within the walk.
+        struct Head
+        {
+            Objective o;
+            int assigned;
+        };
+
+        std::vector<Head> heads;
+        {
+            std::vector<Objective> objs;
+            VuListIterator it(AllObjList);
+
+            for (Objective o = GetFirstObjective(&it); o; o = GetNextObjective(&it))
+            {
+                if (o->GetTeam() not_eq team)
+                    continue;
+
+                const float f = front(o->XPos(), o->YPos());
+
+                if (f >= fMin and f <= fMax and TeamInfo[team]->gtm->IsValidObjective(GORD_RESERVE, o))
+                    objs.push_back(o);
+            }
+
+            std::lock_guard<std::mutex> hold(g_lock);
+
+            for (Objective o : objs)
+                if (NearestSampleFt(o->XPos(), o->YPos(), walk,
+                                    [team](const Sample &sm) { return Alightable(sm, team); }) >= 0.0F)
+                    heads.push_back(Head{o, 0});
+        }
+
+        if (heads.empty())
+        {
+            g_mobStats.noRailhead++;
+            Log("rail: wave -- team %d: no railhead objective %d-%d km behind the front", team,
+                g_nRailWaveFrontMinKm, g_nRailWaveFrontMaxKm);
+            continue;
+        }
+
+        for (const Mobilising &m : g_mob)
+            for (Head &h : heads)
+                if (m.team == team and m.obj == h.o->Id())
+                    h.assigned++;
+
+        // Groups to send, nearest to a line first.
+        struct Cand
+        {
+            Unit g;
+            float x, y, line;
+            int elements;
+        };
+
+        std::vector<Cand> cands;
+        {
+            VuListIterator it(AllParentList);
+
+            for (Unit g = GetFirstUnit(&it); g; g = GetNextUnit(&it))
+            {
+                if (g->GetTeam() not_eq team or g->GetDomain() not_eq DOMAIN_LAND or g->IsDead() or
+                    not(g->IsBrigade() or g->IsBattalion()) or g->IsTrain() or not WaveCountry(g->GetCountry()) or
+                    g->Engaged())
+                    continue;
+
+                bool done = false;
+
+                for (const VU_ID &d : g_mobDone)
+                    done = done or d == g->Id();
+
+                if (done)
+                    continue;
+
+                Cand c = {g, 0.0F, 0.0F, 0.0F, 0};
+
+                if (not GroupPos(g, &c.x, &c.y, &c.elements) or front(c.x, c.y) <= farFt)
+                    continue;
+
+                cands.push_back(c);
+            }
+
+            std::lock_guard<std::mutex> hold(g_lock);
+
+            for (size_t i = cands.size(); i-- > 0;)
+            {
+                cands[i].line = NearestSampleFt(cands[i].x, cands[i].y, walk,
+                                                [team](const Sample &sm) { return Passable(sm, team); });
+
+                if (cands[i].line < 0.0F)
+                    cands.erase(cands.begin() + i);
+            }
+        }
+
+        std::sort(cands.begin(), cands.end(), [](const Cand &a, const Cand &b) { return a.line < b.line; });
+
+        for (const Cand &c : cands)
+        {
+            if (free <= 0)
+                break;
+
+            Head *pick = nullptr;
+            float pickScore = 1e30F;
+
+            for (Head &h : heads)
+            {
+                const float score = h.assigned * 1000.0F + hypotf(h.o->XPos() - c.x, h.o->YPos() - c.y) / GRID_SIZE_FT;
+
+                if (score < pickScore)
+                    pickScore = score, pick = &h;
+            }
+
+            c.g->SetUnitOrders(GORD_RESERVE, pick->o->Id());
+            pick->assigned++;
+            free -= c.elements;
+
+            {
+                std::lock_guard<std::mutex> hold(g_lock);
+                Mobilising m = {c.g->Id(), team, pick->o->Id(), now, c.elements};
+                g_mob.push_back(m);
+                g_mobDone.push_back(c.g->Id());
+            }
+
+            g_mobStats.groups++;
+            g_mobStats.battalions += c.elements;
+            _TCHAR name[80] = {0};
+            pick->o->GetName(name, 79, FALSE);
+            Log("rail: wave -- %s %d (country %d, %d battalion(s)) mobilised to %s (%d), %.0f km behind the "
+                "front, %.0f km away; %d mobilising, %d groups / %d battalions so far",
+                c.g->IsBrigade() ? "brigade" : "battalion", c.g->GetCampID(), (int)c.g->GetCountry(), c.elements,
+                name, pick->o->GetCampID(), front(pick->o->XPos(), pick->o->YPos()) / GRID_SIZE_FT,
+                hypotf(pick->o->XPos() - c.x, pick->o->YPos() - c.y) / GRID_SIZE_FT, (int)g_mob.size(),
+                g_mobStats.groups, g_mobStats.battalions);
+        }
+    }
+
+    Log("rail: wave -- tally: %d groups / %d battalions mobilised, %d arrived (mean %.1f h), %d out of time, "
+        "%d still on the way",
+        g_mobStats.groups, g_mobStats.battalions, g_mobStats.arrived,
+        g_mobStats.arrived ? g_mobStats.hoursSum / g_mobStats.arrived : 0.0, g_mobStats.timedOut, (int)g_mob.size());
 }
