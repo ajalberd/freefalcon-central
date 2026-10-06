@@ -277,6 +277,37 @@ and level‑matched to the files they replaced.
   `CampMapIconHealth`, `CampMapIconMin`.
 * **Add Squadron hidden in campaigns** — it is Tactical Engagement / campaign-editor work.
 
+## 6c. Campaign AI — the ground war, measured
+
+All found and checked with **campsim** (`src/tools/campsim`, `tools/campsim`): the real campaign code
+run headless, days of war in seconds, with a JSONL timeline per run and the **Campaign Lab** web UI
+(`serve.py`) to launch, chart and replay runs. Each fix is an `FFViper.cfg` switch; the ground-AI ones
+are on by default, and `0` restores stock.
+
+* **SimToGrid floors** (`SimToGridFix`) — it rounded, and ground units could not move south or west.
+* **SupplyNeedFix** — squadrons' out-of-table stores made the team's summed supply need negative and
+  stopped all battalion resupply from about hour 12. **SupplySplitShares** gives ground and air
+  separate shares of the pool, so never-used squadron stores no longer dilute battalion deliveries.
+* **GridPathPartial** — grid and objective paths cap at 96 steps; a failure threw the partial route
+  away and the unit retried forever. It now follows the partial route.
+* **GtmCaptureFront** — capture orders only went to *secondary* objectives within three links of the
+  front, which froze the war short of Pyongyang (2 of 8 runs reached it; 8 of 8 with the fix).
+  **GtmCaptureBestScore / CaptureMaxKm** keep far-sent units from driving across the whole front.
+* **ReserveHold / ReserveNoPullback** — reserves stop hopping back three links every check, and a unit
+  whose target a neighbour took holds it instead of driving ~49 km back.
+* **GtmReserveFix** — the reserve step kept the first candidate instead of the closest.
+* **AlertScramble, InitTrueLosses, CounterAttackInitiative, CaptureInitiative** — alert flights
+  actually scramble, and DPRK gets the initiative to counter-attack instead of staying defensive
+  all war.
+* **NavalMoveFix** and naval AI legs, player ship stations, ship ghosts and wrecks on the map.
+* Fixed: duplicate `AllUnitList` entries, arrived reinforcements left in the inactive list,
+  battalions losing their reinforcement hour on save/load, a request-list use-after-free, an
+  `SelectAirActions` crash with no front left; the event history is kept in the save.
+* **Korea Escalation** (JSGME mod, `tools/campsim/make_escalation_mod.py`, documented in
+  `KOREA-ESCALATION.md`) — China and Russia staged forward and cloned, a Russian Pacific Fleet, DPRK
+  bombers, Blue air cut to Falcon 4.0 amounts, Pyongyang *and* Wonsan to win.
+* Campaign screen **music follows the war**; the intel bar charts plot what their labels say.
+
 ## 7. Stability (corruption / hangs / crashes)
 
 * **Campaign teardown heap corruption** — `O_Output` sized its scale buffers from the first
@@ -314,6 +345,38 @@ and the same OpenXR path gives VR.
   in place of DirectSound.
 * Path separators and file lookups made case‑ and separator‑tolerant, since the game data was
   authored on a case‑insensitive filesystem.
+
+## 10. Railways (`rail-tracks` branch, JSGME mod "Korea Rail War")
+
+No Falcon theater ever had rail: no rail cells, no rail objectives, no train class, and the engine's
+rail pathing was dead code. All of this is in [RAIL.md](RAIL.md).
+
+* **The network from OpenStreetMap** (`osm_rail.py`, `add_rail_lines.py`) — fitted to the terrain, not
+  to Falcon's lat/long (which is 45–195 km out in Korea): 21 routes, the Korean main lines plus China
+  (Shenyang–Dandong over the Yalu into Sinuiju, Meihekou–Ji'an into Manpo) and Russia (Khasan into
+  Tumangang), with bridge and tunnel flags, kept off open sea and routed round airfields.
+* **Supply trains** (`RailTrains`) — Supply battalions flagged as trains, running a timetable that is a
+  pure function of game time between a supply hub and a railhead short of the front; they deliver
+  from the national pools and can be spotted, struck and killed.
+* **Troop trains** (`RailTroops`) — a battalion about to march takes the train when walk + entrain +
+  ride + line changes + detrain beats the road by 25%; it stays a normal unit, rides in 3D as a string
+  of cars, and gets off for a ground foe within 5 km. campsim: a median 164 km trip, 8.3 h by rail
+  vs 23.6 h on foot.
+* **Rail mobilisation** (`RailWave`) — when China or Russia joins, its armies far from the front are
+  ordered by rail to railheads 20–60 km behind it, in their own pool of trains. On stock save0 China
+  otherwise never moves (the GTM never orders it); with it, Chinese battalions ride from Manchuria to
+  the front in 15–28 h.
+* **Bridges cut the line** (`RailBridgeCuts`) — each long rail bridge binds to a bridge objective, and
+  **71 new rail-bridge objectives** (`add_rail_bridges.py`) cover the long crossings that had none,
+  the Yalu at Sinuiju included. A dropped span stops trains short and makes troops detrain.
+* **Drawn** on the campaign map (Rail lines layer, bridge markers) and in 3D (a ballast strip with
+  rails, bridge decks, tunnels; cars ride the rail top).
+* **Shipped as a JSGME mod** built by `tools/rail-mod/make_rail_mod.py`, with the engine reading
+  `config\mods\*.cfg` after `FFViper.cfg` so a mod can carry its own settings.
+* Along the way: ten Korean airstrips whose 2011 terrain was uneven flattened (`flatten_airstrips.py`,
+  with rollback), Changyon Highway Strip moved off a cliff, cumulus that writes depth so aircraft no
+  longer show through clouds, GPU particles drawn after the cloud quads, and campsim's game clock
+  (`vuxGameTime`) advancing at last.
 
 ---
 
