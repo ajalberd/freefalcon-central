@@ -279,6 +279,36 @@ map, and log lines (`rail: troops -- ...` in FFDebug.log, with a 6-hourly tally 
 orders marched). In 3D its vehicles are where the campaign puts them -- there is no troop
 train model yet.
 
+## Cross-border lines: China and Russia (2026-10-06)
+
+`osm_rail.py` built Korea's rail.json one named line at a time (`--line`, English names), so only the
+nine Korean lines were ever fetched -- no track in Manchuria or the Russian corner, though the theater
+covers both (291 PRC and 18 CIS objectives). `tools/campaign-editor/add_rail_lines.py` adds lines to the
+existing file without refetching or refitting the old ones (written to the install 2026-10-06; backups
+`rail.json/.txt.bak-pre-addlines`):
+
+| Line (route) | km | Joins |
+|---|---|---|
+| Shendan Line (Shenyang-Dandong) | 259 | Pyongui Line at Sinuiju (the Yalu bridge) |
+| Shenji Line (Shenyang-Meihekou) | 375 | Meiji Line at Meihekou |
+| Meiji Line (Meihekou-Ji'an), OSM `梅集线` | 283 | Manpo Line at Manpo (the Ji'an bridge) |
+| Khasan Line (unnamed in OSM, by box) + 3 branches | 194 | Hambuk Line at Tumangang (Russia) |
+| Hambuk Line + 2 branches | 196 + 155 + 57 | Pyongra Line at Chongjin |
+| Pukbunaeryuk Line | 294 | Manpo |
+
+All 21 routes are one network. How: lines are fetched by `name:en` or `name` (many Chinese lines have
+only a Chinese name); new lines use the affine airbase fit (the stored cubic fit is 14 km out at
+Shenyang, the affine 4 km; both within 3 km at the Yalu and Manpo bridges); same-line gaps up to 8 km
+close (OSM's Hambuk Line has a 6 km hole); new ends snap onto old route ends within 8 km (Dandong sits on
+the Yalu estuary, which the land check treats as sea, 7 km short); pieces off a route become "<name>
+branch" routes (a route is the track between the two points furthest apart, which dropped
+Namyang-Tumangang, where Khasan joins). The nine Korean routes are unchanged.
+
+Open: Shendan and Shenji end at different Shenyang stations ~30 km apart (each reaches Korea on its own;
+no change of line inside Shenyang). The campaign's own north-east objectives are 40-150 km from their real
+places (Hunchun, Vladivostok), so the Khasan track does not sit among them neatly. The border bridges have
+no bridge objectives yet, so bombing cannot cut China off.
+
 ---
 
 ## Drawing the track in 3D
