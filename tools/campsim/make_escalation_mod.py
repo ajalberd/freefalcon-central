@@ -25,6 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "campaign-editor"))
 from ffcamp import entities, workspace  # noqa: E402
 import make_ally_mod  # noqa: E402
+import make_cutblue  # noqa: E402
 import saves  # noqa: E402
 
 GAME = r"C:\FreeFalcon6"
@@ -188,10 +189,13 @@ README = """Korea Escalation (JSGME) - Korea theater, save0 only. Applies to NEW
 - Russia's Pacific Fleet off Wonsan (stock: no Russian ships), built for air defence: Kuznetsov carrier with an
   Su-33 squadron aboard, the Kiev battle group (Kiev, 2 Admiral Nakhimov, 6 Najin), 3 more Admiral Nakhimov
   cruisers (SAMs to 64 km), a Kilo submarine and 4 Osa II missile-boat groups (12 boats). It joins with Russia.
-- Falcon4.AII: ObjGroundPathMaxCost 2000 (stock 500), so rear units can be given orders at all; and
-  2DHitChanceGround 5 (stock 1.5): aircraft hit ground units less often (campsim: war h42-69 instead of h31-46).
-Play it with FFViper-ai.exe and, in FFViper.cfg: set g_bAlertScramble 1 / set g_bInitTrueLosses 1 /
-set g_nCounterAttackInitiative 15 / set g_nCaptureInitiative 2 (campsim: war ends ~h81 instead of h34-45).
+- Blue combat air cut to Falcon 4.0 amounts: 32 squadrons removed (752 aircraft). At start: 272 combat jets
+  (stock 576) and 32 attack helicopters (stock 224); ROK jet reinforcements removed. The 36th FS stays.
+  Transport, airlift, tankers, AWACS and JSTARS are untouched.
+- Falcon4.AII: ObjGroundPathMaxCost 2000 (stock 500), so rear units can be given orders at all.
+Play it with FFViper.exe (main build) and, in FFViper.cfg: set g_bAlertScramble 1 / set g_bInitTrueLosses 1 /
+set g_nCounterAttackInitiative 15 / set g_nCaptureInitiative 2 (campsim, 4 seeds: war ends h67-98; air causes
+49%% of DPRK ground losses, 71%% without the Blue air cut).
 Same files as campsim's gamework escal.cam/escal.tri (tools/campsim/make_escalation_mod.py);
 details in tools/campsim/KOREA-ESCALATION.md.
 Disable in JSGME to restore stock.
@@ -201,9 +205,7 @@ Disable in JSGME to restore stock.
 # Falcon4.AII changes: (stock line, mod line)
 AII_CHANGES = [
     (b"ObjGroundPathMaxCost = 500", b"ObjGroundPathMaxCost = 2000"),
-    # Aircraft hit chance vs ground units is divided by this (unit.cpp). campsim, 4 seeds x 5 days: 1.5 -> Blue wins
-    # h31-46, 76% of DPRK ground losses to air; 5 -> h42-69, 66%.
-    (b"2DHitChanceGround = 1.5", b"2DHitChanceGround = 5"),
+    # 2DHitChanceGround stays stock 1.5: 5 was tried (2026-10-05) and replaced by the Blue air cut (make_cutblue.py)
 ]
 
 
@@ -263,6 +265,8 @@ def build(clones, install):
     assert len(units) == len(cam.units) + nb + ns + nship, (len(units), len(cam.units), nb, ns, nship)
     cam.units_raw, cam.units = stream, units
     cam.members[cam._member_name("uni")] = entities.encode_units(stream, len(units))
+    ncut, cut_planes = make_cutblue.cut_blue(cam, ws)
+    print("Blue air cut: %d squadrons, %d aircraft" % (ncut, cut_planes))
     tri = os.path.join(GW, "bothwr.tri")
     aii_text = mod_aii()
 

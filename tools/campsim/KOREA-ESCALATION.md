@@ -7,7 +7,8 @@ and Wonsan, in which China and Russia actually join the fighting. It applies to 
 - Built by `tools/campsim/make_escalation_mod.py` (needs the install's stock `save0.cam` and `Falcon4.AII`,
   i.e. run it with the mod **disabled**). `--aii-only` rewrites just the AII and works with the mod enabled
   (stock AII from JSGME's `MODS/!BACKUP`, written to the mod and the live install).
-- campsim reads the install's `Falcon4.AII`, so with the mod enabled sims run at the mod's values; `hcg=1.5` restores stock.
+- `make_cutblue.py` alone applies the Blue air cut to the installed (enabled, not yet cut) mod save0.
+- run_batch.py runs in `tools/campsim/gamework` (its own `save0` is **stock FF6**, not the mod); use `--save escal`.
 - The builder writes the same files to campsim's `gamework/campaign/SAVE/escal.cam` + `escal.tri`, so the
   simulation tests exactly what you play: `python run_batch.py --save escal --set tri=escal ...`.
 
@@ -22,8 +23,19 @@ and Wonsan, in which China and Russia actually join the fighting. It applies to 
 | | Every PRC battalion and active squadron cloned once: 86 battalions (2,136 vehicles), 26 squadrons. Clones have no brigade (U_PARENT), new ids and names | 43 battalions, 13 squadrons |
 | | DPRK bombers laid out like vanilla Falcon 4.0's Tu-16s: H-6A squadrons (China's Tu-16) cloned to DPRK, 1 active at Sunan, reinforcements at Sunan (h48) and Toksan (h72) | DPRK has no bomber-role squadrons |
 | | Russia's Pacific Fleet, 44-137 km off Wonsan, built for air defence: Kuznetsov carrier with an Su-33 squadron based on it, the Kiev battle group (Kiev, 2 Admiral Nakhimov, 6 Najin), 3 more Admiral Nakhimov cruisers (SAMs to 64 km), a Kilo submarine, 4 Osa II groups (12 missile boats). Neutral until Russia joins. Blue aircraft shot down by ships: median 80 -> 156 a run vs an Osa-heavy fleet | Russia has no ships |
+| | Blue combat air cut to Falcon 4.0 amounts (`make_cutblue.py`): 32 squadrons / 752 aircraft deleted, also from the header's squadron list. Start: US jets 128 (four F-16 squadrons incl. the 36th, one A-10), ROK jets 144 (KF-16C 32, F-4E 48, F-5E 64), one AH-64D squadron; ROK jet reinforcements gone; US reinforcements F-15C/E, one F-117, one F-14D, two F/A-18, a second A-10, B-52H. Whole squadrons, because supply refills a trimmed one | 576 combat jets, 224 attack helicopters, ROK 192 jet reinforcements |
 | `campaign/SAVE/Falcon4.AII` | `ObjGroundPathMaxCost = 2000` | 500: rear units are never picked for orders |
-| | `2DHitChanceGround = 5`: aircraft hit chance vs ground units is divided by this (unit.cpp; runway/building strikes unaffected). campsim, seeds 21-24 x 5 days, live cfg: Blue wins h42-69, 66% of DPRK ground losses to air, DPRK ground kills 650 Blue vehicles | 1.5: h31-46, 76%, 400. (3: h34-50, 69%; 8: h48-59, 60%) |
+
+### Air balance measured (2026-10-05, campsim seeds 21-24, 6 days, live cfg, on `escal`)
+
+| Variant | Blue wins | DPRK ground lost to air | Blue ground lost to DPRK air / ground |
+|---|---|---|---|
+| Mod, stock air, 2DHitChanceGround 1.5 | h66-76 | 5,434 (71%) | 274 / 792 |
+| Mod, 2DHitChanceGround 5 (AII) | h70-88 | 4,239 (63%) | 106 / 1,028 |
+| **Mod + Blue air cut, 1.5 (shipped)** | h67-98 | 3,021 (49%) | 898 / 1,652 |
+
+2DHitChanceGround divides aircraft hit chance vs ground units for both sides (unit.cpp), so it also mutes DPRK's
+strikes; the cut lets DPRK's air force matter. campsim knob: `hcg=` (`2DHitChanceGround=` is ignored).
 
 China and Russia stay their own (neutral) countries until the trigger brings them in, then fold into DPRK as
 in stock. Keeping them as separate factions was tested and was worse (their initiative drifts to ~40 and
