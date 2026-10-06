@@ -5,7 +5,9 @@ and Wonsan, in which China and Russia actually join the fighting. It applies to 
 
 - Installed at `C:\FreeFalcon6\MODS\Korea Escalation` (enable/disable in JSGME); its `Korea Escalation README.txt` lands in the game folder when enabled.
 - Built by `tools/campsim/make_escalation_mod.py` (needs the install's stock `save0.cam` and `Falcon4.AII`,
-  i.e. run it with the mod **disabled**).
+  i.e. run it with the mod **disabled**). `--aii-only` rewrites just the AII and works with the mod enabled
+  (stock AII from JSGME's `MODS/!BACKUP`, written to the mod and the live install).
+- campsim reads the install's `Falcon4.AII`, so with the mod enabled sims run at the mod's values; `hcg=1.5` restores stock.
 - The builder writes the same files to campsim's `gamework/campaign/SAVE/escal.cam` + `escal.tri`, so the
   simulation tests exactly what you play: `python run_batch.py --save escal --set tri=escal ...`.
 
@@ -21,6 +23,7 @@ and Wonsan, in which China and Russia actually join the fighting. It applies to 
 | | DPRK bombers laid out like vanilla Falcon 4.0's Tu-16s: H-6A squadrons (China's Tu-16) cloned to DPRK, 1 active at Sunan, reinforcements at Sunan (h48) and Toksan (h72) | DPRK has no bomber-role squadrons |
 | | Russia's Pacific Fleet, 44-137 km off Wonsan, built for air defence: Kuznetsov carrier with an Su-33 squadron based on it, the Kiev battle group (Kiev, 2 Admiral Nakhimov, 6 Najin), 3 more Admiral Nakhimov cruisers (SAMs to 64 km), a Kilo submarine, 4 Osa II groups (12 missile boats). Neutral until Russia joins. Blue aircraft shot down by ships: median 80 -> 156 a run vs an Osa-heavy fleet | Russia has no ships |
 | `campaign/SAVE/Falcon4.AII` | `ObjGroundPathMaxCost = 2000` | 500: rear units are never picked for orders |
+| | `2DHitChanceGround = 5`: aircraft hit chance vs ground units is divided by this (unit.cpp; runway/building strikes unaffected). campsim, seeds 21-24 x 5 days, live cfg: Blue wins h42-69, 66% of DPRK ground losses to air, DPRK ground kills 650 Blue vehicles | 1.5: h31-46, 76%, 400. (3: h34-50, 69%; 8: h48-59, 60%) |
 
 China and Russia stay their own (neutral) countries until the trigger brings them in, then fold into DPRK as
 in stock. Keeping them as separate factions was tested and was worse (their initiative drifts to ~40 and

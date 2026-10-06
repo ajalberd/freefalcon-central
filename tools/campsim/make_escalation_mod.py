@@ -188,13 +188,63 @@ README = """Korea Escalation (JSGME) - Korea theater, save0 only. Applies to NEW
 - Russia's Pacific Fleet off Wonsan (stock: no Russian ships), built for air defence: Kuznetsov carrier with an
   Su-33 squadron aboard, the Kiev battle group (Kiev, 2 Admiral Nakhimov, 6 Najin), 3 more Admiral Nakhimov
   cruisers (SAMs to 64 km), a Kilo submarine and 4 Osa II missile-boat groups (12 boats). It joins with Russia.
-- Falcon4.AII: ObjGroundPathMaxCost 2000 (stock 500), so rear units can be given orders at all.
+- Falcon4.AII: ObjGroundPathMaxCost 2000 (stock 500), so rear units can be given orders at all; and
+  2DHitChanceGround 5 (stock 1.5): aircraft hit ground units less often (campsim: war h42-69 instead of h31-46).
 Play it with FFViper-ai.exe and, in FFViper.cfg: set g_bAlertScramble 1 / set g_bInitTrueLosses 1 /
 set g_nCounterAttackInitiative 15 / set g_nCaptureInitiative 2 (campsim: war ends ~h81 instead of h34-45).
 Same files as campsim's gamework escal.cam/escal.tri (tools/campsim/make_escalation_mod.py);
 details in tools/campsim/KOREA-ESCALATION.md.
 Disable in JSGME to restore stock.
 """
+
+
+# Falcon4.AII changes: (stock line, mod line)
+AII_CHANGES = [
+    (b"ObjGroundPathMaxCost = 500", b"ObjGroundPathMaxCost = 2000"),
+    # Aircraft hit chance vs ground units is divided by this (unit.cpp). campsim, 4 seeds x 5 days: 1.5 -> Blue wins
+    # h31-46, 76% of DPRK ground losses to air; 5 -> h42-69, 66%.
+    (b"2DHitChanceGround = 1.5", b"2DHitChanceGround = 5"),
+]
+
+
+def stock_aii():
+    """The stock Falcon4.AII: the install's, or JSGME's backup of it while the mod is enabled."""
+    for p in (os.path.join(GAME, "campaign", "SAVE", "Falcon4.AII"),
+              os.path.join(GAME, "MODS", "!BACKUP", "campaign", "SAVE", "Falcon4.AII.Korea Escalation")):
+        if os.path.isfile(p):
+            text = open(p, "rb").read()
+            if all(old in text for old, _new in AII_CHANGES):
+                return text
+    raise SystemExit("no stock Falcon4.AII found (install or JSGME backup)")
+
+
+def mod_aii():
+    text = stock_aii()
+    for old, new in AII_CHANGES:
+        text = text.replace(old, new)
+    return text
+
+
+def write_aii():
+    """--aii-only: rewrite the mod's Falcon4.AII, and the install's copy too while the mod is enabled."""
+    text = mod_aii()
+    targets = [os.path.join(MOD, "campaign", "SAVE", "Falcon4.AII")]
+    live = os.path.join(GAME, "campaign", "SAVE", "Falcon4.AII")
+    if b"ObjGroundPathMaxCost = 2000" in open(live, "rb").read():
+        targets.append(live)  # the mod is enabled: JSGME copied its AII over the stock one
+    for p in targets:
+        with open(p, "wb") as f:
+            f.write(text)
+    print("Falcon4.AII ->", ", ".join(targets))
+    # the README's AII line, in the mod and (if enabled) in the game folder
+    old = "- Falcon4.AII: ObjGroundPathMaxCost 2000 (stock 500), so rear units can be given orders at all.\n"
+    new = README[README.index("- Falcon4.AII:"):README.index("Play it")]
+    for p in (os.path.join(MOD, "Korea Escalation README.txt"), os.path.join(GAME, "Korea Escalation README.txt")):
+        if os.path.isfile(p):
+            text = open(p).read()
+            if old in text:
+                open(p, "w").write(text.replace(old, new))
+                print("README ->", p)
 
 
 def build(clones, install):
@@ -214,10 +264,7 @@ def build(clones, install):
     cam.units_raw, cam.units = stream, units
     cam.members[cam._member_name("uni")] = entities.encode_units(stream, len(units))
     tri = os.path.join(GW, "bothwr.tri")
-    aii_text = open(os.path.join(GAME, "campaign", "SAVE", "Falcon4.AII"), "rb").read()
-    if b"ObjGroundPathMaxCost = 500" not in aii_text:
-        raise SystemExit("expected the install's stock Falcon4.AII (ObjGroundPathMaxCost = 500)")
-    aii_text = aii_text.replace(b"ObjGroundPathMaxCost = 500", b"ObjGroundPathMaxCost = 2000")
+    aii_text = mod_aii()
 
     outs = [(GW, "escal")]
     if install:
@@ -239,5 +286,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--clones", type=int, default=1)
     ap.add_argument("--no-install", action="store_true")
+    ap.add_argument("--aii-only", action="store_true", help="only rewrite Falcon4.AII (works with the mod enabled)")
     a = ap.parse_args()
-    build(a.clones, not a.no_install)
+    if a.aii_only:
+        write_aii()
+    else:
+        build(a.clones, not a.no_install)
