@@ -2361,6 +2361,9 @@ def api_terrain(q, _body):
     }
 
 
+RAIL_FILE = None  # --rail <rail.json>: show this file in the Rail overlay instead of the theater's
+
+
 def api_rail(q, _body):
     """The theater's railway lines (rail.json from osm_rail.py), if built.
 
@@ -2369,6 +2372,8 @@ def api_rail(q, _body):
     ws = _ws(q)
     t = ws.terrain()
     path = os.path.join(t.dir, rail.FILENAME) if t else None
+    if RAIL_FILE:  # --rail: look at a test build (add_rail_lines.py --out) without installing it
+        path = RAIL_FILE
     if not path or not os.path.isfile(path):
         return {"available": False,
                 "reason": "no %s in the terrain folder -- run osm_rail.py"
@@ -3020,7 +3025,11 @@ def main():
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--rail", help="show this rail.json in the Rail overlay (a test build) "
+                                   "instead of the theater's own")
     args = ap.parse_args()
+    global RAIL_FILE
+    RAIL_FILE = os.path.abspath(args.rail) if args.rail else None
 
     SESSION = workspace.Session(args.gamedir)
     url = "http://127.0.0.1:%d/" % args.port
