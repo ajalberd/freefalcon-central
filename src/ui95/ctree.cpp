@@ -1057,6 +1057,15 @@ BOOL C_TreeList::Process(long cID, short HitType)
         }
 
         break;
+
+    case C_TYPE_RMOUSEUP:
+        // Only ATO flight rows take a right-click (join the flight); the handler sends it
+        // here when the tree has no popup menu of its own.
+        if (CheckFlag_ == C_TYPE_ITEM and LastFound_ and LastFound_->Item_ and
+            LastFound_->Item_->_GetCType_() == _CNTL_FLIGHT_)
+            LastFound_->Item_->Process(cID, HitType);
+
+        break;
     }
 
     return (TRUE);

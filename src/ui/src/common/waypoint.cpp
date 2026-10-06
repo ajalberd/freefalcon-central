@@ -35,6 +35,7 @@
 #include "cmap.h"
 #include "gps.h"
 #include "urefresh.h"
+#include "navunit.h" // Artscout - 2026: TaskForceOrderStation
 
 #pragma warning(disable : 4127)
 
@@ -2282,10 +2283,34 @@ void WaypointCB(long ID, short hittype, class C_Base *ctrl)
 
                     if (un->IsBattalion())
                     {
+                        // Artscout - 2026: the player's order beats the AI's (see
+                        // BattalionClass::SetUnitOrders); the unit is held until it arrives.
+                        extern int gPlayerOrdering;
+                        extern bool g_bPlayerGroundHold;
                         CampEnterCriticalSection();
+                        gPlayerOrdering = 1;
                         tactical_set_orders((Battalion)un, FalconNullId, gx,
                                             gy);
+                        gPlayerOrdering = 0;
+
+                        if (g_bPlayerGroundHold and un->GetUnitObjective())
+                            un->SetPlayerHeld(1);
+
                         CampLeaveCriticalSection();
+                        return;
+                    }
+
+                    if (un->IsTaskForce())
+                    {
+                        // Artscout - 2026: dropping a ship's waypoint orders it to that point. It is
+                        // routed over water (a dropped leg that crossed land would stall it at the
+                        // coast) and held on station until released; a drop on land is refused and
+                        // the list is redrawn from the ship's real route.
+                        CampEnterCriticalSection();
+                        TaskForceOrderStation((TaskForce)un, gx, gy);
+                        CampLeaveCriticalSection();
+                        PostMessage(gMainHandler->GetAppWnd(),
+                                    FM_REBUILD_WP_LIST, 0, 0);
                         return;
                     }
                     else if (un->IsFlight())

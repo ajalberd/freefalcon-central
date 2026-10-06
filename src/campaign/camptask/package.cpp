@@ -116,7 +116,9 @@ public:
     {
         ID2PACK::iterator it;
         it = packlist.find(id);
-        packlist.erase(it);
+
+        if (it not_eq packlist.end()) // erase(end()) is undefined
+            packlist.erase(it);
     }
 };
 static PackageListCounter mypacklist;
@@ -787,6 +789,36 @@ int PackageClass::CheckNeedRequests(void)
     return 0;
 }
 
+// campsim ATMWHY: why packages fail, per team and mission class ([0] strike/SEAD/OCA/bombing, [1] CAS/BAI/
+// interdiction, [2] counter-air, [3] anti-ship): [0] target too dangerous, [1] no flight could be attached (no
+// squadron/aircraft), [2] a flight could not reach the target, [3] a flight cancelled (weapons/route),
+// [4] built
+int gPkgWhy[8][4][5];
+static int PkgClass(int m)
+{
+    if (m >= AMIS_SEADSTRIKE and m <= AMIS_STRATBOMB)
+        return 0;
+
+    if (m >= AMIS_ONCALLCAS and m <= AMIS_BAI)
+        return 1;
+
+    if (m >= AMIS_BARCAP and m <= AMIS_ESCORT)
+        return 2;
+
+    if (m == AMIS_ASHIP)
+        return 3;
+
+    return -1; // not counted
+}
+static void PkgWhy(MissionRequest mis, int k)
+{
+    const int c = PkgClass(mis->mission);
+
+    if (c >= 0)
+        gPkgWhy[mis->who % 8][c][k]++;
+}
+#define PKG_WHY(k) PkgWhy(mis, (k))
+
 int PackageClass::BuildPackage(MissionRequest mis, F4PFList assemblyList)
 {
     int targets = 0, tar = 0, retval = PRET_SUCCESS, result;
@@ -965,6 +997,8 @@ int PackageClass::BuildPackage(MissionRequest mis, F4PFList assemblyList)
     if (ls > tar and hs > tar)
     {
         // If the threat is so high even SEAD can't get in, just cancel now.
+        PKG_WHY(0);
+
         if (ls > MAX_FLYMISSION_HIGHTHREAT and hs > MAX_FLYMISSION_HIGHTHREAT)
             return PRET_CANCELED;
 
@@ -985,6 +1019,9 @@ int PackageClass::BuildPackage(MissionRequest mis, F4PFList assemblyList)
             mis->aircraft = MissionData[mis->mission].str;
 
         flight = AttachFlight(mis, this);
+
+        if (not flight)
+            PKG_WHY(1);
 
         if (flight)
         {
@@ -1009,6 +1046,8 @@ int PackageClass::BuildPackage(MissionRequest mis, F4PFList assemblyList)
             else
             {
                 CancelFlight((Flight)flight);
+
+                PKG_WHY(result == PRET_ABORTED ? 2 : 3);
 
                 if (result == PRET_ABORTED and not flights and (ls or hs))
                 {
@@ -1098,6 +1137,8 @@ int PackageClass::BuildPackage(MissionRequest mis, F4PFList assemblyList)
 
     if (not flights or not flight)
         return PRET_NO_ASSETS;
+
+    PKG_WHY(4);
 
 #ifdef KEV_ADEBUG
     MonoPrint("Building team #%d %s mission (%d) at %d,%d\n", mis->who,

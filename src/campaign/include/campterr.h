@@ -47,6 +47,11 @@ extern CellData GetCell(GridIndex x, GridIndex y);
 extern ReliefType GetRelief(GridIndex x, GridIndex y);
 
 extern CoverType GetCover(GridIndex x, GridIndex y);
+// Artscout - 2026: water a ship can use -- the cover cell is Water and, with g_bNavalSeaMask, the theater's
+// sea mask (<theater>.SEA, tools/terrain/make_sea_mask.py) does not mark it as land in the 3D terrain
+extern int ShipWater(GridIndex x, GridIndex y);
+extern int SeaMaskLand(GridIndex x, GridIndex y);
+extern int gSeaMaskSuspend; // set while a ship's route is retried on the cover grid alone
 
 extern char GetRoad(GridIndex x, GridIndex y);
 

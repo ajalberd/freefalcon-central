@@ -175,6 +175,13 @@ private:
     void Fill(SCREEN *surface, COLORREF Color, UI95_RECT *dst);
 
 public:
+    // Artscout - 2026: drop the current tooltip so the next mouse move builds a new one. A map
+    // icon control holds many icons; the tip is only rebuilt when the hovered *control* changes,
+    // so sliding from one icon to the next showed the first one's text.
+    void ResetHelp()
+    {
+        HelpOff();
+    }
     long UpdateFlag;
     long DrawFlags;
 

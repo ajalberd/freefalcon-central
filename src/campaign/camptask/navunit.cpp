@@ -473,6 +473,382 @@ int TaskForceClass::GetDeaggregationPoint(int slot, CampEntity *installation)
 }
 
 
+// ============================================
+// Naval AI (Artscout - 2026)
+//
+// A ship with no waypoints used to sit in port for ever, or shuttle 20 km north and back. With
+// g_nNavalAI set it now plans routes over water squares (A* with the Naval cost table):
+//  - warships sortie from port after a rest and patrol out-and-back from where they are; they go
+//    to port only when supply drops below 30%, and docking resupplies them;
+//  - sea tankers, cargo and supply ships sail from port to port. A tanker that docks tops up the
+//    team fuel pool, but only to cover missing refinery output, so it never competes with
+//    working refineries (and it is one finite load per voyage plus a rest in port).
+// Waypoints carry WPF_REPEAT because ResetCurrentWP skips a flag-less waypoint whose departure
+// time has passed, so only a flagged one is sailed to by distance. The in-port rest is the first
+// waypoint's station time. orders == NORD_TRANSPORT marks "on a voyage" (saved with the unit).
+// ============================================
+
+extern int g_nNavalAI;
+// campsim NAVAL: [0] voyages/patrols planned over water, [1] plans that found no route, [2] fallbacks to the
+// stock straight 20 km patrol (no terrain check on the way), [3] of those, started on a sea-mask land cell
+int gNavalDiag[8][8]; // [4] moves onto a sea-mask land cell, [5] of those with the 45-degree turn limit
+// bending the heading, [6] routes found only on the grid alone (sea mask relaxed)
+extern int g_nNavalTankerFuel;
+
+static int NavalIsSupportShip(TaskForce tf)
+{
+    int st = tf->GetSType();
+    return st == STYPE_UNIT_SEA_TANKER or st == STYPE_UNIT_SEA_TRANSPORT or
+           st == STYPE_UNIT_SEA_SUPPLY;
+}
+
+// A friendly, working port between mind and maxd grid squares away: the nearest one, or a random one.
+static Objective NavalFindPort(TaskForce tf, GridIndex x, GridIndex y,
+                               int mind, int maxd, int random)
+{
+    Objective best = NULL, o;
+    float bestd = 1e9F;
+    int seen = 0;
+    VuListIterator myit(AllObjList);
+
+    o = GetFirstObjective(&myit);
+
+    while (o)
+    {
+        if (o->GetType() == TYPE_PORT and o->GetTeam() == tf->GetTeam() and
+            o->GetObjectiveStatus() > 0)
+        {
+            GridIndex ox, oy;
+            o->GetLocation(&ox, &oy);
+            float d = Distance(x, y, ox, oy);
+
+            if (d >= mind and d <= maxd)
+            {
+                if (random)
+                {
+                    seen++;
+
+                    if (rand() % seen == 0)
+                        best = o;
+                }
+                else if (d < bestd)
+                {
+                    bestd = d;
+                    best = o;
+                }
+            }
+        }
+
+        o = GetNextObjective(&myit);
+    }
+
+    return best;
+}
+
+// Lay a water route from (x,y) to (tx,ty) as flagged waypoints, one per change of direction, so a
+// straight line between two waypoints is exactly the path the search found. Returns 1 if laid.
+// With append set the route is added after the existing waypoints (no rest, current waypoint kept).
+static int NavalRoute(TaskForce tf, GridIndex x, GridIndex y, GridIndex tx,
+                      GridIndex ty, CampaignTime rest, int append = 0)
+{
+    PathClass path;
+    GridIndex cx = x, cy = y;
+    int i, h, last = -1, laid = append ? 1 : 0;
+    CampaignTime now = Camp_GetCurrentTime();
+    WayPoint w;
+
+    const int found = tf->GetUnitGridPath(&path, x, y, tx, ty);
+
+    if (path.GetLength() < 3)
+    {
+        // campsim NAVAL: why a route failed (first 40)
+        static int logged = 0;
+
+        if (logged < 40)
+        {
+            logged++;
+            printf("NAVALFAIL team %d (%d,%d)->(%d,%d) %.0f km: search %d, path %d, target cost %.0f, start "
+                       "mask %d, target mask %d\n", tf->GetTeam(), x, y, tx, ty, Distance(x, y, tx, ty), found,
+                       path.GetLength(), GetMovementCost(tx, ty, tf->GetMovementType(), 0, Here),
+                       SeaMaskLand(x, y), SeaMaskLand(tx, ty));
+        }
+
+        return 0;
+    }
+
+    if (not append)
+        tf->DisposeWayPoints();
+
+    for (i = 0; i < path.GetLength(); i++)
+    {
+        h = path.GetDirection(i);
+
+        if (h < 0 or h > 7)
+            break;
+
+        if (last >= 0 and h not_eq last)
+        {
+            w = tf->AddUnitWP(cx, cy, 0, 60, now, laid ? 0 : (int)rest, 0);
+            w->SetWPFlags(WPF_REPEAT);
+            laid++;
+        }
+
+        cx = (GridIndex)(cx + dx[h]);
+        cy = (GridIndex)(cy + dy[h]);
+        last = h;
+    }
+
+    w = tf->AddUnitWP(cx, cy, 0, 60, now, laid ? 0 : (int)rest, 0);
+    w->SetWPFlags(WPF_REPEAT);
+
+    if (not append)
+        tf->SetCurrentWaypoint(1);
+
+    return 1;
+}
+
+// Pick the next leg for a ship that has no waypoints. Returns 1 if it got a route.
+static int NavalPlan(TaskForce tf, GridIndex x, GridIndex y, Objective inport)
+{
+    CampaignTime rest = 0;
+    Objective dest = NULL;
+    GridIndex tx = 0, ty = 0;
+    int i, tries;
+
+    if (NavalIsSupportShip(tf))
+    {
+        if (inport)
+            rest = (60 + rand() % 90) * CampaignMinutes; // unload and reload
+
+        dest = NavalFindPort(tf, x, y, 12, 90, TRUE);
+
+        if (not dest)
+            dest = NavalFindPort(tf, x, y, 12, 250, FALSE);
+
+        if (not dest)
+            return 0;
+
+        dest->GetLocation(&tx, &ty);
+
+        if (not NavalRoute(tf, x, y, tx, ty, rest))
+            return 0;
+
+        tf->SetUnitOrders(NORD_TRANSPORT);
+        return 1;
+    }
+
+    if (inport)
+        rest = (15 + rand() % 105) * CampaignMinutes;
+    else if (tf->GetUnitSupply() < 30)
+    {
+        // Low on ammunition: the only reason a warship goes home
+        Objective home = NavalFindPort(tf, x, y, 0, 400, FALSE);
+
+        if (home)
+        {
+            home->GetLocation(&tx, &ty);
+
+            if (NavalRoute(tf, x, y, tx, ty, 0))
+                return 1;
+        }
+    }
+
+    // Patrol: a loop S -> P1 -> P2 -> S over open water, S being where the ship is now. Every
+    // route ends back at S, so the next plan starts from S again and the ship keeps its station
+    // without storing one. The points sit on a ring around S (big ships close in, small ones
+    // range wider) and are chosen away from the nearest hostile objective, so a patrol does not
+    // start by steaming at the enemy coast. It docks only to resupply.
+    {
+        const int st = tf->GetSType();
+        const int big = (st == STYPE_UNIT_CARRIER or st == STYPE_UNIT_CRUISER or
+                         st == STYPE_UNIT_BATTLESHIP or
+                         st == STYPE_UNIT_AMPHIBIOUS);
+        const int rmin = big ? 10 : 15, rspan = big ? 15 : 30;
+        float ex = 0.0F, ey = 0.0F, bestd = 150.0F;
+        int haveEnemy = 0, k;
+        GridIndex px[2] = {0, 0}, py[2] = {0, 0};
+        float ang[2] = {0.0F, 0.0F};
+        Objective o;
+        VuListIterator myit(AllObjList);
+
+        o = GetFirstObjective(&myit);
+
+        while (o)
+        {
+            if (GetRoE(tf->GetTeam(), o->GetTeam(), ROE_GROUND_FIRE) ==
+                ROE_ALLOWED)
+            {
+                GridIndex ox, oy;
+                o->GetLocation(&ox, &oy);
+                float d = Distance(x, y, ox, oy);
+
+                if (d < bestd and d > 1.0F)
+                {
+                    bestd = d;
+                    ex = (ox - x) / d;
+                    ey = (oy - y) / d;
+                    haveEnemy = 1;
+                }
+            }
+
+            o = GetNextObjective(&myit);
+        }
+
+        for (k = 0; k < 2; k++)
+        {
+            int found = 0;
+
+            for (tries = 0; tries < 16 and not found; tries++)
+            {
+                float a = (float)(rand() % 360) * 0.0174533F;
+                float r = (float)(rmin + rand() % rspan);
+                float cx = (float)cos(a), cy = (float)sin(a);
+                GridIndex qx = (GridIndex)(x + cx * r),
+                          qy = (GridIndex)(y + cy * r);
+
+                if (qx < 0 or qy < 0 or qx >= Map_Max_X or qy >= Map_Max_Y or
+                    not ShipWater(qx, qy))
+                    continue;
+
+                // Away from the enemy: not within 60 degrees of the way to them (relaxed on the
+                // last few tries so a ship boxed in against the enemy coast still gets a patrol)
+                if (haveEnemy and tries < 12 and cx * ex + cy * ey > 0.5F)
+                    continue;
+
+                // The second point must be well clear of the first
+                if (k == 1 and Distance(px[0], py[0], qx, qy) < 10.0F)
+                    continue;
+
+                px[k] = qx;
+                py[k] = qy;
+                ang[k] = a;
+                found = 1;
+            }
+
+            if (not found)
+                break;
+        }
+
+        if (k == 2 and NavalRoute(tf, x, y, px[0], py[0], rest))
+        {
+            NavalRoute(tf, px[0], py[0], px[1], py[1], 0, 1);
+            NavalRoute(tf, px[1], py[1], x, y, 0, 1);
+            return 1;
+        }
+
+        // Could not find two points: out and back to one
+        if (k >= 1 and NavalRoute(tf, x, y, px[0], py[0], rest))
+        {
+            NavalRoute(tf, px[0], py[0], x, y, 0, 1);
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+// A tanker that has docked: add one load to the team fuel pool, scaled by how much refinery
+// output is missing (nothing at all while every refinery is working).
+static void NavalDeliverFuel(TaskForce tf)
+{
+    Objective o;
+    int n = 0, sum = 0, missing;
+    VuListIterator myit(AllObjList);
+
+    if (tf->GetSType() not_eq STYPE_UNIT_SEA_TANKER or g_nNavalTankerFuel <= 0)
+        return;
+
+    o = GetFirstObjective(&myit);
+
+    while (o)
+    {
+        if (o->GetType() == TYPE_REFINERY and o->GetTeam() == tf->GetTeam())
+        {
+            n++;
+            sum += o->GetObjectiveStatus();
+        }
+
+        o = GetNextObjective(&myit);
+    }
+
+    missing = n ? 100 - sum / n : 100;
+
+    if (missing > 0)
+    {
+        Team t = tf->GetTeam();
+        TeamInfo[t]->SetFuelAvail(TeamInfo[t]->GetFuelAvail() +
+                                  g_nNavalTankerFuel * missing / 100);
+    }
+}
+
+int TaskForceOrderStation(TaskForce tf, GridIndex tx, GridIndex ty)
+{
+    GridIndex x, y;
+
+    if (not tf)
+        return 0;
+
+    // The map picture and the campaign's 1 km cover cells do not agree at a coast, so a drop that
+    // looks like open water can be a land cell and the other way round. A drop within 3 km of a
+    // friendly working port is an order to dock there; any other drop on land is moved to the
+    // nearest water cell within 6 km (and refused if there is none).
+    if (not ShipWater(tx, ty))
+    {
+        Objective port = NavalFindPort(tf, tx, ty, 0, 3, FALSE);
+
+        if (port)
+            port->GetLocation(&tx, &ty);
+        else
+        {
+            int r, i, j, found = 0;
+
+            for (r = 1; r <= 6 and not found; r++)
+            {
+                for (j = -r; j <= r and not found; j++)
+                {
+                    for (i = -r; i <= r and not found; i++)
+                    {
+                        if (abs(i) not_eq r and abs(j) not_eq r)
+                            continue; // the ring only
+
+                        GridIndex qx = (GridIndex)(tx + i), qy = (GridIndex)(ty + j);
+
+                        if (qx >= 0 and qy >= 0 and qx < Map_Max_X and qy < Map_Max_Y and ShipWater(qx, qy))
+                        {
+                            tx = qx;
+                            ty = qy;
+                            found = 1;
+                        }
+                    }
+                }
+            }
+
+            if (not found)
+                return 0;
+        }
+    }
+
+    tf->GetLocation(&x, &y);
+
+    if (not NavalRoute(tf, x, y, tx, ty, 0))
+    {
+        // Too close for a route: just stay where we are
+        if (Distance(x, y, tx, ty) > 3.0F)
+            return 0;
+
+        tf->DisposeWayPoints();
+    }
+
+    tf->SetUnitOrders(NORD_STATION);
+    return 1;
+}
+
+void TaskForceReleaseStation(TaskForce tf)
+{
+    if (tf and tf->GetUnitOrders() == NORD_STATION)
+        tf->SetUnitOrders(NORD_NONE);
+}
+
 int TaskForceClass::MoveUnit(CampaignTime time)
 {
     GridIndex x = 0, y = 0;
@@ -498,6 +874,40 @@ int TaskForceClass::MoveUnit(CampaignTime time)
     // Check for mode a
     o = FindNearestObjective(x, y, NULL, 1);
 
+    // Artscout - 2026: a player-ordered ship holds its station once it has arrived
+    if (not w and GetUnitOrders() == NORD_STATION)
+        return TRUE;
+
+    // Artscout - 2026 (NAVAL AI): plan the next leg instead of idling
+    if (g_nNavalAI and not w)
+    {
+        Objective port = (o and o->GetType() == TYPE_PORT) ? o : NULL;
+
+        if (port and port->GetTeam() == GetTeam())
+        {
+            // Docking resupplies a ship that is low (never lowers one above 100)
+            if (GetUnitSupply() < 100)
+                SetUnitSupply(100);
+
+            // A tanker that has finished a voyage unloads here
+            if (GetUnitOrders() == NORD_TRANSPORT)
+            {
+                NavalDeliverFuel(this);
+                SetUnitOrders(NORD_NONE);
+            }
+        }
+
+        extern int gNavalDiag[8][8];
+
+        if (NavalPlan(this, x, y, port))
+        {
+            w = GetCurrentUnitWP();
+            gNavalDiag[GetTeam() % 8][0]++;
+        }
+        else
+            gNavalDiag[GetTeam() % 8][1]++;
+    }
+
     // RV - Biker - If we are in port and have no WPs do nothing
     if (o and o->GetType() == TYPE_PORT and not w)
     {
@@ -507,6 +917,9 @@ int TaskForceClass::MoveUnit(CampaignTime time)
     // If not in port and no WPs... create a repeating path 20 km north and back
     if (not w)
     {
+        extern int gNavalDiag[8][8];
+        gNavalDiag[GetTeam() % 8][2]++;
+        gNavalDiag[GetTeam() % 8][3] += SeaMaskLand(x, y) ? 1 : 0;
         DisposeWayPoints();
 
         w = AddUnitWP(x, y, 0, 60, TheCampaign.CurrentTime + (rand() % 15), 0,
@@ -514,7 +927,7 @@ int TaskForceClass::MoveUnit(CampaignTime time)
         w->SetWPFlags(WPF_REPEAT);
 
         // This should prevent naval units to run into ground
-        if (GetCover(x, y + 20) == Water)
+        if (ShipWater(x, y + 20))
         {
             w = AddUnitWP(x, y + 20, 0, 60,
                           TheCampaign.CurrentTime +
@@ -559,8 +972,17 @@ int TaskForceClass::MoveUnit(CampaignTime time)
         else
             GetLocation(&ox, &oy);
 
+        // Artscout - 2026 (g_bNavalMoveFix, 0 = stock): ChangeUnitLocation moves one cell a call, but this
+        // loop steered every step of the tick from where the ship was when the tick began -- one compass
+        // heading for the whole tick, and the arrival test (DirectionTo returns Here at the waypoint) never
+        // saw the waypoint, so ships overshot their turns and cut across coasts.
+        extern bool g_bNavalMoveFix;
+
         while (moving)
         {
+            if (g_bNavalMoveFix)
+                GetLocation(&x, &y);
+
             h = DirectionTo(ox, oy, nx, ny, x, y);
 
             if (h > 7)
@@ -587,9 +1009,21 @@ int TaskForceClass::MoveUnit(CampaignTime time)
             }
 
             //this moves the unit
+            const int wanted = DirectionTo(ox, oy, nx, ny, x, y); // before the turn limit, for campsim NAVAL
+
             if (ChangeUnitLocation(h) > 0)
             {
                 last_direction = h;
+
+                GridIndex mx, my;
+                GetLocation(&mx, &my);
+
+                if (SeaMaskLand(mx, my))
+                {
+                    extern int gNavalDiag[8][8];
+                    gNavalDiag[GetTeam() % 8][4]++;
+                    gNavalDiag[GetTeam() % 8][5] += (h not_eq wanted) ? 1 : 0;
+                }
             }
             else
             {

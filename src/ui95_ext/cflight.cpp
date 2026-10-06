@@ -222,7 +222,7 @@ BOOL C_ATO_Flight::Process(long ID, short HitType)
 {
     gSoundMgr->PlaySound(GetSound(HitType));
 
-    if (Section_)
+    if (Section_ and HitType not_eq C_TYPE_RMOUSEUP)
         Task_->Process(ID, HitType);
 
     if (Callback_)

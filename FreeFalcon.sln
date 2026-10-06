@@ -18,6 +18,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CampUI", "src\campaign\camp
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CampUpd", "src\campaign\campupd\CampUpd.vcxproj", "{1B95EBF6-D3A4-49F1-8DB7-CB3058A5FFCF}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "campsim", "src\tools\campsim\campsim.vcxproj", "{3F1E9A64-8B2D-4C77-9E41-5A6D0C3B7E12}"
+EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Cockpit", "src\sim\cockpit\Cockpit.vcxproj", "{C008F3F5-C2A9-49C0-8798-30D3B83A6CC2}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Comms", "src\comms\Comms.vcxproj", "{32EAB4B3-5B0D-4205-8DCE-99FF97B7EEA5}"
@@ -274,6 +276,18 @@ Global
 		{1B95EBF6-D3A4-49F1-8DB7-CB3058A5FFCF}.Remote|Win32.Build.0 = Remote|Win32
 		{1B95EBF6-D3A4-49F1-8DB7-CB3058A5FFCF}.Remote|x64.ActiveCfg = Remote|x64
 		{1B95EBF6-D3A4-49F1-8DB7-CB3058A5FFCF}.Remote|x64.Build.0 = Remote|x64
+		{3F1E9A64-8B2D-4C77-9E41-5A6D0C3B7E12}.Debug|Win32.ActiveCfg = Release|x64
+		{3F1E9A64-8B2D-4C77-9E41-5A6D0C3B7E12}.Debug|x64.ActiveCfg = Debug|x64
+		{3F1E9A64-8B2D-4C77-9E41-5A6D0C3B7E12}.Debug|x64.Build.0 = Debug|x64
+		{3F1E9A64-8B2D-4C77-9E41-5A6D0C3B7E12}.Protected|Win32.ActiveCfg = Release|x64
+		{3F1E9A64-8B2D-4C77-9E41-5A6D0C3B7E12}.Protected|x64.ActiveCfg = Release|x64
+		{3F1E9A64-8B2D-4C77-9E41-5A6D0C3B7E12}.Protected|x64.Build.0 = Release|x64
+		{3F1E9A64-8B2D-4C77-9E41-5A6D0C3B7E12}.Release|Win32.ActiveCfg = Release|x64
+		{3F1E9A64-8B2D-4C77-9E41-5A6D0C3B7E12}.Release|x64.ActiveCfg = Release|x64
+		{3F1E9A64-8B2D-4C77-9E41-5A6D0C3B7E12}.Release|x64.Build.0 = Release|x64
+		{3F1E9A64-8B2D-4C77-9E41-5A6D0C3B7E12}.Remote|Win32.ActiveCfg = Release|x64
+		{3F1E9A64-8B2D-4C77-9E41-5A6D0C3B7E12}.Remote|x64.ActiveCfg = Release|x64
+		{3F1E9A64-8B2D-4C77-9E41-5A6D0C3B7E12}.Remote|x64.Build.0 = Release|x64
 		{C008F3F5-C2A9-49C0-8798-30D3B83A6CC2}.Debug|Win32.ActiveCfg = Debug|Win32
 		{C008F3F5-C2A9-49C0-8798-30D3B83A6CC2}.Debug|Win32.Build.0 = Debug|Win32
 		{C008F3F5-C2A9-49C0-8798-30D3B83A6CC2}.Debug|x64.ActiveCfg = Debug|x64

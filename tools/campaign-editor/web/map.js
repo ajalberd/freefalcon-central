@@ -103,6 +103,9 @@ const M = {
   hiddenKinds: new Set(),
   hiddenCats: new Set(['terrain']),
   showUnits: true,
+  // Units flagged inactive in the save (reinforcements that have not arrived yet).
+  // The game does not show them, so the map hides them unless asked.
+  showReinforcements: false,
   showObjectives: true,
   legendOpen: true,
   // The objectives the trigger script watches. `scriptAll` adds the places
@@ -429,7 +432,8 @@ async function mapPanel(file) {
   }
 
   const unitVisible = u =>
-    M.showUnits && !M.hiddenTeams.has(u.owner) && !M.hiddenKinds.has(u.kind);
+    M.showUnits && !M.hiddenTeams.has(u.owner) && !M.hiddenKinds.has(u.kind) &&
+    (!u.inactive || M.showReinforcements);
   const objVisible = o =>
     M.showObjectives && !M.hiddenCats.has(o.cat) &&
     M.view.scale >= (LAYER_MIN_ZOOM[o.cat] || 0);
@@ -572,8 +576,9 @@ async function mapPanel(file) {
       if (!unitVisible(u) && !hitSet.has(u)) continue;
       const [sx, sy] = toScreen(u.x, u.y);
       if (sx < -20 || sy < -20 || sx > r.width + 20 || sy > r.height + 20) continue;
-      g.globalAlpha = dim && !hitSet.has(u) ? 0.3 : 1;
+      g.globalAlpha = (dim && !hitSet.has(u) ? 0.3 : 1) * (u.inactive ? 0.6 : 1);
       drawUnit(g, u, sx, sy, size, isSelected('unit', u), u === M.hover);
+      if (u.inactive) drawArrival(g, u, sx, sy, size);
     }
     g.globalAlpha = 1;
 
@@ -752,6 +757,28 @@ async function mapPanel(file) {
     g.restore();
   }
 
+  // A pending reinforcement: dashed ring and "+Nh", the campaign hour it arrives.
+  function drawArrival(g, u, x, y, s) {
+    g.save();
+    g.beginPath();
+    g.setLineDash([3, 3]);
+    g.arc(x, y, Math.max(8, s * 1.5), 0, Math.PI * 2);
+    g.lineWidth = 1.2;
+    g.strokeStyle = 'rgba(255,255,255,.85)';
+    g.stroke();
+    g.setLineDash([]);
+    if (u.arrives) {
+      const txt = '+' + u.arrives + 'h';
+      g.font = '10px sans-serif';
+      g.lineWidth = 3;
+      g.strokeStyle = 'rgba(0,0,0,.8)';
+      g.strokeText(txt, x + s * 1.2, y - s * 0.9);
+      g.fillStyle = '#ffffff';
+      g.fillText(txt, x + s * 1.2, y - s * 0.9);
+    }
+    g.restore();
+  }
+
   function drawUnit(g, u, x, y, s, isSel, isHover) {
     if (drawIcon(g, u, x, y, isSel, isHover)) return;
     const shape = KIND_SHAPE[u.kind] || 'bar';
@@ -853,7 +880,10 @@ async function mapPanel(file) {
                              '&file=' + encodeURIComponent(file) + '&n=' + hit.item.n);
       detail.textContent = '';
       detail.appendChild(objectiveDetail(info, hit.item, file, draw,
-                                         () => show(hit)));
+                                         () => show(hit), n => {
+        const u = data.units.find(x => x.n === n);
+        if (u) show({sort: 'unit', item: u});
+      }));
     }
     draw();
   });
@@ -1067,6 +1097,9 @@ async function mapPanel(file) {
         bits.push(who, item.x + ', ' + item.y);
         if (item.supply !== undefined) bits.push('supply ' + item.supply);
         if (item.losses) bits.push('losses ' + item.losses + '%');
+        if (item.inactive) {
+          bits.push('reinforcement, arrives at campaign hour ' + (item.arrives || '?'));
+        }
         tip.textContent = bits.join('  ·  ');
       } else {
         const bits = [item.name || item.type, item.type, who];
@@ -1171,6 +1204,22 @@ async function mapPanel(file) {
         }}),
       el('span', {text: kind}),
       el('span', {class: 'n', text: String(n)}),
+    ]));
+  }
+
+  const pending = data.units.filter(u => u.inactive);
+  if (pending.length) {
+    const hrs = pending.map(u => u.arrives).filter(h => h > 0);
+    const span = hrs.length ? 'arrive hour ' + Math.min(...hrs) + ' to ' + Math.max(...hrs) : '';
+    legend.appendChild(el('label', {
+      title: "Units that exist in this save but are off the map until the team reinforcement " +
+             "counter reaches their arrival hour. The game does not show them.",
+    }, [
+      el('input', {type: 'checkbox', checked: M.showReinforcements,
+        onchange: e => { M.showReinforcements = e.target.checked; draw(); }}),
+      el('span', {text: 'hidden reinforcements'}),
+      el('span', {class: 'n', text: String(pending.length)}),
+      el('span', {class: 'sub', text: span}),
     ]));
   }
 
@@ -1806,7 +1855,8 @@ async function unitDetail(info, u, file, redraw, reload) {
   return wrap;
 }
 
-function objectiveDetail(info, o, file, redraw, reload) {
+// openUnit(n), when given, opens unit n in the sidebar (the map view passes it; tables do not).
+function objectiveDetail(info, o, file, redraw, reload, openUnit) {
   const wrap = el('div');
   const v = info.values;
   const canEdit = info.canEdit;
@@ -1842,6 +1892,32 @@ function objectiveDetail(info, o, file, redraw, reload) {
       el('p', {class: 'note warn', text:
         'This file has no objective list of its own, so objectives here are ' +
         'read-only. Open the scenario it was started from to edit them.'})));
+  }
+
+  // Squadrons whose home base is this objective (server: based_squadrons).
+  if (info.squadrons && info.squadrons.length) {
+    const active = info.squadrons.filter(s => !s.inactive);
+    const planes = active.reduce((a, s) => a + s.planes, 0);
+    wrap.appendChild(el('div', {class: 'group'}, [
+      el('h4', {text: 'Squadrons based here (' + info.squadrons.length + ')'}),
+      el('p', {class: 'hint', text: active.length + ' active, ' + planes + ' aircraft' +
+        (active.length < info.squadrons.length
+          ? '; ' + (info.squadrons.length - active.length) +
+            (info.squadrons.length - active.length === 1
+              ? ' arrives as a reinforcement' : ' arrive as reinforcements') : '')}),
+      el('ul', {class: 'wp-list'}, info.squadrons.map(s =>
+        el('li', {
+          class: openUnit ? 'clickable' : '',
+          title: openUnit ? 'Open this squadron' : '',
+          onclick: openUnit ? () => openUnit(s.n) : null,
+        }, [
+          el('span', {class: 'swatch', style: 'background:' + teamColour(s.owner)}),
+          el('span', {text: s.title || s.role}),
+          el('span', {class: 'i', text: [s.aircraft, s.planes + ' ac',
+            s.inactive ? 'reinforcement' + (s.reinforcement ? ' ' + s.reinforcement : '') : '']
+            .filter(Boolean).join(' · ')}),
+        ]))),
+    ]));
   }
 
   const num = (key, label, lo, hi) => {

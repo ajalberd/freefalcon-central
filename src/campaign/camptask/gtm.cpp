@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <float.h>
+#include <map>
 #include "cmpglobl.h"
 #include "listadt.h"
 #include "f4vu.h"
@@ -74,6 +75,9 @@ extern costtype CostToArrive(Unit u, int orders, GridIndex x, GridIndex y,
 
 #define COLLECTABLE_HP_OBJECTIVES 5
 
+// campsim GTMNEAR: far capture orders re-pointed at a nearer target [0], or left (none in reach) [1]
+int gGtmNearest[8][2];
+
 #define COLLECT_RESERVE 0x01
 #define COLLECT_CAPTURE 0x02
 #define COLLECT_SECURE 0x04
@@ -106,6 +110,7 @@ int ScoreObjectiveOffensive(float uod, float odd, float ofd, float ufd,
                             float im, float sm, int basescore, int priority);
 int ScoreObjectiveDefensive(float uod, float odd, float ofd, float ufd,
                             float im, float sm, int basescore, int priority);
+int ScoreObj(int orders, int os, int ss, int ps, int pps, int fs);
 int GetTopPriorityObjectives(int team,
                              _TCHAR* buffers[COLLECTABLE_HP_OBJECTIVES]);
 void CleanupUnitlist(VuLinkedList* unitList);
@@ -292,6 +297,11 @@ int GroundTaskingManagerClass::Task(void)
     time = GetTickCount();
 #endif
 
+    {
+        extern int gGtmAction[NUM_TEAMS][8];
+        gGtmAction[owner][action bitand 7]++;
+    }
+
     Cleanup();
 
     // Choose types of orders we can give
@@ -360,6 +370,91 @@ int GroundTaskingManagerClass::Task(void)
         AssignUnits(GORD_REPAIR, GTM_MODE_FASTEST);
         AssignUnits(GORD_RADAR, GTM_MODE_FASTEST);
         AssignUnits(GORD_RESERVE, GTM_MODE_BEST);
+
+        // Artscout - 2026 (g_bGtmCaptureNearest, off = stock): a battalion sent to capture something farther
+        // than g_nGtmCaptureMaxKm (60 km if unset) is re-pointed at the nearest objective that is a valid
+        // capture target for us, even one that already has its units -- it attacks where it stands rather than
+        // crossing the front.
+        // g_bGtmCaptureBestScore: instead of the nearest, the best-scoring valid target within reach -- the GTM's
+        // own capture score (ScoreObj: its priority + its secondary's + its primary's - distance to the front),
+        // the nearest one on a tie.
+        extern bool g_bGtmCaptureNearest;
+        extern bool g_bGtmCaptureBestScore;
+        extern int g_nGtmCaptureMaxKm;
+
+        if ((g_bGtmCaptureNearest or g_bGtmCaptureBestScore) and action == GACTION_OFFENSIVE)
+        {
+            const float lim = g_nGtmCaptureMaxKm > 0 ? (float)g_nGtmCaptureMaxKm : 60.0F;
+            VuListIterator uit(AllParentList);
+
+            for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+            {
+                if (u->GetTeam() not_eq owner or not u->IsBattalion() or u->GetUnitOrders() not_eq GORD_CAPTURE or
+                    u->PlayerHeld())
+                    continue;
+
+                Objective t = u->GetUnitObjective();
+                GridIndex ux, uy, tx, ty;
+                u->GetLocation(&ux, &uy);
+
+                if (not t)
+                    continue;
+
+                t->GetLocation(&tx, &ty);
+
+                if (Distance(ux, uy, tx, ty) <= lim)
+                    continue;
+
+                Objective best = NULL;
+                float bestd = lim;
+                int bests = -1000000;
+                VuListIterator oit(AllObjList);
+
+                for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+                {
+                    GridIndex ox, oy;
+                    o->GetLocation(&ox, &oy);
+                    const float d = Distance(ux, uy, ox, oy);
+
+                    if (d > lim or not IsValidObjective(GORD_CAPTURE, o))
+                        continue;
+
+                    if (g_bGtmCaptureBestScore)
+                    {
+                        Objective so = o->IsSecondary() ? o : o->GetObjectiveParent();
+                        Objective po = (so and not so->IsPrimary()) ? so->GetObjectiveParent() : so;
+                        const int sc = ScoreObj(GORD_CAPTURE, o->GetObjectivePriority(),
+                                                so ? so->GetObjectivePriority() : 0,
+                                                po ? po->GetObjectivePriority() : 0, 0,
+                                                FloatToInt32(DistanceToFront(ox, oy)));
+
+                        if (sc > bests or (sc == bests and d < bestd))
+                        {
+                            bests = sc;
+                            bestd = d;
+                            best = o;
+                        }
+                    }
+                    else if (d < bestd)
+                    {
+                        bestd = d;
+                        best = o;
+                    }
+                }
+
+                if (best)
+                {
+                    extern int gGtmNearest[8][2];
+                    gGtmNearest[owner % 8][0]++;
+                    ((Battalion)u)->SetUnitOrders(GORD_CAPTURE, best->Id());
+                }
+                else
+                {
+                    extern int gGtmNearest[8][2];
+                    gGtmNearest[owner % 8][1]++;
+                }
+            }
+        }
     }
 
     // Check if our tasking failed to meet at least 50 of our offensive requests
@@ -428,6 +523,18 @@ void GroundTaskingManagerClass::Cleanup(void)
     Assigned = 0;
 }
 
+// Artscout - 2026 (g_bGtmCaptureFront, off = stock): an enemy objective on the front line that is not
+// a secondary -- a bridge, junction, SAM site, rail stop -- may be a capture target. Stock only targets
+// secondaries within three links of the front; the rest change hands only when a unit passes through.
+// When the next secondaries sit four or more links behind a chain of such objectives nothing is ever
+// sent, and the front freezes. campsim seed 103: Pyongyang (#680) stayed 4 links behind ROK's #259
+// (SAM site -> town -> junction) from h48 to the end, with zero valid capture targets near the city.
+static int CaptureFrontOK(Objective o)
+{
+    extern bool g_bGtmCaptureFront;
+    return g_bGtmCaptureFront and o->IsFrontline();
+}
+
 // Determine if this objective can accept the passed orders
 int GroundTaskingManagerClass::IsValidObjective(int orders, Objective o)
 {
@@ -437,7 +544,7 @@ int GroundTaskingManagerClass::IsValidObjective(int orders, Objective o)
     switch (orders)
     {
     case GORD_CAPTURE:
-        if (o->IsSecondary() and o->IsNearfront() and
+        if ((o->IsSecondary() or CaptureFrontOK(o)) and o->IsNearfront() and
             GetRoE(owner, o->GetTeam(), ROE_GROUND_CAPTURE) == ROE_ALLOWED)
             return 1;
 
@@ -530,7 +637,7 @@ int GroundTaskingManagerClass::GetAddBits(Objective o, int to_collect)
         return 0;
 
     if (not o->IsSecondary())
-        add_now and_eq compl(COLLECT_RESERVE bitor COLLECT_CAPTURE bitor
+        add_now and_eq compl(COLLECT_RESERVE bitor (CaptureFrontOK(o) ? 0 : COLLECT_CAPTURE) bitor
                              COLLECT_SECURE bitor COLLECT_ASSAULT bitor
                              COLLECT_AIRBORNE bitor COLLECT_DEFEND);
 
@@ -698,9 +805,11 @@ int GroundTaskingManagerClass::BuildObjectiveLists(int to_collect)
                     objList[i]->Insert(new_node, GODN_SORT_BY_PRIORITY);
 
                 // KCK EXPERIMENTAL: Try adding certain objectives twice
+                // (non-secondary objectives, which g_bGtmCaptureFront lets in, can have no primary)
                 if (i == GORD_CAPTURE and
                     TeamInfo[owner]->GetGroundActionType() ==
                         GACTION_OFFENSIVE and
+                    o->GetObjectivePrimary() and
                     TeamInfo[owner]->GetGroundAction()->actionObjective ==
                         o->GetObjectivePrimary()->Id())
                 {
@@ -712,6 +821,22 @@ int GroundTaskingManagerClass::BuildObjectiveLists(int to_collect)
                 }
 
                 // END EXPERIMENTAL
+
+                // Artscout - 2026 (g_nGtmCaptureUnits, 1 = stock): one list node is one battalion
+                // (AssignObjective gives each node a single unit), so list a capture objective N times
+                // to let N battalions attack it in one cycle.
+                if (i == GORD_CAPTURE)
+                {
+                    extern int g_nGtmCaptureUnits;
+
+                    for (int extra = 1; extra < g_nGtmCaptureUnits and extra < 8; extra++)
+                    {
+                        new_node = new GndObjDataType();
+                        new_node->obj = o;
+                        new_node->priority_score = ScoreObj(i, os, ss, ps, pps, fs);
+                        objList[i] = objList[i]->Insert(new_node, GODN_SORT_BY_PRIORITY);
+                    }
+                }
             }
         }
 
@@ -743,9 +868,75 @@ void GroundTaskingManagerClass::AddToList(Unit u, int orders)
         canidateList[orders]->Insert(curu, USN_SORT_BY_SCORE);
 }
 
+// Artscout - 2026: progress of units kept on a capture order (g_bGtmKeepCapture). A unit that has not
+// moved 1 km in g_nGtmKeepCaptureStall hours toward the same objective is stalled -- typically it cannot
+// path to it -- and is handed back to normal tasking. Session-only state, rebuilt as units are seen.
+struct CaptureProgress
+{
+    VU_ID objective;
+    GridIndex x, y;
+    CampaignTime since;
+};
+static std::map<VU_ID, CaptureProgress> sCaptureProgress;
+
+static int CaptureStalled(Unit u, Objective o)
+{
+    extern int g_nGtmKeepCaptureStall;
+    GridIndex x, y;
+    u->GetLocation(&x, &y);
+    CaptureProgress &p = sCaptureProgress[u->Id()];
+
+    if (p.objective not_eq o->Id() or abs(p.x - x) + abs(p.y - y) >= 1 or not p.since)
+    {
+        p.objective = o->Id();
+        p.x = x;
+        p.y = y;
+        p.since = TheCampaign.CurrentTime;
+        return 0;
+    }
+
+    return g_nGtmKeepCaptureStall > 0 and
+           TheCampaign.CurrentTime - p.since > (CampaignTime)g_nGtmKeepCaptureStall * CampaignHours;
+}
+
+// Why each unit is or is not offered for a capture order, per AddToLists call (campsim GTMWHY):
+// [0] kept capture, [1] kept another valid order, [2] immobile, [3] broken, [4] supply < 50,
+// [5] single-role (artillery/AD/engineer), [6] capture candidate, [7] mobile but not capture-capable,
+// [8] kept order was SECURE, [9] kept order was DEFEND.
+int gGtmWhy[NUM_TEAMS][10] = {{0}};
+
 void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
 {
     int i, role;
+    int* why = gGtmWhy[owner];
+
+    // Artscout - 2026: a train is run by railnet.cpp (BattalionClass::MoveUnit hands it over), so
+    // it takes no orders here and must not use up a reserve slot (GtmReservesPerCycle).
+    if (u->IsTrain())
+        return;
+
+    // Artscout - 2026 (g_bGtmKeepCapture, off = stock): a unit attacking a target that is still a
+    // valid capture objective keeps it. Stock re-plans it every cycle: it is only kept when the side is
+    // on full OFFENSIVE this cycle (posture flips to consolidate drop every attacker) and its objective
+    // is still in this cycle's list. campsim CAPORD, seed 101, first 96 h: of 235 capture orders, 93
+    // ended with the objective taken and 82 were cancelled by the GTM while the target was still valid.
+    {
+        extern bool g_bGtmKeepCapture;
+        Objective o = u->GetUnitObjective();
+
+        if (g_bGtmKeepCapture and u->GetUnitOrders() == GORD_CAPTURE and o and not u->Broken() and
+            IsValidObjective(GORD_CAPTURE, o) and not CaptureStalled(u, o))
+        {
+            sOffensiveAssigned++;
+            AssignUnit(u, GORD_CAPTURE, o, 999);
+            why[0]++;
+
+            if (objList[GORD_CAPTURE])
+                objList[GORD_CAPTURE] = objList[GORD_CAPTURE]->Remove(o);
+
+            return;
+        }
+    }
 
     // Units with valid orders are not reassigned
     if (u->GetUnitOrders() not_eq GRO_RESERVE)
@@ -769,6 +960,9 @@ void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
                     UnitCount[orders]++;
 #endif
                     AssignUnit(u, orders, o, 999);
+                    why[orders == GORD_CAPTURE ? 0 : 1]++;
+                    why[8] += orders == GORD_SECURE;
+                    why[9] += orders == GORD_DEFEND;
 
                     // Their objective is removed from the satisfy list
                     if (objList[orders])
@@ -803,6 +997,7 @@ void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
 #ifdef KEV_GDEBUG
         UnitCount[i]++;
 #endif
+        why[2]++;
         AssignUnit(u, i, o, 999);
 
         if (objList[i])
@@ -814,6 +1009,7 @@ void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
     // Broken/unsupplied units get tasked as reserve only
     if (u->Broken() or u->GetUnitSupply() < 50)
     {
+        why[u->Broken() ? 3 : 4]++;
         AddToList(u, GORD_RESERVE);
         return;
     }
@@ -827,10 +1023,17 @@ void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
     if (role == GRO_FIRESUPPORT or role == GRO_AIRDEFENSE or
         role == GRO_ENGINEER) // KCK: Radar units here?
     {
+        why[5]++;
         AddToList(u, GetGroundOrders(role));
         AddToList(u, GORD_RESERVE);
         return;
     }
+
+    if ((to_collect bitand (0x01 << GORD_CAPTURE)) and
+        u->GetUnitRoleScore(GetGroundRole(GORD_CAPTURE), CALC_MAX, 0) > MIN_ALLOWABLE_ROLE_SCORE)
+        why[6]++;
+    else
+        why[7]++;
 
     // Add it to a list for each type of orders it's capible of performing
     for (i = 0; i < GORD_LAST; i++)
@@ -924,11 +1127,28 @@ int GroundTaskingManagerClass::AssignUnit(Unit u, int orders, Objective o,
     if (not u or not o)
         return 0;
 
+    // Artscout - 2026: a battalion the player moved keeps the player's order (see
+    // BattalionClass::SetUnitOrders). Refusing SetUnitOrders alone was not enough: this
+    // function then overwrote the objective directly and set U_ORDERED, which threw away
+    // the player's route (campsim holdtest: a held unit ended 34 km from its target).
+    {
+        extern bool g_bPlayerGroundHold;
+
+        if (g_bPlayerGroundHold and u->PlayerHeld() and not u->Broken())
+            return 0;
+    }
+
 #ifdef KEV_GDEBUG
     AssignedCount[orders]++;
 #endif
 
     Assigned++;
+    {
+        extern int gGtmDiag[NUM_TEAMS][GORD_LAST][5];
+
+        if (orders >= 0 and orders < GORD_LAST)
+            gGtmDiag[owner][orders][score == 999 ? 4 : 2]++;
+    }
 
     // Set local data right now...
     u->SetAssigned(1);
@@ -974,6 +1194,13 @@ int GroundTaskingManagerClass::AssignUnit(Unit u, int orders, Objective o,
     return 1;
 }
 
+// CAMPSIM DIAGNOSTIC (read only by tools/campsim): per team and order type, cumulative
+// [0] objectives wanting units, [1] candidate units offered, [2] units newly assigned, [3] calls,
+// [4] units confirmed in orders they already had;
+// gGtmAction counts GTM cycles by ground action type.
+int gGtmDiag[NUM_TEAMS][GORD_LAST][5] = {{{0}}};
+int gGtmAction[NUM_TEAMS][8] = {{0}};
+
 int GroundTaskingManagerClass::AssignUnits(int orders, int mode)
 {
     GODNode curo, nexto;
@@ -985,8 +1212,78 @@ int GroundTaskingManagerClass::AssignUnits(int orders, int mode)
     time = GetTickCount();
 #endif
 
+    {
+        int no = 0, nu = 0;
+
+        for (GODNode n = objList[orders]; n; n = n->next)
+            no++;
+
+        for (USNode n = canidateList[orders]; n; n = n->next)
+            nu++;
+
+        gGtmDiag[owner][orders][0] += no;
+        gGtmDiag[owner][orders][1] += nu;
+        gGtmDiag[owner][orders][3]++;
+    }
+
     if (not objList[orders] or not canidateList[orders])
         return 0;
+
+    // Artscout - 2026 (g_bGtmReserveFix, off = stock): drop units that already got orders this cycle
+    // BEFORE the reserve step below picks the one(s) closest to the action objective. Stock trims first
+    // and removes assigned units after, so on OFFENSIVE -- when the unit nearest the target has just
+    // been given a capture order -- the list ends up empty and no reserve ever moves forward
+    // (campsim GTM log: ROK "RES ... new 0" in every OFFENSIVE cycle, even at 20 reserves per cycle).
+    {
+        extern bool g_bGtmReserveFix;
+
+        if (g_bGtmReserveFix and orders == GORD_RESERVE)
+        {
+            nextu = canidateList[orders];
+
+            while (nextu)
+            {
+                curu = nextu;
+                nextu = curu->next;
+
+                if (curu->unit->Assigned())
+                    canidateList[orders] = canidateList[orders]->Remove(curu);
+            }
+
+            if (not canidateList[orders])
+                return 0;
+        }
+    }
+
+    // Artscout - 2026 (g_bReserveNoPullback, off = stock): reserve objectives are always 20-60 km behind
+    // the front (GetObjectiveScore), so a reserve order to an idle unit already near the front is a step
+    // backwards. Stock kept the candidates CLOSEST to the action objective -- the front line -- and sent a
+    // healthy front battalion >10 km back ~115 times a run (campsim, 48 h). Idle front units now hold where
+    // they are; reserves are drawn from further back.
+    {
+        extern bool g_bReserveNoPullback;
+
+        if (g_bReserveNoPullback and orders == GORD_RESERVE)
+        {
+            GridIndex x, y;
+            nextu = canidateList[orders];
+
+            while (nextu)
+            {
+                curu = nextu;
+                nextu = curu->next;
+                curu->unit->GetLocation(&x, &y);
+
+                // broken or unsupplied units still fall back to refit
+                if (not curu->unit->Broken() and curu->unit->GetUnitSupply() >= 50 and
+                    DistanceToFront(x, y) < 25.0F)
+                    canidateList[orders] = canidateList[orders]->Remove(curu);
+            }
+
+            if (not canidateList[orders])
+                return 0;
+        }
+    }
 
     // Special case for reserve orders -
     // We're only going to reorder the unit farthest from our primary objective
@@ -1001,26 +1298,81 @@ int GroundTaskingManagerClass::AssignUnits(int orders, int mode)
         if (po)
             po->GetLocation(&px, &py);
 
-        nextu = canidateList[orders];
+        // Artscout - 2026: keep the g_nGtmReservesPerCycle candidates closest to the action
+        // objective (stock: 1). With one per cycle, DPRK's 100-200 idle units -- China's 43
+        // battalions among them once it joins -- reached the front at ~1 an hour (campsim GTM
+        // log: ~300 reserve objectives and 108-199 candidates per call, 2-7 moved per 6 h).
+        extern int g_nGtmReservesPerCycle;
+        const int keep = g_nGtmReservesPerCycle < 1 ? 1 : g_nGtmReservesPerCycle;
+        // g_bGtmReserveFarthest: move up the units FARTHEST from the action first, as the
+        // original comment above intends -- rear units (China's, once it joins) come forward.
+        extern bool g_bGtmReserveFarthest;
+        const float sign = g_bGtmReserveFarthest ? -1.0F : 1.0F;
 
-        while (nextu)
+        if (keep == 1)
         {
-            curu = nextu;
-            nextu = curu->next;
-            curu->unit->GetLocation(&x, &y);
-            ds = (float)DistSqu(x, y, px, py);
+            nextu = canidateList[orders];
 
-            if (ds < bestds)
+            while (nextu)
             {
-                bestds = ds;
+                curu = nextu;
+                nextu = curu->next;
+                curu->unit->GetLocation(&x, &y);
+                ds = sign * (float)DistSqu(x, y, px, py);
 
-                if (bestn)
+                if (ds < bestds)
+                {
+                    bestds = ds;
+
+                    // KCK's original dropped the old best here by removing curu -- the new
+                    // best -- instead. Remove the old best.
+                    if (bestn)
+                        canidateList[orders] = canidateList[orders]->Remove(bestn);
+
+                    bestn = curu;
+                }
+                else
                     canidateList[orders] = canidateList[orders]->Remove(curu);
-
-                bestn = curu;
             }
-            else
-                canidateList[orders] = canidateList[orders]->Remove(curu);
+        }
+        else
+        {
+            // distance of the keep-th closest candidate; drop everything beyond it
+            float nearDs[64];
+            int n = 0;
+
+            for (curu = canidateList[orders]; curu; curu = curu->next)
+            {
+                curu->unit->GetLocation(&x, &y);
+                ds = sign * (float)DistSqu(x, y, px, py);
+                int i = n < keep and n < 64 ? n++ : (ds < nearDs[n - 1] ? n - 1 : -1);
+
+                if (i < 0)
+                    continue;
+
+                nearDs[i] = ds;
+
+                while (i > 0 and nearDs[i - 1] > nearDs[i])
+                {
+                    float t = nearDs[i - 1];
+                    nearDs[i - 1] = nearDs[i];
+                    nearDs[i] = t;
+                    i--;
+                }
+            }
+
+            const float cut = n ? nearDs[n - 1] : FLT_MAX;
+            nextu = canidateList[orders];
+
+            while (nextu)
+            {
+                curu = nextu;
+                nextu = curu->next;
+                curu->unit->GetLocation(&x, &y);
+
+                if (sign * (float)DistSqu(x, y, px, py) > cut)
+                    canidateList[orders] = canidateList[orders]->Remove(curu);
+            }
         }
     }
 
@@ -1181,6 +1533,23 @@ int GroundTaskingManagerClass::ScoreUnit(USNode curu, GODNode curo, int orders,
 #endif
 
     curu->unit->GetLocation(&ux, &uy);
+
+    // Artscout - 2026 (g_nGtmCaptureMaxKm, 0 = stock): a capture target farther than this is not offered to
+    // the unit. Targets are filled one at a time, each taking the best free unit, so a western target with no
+    // free local units took armour from the east coast (pathing_debug.cam: 6 of 58 capture orders over
+    // 100 km, the 8th Armored 160 km to Wondomal with an enemy town 4 km from it).
+    {
+        extern int g_nGtmCaptureMaxKm;
+
+        if (g_nGtmCaptureMaxKm > 0 and orders == GORD_CAPTURE)
+        {
+            curo->obj->GetLocation(&ox, &oy);
+
+            if (Distance(ox, oy, ux, uy) > (float)g_nGtmCaptureMaxKm)
+                return score;
+        }
+    }
+
     cost = CostToArrive(curu->unit, orders, ux, uy, curo->obj);
 
     if (cost >= OBJ_GROUND_PATH_MAX_COST)

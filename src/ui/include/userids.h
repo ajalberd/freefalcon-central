@@ -2311,6 +2311,10 @@ enum
     MID_CAMP_PKG_SQ_LAST = 86171,
     // Artscout - 2026: "Rail lines" -- a toggle like the FLOT (railnet.cpp routes on the map).
     MID_CAMP_RAIL = 86180,
+    // Artscout - 2026: orders for the selected task force, added to the map right-click menu
+    // at hookup like the items above (not in the menu resource).
+    MID_NAVAL_STATION = 86172,
+    MID_NAVAL_RESUME = 86173,
     MID_UNITS_SQUAD_SQUADRON = 86049,
     MID_UNITS_SQUAD_PACKAGE = 86050,
     MID_OFF = 86100,

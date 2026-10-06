@@ -1,0 +1,7 @@
+# Hang watchdog: freeze the window thread for 9 s; FFHang.log and FFHang.dmp should appear.
+timeout 120
+waitwin UI_MAIN_SCREEN 60000
+wait 2000
+freeze 9000
+wait 14000
+quit

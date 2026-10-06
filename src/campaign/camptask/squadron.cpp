@@ -870,6 +870,30 @@ int SquadronClass::GetUnitSupplyNeed(int have)
     if (not uc)
         return 0;
 
+    // Artscout - 2026 (g_bSupplyNeedFix, off = stock): what is still needed counts only the weapon types
+    // in this squadron's stores table, each up to its table amount -- the only stock SupplyUnit refills.
+    // Stock summed every type held, and most squadrons in save0.cam carry stores of types their table does
+    // not list (old weapon numbering). New-campaign setup resets active squadrons only, so each
+    // reinforcement squadron arrived ~1600 points "over-supplied", which drove the team's summed need
+    // negative and stopped all battalion resupply (campsim SUPNEED: ROK battalion supply 100% -> 51%).
+    extern bool g_bSupplyNeedFix;
+
+    if (g_bSupplyNeedFix and not have)
+    {
+        for (i = 0; i < MAXIMUM_WEAPTYPES; i++)
+        {
+            int w = SquadronStoresDataTable[uc->SpecialIndex].Stores[i];
+
+            if (w)
+            {
+                want += w;
+                got += min((int)GetUnitStores(i), w);
+            }
+        }
+
+        return (want - got) / SQUADRON_PT_SUPPLY;
+    }
+
     for (i = 0; i < MAXIMUM_WEAPTYPES; i++)
     {
         want += SquadronStoresDataTable[uc->SpecialIndex].Stores[i];
@@ -1414,6 +1438,8 @@ void SquadronClass::UpdateSquadronStores(short weapon[HARDPOINT_MAX],
         if (n > 255)
             n = 255;
 
+        gStoresFlow[GetTeam() % NUM_TEAMS][0] += GetUnitStores(weaparray[i]) - n; // campsim: loaded
+        gSupplyUseAir[GetTeam() % NUM_TEAMS] += (float)(GetUnitStores(weaparray[i]) - n) / SQUADRON_PT_SUPPLY;
         SetUnitStores(weaparray[i], n);
     }
 
@@ -1495,6 +1521,8 @@ void SquadronClass::ResupplySquadronStores(short weapon[HARDPOINT_MAX],
         if (n > 255)
             n = 255;
 
+        gStoresFlow[GetTeam() % NUM_TEAMS][1] += n - GetUnitStores(weaparray[i]); // campsim: returned
+        gSupplyUseAir[GetTeam() % NUM_TEAMS] -= (float)(n - GetUnitStores(weaparray[i])) / SQUADRON_PT_SUPPLY;
         SetUnitStores(weaparray[i], n);
     }
 

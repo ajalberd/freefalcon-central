@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "isbad.h"
+#include "../graphics/include/fflog.h"
 
 _TCHAR *OrdinalString(long value);
 
@@ -304,6 +305,14 @@ MAPICONLIST *C_MapIcon::AddIconToList(long CampID, short type, long ImageID,
     IMAGE_RSC *img = NULL;
     _TCHAR buf[10];
 
+    // Artscout - 2026: a wreck marker (Ghost 2) is orphaned; a new unit that reuses its id replaces it
+    {
+        MAPICONLIST *old = (MAPICONLIST *)Root_->Find(CampID);
+
+        if (old and old->Ghost == 2)
+            RemoveIcon(CampID);
+    }
+
     if (not ImageID or Root_->Find(CampID) or not Icons_[0])
         return (NULL);
 
@@ -344,6 +353,7 @@ MAPICONLIST *C_MapIcon::AddIconToList(long CampID, short type, long ImageID,
     newitem->ImageID = ImageID;
     newitem->Dragable = Dragable;
     newitem->Status = newstatus;
+    newitem->Ghost = 0;
     newitem->Detect = detector;
     newitem->Owner = this;
     newitem->Icon = new O_Output;
@@ -487,6 +497,9 @@ void C_MapIcon::SetScaleFactor(float scale)
     }
 }
 
+long (*gMapIconTipHook)(long iconID) = NULL;
+extern C_Handler *gMainHandler;
+
 long C_MapIcon::GetHelpText()
 {
     long ID = 0;
@@ -494,10 +507,39 @@ long C_MapIcon::GetHelpText()
     if (not OverLast_)
         return (0);
 
+    static int tipLogs = 0; // Artscout - 2026: [TIP] trace, see C_Handler::TipLog
+
+    if (gMapIconTipHook)
+    {
+        ID = gMapIconTipHook(OverLast_->ID);
+
+        if (tipLogs++ < 200)
+        {
+            char line[120];
+            sprintf_s(line, sizeof(line), "[TIP] map icon %ld hook -> string id %ld\n", OverLast_->ID, ID);
+            FFDebugLog(line);
+        }
+
+        if (ID)
+            return (ID);
+    }
+    else if (tipLogs++ < 200)
+        FFDebugLog("[TIP] map icon asked for help text but gMapIconTipHook is NULL\n");
+
     if (OverLast_->Label)
         ID = gStringMgr->AddText(OverLast_->Label->GetText());
 
     return (ID);
+}
+
+void C_MapIcon::RepaintIcon(MAPICONLIST *icon)
+{
+    if (not icon or not Parent_)
+        return;
+
+    F4CSECTIONHANDLE *Leave = UI_Enter(Parent_);
+    Refresh(icon);
+    UI_Leave(Leave);
 }
 
 void C_MapIcon::Refresh(MAPICONLIST *icon)
@@ -733,15 +775,21 @@ void C_MapIcon::Draw(SCREEN *surface, UI95_RECT *cliprect)
                     {
                         extern bool g_bCampMapIconHealth;
                         extern float g_fCampMapIconMin;
+                        extern float g_fCampMapGhostBright;
                         long st = cur->Status;
-                        const bool shade = ShadeByStatus_ and g_bCampMapIconHealth and
-                                           st >= 0 and st < 100;
+                        // a ghost (last known position of an enemy ship) is drawn at a fixed dim level
+                        const bool ghost = cur->Ghost not_eq 0;
+                        const bool shade = ghost or (ShadeByStatus_ and g_bCampMapIconHealth and
+                                           st >= 0 and st < 100);
 
                         if (shade)
                         {
                             float mn = g_fCampMapIconMin;
                             mn = (mn < 0.0f) ? 0.0f : (mn > 1.0f) ? 1.0f : mn;
-                            const float bright = mn + (1.0f - mn) * (float)st * 0.01f;
+                            float bright = mn + (1.0f - mn) * (float)st * 0.01f;
+
+                            if (ghost)
+                                bright = g_fCampMapGhostBright * (cur->Ghost == 2 ? 0.5f : 1.0f);
                             long front = (long)(100.0f * sqrtf(bright) + 0.5f);
                             front = (front < 1) ? 1 : (front > 99) ? 99 : front;
                             cur->Icon->SetFlags(cur->Icon->GetFlags() bitor C_BIT_TRANSLUCENT);
@@ -898,7 +946,7 @@ long C_MapIcon::CheckHotSpots(long relX, long relY)
     while (cur)
     {
         if (not(cur->Flags bitand C_BIT_INVISIBLE) and
-            cur->Flags bitand C_BIT_ENABLED)
+            cur->Flags bitand C_BIT_ENABLED and cur->Ghost not_eq 2)
         {
             x = cur->x + cur->Icon->GetX();
             y = cur->y + cur->Icon->GetY();
@@ -931,13 +979,14 @@ BOOL C_MapIcon::MouseOver(long relX, long relY, C_Base *)
     if (not Ready() or GetFlags() bitand C_BIT_INVISIBLE or Parent_ == NULL)
         return (0);
 
+    MAPICONLIST *prevOver = OverLast_;
     OverLast_ = NULL;
     cur = (MAPICONLIST *)Root_->GetFirst(&current, &curidx);
 
     while (cur)
     {
         if (not(cur->Flags bitand C_BIT_INVISIBLE) and
-            cur->Flags bitand C_BIT_ENABLED)
+            cur->Flags bitand C_BIT_ENABLED and cur->Ghost not_eq 2)
         {
             x = cur->x + cur->Icon->GetX();
             y = cur->y + cur->Icon->GetY();
@@ -950,6 +999,11 @@ BOOL C_MapIcon::MouseOver(long relX, long relY, C_Base *)
 
         cur = (MAPICONLIST *)Root_->GetNext(&current, &curidx);
     }
+
+    // Moved onto a different icon of this control: make the handler build a new tooltip
+    if (OverLast_ and OverLast_ not_eq prevOver and gMainHandler and
+        gMapIconTipHook)
+        gMainHandler->ResetHelp();
 
     if (OverLast_)
     {

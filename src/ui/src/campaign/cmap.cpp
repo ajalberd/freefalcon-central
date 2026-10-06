@@ -2365,9 +2365,15 @@ void C_Map::FitFlightPlan()
         CurWPArea_.bottom < 0)
         return;
 
-    w = (CurWPArea_.right - CurWPArea_.left) /
-        1000; // 1100 = ft -> 500m * 1.64 (allow for icons to fit on map also)
-    h = (CurWPArea_.bottom - CurWPArea_.top) / 1000;
+    // Artscout - 2026: this assumed the stock bitmap's 1640 ft per map pixel (the "/ 1640" below, and the
+    // "/ 1000" here, which is 1.64 per stock pixel). The terrain-derived map is finer (FEET_PER_PIXEL is
+    // about half that), so every position came out at half its true value: the view sat in the
+    // north-west, up against the China border, instead of on the flight plan. Convert with the real scale;
+    // for the stock map this is the same arithmetic as before.
+    const float feetPerPixel = FEET_PER_PIXEL;
+
+    w = (long)((CurWPArea_.right - CurWPArea_.left) / feetPerPixel * 1.64f); // 1.64: room for the icons
+    h = (long)((CurWPArea_.bottom - CurWPArea_.top) / feetPerPixel * 1.64f);
 
     if (w > h)
         ZoomLevel_ = w;
@@ -2380,10 +2386,8 @@ void C_Map::FitFlightPlan()
     if (ZoomLevel_ > MinZoomLevel_)
         ZoomLevel_ = MinZoomLevel_;
 
-    cx = (CurWPArea_.top / 1640 + CurWPArea_.bottom / 1640) / 2;
-    cy = static_cast<long>(
-        ((maxy - CurWPArea_.left) / 1640 + (maxy - CurWPArea_.right) / 1640) /
-        2);
+    cx = static_cast<long>((CurWPArea_.top / feetPerPixel + CurWPArea_.bottom / feetPerPixel) / 2);
+    cy = static_cast<long>(((maxy - CurWPArea_.left) / feetPerPixel + (maxy - CurWPArea_.right) / feetPerPixel) / 2);
 
     SetMapCenter(cx, cy);
 }
@@ -2717,6 +2721,31 @@ void C_Map::HideNavalUnitType(long mask)
 // so writing them would read whatever was in that memory. Everything below clamps into 1..9, and 0
 // means "leave the map alone".
 #define CAMP_TINT_MAX 9
+
+// What a producer actually yields this tick, exactly as ProduceSupplies (campupd/supply.cpp)
+// computes it: class DataRate * status/100, times the nearest friendly power plant's status when
+// PowerGrid is on, and nothing at all from a site that changed hands. The Production layer used to
+// draw DataRate * status alone, so a factory whose power plant was bombed flat still showed a
+// full-size disc while producing nothing.
+static long CampEffectiveOutput(Objective o)
+{
+    extern bool g_bPowerGrid;
+
+    if (o->GetObjectiveOldown() not_eq o->GetOwner())
+        return 0;
+
+    long r = o->GetObjectiveDataRate();
+
+    if (r > 0 and g_bPowerGrid)
+    {
+        GridIndex x, y;
+        o->GetLocation(&x, &y);
+        Objective po = FindNearestFriendlyPowerStation(AllObjList, o->GetTeam(), x, y);
+        r = po ? r * po->GetObjectiveStatus() / 100 : 0;
+    }
+
+    return r;
+}
 
 // Stamp a filled disc into the overlay. Brightest contributor wins rather than accumulating, so a
 // cluster of overlapping nodes reads as its strongest member instead of saturating to a solid blob
@@ -3447,7 +3476,7 @@ void C_Map::ShowCampaignOverlay(long which)
                     t not_eq TYPE_ARMYBASE)
                     continue;
 
-                const long r = o->GetObjectiveDataRate();
+                const long r = CampEffectiveOutput(o);
 
                 if (r > maxRate)
                     maxRate = r;
@@ -3467,7 +3496,7 @@ void C_Map::ShowCampaignOverlay(long which)
                     t not_eq TYPE_ARMYBASE)
                     continue;
 
-                const long r = o->GetObjectiveDataRate();
+                const long r = CampEffectiveOutput(o);
 
                 if (r < 1)
                     continue;

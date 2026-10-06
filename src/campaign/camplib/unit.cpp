@@ -584,6 +584,8 @@ void UnitClass::BroadcastUnitMessage(VU_ID id, short msg, short d1, short d2,
 // HOWEVER, it them broadcasts a FalconWeaponFireMessage which will generate visual effects,
 // update remote copies of this entity, call the mission evaluation/event storage routines,
 // and add any craters we require.
+int gLossDiag[NUM_TEAMS][10] = {{0}};
+
 int UnitClass::ApplyDamage(FalconCampWeaponsFire* cwfm, uchar bonusToHit)
 {
     MoveType mt;
@@ -755,6 +757,30 @@ int UnitClass::ApplyDamage(FalconCampWeaponsFire* cwfm, uchar bonusToHit)
     // if (shooter->IsFlight())
     // MonoPrint("%d (%d,%d) took %d losses from %d (%d,%d). range = %d\n",GetCampID(),tx,ty,currentLosses,shooter->GetCampID(),sx,sy,range);
 #endif
+
+    // Artscout - 2026: who kills whom, always on (read by tools/campsim; the game never reads it).
+    // Indexed by the TARGET's team: 0 battalion<-flight, 1 battalion<-artillery, 2 battalion<-other
+    // ground, 3 battalion<-naval/other, 4 flight<-flight, 5 flight<-ground/naval, 6 ship<-flight,
+    // 7 ship<-ship/ground.
+    {
+        extern int gLossDiag[NUM_TEAMS][10];
+        int t = GetTeam(), k = -1;
+
+        if (IsBattalion())
+            k = shooter->IsFlight() ? 0 : (shooter->IsBattalion() and shooter->GetUnitNormalRole() == GRO_FIRESUPPORT) ? 1 :
+                shooter->IsBattalion() ? 2 : 3;
+        else if (IsFlight())
+            k = shooter->IsFlight() ? 4 : 5;
+        else if (IsTaskForce()) // 6 ship<-flight, 7 ship<-ship/ground
+            k = shooter->IsFlight() ? 6 : 7;
+
+        if (k >= 0 and t >= 0 and t < NUM_TEAMS)
+            gLossDiag[t][k] += currentLosses;
+
+        // 8 flight<-ship (a subset of 5): what ship air defence shoots down
+        if (IsFlight() and shooter->IsTaskForce() and t >= 0 and t < NUM_TEAMS)
+            gLossDiag[t][8] += currentLosses;
+    }
 
 #ifdef KEEP_STATISTICS
 
@@ -2771,6 +2797,19 @@ void UnitClass::SetAssigned(int p)
         unit_flags and_eq compl U_ASSIGNED;
 }
 
+void UnitClass::SetPlayerHeld(int p)
+{
+    if ((p not_eq 0) == (PlayerHeld() not_eq 0))
+        return;
+
+    if (p)
+        unit_flags or_eq U_PLAYER_HELD;
+    else
+        unit_flags and_eq compl U_PLAYER_HELD;
+
+    MakeUnitDirty(DIRTY_UNIT_FLAGS, SEND_SOON);
+}
+
 void UnitClass::SetOrdered(int p)
 {
     if (p)
@@ -3084,6 +3123,19 @@ void UnitClass::SetInactive(int f)
         {
             // activate: have to find a place for list handlings here
 
+            // Artscout - 2026: take the unit off InactiveList BEFORE clearing the flag.
+            // InactiveList is a VuFilteredList whose Remove() only acts when the filter's
+            // RemoveTest passes, and InactiveFilter's RemoveTest requires Inactive(). With
+            // the flag already cleared the Remove below was silently refused, so every
+            // reinforcement stayed on InactiveList after it arrived (~95 by hour 30 of
+            // save0), and AddReinforcements re-activated it and posted another
+            // "reinforcements arrived" news item for it every hour.
+            VuBin<UnitClass> safe(this);
+            const bool listed = InactiveList->Find(this) not_eq NULL;
+
+            if (listed)
+                InactiveList->Remove(this);
+
             ClearDeaggregationData();
             unit_flags and_eq compl U_INACTIVE;
             MakeUnitDirty(DIRTY_UNIT_FLAGS, SEND_SOON);
@@ -3096,16 +3148,23 @@ void UnitClass::SetInactive(int f)
             // (ui/src/common/units.cpp), so airmobile infantry gained a copy
             // every time: one save held three battalions ~43,000 times each,
             // wrapped the 16-bit unit count, and would not load.
-            if (InactiveList->Find(this))
+            // Artscout - 2026: and only into lists that do not already hold it. The guard above was not
+            // enough: airmobile infantry still gained a copy per helicopter trip (campsim UNITLIST, save0:
+            // 38 ROK battalions held 2-28 times each by h96, 1203 AllUnitList entries for 945 units), and
+            // every walk of AllUnitList -- supply needs, statistics, the GTM -- counted them that many times.
+            if (listed)
             {
-                InactiveList->Remove(this);
+                if (not AllUnitList->Find(this))
+                    AllUnitList->Insert(this);
 
-                AllUnitList->Insert(this);
-                AllParentList->Insert(this);
+                if (not AllParentList->Find(this))
+                    AllParentList->Insert(this);
 
                 if (Real())
                 {
-                    AllRealList->Insert(this);
+                    if (not AllRealList->Find(this))
+                        AllRealList->Insert(this);
+
                     RealUnitProxList->Insert(this);
                 }
             }
@@ -4516,11 +4575,46 @@ int UnitClass::GetUnitGridPath(Path p, GridIndex x, GridIndex y, GridIndex xx,
 
         if (GetUnitNormalRole() == GRO_ENGINEER)
             flags or_eq PATH_ENGINEER;
+
+        // Artscout - 2026 (g_bWaterObjectiveFix): a short final approach (< ~5.5 km, not in column)
+        // searched without PATH_ROADOK, so a destination on a road/bridge/port cell over water was
+        // "impassable" and GetGridPath rejected it outright -- every tick, forever (campsim MOVE log:
+        // 122 failures in 6 h for units 5 km from Wonsan's coastal plant). Allow roads in that case.
+        extern bool g_bWaterObjectiveFix;
+
+        if (g_bWaterObjectiveFix and not(flags bitand PATH_ROADOK) and
+            GetMovementCost(xx, yy, GetMovementType(), flags, Here) > MAX_COST)
+            flags or_eq PATH_ROADOK;
     }
 
     // Flights will never find a path inroute - only during planning and they should use
     // 2001-07-27 REMOVED BY S.G. ALLOWED IN RP5
     // ShiAssert ( GetMovementType() not_eq Air and GetMovementType() not_eq LowAir );
+
+    // Artscout - 2026 (g_bNavalSeaMask): a ship's route skirts the 3D coast (sea mask), which can mean a long
+    // detour through a bay -- ship_debug.cam: Incheon anchorage to port is 76 steps on the grid, 125 around the
+    // tidal flats. The ground units' node budget (GroundPathMax 800) ran out and the ship fell back to the stock
+    // straight patrol over land (campsim NAVAL: 165 failed routes in 2 days). Ships get the full pool, and a route
+    // the mask makes unfindable is searched again on the grid alone -- never worse than stock.
+    extern bool g_bNavalSeaMask;
+
+    if (g_bNavalSeaMask and GetDomain() == DOMAIN_SEA)
+    {
+        maxSearch = MAX_SEARCH;
+        retval = GetGridPath(p, x, y, xx, yy, GetMovementType(), GetTeam(), flags);
+
+        if (p->GetLength() < 3)
+        {
+            gSeaMaskSuspend = 1; // campaign thread only; SeaMaskLand reads it
+            retval = GetGridPath(p, x, y, xx, yy, GetMovementType(), GetTeam(), flags);
+            gSeaMaskSuspend = 0;
+
+            extern int gNavalDiag[8][8];
+            gNavalDiag[GetTeam() % 8][6]++;
+        }
+
+        return retval;
+    }
 
     maxSearch = GROUND_PATH_MAX;
     retval = GetGridPath(p, x, y, xx, yy, GetMovementType(), GetTeam(), flags);
@@ -4894,6 +4988,15 @@ int UnitClass::CollectWeapons(uchar* dam, MoveType m, short w[], uchar wc[],
 
     if (sup < 0)
         sup = 0;
+
+    if (IsBattalion())
+    {
+        // campsim diagnostic: supply % used firing, by target domain ([1] aircraft, [2] ground/sea)
+        extern int gSupplyUse[8][4];
+        extern float gSupplyUseGround[]; // supply.cpp, g_bSupplySplitShares
+        gSupplyUse[GetTeam() % 8][MOVE_AIR(m) ? 1 : 2] += GetUnitSupply() - sup;
+        gSupplyUseGround[GetTeam() % NUM_TEAMS] += (float)(GetUnitSupply() - sup) * GetTotalVehicles() / 100.0F;
+    }
 
     SetUnitSupply(sup);
     return cw;

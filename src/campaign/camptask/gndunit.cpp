@@ -620,6 +620,24 @@ int GroundUnitClass::DetectVs(CampEntity e, float *d, int *combat, int *spot,
 
     det = Detected(this, e, d);
 
+    // Artscout - 2026 (g_bWaterObjectiveFix, off = stock): capture needs the unit in the objective's own
+    // 1 km cell, but ports, coastal plants and some river objectives sit on cells a ground unit cannot
+    // enter -- so they could never be taken, and the battalions sent at them retried a path to them
+    // every tick forever (campsim MOVE log: 5 battalions stuck beside Wonsan's coastal plant #615).
+    // Such an objective is taken from the next cell.
+    {
+        extern bool g_bWaterObjectiveFix;
+
+        if (g_bWaterObjectiveFix and e->IsObjective() and *d < 2.5F)
+        {
+            GridIndex ox, oy;
+            e->GetLocation(&ox, &oy);
+
+            if (GetMovementCost(ox, oy, GetMovementType(), PATH_ROADOK, Here) > MAX_COST) // roads/bridges count as enterable
+                *capture = 1;
+        }
+    }
+
     int detTmp = det;
 
     // Check type of entity before GCI is used
@@ -887,6 +905,63 @@ int GetThisWPAction(Unit u, Objective o, Objective n, int d, Team us,
     return action;
 }
 
+// Artscout - 2026 (g_bWaterObjectiveFix, off = stock): some objectives' map points are a cell out to sea
+// (Togwon-ni Nuclear Power Plant #615 sits at (487,599), 1 km off the Wonsan shore; ports such as Sagon-ni
+// #993 and Nachodka #3494 likewise). They are nodes of the objective network, so a route past them puts a
+// waypoint on water, the grid search rejects an impassable destination, and the unit retried every tick
+// forever (campsim MOVE log: 155 failures per 6 h in the Wonsan cluster). Put such a waypoint on the
+// nearest cell the unit can enter instead.
+static void NudgeToEnterable(Unit u, GridIndex *x, GridIndex *y)
+{
+    extern bool g_bWaterObjectiveFix;
+    const MoveType mt = u->GetMovementType();
+
+    if (not g_bWaterObjectiveFix or mt == NoMove or MOVE_AIR(mt) or mt == Naval or
+        GetMovementCost(*x, *y, mt, PATH_ROADOK, Here) <= MAX_COST)
+        return;
+
+    for (int r = 1; r <= 3; r++)
+        for (int iy = -r; iy <= r; iy++)
+            for (int ix = -r; ix <= r; ix++)
+                if ((abs(ix) == r or abs(iy) == r) and
+                    GetMovementCost(*x + ix, *y + iy, mt, PATH_ROADOK, Here) <= MAX_COST)
+                {
+                    *x += ix;
+                    *y += iy;
+                    return;
+                }
+}
+
+// g_bGridPathPartial: waypoint routes laid along a partial objective route, per team (campsim MOVE line)
+int gMoveObjPartial[8] = {0};
+// BuildGroundWP failures by cause, per team: [0] objective route, [1] grid path to the first waypoint
+int gWPFail[8][2] = {{0}};
+int gWPFailLeg[3] = {0}; // the last first-leg failure: first waypoint x, y and its objective
+
+
+// Does this partial objective route end at least 5 km nearer t than o? Off -> always no.
+static int PartialObjPathGetsCloser(BasePathClass *p, Objective o, Objective t)
+{
+    extern bool g_bGridPathPartial;
+
+    if (not g_bGridPathPartial or p->GetLength() <= 0)
+        return 0;
+
+    Objective e = o;
+
+    for (int i = 0; i < p->GetLength() and e; i++)
+        e = e->GetNeighbor(p->GetDirection(i));
+
+    if (not e)
+        return 0;
+
+    GridIndex ox, oy, ex, ey, tx, ty;
+    o->GetLocation(&ox, &oy);
+    e->GetLocation(&ex, &ey);
+    t->GetLocation(&tx, &ty);
+    return Distance(ex, ey, tx, ty) + 5.0F <= Distance(ox, oy, tx, ty);
+}
+
 int BuildGroundWP(Unit u)
 {
     PathClass path, path2;
@@ -939,6 +1014,18 @@ int BuildGroundWP(Unit u)
     else
         o = FindNearestObjective(ux, uy, NULL);
 
+    // Artscout - 2026 (g_bGridPathPartial, off = stock): last_obj is only updated when a unit passes an
+    // objective, so after a cross-country move it can be 85-140 km behind the unit (campsim MOVE: 99% of
+    // "no waypoints" were the grid path from the unit back to that first waypoint, over the 96-step cap,
+    // the same handful of battalions failing ~45 times each in 6 h). Start the route from where we are.
+    {
+        extern bool g_bGridPathPartial;
+        GridIndex lx, ly;
+
+        if (g_bGridPathPartial and o and (o->GetLocation(&lx, &ly), Distance(ux, uy, lx, ly) > 10.0F))
+            o = FindNearestObjective(ux, uy, NULL);
+    }
+
     if (u->GetUnitTactic() == GTACTIC_MOVE_MARINE)
     {
         if (o and o->GetType() == TYPE_PORT)
@@ -967,7 +1054,20 @@ int BuildGroundWP(Unit u)
     if (not o or not t)
         return 0;
 
-    if (u->GetUnitObjectivePath(&path, o, t) < 1) // Avoid enemy objectives
+    int found = u->GetUnitObjectivePath(&path, o, t);
+
+    // Artscout - 2026 (g_bGridPathPartial, off = stock): an objective route is at most MAX_DISTANCE (96)
+    // hops, so a cross-country move (China's army leaving the Yalu, 300+ km) comes back as 0 plus the
+    // partial route. Stock then failed here, MoveUnit cleared the unit's objective and it sat until
+    // retasked (campsim MOVE "no waypoints": 6770 for ROK and 3098 for DPRK in 4 x 6 days). Lay waypoints
+    // along the partial route when it ends nearer the target; the unit builds the rest from there.
+    if (found < 1 and PartialObjPathGetsCloser(&path, o, t))
+    {
+        gMoveObjPartial[us % 8]++;
+        found = 1;
+    }
+
+    if (found < 1) // Avoid enemy objectives
     {
         int ok = u->CheckForSurrender();
 #ifdef LOG_ERRORS
@@ -1004,6 +1104,7 @@ int BuildGroundWP(Unit u)
         }
 
 #endif
+        gWPFail[us % 8][0]++; // campsim: objective route
         return -1;
     }
 
@@ -1024,6 +1125,9 @@ int BuildGroundWP(Unit u)
     {
         i = 0; // Zeroth step in path
     }
+
+    // (ox,oy is only the first waypoint from here on; the loop below steps from objective o)
+    NudgeToEnterable(u, &ox, &oy);
 
     if (u->GetUnitGridPath(&path2, ux, uy, ox, oy) > 0)
     {
@@ -1065,6 +1169,8 @@ int BuildGroundWP(Unit u)
         }
 
 #endif
+        gWPFail[us % 8][1]++; // campsim: first leg grid path
+        gWPFailLeg[0] = ox, gWPFailLeg[1] = oy, gWPFailLeg[2] = o->GetCampID();
         return -1;
     }
 
@@ -1195,7 +1301,11 @@ int BuildGroundWP(Unit u)
         if (n == t)
             u->AddUnitWP(tx, ty, 0, speed, time, 0, action);
         else
-            u->AddUnitWP(ox, oy, 0, speed, time, 0, action);
+        {
+            GridIndex wx = ox, wy = oy; // ox,oy stay the node's own point for the next step's maths
+            NudgeToEnterable(u, &wx, &wy);
+            u->AddUnitWP(wx, wy, 0, speed, time, 0, action);
+        }
 
         o = n;
     }

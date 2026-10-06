@@ -43,6 +43,7 @@ public:
     C_ATO_Flight *ATO_;
     C_Base *OOB_;
     THREAT_LIST *Threat_;
+    bool Ship_; // Artscout - 2026: this record is a task force (its dead icon is kept as a wreck)
 
 public:
     UI_Refresher();

@@ -177,13 +177,20 @@ def _describe(node, teams, place):
         return ("nothing significant has happened for %s hours (%.0f days)"
                 % (a[0], h / 24.0))
     if v == "IF_SUPPLY" and len(a) >= 3:
-        op = "above" if a[1].upper() == "G" else "below"
+        op = "at least" if a[1].upper() == "G" else "at most"
         return "%s supply is %s %s%%" % (_team(a[0], teams), op, a[2])
     if v == "IF_FORCE_RATIO" and len(a) >= 5:
+        # ratio = own * 10 / theirs, integer division, then >= or <=: "L 6" holds below
+        # 70%, "G 12" at 120% and up.
         kind = {"A": "air", "G": "ground", "N": "naval"}.get(a[0].upper(), a[0])
-        op = "above" if a[3].upper() == "G" else "below"
-        return ("%s %s strength against %s is %s %s"
-                % (_team(a[1], teams), kind, _team(a[2], teams), op, a[4]))
+        try:
+            n = int(a[4])
+            pct = ("under %d%%" % ((n + 1) * 10) if a[3].upper() != "G"
+                   else "at least %d%%" % (n * 10))
+        except ValueError:
+            pct = a[4]
+        return ("%s %s strength is %s of %s's"
+                % (_team(a[1], teams), kind, pct, _team(a[2], teams)))
     if v == "IF_ON_OFFENSIVE" and a:
         return "%s is on the offensive" % _team(a[0], teams)
     if v == "IF_INITIATIVE" and a:
@@ -508,3 +515,250 @@ class Script:
             fp.write("".join(self.lines))
         os.replace(tmp, path)
         self.dirty = False
+
+
+# --- which scripted events have fired ----------------------------------------
+
+CE_FIRED = 0x08          # EventClass flag, src/campaign/include/cmpevent.h
+
+
+def fired_events(evt):
+    """`.evt` member -> {event id: flags} for every event with its fired bit set.
+
+    The member is a short count followed by (short event, short flags) pairs
+    (`SaveCampaignEvents`). It records only the state, not when an event fired.
+    """
+    import struct
+    if not evt or len(evt) < 2:
+        return {}
+    count = struct.unpack_from("<h", evt, 0)[0]
+    out = {}
+    for i in range(max(0, count)):
+        at = 2 + 4 * i
+        if at + 4 > len(evt):
+            break
+        ev, flags = struct.unpack_from("<hh", evt, at)
+        if flags & CE_FIRED:
+            out[ev] = flags
+    return out
+
+
+def event_titles(lines):
+    """{event id: "China joins the war"} from the `// Event #N` comment blocks."""
+    import re
+    titles = {}
+    cur = None
+    for line in lines:
+        text = line.strip()
+        m = re.match(r"//\s*Event\s*#\s*(\d+)\s*$", text, re.I)
+        if m:
+            cur = int(m.group(1))
+            continue
+        if cur is not None:
+            if text.startswith("//"):
+                note = text.lstrip("/").strip()
+                if note:
+                    titles[cur] = note
+                    cur = None
+            elif text:
+                cur = None
+    return titles
+
+
+def event_history(evt):
+    """The history trailer of a `.evt` member -> [{"kind": "event"|"movie", "id", "time"}].
+
+    Written by the game after the flag table (`EVT2`, count, then kind/id/time entries,
+    `cmpevent.cpp`): which events fired and which news clips played, with the campaign
+    time in ms. Saves from before this existed have no trailer, and give [].
+    """
+    import struct
+    if not evt or len(evt) < 2:
+        return []
+    count = struct.unpack_from("<h", evt, 0)[0]
+    at = 2 + 4 * max(0, count)
+    if at + 6 > len(evt) or evt[at:at + 4] != b"EVT2":
+        return []
+    n = struct.unpack_from("<h", evt, at + 4)[0]
+    out = []
+    for i in range(max(0, n)):
+        off = at + 6 + 8 * i
+        if off + 8 > len(evt):
+            break
+        kind, ident, t = struct.unpack_from("<hhI", evt, off)
+        out.append({"kind": "movie" if kind else "event", "id": ident, "time": t})
+    return out
+
+
+def condition_history(evt):
+    """The condition trailer of a `.evt` member -> [{"line", "branch", "depth", "time", "a", "b"}].
+
+    Written after the event history (`CND1`, count, entries; `cmpevent.cpp`): when an action that
+    changes the war ran, every `#IF` around it -- its line in the .tri, `branch` 0 if its condition
+    held or 1 if it was taken through its `#ELSE`, and what it measured (`a`, `b`; None if
+    nothing: supply % in a, both sides' strength in a and b, the roll, the objective decided...).
+    Saves from before this existed give [].
+    """
+    import struct
+    if not evt or len(evt) < 2:
+        return []
+    count = struct.unpack_from("<h", evt, 0)[0]
+    at = 2 + 4 * max(0, count)
+    if at + 6 > len(evt) or evt[at:at + 4] != b"EVT2":
+        return []
+    n = struct.unpack_from("<h", evt, at + 4)[0]
+    at += 6 + 8 * max(0, n)
+    if at + 6 > len(evt) or evt[at:at + 4] != b"CND1":
+        return []
+    m = struct.unpack_from("<h", evt, at + 4)[0]
+    out = []
+    none = -0x80000000
+    for i in range(max(0, m)):
+        off = at + 6 + 20 * i
+        if off + 20 > len(evt):
+            break
+        line, branch, depth, t, a, b = struct.unpack_from("<ihhIii", evt, off)
+        out.append({"line": line, "branch": branch, "depth": depth, "time": t,
+                    "a": None if a == none else a, "b": None if b == none else b})
+    return out
+
+
+STAT_FIELDS = ("airDefenseVehs", "aircraft", "groundVehs", "ships", "supply", "fuel",
+               "airbases", "supplyLevel", "fuelLevel")
+
+
+def force_history(frc):
+    """A save's `.frc` file -> [(time ms, [per-team stats])], oldest first.
+
+    `RecalculateStatistics` (team.cpp) appends each team's current stats, the same numbers the
+    script's #IF_SUPPLY and #IF_FORCE_RATIO read, every time it recounts (hourly), so the last
+    record at or before a trigger's time is what that trigger saw.
+    """
+    import struct
+    out = []
+    p = 0
+    while frc and p + 6 <= len(frc):
+        t, n = struct.unpack_from("<Ih", frc, p)
+        p += 6
+        if n <= 0 or p + 16 * n > len(frc):
+            break
+        out.append((t, [dict(zip(STAT_FIELDS, struct.unpack_from("<7H2B", frc, p + 16 * k)))
+                        for k in range(n)]))
+        p += 16 * n
+    return out
+
+
+def _measure(node, stats, fired_before):
+    """Re-evaluate one condition from saved numbers -> (holds: True/False/None, a, b).
+
+    Only what a save records can be re-evaluated: team stats (from the .frc) and which events
+    had fired. Everything else (who held an objective then, a random roll) gives None.
+    """
+    v, a = node.verb, node.args
+    try:
+        if v == "IF_SUPPLY" and len(a) >= 3 and stats:
+            lvl = stats[int(a[0])]["supplyLevel"]
+            return ((lvl >= int(a[2])) if a[1].upper() == "G" else (lvl <= int(a[2]))), lvl, None
+        if v == "IF_FORCE_RATIO" and len(a) >= 5 and stats:
+            key = {"A": ("aircraft",), "G": ("groundVehs",), "N": ("ships",)}.get(
+                a[0].upper(), ("groundVehs", "aircraft"))
+            os_ = sum(stats[int(a[1])][k] for k in key)
+            ts = sum(stats[int(a[2])][k] for k in key)
+            ratio = os_ * 10 // ts if ts else (1 << 30 if os_ else 0)
+            i = int(a[4])
+            return ((ratio >= i) if a[3].upper() == "G" else (ratio <= i)), os_, ts
+        if v == "IF_EVENT_PLAYED" and a:
+            held = int(a[0]) in fired_before
+            return held, int(held), None
+    except (ValueError, IndexError, KeyError):
+        pass
+    return None, None, None
+
+
+def branch_report(body, history, conds, frc_hist):
+    """Which `#IF` branches led to what happened -> {tri line: [taken, ...]}.
+
+    `taken` is {"time", "branch": "if"|"else", "a", "b", "source"}. From the save's own record
+    (`condition_history`) when it has one -- source "recorded". Otherwise reconstructed: for each
+    event in the history, every `#DO_EVENT` of it whose guard chain re-evaluates true at that
+    moment from the .frc stats -- source "reconstructed", or "possible" when some guard cannot be
+    re-evaluated from a save.
+    """
+    out = {}
+    for c in conds:
+        out.setdefault(c["line"], []).append({
+            "time": c["time"], "branch": "else" if c["branch"] else "if",
+            "a": c["a"], "b": c["b"], "source": "recorded"})
+    recorded_times = {c["time"] for c in conds}
+
+    fires = [h for h in history if h["kind"] == "event"]
+
+    def chains(nodes, guards, ev, acc):
+        for n in nodes:
+            if n.verb == "DO_EVENT" and n.args and n.args[0].lstrip("-").isdigit() \
+                    and int(n.args[0]) == ev:
+                acc.append(list(guards))
+            elif n.verb in CONDITIONS:
+                chains(n.children, guards + [(n, True)], ev, acc)
+                if n.orelse is not None:
+                    chains(n.orelse, guards + [(n, False)], ev, acc)
+        return acc
+
+    for f in fires:
+        t = f["time"]
+        if t in recorded_times:
+            continue
+        before = [s for s in frc_hist if s[0] <= t]
+        stats = before[-1][1] if before else None
+        fired_before = {h["id"] for h in fires if h["time"] < t}
+        found = []
+        for guards in chains(body, [], f["id"], []):
+            verdicts = []
+            for node, want in guards:
+                holds, a, b = _measure(node, stats, fired_before)
+                ok = None if holds is None else (holds == want)
+                verdicts.append((node, want, ok, a, b))
+            if all(v[2] is not False for v in verdicts):
+                found.append(verdicts)
+        sure = [g for g in found if all(v[2] for v in g)]
+        pick = sure if len(sure) == 1 else found
+        for g in pick:
+            src = "reconstructed" if all(v[2] for v in g) else "possible"
+            for node, want, _ok, a, b in g:
+                out.setdefault(node.line, []).append({
+                    "time": t, "branch": "if" if want else "else", "a": a, "b": b,
+                    "source": src})
+    return out
+
+
+def describe_measure(node, a, b, teams):
+    """What a condition measured, in words ("DPRK 258 vs ROK 391 = 6.6")."""
+    v, args = node.verb, node.args
+    if a is None:
+        return ""
+    if v == "IF_SUPPLY":
+        return "supply was %d%%" % a
+    if v == "IF_FORCE_RATIO" and b is not None and len(args) >= 3:
+        r = ("%.1f" % (a * 10.0 / b)) if b else "n/a"
+        return "%s %d vs %s %d (ratio %s, compared as %s)" % (
+            _team(args[1], teams), a, _team(args[2], teams), b, r,
+            (a * 10 // b) if b else "max")
+    if v == "IF_EVENT_PLAYED":
+        return "it had fired" if a else "it had not fired yet"
+    if v == "IF_CONTROLLED":
+        return "objective %d held by %s" % (a, _team(b, teams)) if b is not None else ""
+    if v == "IF_RANDOM_CHANCE":
+        return "rolled %d" % a
+    if v == "IF_CAMPAIGN_DAY":
+        return "day %d" % a
+    if v == "IF_BORDOM_HOURS":
+        return "%d quiet hours" % a
+    if v in ("IF_INITIATIVE", "IF_REINFORCEMENT", "IF_PLAYER_DIFFICULTY", "IF_PRI_CONTROLLED_LT"):
+        return "value was %d" % a
+    return ""
+
+
+def describe_time(ms, day_zero):
+    """Campaign ms -> (campaign day starting at 1, "HH:MM")."""
+    day = ms // 86400000
+    return int(day - day_zero + 1), "%02d:%02d" % ((ms // 3600000) % 24, (ms // 60000) % 60)

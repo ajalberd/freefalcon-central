@@ -406,8 +406,13 @@ protected:
 
     // local data
 private:
-    /** reference count */
-    ushort refcount_;
+    /** reference count.
+     * Artscout - 2026: was ushort. The local session entity gains ~4,000 unreleased
+     * references per campaign hour, so the count wrapped past 65535 after ~14 h; when a
+     * wrapped count reached 0 on a release, VU deleted the live session and the next
+     * VuMainThread::Update entered its freed mutex (the long-standing 0xC0000005 in
+     * RtlEnterCriticalSection after day 2-5). 32 bits last ~120 years at that rate. */
+    unsigned int refcount_;
     /** entity mutex */
     VuMutex eMutex_;
     /** increases entity refcount. thread safe. Returns refcount. Can only be used by VuReferenceEntity. */

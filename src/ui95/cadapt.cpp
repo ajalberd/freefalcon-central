@@ -355,7 +355,16 @@ void PlaceEdges(const Frame &fr, bool stretch, long ow, long oh, long gw, long g
             rx = FILL;
     }
     else if (rx == CENTRE and *w < ow / 2 and ow >= kStageW / 2)
-        rx = Halves(*x, *x + *w, ow); // loose items stay with their side (the teams' headings)
+    {
+        // Loose items stay with their side (the teams' headings) -- unless the item sits on the
+        // container's middle. Recon's 350x240 pan area is centred on the pane (centre exactly 512
+        // of 1024), which "(lo+hi)/2 < size/2" files under the right half, so it moved by the whole
+        // growth instead of half and ended up right of centre, where dragging the view did nothing.
+        const long mid = *x + *w / 2;
+
+        if (mid - ow / 2 > 8 or ow / 2 - mid > 8)
+            rx = Halves(*x, *x + *w, ow);
+    }
 
     Apply(rx, gw, stretch, x, w);
     Apply(ry, gh, stretch, y, h);

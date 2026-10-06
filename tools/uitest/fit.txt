@@ -1,0 +1,22 @@
+# Campaign map -> fit to a flight plan: the view must land on the flight, not the north-west corner.
+timeout 300
+waitwin UI_MAIN_SCREEN 60000
+wait 1000
+click CP_MAIN_CTRL
+waitwin CS_SELECT_WIN 20000
+wait 2000
+click SINGLE_COMMIT_CTRL
+waitwin STRAT_WIN 150000
+wait 2000
+click OK STRAT_WIN
+waitgone STRAT_WIN 10000
+waitwin STARTCAMP_WIN 150000
+wait 2000
+click START_CAMP STARTCAMP_WIN
+waitgone STARTCAMP_WIN 20000
+wait 90000
+shot before
+fitflight -1
+wait 2000
+shot after
+quit

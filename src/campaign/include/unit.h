@@ -30,7 +30,10 @@ enum MissionTypeEnum;
 
 // Transmittable Flags
 #define U_DEAD 0x1
-#define U_B3 0x2
+#define U_PLAYER_HELD                                                          \
+    0x2 // Artscout - 2026 (was the unused U_B3): the player moved this battalion on the
+        // campaign map; the AI may not re-task it until it arrives or breaks
+#define U_B3 U_PLAYER_HELD
 #define U_ASSIGNED 0x4
 #define U_ORDERED 0x8
 #define U_NO_PLANNING 0x10 // Don't run planning AI on this unit
@@ -443,6 +446,11 @@ public:
     {
         return (int)unit_flags bitand U_ASSIGNED;
     }
+    int PlayerHeld() const
+    {
+        return (int)unit_flags bitand U_PLAYER_HELD;
+    }
+    void SetPlayerHeld(int p);
     int Ordered() const
     {
         return (int)unit_flags bitand U_ORDERED;

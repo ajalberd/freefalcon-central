@@ -149,6 +149,7 @@ def _unit(s, version, r):
     r["lastCheck"] = s.u32()
     r["roster"] = s.u32()
     r["unitFlags"] = s.u32()
+    r["_at"]["destX"] = s.pos
     r["destX"] = s.i16()
     r["destY"] = s.i16()
     r["targetId"] = s.vuid()
@@ -159,6 +160,7 @@ def _unit(s, version, r):
     r["losses"] = s.u8()
     r["tactic"] = s.u8()
     r["currentWp"] = s.u16() if version >= 71 else s.u8()
+    r["_at"]["nameId"] = s.pos
     r["nameId"] = s.i16()
     r["reinforcement"] = s.i16()
     count = s.u16() if version >= 71 else s.u8()
@@ -234,7 +236,9 @@ def _squadron(s, version, r):
                        for _ in range(PILOTS_PER_SQUADRON)]
 
     r["schedule"] = [s.u32() for _ in range(VEHICLE_GROUPS_PER_UNIT)]
+    r["_at"]["airbaseId"] = s.pos
     r["airbaseId"] = s.vuid()
+    r["_at"]["hotSpot"] = s.pos
     r["hotSpot"] = s.vuid()
     if 6 <= version < 16:
         s.vuid()

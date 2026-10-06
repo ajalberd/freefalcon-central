@@ -5,7 +5,14 @@
 #include <io.h>
 #include <stdlib.h>
 #include <math.h>
+#include <intrin.h>
 #include "cmpglobl.h"
+#include "campterr.h"
+
+// CAMPSIM DIAGNOSTIC (defined with gOrderChangeHook below)
+extern int gMoveDiag[][4];
+class BattalionClass;
+extern void (*gMoveFailHook)(BattalionClass *u, int why, GridIndex x, GridIndex y, GridIndex nx, GridIndex ny);
 #include "listadt.h"
 #include "campcell.h"
 #include "campterr.h"
@@ -13,6 +20,39 @@
 #include "path.h"
 #include "find.h"
 #include "campaign.h"
+
+// g_bGridPathPartial: moves taken on a partial grid path, per team (campsim MOVE line)
+int gMovePartial[8] = {0};
+
+// campsim diagnostic: battalion supply % used, per team: [0] moving, [1] firing at aircraft, [2] firing
+// at ground/sea targets (unit.cpp CollectWeapons), [3] waiting to move (the "use supply when not moving" rule)
+int gSupplyUse[8][4] = {{0}};
+extern float gSupplyUseGround[]; // supply.cpp, g_bSupplySplitShares
+
+// Does this partial grid path end at least 2 km nearer (nx, ny) than (x, y)? Off -> always no.
+static int PartialPathGetsCloser(BasePathClass *p, GridIndex x, GridIndex y, GridIndex nx, GridIndex ny)
+{
+    extern bool g_bGridPathPartial;
+
+    if (not g_bGridPathPartial or p->GetLength() <= 0)
+        return 0;
+
+    GridIndex ex = x, ey = y;
+
+    for (int i = 0; i < p->GetLength(); i++)
+    {
+        int d = p->GetDirection(i);
+
+        if (d < 0 or d >= 8)
+            break;
+
+        ex += dx[d];
+        ey += dy[d];
+    }
+
+    float before = (float)DistSqu(x, y, nx, ny), after = (float)DistSqu(ex, ey, nx, ny);
+    return sqrtf(after) + 2.0F <= sqrtf(before);
+}
 #include "manager.h"
 #include "update.h"
 #include "loadout.h"
@@ -202,6 +242,8 @@ BattalionClass *NewBattalion(int type, Unit parent)
 }
 
 // constructors
+extern int g_nBattalionReinforceFix;
+
 BattalionClass::BattalionClass(ushort type, Unit parent)
     : GroundUnitClass(type, GetIdFromNamespace(NonVolatileNS))
 {
@@ -211,7 +253,13 @@ BattalionClass::BattalionClass(ushort type, Unit parent)
 BattalionClass::BattalionClass(VU_BYTE **stream, long *rem)
     : GroundUnitClass(stream, rem)
 {
+    // InitLocalData(NULL) zeroes the release level the base class has just read from the save, so every
+    // battalion arrived at the first reinforcement tick whatever hour its scenario gave it (6..96).
+    short savedLevel = (short)GetUnitReinforcementLevel();
     InitLocalData(NULL);
+
+    if (g_nBattalionReinforceFix)
+        SetReinforcement(savedLevel);
 
     memcpychk(&last_move, stream, sizeof(CampaignTime), rem);
     memcpychk(&last_combat, stream, sizeof(CampaignTime), rem);
@@ -535,13 +583,42 @@ int BattalionClass::MoveUnit(CampaignTime time)
     // Check if we have a valid objective
     lo = GetUnitObjective();
 
+    // Artscout - 2026 (g_bReserveHold, off = stock): a RESERVE objective is only "valid" if it is a secondary
+    // objective, but the fall-back below (FindRetreatPath, 3 links back) lands on a road, junction or bridge
+    // ~90% of the time -- invalid again, so the unit fell back again on its next check, and the GTM sent it
+    // forward again next cycle. campsim CHURN, ROK day 1: 1843 such hops (~7 per battalion, 11 km each),
+    // half of all order changes; driving costs 2% supply per 21 km, which is what emptied rear reserves.
+    // With the switch, a reserve unit on one of our objectives away from the front stays put, and a
+    // fall-back that lands on a non-secondary objective moves up to its secondary parent.
+    extern bool g_bReserveHold;
+    const bool holdReserve = g_bReserveHold and lo and GetOrders() == GORD_RESERVE and
+                             lo->GetTeam() == GetTeam() and not lo->IsNearfront();
+
+    // Artscout - 2026 (g_bReserveNoPullback, off = stock): a capture order turns invalid the moment its target
+    // is ours -- usually because a neighbour took it first -- and stock then fell back 3 links as RESERVE: the
+    // winning unit drove ~49 km BACK (campsim CHURN, ROK: CAP -> RES by MoveUnit ~300 a day, the largest
+    // pull-back source). A healthy unit whose objective is ours now holds it until the GTM re-tasks it.
+    extern bool g_bReserveNoPullback;
+    const bool holdWon = g_bReserveNoPullback and lo and lo->GetTeam() == GetTeam() and not Broken() and
+                         GetUnitSupply() >= 50;
+
+    // (a player-held unit keeps the objective the player chose even if the GTM would not)
     if (not lo or
-        (Parent() and (FalconLocalGame->GetGameType() == game_Campaign) and
+        (Parent() and not PlayerHeld() and not holdReserve and not holdWon and
+         (FalconLocalGame->GetGameType() == game_Campaign) and
          not TeamInfo[GetTeam()]->gtm->IsValidObjective(GetOrders(), lo)))
     {
         if (Parent())
         {
             lo = FindRetreatPath(this, 3, 0);
+
+            if (g_bReserveHold and lo and not lo->IsSecondary())
+            {
+                Objective so = lo->GetObjectiveParent();
+
+                if (so and TeamInfo[GetTeam()]->gtm->IsValidObjective(GORD_RESERVE, so))
+                    lo = so;
+            }
         }
 
         if (lo)
@@ -606,7 +683,7 @@ int BattalionClass::MoveUnit(CampaignTime time)
         }
     }
     else if (GetUnitTactic() == GTACTIC_MOVE_BRIGADE_COLUMN and
-             GetUnitElement())
+             GetUnitElement() and not PlayerHeld())
     {
         // We want to follow the previous battalion, unless we're closer to our destination in which
         // case we hang out off the road and wait for the other unit to pass
@@ -661,6 +738,15 @@ int BattalionClass::MoveUnit(CampaignTime time)
         {
             if (BuildGroundWP(this) < 0)
             {
+                {
+                    GridIndex dx2, dy2;
+                    GetUnitDestination(&dx2, &dy2);
+                    gMoveDiag[GetTeam() % NUM_TEAMS][1]++;
+
+                    if (gMoveFailHook)
+                        gMoveFailHook(this, 1, x, y, dx2, dy2);
+                }
+
                 // Build a path
                 SetUnitObjective(
                     FalconNullId); // We failed for some reason, so clear our objective
@@ -677,6 +763,10 @@ int BattalionClass::MoveUnit(CampaignTime time)
     }
     else
     {
+        // At the destination the player chose: hand the unit back to the AI.
+        if (PlayerHeld())
+            SetPlayerHeld(0);
+
         if (Retreating() and not Engaged())
         {
             // We've retreated to our destination
@@ -710,7 +800,7 @@ int BattalionClass::MoveUnit(CampaignTime time)
     }
 
     // Make some adjustments for certain tactics
-    if ((GetUnitTactic() == GTACTIC_MOVE_BRIGADE_COLUMN) and GetUnitElement())
+    if ((GetUnitTactic() == GTACTIC_MOVE_BRIGADE_COLUMN) and GetUnitElement() and not PlayerHeld())
     {
         Unit u = NULL, brig;
         GridIndex px, py, pwx, pwy;
@@ -734,6 +824,7 @@ int BattalionClass::MoveUnit(CampaignTime time)
                 if ((DistSqu(x, y, px, py) < 25.0F) or
                     (DistSqu(x, y, pwx, pwy) < DistSqu(px, py, pwx, pwy)))
                 {
+                    gMoveDiag[GetTeam() % NUM_TEAMS][2]++;
                     nx =
                         x; // Don't move right now - wait for previous element to pass
                     ny = y;
@@ -744,6 +835,7 @@ int BattalionClass::MoveUnit(CampaignTime time)
     }
     else if (GetUnitTactic() == GTACTIC_MOVE_HOLD)
     {
+        gMoveDiag[GetTeam() % NUM_TEAMS][3]++;
         // Hang out here til we switch tactics
         nx = x;
         ny = y;
@@ -808,7 +900,21 @@ int BattalionClass::MoveUnit(CampaignTime time)
 
         if (GetNextMoveDirection() == Here)
         {
-            if (GetUnitGridPath(&temp_path, x, y, nx, ny) <= 0)
+            int found = GetUnitGridPath(&temp_path, x, y, nx, ny);
+
+            // Artscout - 2026 (g_bGridPathPartial, off = stock): a grid path is at most MAX_DISTANCE (96)
+            // steps and the search stops after GroundPathMax nodes; past either it returns 0 with the
+            // partial route so far, which stock discarded -- the unit cleared its waypoints, rebuilt the same
+            // far waypoint and failed again, every tick (campsim MOVE: the same battalions failing 100s of
+            // times on 70-230 km legs, China's army never leaving the Yalu). The unit only keeps 8 steps
+            // anyway (SmallPathClass), so take the partial route when it ends nearer the target than we are.
+            if (found <= 0 and PartialPathGetsCloser(&temp_path, x, y, nx, ny))
+            {
+                gMovePartial[GetTeam() % NUM_TEAMS]++;
+                found = 1;
+            }
+
+            if (found <= 0)
             {
 #ifdef LOG_ERRORS
                 char buffer[1280], name1[80], timestr[80];
@@ -831,6 +937,11 @@ int BattalionClass::MoveUnit(CampaignTime time)
 #endif
                 // Couldn't find a path (usually a destroyed bridge),
                 // so clear our waypoints, rebuild and quit (we'll move next time we check)
+                gMoveDiag[GetTeam() % NUM_TEAMS][0]++;
+
+                if (gMoveFailHook)
+                    gMoveFailHook(this, 0, x, y, nx, ny);
+
                 ClearUnitPath();
                 DisposeWayPoints();
                 BuildGroundWP(this);
@@ -960,6 +1071,8 @@ int BattalionClass::MoveUnit(CampaignTime time)
                 // RV - Biker - Reduce supply at higher rate
                 //supply--;
                 supply -= 2;
+                gSupplyUse[GetTeam() % 8][0] += 2;
+                gSupplyUseGround[GetTeam() % NUM_TEAMS] += 2.0F * GetTotalVehicles() / 100.0F;
                 // fatigue++;
                 SetUnitMoved(0);
             }
@@ -1005,6 +1118,8 @@ int BattalionClass::MoveUnit(CampaignTime time)
             if (GetMoveTime() > 3 * DEG_TO_SEC * SEC_TO_MSEC and supply > 2)
             {
                 supply -= 2;
+                gSupplyUse[GetTeam() % 8][3] += 2;
+                gSupplyUseGround[GetTeam() % NUM_TEAMS] += 2.0F * GetTotalVehicles() / 100.0F;
             }
         }
     }
@@ -1169,8 +1284,36 @@ CampaignHeading FindBestHeading(Objective o, int type, int own)
     return h;
 }
 
+// Artscout - 2026: player ground orders that stick. When the player drags a battalion on the
+// campaign map, the UI sets gPlayerOrdering around its SetUnitOrders call and then marks the
+// unit U_PLAYER_HELD. While held, every AI re-tasking (GTM, the brigade, the battalion's own
+// objective-validity check) is refused, so the player's order lasts until the unit arrives
+// (released in MoveUnit) or breaks (released here, so it can retreat). Measured before this:
+// a re-ordered battalion's order lasted a median of 3 h, a quarter of them under 1 h.
+// FFViper.cfg: set g_bPlayerGroundHold 0 for the stock behaviour.
+int gPlayerOrdering = 0;
+extern bool g_bPlayerGroundHold;
+
+// CAMPSIM DIAGNOSTIC: called on every effective battalion order change with the caller's return
+// address, so tools/campsim can say WHO took a unit off its orders. Null (unused) in the game.
+void (*gOrderChangeHook)(BattalionClass *u, int oldOrders, int newOrders, VU_ID oid, void *caller) = NULL;
+
+// CAMPSIM DIAGNOSTIC (read only by tools/campsim): why a battalion that wants to move does not, per
+// team: [0] no grid path to its next waypoint, [1] no waypoints could be built, [2] waiting in a brigade
+// column, [3] holding (GTACTIC_MOVE_HOLD). The hook gets from/to of each path failure (0 and 1).
+int gMoveDiag[NUM_TEAMS][4] = {{0}};
+void (*gMoveFailHook)(BattalionClass *u, int why, GridIndex x, GridIndex y, GridIndex nx, GridIndex ny) = NULL;
+
 void BattalionClass::SetUnitOrders(int neworders, VU_ID oid)
 {
+    if (PlayerHeld() and not gPlayerOrdering)
+    {
+        if (g_bPlayerGroundHold and not Broken())
+            return;
+
+        SetPlayerHeld(0); // broken (or the feature is off): the AI takes it back
+    }
+
 #ifdef DEBUG
 
     if (gDumping)
@@ -1213,6 +1356,9 @@ void BattalionClass::SetUnitOrders(int neworders, VU_ID oid)
 
     if (neworders == GetOrders() and oid == GetUnitObjectiveID())
         return;
+
+    if (gOrderChangeHook)
+        gOrderChangeHook(this, GetOrders(), neworders, oid, _ReturnAddress());
 
     /* if (Cargo() or cargo_id not_eq FalconNullId)
      {
@@ -1326,6 +1472,31 @@ void BattalionClass::PickFinalLocation(void)
     default:
         final_heading = Here;
         break;
+    }
+
+    // Artscout - 2026 (g_bWaterObjectiveFix, off = stock): never aim at a cell we cannot enter (a port
+    // or coastal objective on water): the grid path search rejects an impassable destination outright,
+    // so the unit retried forever. Stop on the nearest enterable cell instead; DetectVs lets it take the
+    // objective from there.
+    {
+        extern bool g_bWaterObjectiveFix;
+        const MoveType mt = GetMovementType();
+
+        if (g_bWaterObjectiveFix and mt not_eq NoMove and GetMovementCost(dx, dy, mt, PATH_ROADOK, Here) > MAX_COST)
+        {
+            GridIndex bx = dx, by = dy;
+            int found = 0;
+
+            for (int r = 1; r <= 3 and not found; r++)
+                for (int iy = -r; iy <= r and not found; iy++)
+                    for (int ix = -r; ix <= r and not found; ix++)
+                        if ((abs(ix) == r or abs(iy) == r) and
+                            GetMovementCost(dx + ix, dy + iy, mt, PATH_ROADOK, Here) <= MAX_COST)
+                            bx = dx + ix, by = dy + iy, found = 1;
+
+            dx = bx;
+            dy = by;
+        }
     }
 
     GetLocation(&x, &y);

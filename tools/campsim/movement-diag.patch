@@ -1,0 +1,209 @@
+diff --git a/src/campaign/camplib/unit.cpp b/src/campaign/camplib/unit.cpp
+index adf4caf5..1bc7f094 100644
+--- a/src/campaign/camplib/unit.cpp
++++ b/src/campaign/camplib/unit.cpp
+@@ -2433,8 +2433,48 @@ int UnitClass::ResetPlayerStatus(void)
+ }
+ 
+ // Returns 0 if nothing happened, -1 if unit moved 'Here', 1 if unit actually moved
++// TEMPORARY movement diagnostics (campsim). Columns: 0 MoveUnit calls, 1 step attempts,
++// 2 bad heading, 3 not aggregate/real, 4 not enough move time, 5 zero cost, 6 moved,
++// 7 stopped by DetectOnMove, 8 was ever on CAPTURE orders, 9 enough time
++// Second array: DetectOnMove stops -- 0 ChooseTarget<0, 1 attack before actionTime,
++// 2 DetectVs nomove, 3 captures triggered.
++int gMvDiag[8192][10];
++int gMvDiag2[8192][4];
++double gMvCostSum[8192];
++double gMvTimeSum[8192];
++
++void CampsimDumpMoveDiag(void)
++{
++    int n = 0;
++    printf("MVDIAG id team calls steps badH notAgg noTime zeroCost moved detStop | chooseTarget attackEarly detectVsNoMove captures | avgCost_s avgHave_s\n");
++
++    for (int i = 0; i < 8192; i++)
++    {
++        if (not gMvDiag[i][8])
++            continue;
++
++        n++;
++        int s = gMvDiag[i][1] ? gMvDiag[i][1] : 1;
++        printf("MVDIAG %d %d %d %d %d %d %d %d %d %d | %d %d %d %d | %.0f %.0f\n", i, gMvDiag[i][9], gMvDiag[i][0], gMvDiag[i][1],
++               gMvDiag[i][2], gMvDiag[i][3], gMvDiag[i][4], gMvDiag[i][5], gMvDiag[i][6],
++               gMvDiag[i][7], gMvDiag2[i][0], gMvDiag2[i][1], gMvDiag2[i][2], gMvDiag2[i][3],
++               gMvCostSum[i] / s / 1000.0, gMvTimeSum[i] / s / 1000.0);
++    }
++
++    printf("MVDIAG units=%d\n", n);
++}
++
+ int UnitClass::ChangeUnitLocation(CampaignHeading h)
+ {
++    int dCid = (int)Id().num_;
++    bool dOn = (dCid >= 0 and dCid < 8192 and GetUnitOrders() == 1);
++
++    if (dOn)
++    {
++        gMvDiag[dCid][8] = 1;
++        gMvDiag[dCid][1]++;
++    }
++
+     // counts number of time this function is called every second
+     //static unsigned int count = 0;
+     //static DWORD lastZero;
+@@ -2452,26 +2492,47 @@ int UnitClass::ChangeUnitLocation(CampaignHeading h)
+ 
+     if (h < 0 or h > 8)
+     {
++        if (dOn)
++            gMvDiag[dCid][2]++;
++
+         SetUnitLastMove(Camp_GetCurrentTime());
+         return 0;
+     }
+ 
+     if (not IsAggregate())
+     {
++        if (dOn)
++            gMvDiag[dCid][3]++;
++
+         return 0;
+     }
+ 
+     if (not Real())
+     {
++        if (dOn)
++            gMvDiag[dCid][3]++;
++
+         return 0;
+     }
+ 
+     t = TimeToMove(this, h);
+ 
++    if (dOn)
++    {
++        gMvCostSum[dCid] += (double)t;
++        gMvTimeSum[dCid] += (double)GetMoveTime();
++    }
++
+     if (GetMoveTime() >= t)
+     {
++        if (dOn)
++            gMvDiag[dCid][9]++;
++
+         if (t < 1)
+         {
++            if (dOn)
++                gMvDiag[dCid][5]++;
++
+             return 0;
+         }
+ 
+@@ -2518,10 +2579,16 @@ int UnitClass::ChangeUnitLocation(CampaignHeading h)
+         // If we couldn't move, put ourselves back where we started
+         if (h == Here or nomove)
+         {
++            if (dOn)
++                gMvDiag[dCid][7]++;
++
+             SetLocation(x, y);
+             return -1;
+         }
+ 
++        if (dOn)
++            gMvDiag[dCid][6]++;
++
+         // If we get here, it's because we've moved..
+ #ifdef CAMPTOOL
+         else if (DisplayOk(this) and displayCampaign)
+@@ -2540,6 +2607,9 @@ int UnitClass::ChangeUnitLocation(CampaignHeading h)
+         return 1;
+     }
+ 
++    if (dOn)
++        gMvDiag[dCid][4]++;
++
+     return 0;
+ }
+ 
+diff --git a/src/campaign/camptask/battalio.cpp b/src/campaign/camptask/battalio.cpp
+index 8da4057b..839c2f22 100644
+--- a/src/campaign/camptask/battalio.cpp
++++ b/src/campaign/camptask/battalio.cpp
+@@ -508,8 +508,13 @@ int BattalionClass::Handle(VuFullUpdateEvent *event)
+     return (GroundUnitClass::Handle(event));
+ }
+ 
++extern int gMvDiag[8192][10];
++
+ int BattalionClass::MoveUnit(CampaignTime time)
+ {
++    if ((int)Id().num_ < 8192 and GetUnitOrders() == 1)
++        gMvDiag[(int)Id().num_][0]++;
++
+     GridIndex x, y, nx, ny;
+     int moving = 1;
+     CampaignHeading h;
+diff --git a/src/campaign/camptask/gndunit.cpp b/src/campaign/camptask/gndunit.cpp
+index 9c3b0d86..e162f063 100644
+--- a/src/campaign/camptask/gndunit.cpp
++++ b/src/campaign/camptask/gndunit.cpp
+@@ -233,8 +233,13 @@ MoveType GroundUnitClass::GetObjMovementType(Objective o, int n)
+ }
+ 
+ // Detects other units. Returns 0 if nothing detected, 1 if detected, -1 on error (movement blocked)
++extern int gMvDiag2[8192][4];
++
+ int GroundUnitClass::DetectOnMove(void)
+ {
++    int dCid = (int)Id().num_;
++    bool dOn = (dCid >= 0 and dCid < 8192 and GetUnitOrders() == 1);
++
+     Objective o;
+     Team who;
+     float d;
+@@ -245,7 +250,12 @@ int GroundUnitClass::DetectOnMove(void)
+     retval = ChooseTarget();
+ 
+     if (retval < 0)
++    {
++        if (dOn)
++            gMvDiag2[dCid][0]++;
++
+         return -1;
++    }
+ 
+     // Check if our offensive has started yet.
+     // Defense-in-depth: guard against a country that resolves to an unloaded team slot
+@@ -256,7 +266,12 @@ int GroundUnitClass::DetectOnMove(void)
+         TeamInfo[myTeam] and
+         TheCampaign.CurrentTime <
+             TeamInfo[myTeam]->GetGroundAction()->actionTime)
++    {
++        if (dOn)
++            gMvDiag2[dCid][1]++;
++
+         return -1;
++    }
+ 
+     // Skip detection every third move until in enemy territory
+     who = GetTeam();
+@@ -283,10 +298,18 @@ int GroundUnitClass::DetectOnMove(void)
+             DetectVs(o, &d, &combat, &spot, &capture, &nomove, &estr);
+ 
+             if (nomove)
++            {
++                if (dOn)
++                    gMvDiag2[dCid][2]++;
++
+                 return -1;
++            }
+ 
+             if (capture)
+             {
++                if (dOn)
++                    gMvDiag2[dCid][3]++;
++
+                 CaptureObjective(o, GetOwner(), this);
+ 
+                 if (not Parent())

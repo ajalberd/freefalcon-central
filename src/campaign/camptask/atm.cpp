@@ -45,6 +45,7 @@
 #include "invalidbufferexception.h"
 
 #include "debuggr.h"
+extern int gAtmDiag[NUM_TEAMS][24];
 
 //#define TEST_SCRAMBLE 1
 
@@ -629,6 +630,7 @@ int AirTaskingManagerClass::Task(void)
                   GetTickCount() - time,
                   (res == PRET_SUCCESS) ? "Success" : "Failure");
 #endif
+        gAtmDiag[owner][10 + (res < 0 or res > 12 ? 12 : res)]++;
         CampEnterCriticalSection();
 
         switch (res)
@@ -1071,6 +1073,39 @@ int AirTaskingManagerClass::BuildPackage(Package *pc, MissionRequest mis)
     return PRET_CANCELED;
 }
 
+// campsim SCRAMBLE: divert outcomes per team: [0] intercept requests reaching a flight search, [1] a flight
+// was diverted to one, [2] of those, an ALERT flight waiting on the ground (a scramble), [3] no flight found
+int gScramble[8][4];
+
+// campsim SCRAMBLEKM: the same outcomes bucketed by how far the detected package was from the team's nearest
+// ALERT flight (<50, <100, <150, <250, 250+ km, no alert flight at all). gScrambleKm[team][bucket]: [0] packages
+// spotted (RequestIntercept), [1] divert attempts, [2] ALERT flight scrambled, [3] other flight diverted, [4] none
+int gScrambleKm[8][6][5];
+
+// campsim SCRAMBLESQ: ALERT flights scrambled, per squadron (VU id number, low 13 bits)
+int gAlertScrambleSq[8192];
+
+int AlertDistanceBucket(int team, GridIndex x, GridIndex y)
+{
+    float best = -1.0F;
+    VuListIterator it(AllAirList);
+
+    for (Unit u = GetFirstUnit(&it); u; u = GetNextUnit(&it))
+    {
+        if (not u->IsFlight() or u->GetTeam() not_eq team or u->GetUnitMission() not_eq AMIS_ALERT)
+            continue;
+
+        GridIndex fx, fy;
+        u->GetLocation(&fx, &fy);
+        float d = Distance(x, y, fx, fy);
+
+        if (best < 0.0F or d < best)
+            best = d;
+    }
+
+    return best < 0.0F ? 5 : best < 50.0F ? 0 : best < 100.0F ? 1 : best < 150.0F ? 2 : best < 250.0F ? 3 : 4;
+}
+
 int AirTaskingManagerClass::BuildDivert(MissionRequest mis)
 {
     int time, ls, hs, tr;
@@ -1115,6 +1150,29 @@ int AirTaskingManagerClass::BuildDivert(MissionRequest mis)
 
     flight = TeamInfo[mis->who]->atm->FindBestAirFlight(
         mis); // We divert a current flight
+
+    if (mis->mission == AMIS_INTERCEPT)
+    {
+        int *g = gScramble[mis->who % 8];
+        int *k = gScrambleKm[mis->who % 8][AlertDistanceBucket(mis->who, mis->tx, mis->ty)];
+        g[0]++;
+        k[1]++;
+
+        if (not flight)
+        {
+            g[3]++;
+            k[4]++;
+        }
+        else
+        {
+            g[1]++;
+            g[2] += flight->GetUnitMission() == AMIS_ALERT;
+            k[flight->GetUnitMission() == AMIS_ALERT ? 2 : 3]++;
+
+            if (flight->GetUnitMission() == AMIS_ALERT)
+                gAlertScrambleSq[flight->GetUnitSquadronID().num_ % 8192]++;
+        }
+    }
 
     if (not flight)
     {
@@ -1554,11 +1612,21 @@ void AirTaskingManagerClass::ProcessRequest(MissionRequest request)
 }
 
 // This finds the best squadron to assign to a given mission.
+// CAMPSIM DIAGNOSTIC: FindBestAir rejection reasons / BuildPackage results per team
+int gAtmDiag[NUM_TEAMS][24] = {{0}};
+// campsim NOFLIGHT: requests FindBestAir could not fill, per team and mission class (0 strike/SEAD/OCA/bombing,
+// 1 CAS/BAI/interdiction, 2 counter-air, 3 other), by the furthest check any squadron of the right role passed:
+// [0] none had the role, [1] relocating, [2] capabilities, [3] stealth by day, [4] NPC-only, [5] out of range,
+// [6] speed, [7] schedule/time, [8] no aircraft free, [9] airbase slots full, [10] passed everything
+int gNoFlightWhy[8][4][11];
+#define ATMD(r) (gAtmDiag[owner][(r)]++, furthest = (r) == 1 ? furthest : max(furthest, (r) == 0 ? 1 : (r)))
+
 Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
                                              GridIndex by)
 {
     Squadron sq, ns, bs = NULL;
     int score, best = 0, bq = 0, av, sb, fb, role, na, sc = 0, lowestScore;
+    int furthest = 0; // campsim NOFLIGHT
     uchar slots[4];
     float d, speed;
     short stats, caps, service;
@@ -1618,7 +1686,7 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
 
             // 2001-07-05 ADDED BY S.G. DON'T USE IF THE RELOCATION TIMER HASN'T EXPIRED
             if (sq->squadronRetaskAt > Camp_GetCurrentTime())
-                continue;
+                { ATMD(0); continue; }
 
             // END OF ADDED SECTION
 
@@ -1640,7 +1708,7 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
             // M.N. bring back to original state, this change gives us AWACS flying Sweep missions...:-)
             // if ( max(score,1) <= lowestScore)
             if (score <= lowestScore)
-                continue;
+                { ATMD(1); continue; }
 
             // KCK HACK TO FORCE ONLY ALERT MISSIONS (TO TRACK DOWN THE SCRAMBLE STUFF)
 #ifdef TEST_SCRAMBLE
@@ -1663,19 +1731,19 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
 
             if ((caps bitand stats) not_eq caps or
                 (service and not(service bitand stats)))
-                continue;
+            { ATMD(2); continue; }
 
             // 2001-04-26 ADDED BY S.G. SO STEALTH AIRCRAFT ARE NOT TASKED DURING DAYTIME. ONLY AT NIGHT...
             if (TimeOfDayGeneral(mis->tot) not_eq TOD_NIGHT and
                 (stats bitand VEH_STEALTH))
-                continue;
+                { ATMD(3); continue; }
 
             // END OF ADDED SECTION
 
 
             if ((MissionData[mis->mission].flags bitand AMIS_NPC_ONLY) and
                 TheCampaign.IsValidAircraftType(sq))
-                continue;
+                { ATMD(4); continue; }
 
             // Check range
             speed = (float)sq->GetCruiseSpeed();
@@ -1698,7 +1766,7 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
                     db = (MissionData[mis->mission].loitertime * speed) / 60.0F;
 
                     if (d + db > sq->GetUnitRange())
-                        continue;
+                        { ATMD(5); continue; }
                 }
 
                 // Airlift missions must come from another airbase
@@ -1712,7 +1780,7 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
                  MissionData[mis->mission].flags bitand AMIS_MATCHSPEED))
             {
                 if (sq->GetMaxSpeed() < mis->speed or speed > mis->speed * 1.2F)
-                    continue;
+                    { ATMD(6); continue; }
 
                 speed = (float)mis->speed;
             }
@@ -1726,7 +1794,7 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
             {
                 if (mis->tot_type not_eq TYPE_NE and
                     mis->tot_type <= TYPE_EQ) // Not going to be here in time
-                    continue;
+                    { ATMD(7); continue; }
 
                 // Otherwise, shift our estimate
                 land += scheduleTime - to;
@@ -1765,7 +1833,7 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
             if ((av < mis->aircraft - 1 and
                  not(mis->flags bitand REQF_USERESERVES)) or
                 av < 1)
-                continue;
+                { ATMD(8); continue; }
 
             // Check against airbase schedule for this block and previous block
             airbase = FindATMAirbase(sq->GetUnitAirbaseID());
@@ -1774,7 +1842,7 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
                 (airbase->schedule[mis->start_block] == ATM_CYCLE_FULL and
                  (not mis->start_block or
                   airbase->schedule[mis->start_block - 1] == ATM_CYCLE_FULL)))
-                continue;
+            { ATMD(9); continue; }
 
             // Calculate it's score
             if (TheCampaign.IsValidAircraftType(
@@ -1830,6 +1898,8 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
                 }
             }
 
+            furthest = 10; // campsim NOFLIGHT: this squadron passed every check (its score decides)
+
             if (score <= best)
                 continue;
 
@@ -1848,7 +1918,13 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
     }
 
     if (not bs)
+    {
+        const int m = mis->mission;
+        const int cls = (m >= AMIS_SEADSTRIKE and m <= AMIS_STRATBOMB) ? 0 : (m >= AMIS_ONCALLCAS and m <= AMIS_BAI) ? 1 :
+                        (m >= AMIS_BARCAP and m <= AMIS_ESCORT) ? 2 : 3;
+        gNoFlightWhy[owner % 8][cls][furthest]++;
         return NULL;
+    }
 
     // Record service of the selected aircraft and other info
     if (not service)
@@ -1867,6 +1943,13 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
 }
 
 // This finds the best in-flight Flight to assign to a given mission.
+// campsim SCRAMBLE: why an ALERT flight was passed over for an intercept, per team: [0] team (never counted),
+// [1] its priority is too high, [2] aborted/diverted, [3] capabilities, [4] too few aircraft or priority,
+// [5] over 250 km, [6] busy with a better target, [7] another flight scored better, [8] chosen
+int gAlertWhy[8][9];
+int gAlertVeh[8][2][8]; // [team][0 = alert flight planes, 1 = request wants][count, 7 = 7+]
+#define ALERT_WHY(k) if (cf->GetUnitMission() == AMIS_ALERT and mis->mission == AMIS_INTERCEPT and cf->GetTeam() == mis->who) gAlertWhy[mis->who % 8][k]++
+
 Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
 {
     Flight bf = NULL;
@@ -1908,24 +1991,24 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
 
         // Check for team
         if (cf->GetTeam() not_eq mis->who)
-            continue;
+            { ALERT_WHY(0); continue; }
 
         // Check if it's busy (Flights should reduce their priority to 0 when they're done with their current task)
         if (mis->flags bitand AMIS_HELP_REQUEST)
         {
             if (cf->GetUnitPriority() > mis->priority + 50)
-                continue;
+                { ALERT_WHY(1); continue; }
         }
         else
         {
             if (cf->GetUnitPriority() * 2 > mis->priority)
-                continue;
+                { ALERT_WHY(1); continue; }
         }
 
         // Verify it's not aborting or diverted (if diverted, reevaluate if help request)
         if (cf->Aborted() or
             cf->Diverted() and not(mis->flags bitand AMIS_HELP_REQUEST))
-            continue;
+            { ALERT_WHY(2); continue; }
 
         // Check to make sure it's taken off (unless it's an alert mission)
         if (cf->GetUnitMission() not_eq AMIS_ALERT and
@@ -1940,19 +2023,41 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
 
         if (score <= 0 or (caps bitand stats) not_eq caps or
             (service and not(service bitand stats)))
-            continue;
+            { ALERT_WHY(3); continue; }
 
         // Check for aircraft and priority
         // 2001-10-27 MODIFIED BY S.G. Doesn't matter how many vehicle if it's a help request. Hopefully, the one requesting help will assist us
         // 2001-12-18 M.N. give a help request mission priority some more points..
         // if (cf->GetTotalVehicles() < mis->aircraft or cf->GetUnitPriority() >= mis->priority)
-        if ((not(mis->flags bitand AMIS_HELP_REQUEST) and
+        // Artscout - 2026 (g_bAlertScramble, off = stock): alert flights always hold 2 planes and intercept
+        // requests always want 4, so no alert flight ever scrambled (campsim SCRAMBLE: 0 of ~73,000 DPRK
+        // checks in 24 h). An alert flight answers with what it has; the request stays queued for more
+        // aircraft if the strength is short (BuildDivert's match_strength check).
+        extern bool g_bAlertScramble;
+        const bool alertOk = g_bAlertScramble and cf->GetUnitMission() == AMIS_ALERT and
+                             mis->mission == AMIS_INTERCEPT and cf->GetTotalVehicles() > 0;
+
+        if ((not(mis->flags bitand AMIS_HELP_REQUEST) and not alertOk and
              cf->GetTotalVehicles() < mis->aircraft) or
             (not(mis->flags bitand AMIS_HELP_REQUEST) and
              cf->GetUnitPriority() >= mis->priority) or
             (mis->flags bitand AMIS_HELP_REQUEST) and
                 cf->GetUnitPriority() >= mis->priority + 20)
+        {
+            ALERT_WHY(4);
+
+            // [4] split: [0] too few aircraft (slot 0 is otherwise unused -- the team check is never counted)
+            if (cf->GetUnitMission() == AMIS_ALERT and mis->mission == AMIS_INTERCEPT and not alertOk and
+                not(mis->flags bitand AMIS_HELP_REQUEST) and cf->GetTotalVehicles() < mis->aircraft)
+            {
+                extern int gAlertVeh[8][2][8];
+                gAlertWhy[mis->who % 8][0]++;
+                gAlertVeh[mis->who % 8][0][min(cf->GetTotalVehicles(), 7)]++; // planes the alert flight has
+                gAlertVeh[mis->who % 8][1][min((int)mis->aircraft, 7)]++;    // planes the request wants
+            }
+
             continue;
+        }
 
         // Check speed vs required
         speed = (float)cf->GetCombatSpeed();
@@ -1998,7 +2103,7 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
         //continue;
         if (cf->GetUnitMission() == AMIS_ALERT and
             d > 250.0f /*MAX_SCRAMBLE_DISTANCE*/)
-            continue;
+            { ALERT_WHY(5); continue; }
 
         if (d < cf->GetUnitRange() / 4) // Bonus if within 1/4 range
             score++;
@@ -2042,7 +2147,7 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
             }
 
             if (oldreact + 2 > newreact)
-                continue;
+                { ALERT_WHY(6); continue; }
         }
 
         // Adjust for current priority
@@ -2085,7 +2190,7 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
          */
 
         if (score <= best)
-            continue;
+            { ALERT_WHY(7); continue; }
 
         best = score;
         bf = (Flight)cf;
@@ -2093,6 +2198,9 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
         // if (t == quickest)
         // bq = 1;
     }
+
+    if (bf and bf->GetUnitMission() == AMIS_ALERT and mis->mission == AMIS_INTERCEPT)
+        gAlertWhy[mis->who % 8][8]++;
 
     if (not bf)
         return NULL;
@@ -2911,6 +3019,7 @@ void RequestIntercept(FlightClass *enemy, int who, RequIntHint hint)
     w->GetWPLocation(&nx, &ny);
     mis.min_to = DirectionTo(x, y, nx, ny);
 
+    gScrambleKm[who % 8][AlertDistanceBucket(who, mis.tx, mis.ty)][0]++;
     mis.RequestMission();
 }
 

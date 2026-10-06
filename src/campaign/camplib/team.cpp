@@ -1200,9 +1200,28 @@ void TeamClass::SelectGroundAction(void)
         groundAction.actionType = GACTION_CONSOLIDATE;
     }
 
+    // Artscout - 2026 (g_nCounterAttackInitiative, 0 = stock): a side on the defensive stays there for as long
+    // as any enemy is on the offensive, and initiative is one pool split with the player's team, so the side
+    // that loses the air war never gets a turn (campsim: DPRK DEFENSIVE in 55 of 59 hourly frames at 20-25
+    // initiative; China and Russia, folded into DPRK, never received a capture order). With the setting, a
+    // defending side whose initiative reaches it may counterattack -- at most once per action timeout -- and
+    // the counterattack is a full offensive (a minor offensive only secures and defends, it never captures).
+    extern int g_nCounterAttackInitiative;
+    static CampaignTime counterReady[NUM_TEAMS];
+    const int caMin = g_nCounterAttackInitiative > 0 ? g_nCounterAttackInitiative : MIN_COUNTER_ATTACK_INITIATIVE;
+    const int fullMin = g_nCounterAttackInitiative > 0 ? caMin : MIN_FULL_OFFENSIVE_INITIATIVE;
+
+    if (g_nCounterAttackInitiative > 0 and groundAction.actionType == GACTION_DEFENSIVE and
+        initiative >= caMin and TheCampaign.CurrentTime >= counterReady[who % NUM_TEAMS])
+    {
+        groundAction.actionType = GACTION_CONSOLIDATE;
+        groundAction.actionTimeout = TheCampaign.CurrentTime - ACTION_RATE;
+        counterReady[who % NUM_TEAMS] = TheCampaign.CurrentTime + ACTION_TIMEOUT;
+    }
+
     // If we're not currently in an action, see if we can start one
     if (groundAction.actionType == GACTION_CONSOLIDATE and POList and
-        initiative >= MIN_COUNTER_ATTACK_INITIATIVE and
+        initiative >= caMin and
         TheCampaign.CurrentTime >= groundAction.actionTimeout + ACTION_RATE)
     {
         // Select our objective
@@ -1232,7 +1251,7 @@ void TeamClass::SelectGroundAction(void)
         if (bo)
         {
             // Offensive Action Yahoo
-            if (initiative >= MIN_FULL_OFFENSIVE_INITIATIVE)
+            if (initiative >= fullMin)
                 groundAction.actionType = GACTION_OFFENSIVE;
             else
                 groundAction.actionType = GACTION_MINOROFFENSIVE;
@@ -1302,7 +1321,7 @@ void TeamClass::SelectGroundAction(void)
         // A.S. begin, 2001-12-09  if initiative < 40 then consolidate
         if (NewInitiativePoints)
         {
-            if (groundAction.actionPoints and bo and initiative >= 40)
+            if (groundAction.actionPoints and bo and initiative >= (caMin < 40 ? caMin : 40))
                 return; // We've still got umph, or havn't started yet, and havn't captured our objective
         }
         else // *** old code ***
@@ -1488,8 +1507,20 @@ void TeamClass::SelectAirActions(void)
         bo->GetLocation(&tx, &ty);
         fo = FindNearestObjective(FrontList, tx, ty, NULL);
         ShiAssert(fo);
+
+        // Artscout - 2026: with no front left (one side holds every contested objective) there is no
+        // front objective, and this dereferenced NULL (campsim seed 102, day 8 of a run past its end).
+        if (not fo)
+        {
+            delete objectiveList;
+            return;
+        }
+
         fo->GetLocation(&fx, &fy);
         dist = FloatToInt32(Distance(fx, fy, tx, ty));
+
+        if (dist < 1)
+            dist = 1; // the per-step offsets below divide by it
         xd = (float)(tx - fx) / dist;
         yd = (float)(ty - fy) / dist;
 
@@ -2072,6 +2103,10 @@ void ApplyPlayerInput(Team who, VU_ID poid, int rating)
 }
 
 
+// campsim INIT: inputs of NewInitiativePointSetting per calling team -- our/their ground vehicles, our/their
+// aircraft, our/their ground losses, the three long-run terms, their blend, the new initiative, the enemy team
+int gInitDiag[8][12];
+
 // A.S. begin 2001-12-09, New Procedure for Initiative Points
 void NewInitiativePointSetting(Team who)
 {
@@ -2108,10 +2143,36 @@ void NewInitiativePointSetting(Team who)
 
     oloss = (os_start * 1.0f - os * 1.0f);
 
+    // Artscout - 2026 (g_bInitTrueLosses, off = stock): stock "losses" are start minus current vehicles, and
+    // the start baseline is raised whenever reinforcements push current above it -- so a side that is
+    // reinforced faster than it bleeds shows ~0 losses and the loss term pins at 100 for it (campsim INIT:
+    // ROK 0-13 "lost" vs DPRK 1,800-4,000, while ROK really lost ~1,000 by h54). Count vehicles actually
+    // destroyed in campaign combat instead (unit.cpp gLossDiag, by the losing team).
+    extern bool g_bInitTrueLosses;
+    extern int gLossDiag[NUM_TEAMS][10];
+
+    if (g_bInitTrueLosses)
+    {
+        oloss = 0.0f;
+
+        for (int k = 0; k < 4; k++)
+            oloss += gLossDiag[who][k];
+    }
+
     if (oloss == 0)
         oloss = 1;
 
     tloss = (ts_start * 1.0f - ts * 1.0f);
+
+    if (g_bInitTrueLosses)
+    {
+        tloss = 0.0f;
+
+        for (i = 0; i < NUM_TEAMS; i++)
+            if (GetTTRelations(i, who) == War)
+                for (int k = 0; k < 4; k++)
+                    tloss += gLossDiag[i][k];
+    }
 
     if (tloss == 0)
         tloss = 1;
@@ -2140,6 +2201,15 @@ void NewInitiativePointSetting(Team who)
     TeamInfo[who]->SetInitiative(initiative);
     TeamInfo[et]->SetInitiative(
         (100 - initiative)); // enemy team gets 100 minus our initiative points
+
+    // campsim INIT: the inputs of the last calculation, per calling team
+    {
+        extern int gInitDiag[8][12];
+        int *g = gInitDiag[who % 8];
+        g[0] = os, g[1] = ts, g[2] = oa, g[3] = ta, g[4] = (int)oloss, g[5] = (int)tloss;
+        g[6] = longRunInitiative1, g[7] = longRunInitiative2, g[8] = longRunInitiative3;
+        g[9] = longRunInitiative, g[10] = initiative, g[11] = et;
+    }
 
     //debug
     //FILE *deb;
@@ -2500,7 +2570,9 @@ void AddReinforcements(Team who, int inc)
     while (u)
     {
         // Activate any waiting reinforcements (note: cargoed units are inactive too, so keep an eye out)
-        if (u->GetTeam() == who and not u->Cargo() and
+        // Artscout - 2026: and only units still waiting -- an already-active unit left on the
+        // list (see UnitClass::SetInactive) was re-announced in the news every hour.
+        if (u->Inactive() and u->GetTeam() == who and not u->Cargo() and
             u->GetUnitReinforcementLevel() <=
                 TeamInfo[who]->GetReinforcement() and
             u->Parent())

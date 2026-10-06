@@ -191,7 +191,10 @@ DWORD Loader::MainLoop()
             Sleep(TickDelay);
         else
         {
-            WaitForSingleObject(WakeEventHandle, INFINITE);
+            // Artscout - 2026: not INFINITE. A pause request whose wake-up was lost left this thread
+            // asleep with Loader::paused stuck at PAUSING, and whoever waits for PAUSED then waits
+            // forever (frozen Recon screen). Re-check a few times a second; idle cost is negligible.
+            WaitForSingleObject(WakeEventHandle, 250);
         }
 
         //WaitForSingleObject( WakeEventHandle, 10000 ); //INFINITE

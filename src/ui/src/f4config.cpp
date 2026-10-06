@@ -436,6 +436,12 @@ int g_nWeatherFronts = 1;
 // 0 = the old round-to-nearest, under which 553 of 1024 grid coordinates read back one cell too
 // high and a ground unit could never step onto one of them in a decreasing direction.
 int g_nSimToGridFix = 1;
+int g_nNavalAI = 1; // campaign: 1 = ships sortie, patrol over water and sail port to port, 0 = old (idle in port, 20 km north and back)
+int g_nNavalTankerFuel = 50; // campaign: fuel one docked sea tanker adds to its team pool, scaled by missing refinery output (0 = off)
+int g_nGtmReservesPerCycle = 8; // campaign: ground units the GTM may move up from reserve per tasking cycle (stock 1)
+int g_nGtmKeepCaptureStall = 6; // campaign: with GtmKeepCapture, hours a kept attacker may sit without moving 1 km before it is re-tasked (0 = never)
+int g_nGtmCaptureUnits = 3; // campaign: battalions the GTM may send at one capture objective per cycle (stock 1)
+int g_nBattalionReinforceFix = 1; // campaign: 1 = keep a loaded battalion's reinforcement hour, 0 = old (all arrive at once)
 // New fronts per campaign day, on average. 0 = only the ones already there.
 float g_fWeatherFrontsPerDay = 3.0f;
 // How much the random patches vary the condition: 0 none, 1 about a third
@@ -707,6 +713,26 @@ bool g_bSmartCombatAP = true; // JB 010224
 //bool g_bVoodoo12Compatible = false; // JB 010330 Disables the cockpit kneemap to prevent CTDs on the Voodoo 1 and 2.
 float g_fDragDilutionFactor = 1.0; // JB 010707
 bool g_bRealisticAttrition = false; // JB 010710
+bool g_bGtmReserveFarthest = false; // campaign: the ground AI moves up its rear-most reserves first (stock: closest first)
+bool g_bWaterObjectiveFix = true; // campaign: ground units stop next to (and capture) objectives on water cells (stock: unreachable, units retry forever)
+bool g_bGtmReserveFix = true; // campaign: reserves are chosen from units still free this cycle (stock: none move up while on the offensive)
+bool g_bGtmCaptureFront = true; // campaign: non-secondary enemy objectives on the front line are capture targets too (stock: only secondaries, so a chain of bridges/junctions can block the way for good)
+bool g_bSupplyNeedFix = true; // campaign: resupply counts only positive needs, and a squadron's need only its own table's weapon types (stock: off-table stores in reinforcement squadrons stop all battalion resupply)
+bool g_bGridPathPartial = true; // campaign: a ground unit follows the partial route when its grid path search hits its length/node limit (stock: discarded, the unit retries the same far waypoint forever)
+bool g_bReserveHold = true; // campaign: a reserve battalion on one of our objectives away from the front keeps it (stock: kicked off any non-secondary objective, it fell back 3 links again and again, burning supply)
+bool g_bSupplySplitShares = true; // campaign: the supply pool is shared between ground units and squadrons by what each actually uses, each with its own ratio (stock: one ratio over everyone's need, which squadrons' unused stores gap dominates)
+bool g_bReserveNoPullback = true; // campaign: idle healthy battalions within 25 km of the front hold instead of taking a reserve order 20-60 km back (stock: the front-most idle units were the ones sent back)
+bool g_bAlertScramble = false; // campaign: an alert flight may scramble against an intercept with the 2 planes it has (stock: requests want 4, so alert flights never launched)
+bool g_bInitTrueLosses = false; // campaign: initiative counts vehicles actually destroyed (stock: start minus current, which reinforcements hide)
+int g_nGtmCaptureMaxKm = 0; // campaign: capture targets farther than this many km are not offered to a battalion (0 = stock: any distance)
+bool g_bGtmCaptureBestScore = true; // campaign (Andrew 2026-10-05, campsim: capture trips median 45 -> 31 km, >100 km 15.4% -> 2.1%): like GtmCaptureNearest, but the best-scoring valid capture target within reach (the GTM's own target score), nearest on a tie
+bool g_bGtmCaptureNearest = false; // campaign: a battalion sent to capture something beyond GtmCaptureMaxKm (60 if unset) attacks the nearest valid target instead
+int g_nCaptureInitiative = 5; // campaign: initiative points the captor takes from the loser per objective captured (stock 5)
+int g_nCounterAttackInitiative = 0; // campaign: a defending side with at least this initiative may launch a full counteroffensive (0 = stock: never while the enemy is attacking)
+float g_fEnemyTownPathCost = 4.0f; // campaign: ground route cost multiplier through an enemy town or an objective under an enemy-held parent (stock 4)
+bool g_bGtmKeepCapture = true; // campaign: a battalion keeps a capture order while its target is still a valid one (stock: re-planned every cycle)
+bool g_bSupplyExactLoss = true; // campaign: supply road losses computed once per trip, not truncated per node (stock: small shipments vanish)
+bool g_bPlayerGroundHold = false; // Artscout - 2026 (WORK IN PROGRESS, off by default): a battalion the player moves on the campaign map keeps that order until it arrives or breaks. campsim holdtest: some held units stop moving, see WIP-NOTES.md
 bool g_bIFFRWR = false; // JB 010727
 int g_nRelocationWait = 3; // JB 010728
 int g_nLoadoutTimeLimit =
@@ -971,6 +997,15 @@ bool g_bLogCampMenu =
     false; // Artscout - 2026: log what the "Build package" submenu decided, every time a campaign popup opens -- which menu, what was right-clicked, how many squadrons the theater offered and why the rest were dropped, and whether the parent item ended up enabled. The item is a submenu, so a disabled parent and a parent nobody thought to hover over look identical from the outside, and the candidate filter is three separate rejections (wrong team, no airframes, no role against this target) that all end in the same silence. "LogCampMenu".
 bool g_bCampMapIconHealth =
     true; // Artscout - 2026: objective icons on the campaign map darken with damage (status 100 = as drawn, 0 = CampMapIconMin brightness), so a flattened target reads at a glance without switching the damage overlay on. 0 = stock icons.
+bool g_bNavalMoveFix = true; // Artscout - 2026: a ship steers from where it is each step of a move, so it follows its route and stops at waypoints (stock: steered from its start-of-tick position, overshooting turns across coasts). "NavalMoveFix".
+bool g_bNavalSeaMask = false; // Artscout - 2026 (OFF until ships also stop parking on 3D land -- campsim: ship-hours on 3D land 200 -> 255 with it on): ships treat cover-grid water that the 3D terrain shows as land (<theater>.SEA) as land. 0 = stock. "NavalSeaMask".
+bool g_bCampMapNeutralShips = true; // Artscout - 2026: ships of a team we are not at war with (e.g. Russia's fleet before it joins) show on the campaign map without being spotted. 0 = stock (invisible). "CampMapNeutralShips".
+bool g_bCampMapShipGhosts =
+    true; // Artscout - 2026: an enemy ship you spotted and then lost does not vanish from the campaign map: it stays at its LAST KNOWN position as a dimmed icon (tooltip says so) until you spot it again, and is dropped only when it is destroyed. Stock hid every movable enemy unit the moment its spotted timer lapsed, so ships popped out of existence at sea. The ghost never moves and shows nothing the player has not seen. 0 = stock. "CampMapShipGhosts".
+bool g_bCampMapShipWrecks =
+    true; // Artscout - 2026: a destroyed ship stays on the campaign map as a dark wreck marker where it went down (only if you could see it), instead of its icon being deleted. The marker is inert -- not clickable, no tooltip -- and lasts until the map is rebuilt. 0 = stock. "CampMapShipWrecks".
+float g_fCampMapGhostBright =
+    0.30f; // Artscout - 2026: brightness of a last-known-position ship icon (1 = full, 0 = black). "CampMapGhostBright".
 float g_fCampMapIconMin =
     0.35f; // Artscout - 2026: brightness of a 0%-status objective icon (1 = never darkens). Linear in status between this and 1.
 bool g_bCampRailLines =
@@ -1742,6 +1777,13 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bObjFog}, // Artscout - 2026: fog lit world objects like the terrain (D3D12)
     {"ObjPixelLight",
      &g_bObjPixelLight}, // Artscout - 2026: per-pixel object lighting (small lamps stop washing whole panels)
+    {"CampMapShipWrecks",
+     &g_bCampMapShipWrecks}, // Artscout - 2026: destroyed ships stay as dark wreck markers
+    {"NavalMoveFix", &g_bNavalMoveFix}, // 1 = ships follow their route cell by cell
+    {"NavalSeaMask", &g_bNavalSeaMask}, // 1 = ships keep off 3D land the 1 km grid calls water
+    {"CampMapNeutralShips", &g_bCampMapNeutralShips}, // 1 = neutral ships are drawn without being spotted
+    {"CampMapShipGhosts",
+     &g_bCampMapShipGhosts}, // Artscout - 2026: lost enemy ships stay as dim last-known icons
     {"CampMapIconHealth",
      &g_bCampMapIconHealth}, // Artscout - 2026: darken objective icons by damage
     {"RailTrains", &g_bRailTrains}, // Artscout - 2026: trains on the rail routes (railnet.cpp)
@@ -1848,6 +1890,22 @@ static ConfigOption<bool> BoolOpts[] = {
     // { "UserRadioVoice", &g_bUserRadioVoice },
     {"NewFm", &g_bNewFm},
     {"RealisticAttrition", &g_bRealisticAttrition},
+    {"PlayerGroundHold", &g_bPlayerGroundHold}, // 1 = the AI leaves a battalion you moved alone until it arrives
+    {"GtmReserveFarthest", &g_bGtmReserveFarthest}, // 1 = rear reserves are moved forward first
+    {"WaterObjectiveFix", &g_bWaterObjectiveFix}, // 1 = ports and coastal objectives can be reached and captured
+    {"GtmReserveFix", &g_bGtmReserveFix}, // 1 = reserves move up while the side is on the offensive
+    {"GtmCaptureFront", &g_bGtmCaptureFront}, // 1 = capture orders also go to front-line bridges, junctions and other non-secondary objectives
+    {"SupplyNeedFix", &g_bSupplyNeedFix}, // 1 = a unit's surplus can no longer zero everyone's resupply
+    {"GridPathPartial", &g_bGridPathPartial}, // 1 = units heading for a far waypoint move on along the partial route
+    {"ReserveHold", &g_bReserveHold}, // 1 = reserves stop shuttling back and forth
+    {"SupplySplitShares", &g_bSupplySplitShares}, // 1 = ground and air get separate shares of the supply pool
+    {"AlertScramble", &g_bAlertScramble}, // 1 = alert flights scramble against intercepts
+    {"InitTrueLosses", &g_bInitTrueLosses}, // 1 = initiative counts real losses
+    {"GtmCaptureBestScore", &g_bGtmCaptureBestScore}, // far capture orders re-pointed at the best-scoring target in reach
+    {"GtmCaptureNearest", &g_bGtmCaptureNearest}, // far capture orders re-pointed at the nearest valid target
+    {"ReserveNoPullback", &g_bReserveNoPullback}, // 1 = idle front-line battalions are not pulled back as reserves
+    {"GtmKeepCapture", &g_bGtmKeepCapture}, // 1 = attacking battalions keep their target while it stays valid
+    {"SupplyExactLoss", &g_bSupplyExactLoss}, // 1 = small supply shipments are not rounded away on long roads
     {"GreyScaleMFD", &g_bGreyScaleMFD},
     {"IFFRWR", &g_bIFFRWR},
     {"3dCockpit", &g_b3dCockpit},
@@ -2217,6 +2275,15 @@ static ConfigOption<int> IntOpts[] = {
     {"Knee3DFont", &g_nKnee3DFont}, // Artscout - 2026 (3D kneeboard)
     {"KneeNavaidFont", &g_nKneeNavaidFont}, // Artscout - 2026 (NAVAIDS)
     {"WeatherFronts", &g_nWeatherFronts}, // Artscout - 2026 (FRONTS): 0 = one condition everywhere
+    {"BattalionReinforceFix", &g_nBattalionReinforceFix},
+    {"GtmReservesPerCycle", &g_nGtmReservesPerCycle}, // reserve units the ground AI moves up per cycle (stock 1)
+    {"GtmCaptureMaxKm", &g_nGtmCaptureMaxKm}, // capture targets beyond this distance are not offered (0 = stock)
+    {"CaptureInitiative", &g_nCaptureInitiative}, // initiative per captured objective (stock 5)
+    {"CounterAttackInitiative", &g_nCounterAttackInitiative}, // a defending side with this much initiative may counterattack (0 = stock)
+    {"GtmCaptureUnits", &g_nGtmCaptureUnits}, // battalions the ground AI sends at one capture objective per cycle (stock 1)
+    {"GtmKeepCaptureStall", &g_nGtmKeepCaptureStall}, // hours a kept attacker may stand still before it is re-tasked
+    {"NavalAI", &g_nNavalAI}, // campaign: 1 = ships sortie, patrol and sail port to port, 0 = old behaviour
+    {"NavalTankerFuel", &g_nNavalTankerFuel}, // fuel per docked sea tanker, scaled by missing refinery output (0 = off)
     {"SimToGridFix", &g_nSimToGridFix}, // campaign: 1 = floor the sim->grid conversion (ground units can move again), 0 = old rounding
     {"RwrFont", &g_nRwrFont}, // Artscout - 2026 (RWR): -1 = one size below the MFD font, else 0..3
     {"CanopyAttenuation", &g_nCanopyAttenuation}, // Artscout - 2026: extra dB of canopy muffling, 0 = off
@@ -2355,6 +2422,7 @@ static ConfigOption<char> StringOpts[] = {
     {NULL, NULL}};
 
 static ConfigOption<float> FloatOpts[] = {
+    {"EnemyTownPathCost", &g_fEnemyTownPathCost}, // ground routes: cost multiplier through enemy towns (stock 4)
     {"WeatherFrontsPerDay", &g_fWeatherFrontsPerDay}, // Artscout - 2026 (FRONTS)
     {"WeatherNoise", &g_fWeatherNoise}, // Artscout - 2026 (FRONTS)
     {"HmcsHudHalfWidth", &g_fHmcsHudHalfWidth}, // Artscout - 2026: JHMCS HUD blanking box, deg
@@ -2395,6 +2463,7 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fSunTodDimRef}, // Artscout - 2026: sun fades below this TOD light level (0 = off)
     {"ToneMapExposure",
      &g_fToneMapExposure}, // Artscout - 2026: scene exposure into the GT7 curve (1 = scene white on paper white)
+    {"CampMapGhostBright", &g_fCampMapGhostBright}, // Artscout - 2026: dim level of a last-known ship icon
     {"CampMapIconMin",
      &g_fCampMapIconMin}, // Artscout - 2026: brightness of a 0%-status objective icon
     {"CpuNearClip",

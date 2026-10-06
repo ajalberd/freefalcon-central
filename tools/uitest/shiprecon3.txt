@@ -1,0 +1,53 @@
+# Campaign map -> right-click a task force -> Recon. Repro of a hang after Recon on a ship.
+timeout 600
+waitwin UI_MAIN_SCREEN 60000
+wait 1000
+click CP_MAIN_CTRL
+waitwin CS_SELECT_WIN 20000
+wait 2000
+click SINGLE_COMMIT_CTRL
+waitwin STRAT_WIN 150000
+wait 2000
+click OK STRAT_WIN
+waitgone STRAT_WIN 10000
+waitwin STARTCAMP_WIN 150000
+wait 2000
+click START_CAMP STARTCAMP_WIN
+waitgone STARTCAMP_WIN 20000
+wait 3000
+clickxy 960 380
+wait 1500
+clickxy 960 380
+wait 15000
+click ACCELERATION CP_SUA
+wait 700
+shot menu
+clickxy 1887 190
+wait 700
+shot compressed
+wait 90000
+shot t_later
+click BI_ZOUT_CTRL CP_TOOLBAR
+wait 500
+click BI_ZOUT_CTRL CP_TOOLBAR
+wait 500
+click BI_ZOUT_CTRL CP_TOOLBAR
+wait 500
+click BI_ZOUT_CTRL CP_TOOLBAR
+wait 500
+click BI_ZOUT_CTRL CP_TOOLBAR
+wait 1500
+shot zoomedout
+listships CP_PUA_MAP
+rclickship CP_PUA_MAP 0
+wait 1500
+windows
+shot shippopup3
+clickin NAVAL_POP 30 41
+wait 10000
+windows
+shot afterrecon4
+wait 15000
+windows
+shot afterrecon5
+quit

@@ -390,6 +390,17 @@ def api_campaign(q, _body):
     }
 
 
+def api_clock(q, _body):
+    """The save's in-game time, for the file bar."""
+    ws = _ws(q)
+    name = (q.get("file") or [""])[0]
+    hdr = ws.campaign(name).header
+    if hdr is None:
+        return {"file": name, "clock": ""}
+    return {"file": name, "time": hdr.fields["CurrentTime"],
+            "clock": _clock(hdr.fields["CurrentTime"])}
+
+
 def api_campaign_edit(_q, body):
     ws = SESSION.workspace(body["theater"])
     cam = ws.campaign(body["file"])
@@ -1058,6 +1069,11 @@ def api_map(q, _body):
                          is_player_squadron(player_id, u.get("id"))),
             "wp": len(u.get("waypoints", [])),
             "makeup": unit_makeup(names, drow),
+            # U_INACTIVE (0x20000, "generally reinforcements"): the unit exists in the
+            # save but is off the map until the team's reinforcement counter reaches
+            # `arrives` (campaign hours; one point per hour, see WIP-NOTES.md).
+            "inactive": bool(u.get("unitFlags", 0) & 0x20000),
+            "arrives": u.get("reinforcement") or 0,
         }
 
         # The fields the map's condition panel and quick actions edit.
@@ -1886,7 +1902,37 @@ def api_objective(q, _body):
         "features": features[:64],
         "links": [{"id": l["id"], "costs": l["costs"]} for l in o["links"]],
         "objRow": drow,
+        "squadrons": based_squadrons(ws, name, o, names),
     }
+
+
+def based_squadrons(ws, name, o, names):
+    """Squadrons in this file whose home base (airbaseId) is the objective -- its own aircraft, as the
+    airbase pane lists them. A file without a unit list (a bare scenario objective set) has none."""
+    try:
+        cam = ws.units(name)
+    except Exception:  # noqa: BLE001 -- no unit member in this file
+        return []
+    out = []
+    for i, u in enumerate(cam.units):
+        if u["kind"] != "squadron" or not u.get("airbaseId") or u["airbaseId"][0] != o["id"][0]:
+            continue
+        _t, drow = ws.db.data_row(u["classIndex"])
+        aircraft = ""
+        if drow and "VehicleType" in drow:
+            aircraft = names.get(drow["VehicleType"][0], "")
+        out.append({
+            "n": i,
+            "title": composed_name(names, u["classIndex"], u.get("nameId")),
+            "role": names.get(u["classIndex"], ""),
+            "aircraft": aircraft,
+            "planes": sum((u["roster"] >> (2 * g)) & 3 for g in range(16)),
+            "owner": u["owner"],
+            "reinforcement": u.get("reinforcement", 0) if u["unitFlags"] & 0x20000 else 0,
+            "inactive": bool(u["unitFlags"] & 0x20000),
+        })
+    out.sort(key=lambda s: (s["inactive"], s["role"], s["aircraft"]))
+    return out
 
 
 def api_objective_edit(_q, body):
@@ -2486,6 +2532,74 @@ def api_triggers(q, _body):
     for row in outline:
         row["note"] = _script_row_note(row, movies, write_only)
 
+    # Which scripted events have fired in THIS file (a scenario has none; a save
+    # carries the flags in its .evt member).
+    fired = triggers.fired_events(cam.member("evt"))
+    titles = triggers.event_titles(sc.lines)
+    for row in outline:
+        if row.get("verb") in ("DO_EVENT", "RESET_EVENT", "IF_EVENT_PLAYED",
+                               "SET_EVENT") and row.get("args"):
+            try:
+                ev = int(row["args"][0])
+            except ValueError:
+                continue
+            row["event"] = ev
+            row["fired"] = ev in fired
+    event_ids = sorted(set(titles) | set(fired))
+    hist = triggers.event_history(cam.member("evt"))
+    day_zero = (cam.header.fields.get("DayZero", 0) if cam.header else 0) or 0
+    when = {}
+    for h in hist:
+        if h["kind"] == "event":
+            when[h["id"]] = h["time"]          # the last time it fired
+    events = []
+    for i in event_ids:
+        e = {"id": i, "title": titles.get(i, ""), "fired": i in fired}
+        if i in when:
+            e["day"], e["clock"] = triggers.describe_time(when[i], day_zero)
+            e["time"] = when[i]
+        events.append(e)
+    # Which branch did it: the save's own record of the #IF chain behind each action, or, for
+    # saves from before that, a re-evaluation against the team stats in the .frc beside it.
+    frc_hist = []
+    frc_path = os.path.splitext(getattr(cam, "path", "") or "")[0] + ".frc"
+    if os.path.exists(frc_path):
+        with open(frc_path, "rb") as fp:
+            frc_hist = triggers.force_history(fp.read())
+    conds = triggers.condition_history(cam.member("evt"))
+    taken = triggers.branch_report(sc.body, hist, conds, frc_hist)
+    nodes = {}
+
+    def index(ns):
+        for n in ns:
+            nodes[n.line] = n
+            index(n.children)
+            if n.orelse:
+                index(n.orelse)
+    index(sc.body)
+    for row in outline:
+        for t in taken.get(row.get("line"), []):
+            day, clock = triggers.describe_time(t["time"], day_zero)
+            node = nodes.get(row["line"])
+            t2 = dict(t, day=day, clock=clock,
+                      measured=triggers.describe_measure(node, t["a"], t["b"], teams) if node else "")
+            row.setdefault("taken", []).append(t2)
+    # The #ELSE divider rows carry no line; tag them from their #IF so the listing can light
+    # the branch that ran rather than every DO_EVENT of a fired event.
+    for k, row in enumerate(outline):
+        if row.get("kind") == "else":
+            for j in range(k - 1, -1, -1):
+                r = outline[j]
+                if r.get("kind") == "condition" and r["depth"] == row["depth"]:
+                    row["elseOf"] = r["line"]
+                    row["taken"] = [t for t in r.get("taken", []) if t["branch"] == "else"]
+                    break
+    history = []
+    for h in sorted(hist, key=lambda x: x["time"]):
+        day, clock = triggers.describe_time(h["time"], day_zero)
+        history.append({"kind": h["kind"], "id": h["id"], "day": day, "clock": clock,
+                        "title": titles.get(h["id"], "") if h["kind"] == "event" else
+                                 (movies.get(h["id"]) or {}).get("title", "") if isinstance(movies, dict) else ""})
     slot = camptext.slot_of(name)
     text = ws.campaign_text()
     blurb = camptext.blurb_from_script(ends)
@@ -2505,6 +2619,9 @@ def api_triggers(q, _body):
                   "comment": n.comment} for n in sc.init],
         "endgames": ends,
         "outline": outline,
+        "events": events,
+        "eventHistory": history,
+        "eventsFromSave": cam.member("evt") is not None,
         "writeOnlyEvents": write_only,
         "deadActions": sorted(triggers.DEAD_ACTIONS),
         "watched": watched,
@@ -2673,6 +2790,7 @@ ROUTES_GET = {
     "/api/table": api_table,
     "/api/row": api_row,
     "/api/campaign": api_campaign,
+    "/api/clock": api_clock,
     "/api/lookup": api_lookup,
     "/api/map": api_map,
     "/api/unit": api_unit,

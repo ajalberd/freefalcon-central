@@ -48,6 +48,7 @@ void AddLocationToBrief(char type, GridIndex x, GridIndex y, _TCHAR *brief);
 void GetMissionTarget(Package curpackage, Flight curflight, _TCHAR Buffer[]);
 int IsValidMission(int dindex, int mission);
 void SetupFlightSpecificControls(Flight flt);
+BOOL JoinFlightFromATO(Flight flight);
 
 extern C_Handler *gMainHandler;
 //extern LISTBOX *gTaskList;
@@ -129,7 +130,7 @@ void SelectATOItemCB(long, short hittype, C_Base *control)
     C_ATO_Flight *ato;
     C_ATO_Package *pkg;
 
-    if (hittype not_eq C_TYPE_LMOUSEUP)
+    if (hittype not_eq C_TYPE_LMOUSEUP and hittype not_eq C_TYPE_RMOUSEUP)
         return;
 
     ShiAssert(gATOAll);
@@ -169,6 +170,10 @@ void SelectATOItemCB(long, short hittype, C_Base *control)
             gMapMgr->DrawMap();
         }
     }
+
+    // Right-click: select it (above) and join the flight and its squadron
+    if (hittype == C_TYPE_RMOUSEUP)
+        JoinFlightFromATO((Flight)vuDatabase->Find(gSelectedFlightID));
 }
 
 void SelectATOPackageCB(long, short hittype, C_Base *control)

@@ -22,6 +22,7 @@
 #include "aiinput.h"
 #include "classtbl.h"
 #include "debuggr.h"
+#include "supply.h"
 
 #define MAX_SUPPLIES 60000
 #define MAX_SUPPLY_RATIO 0.5F
@@ -42,6 +43,18 @@ int gReplacmentsFromOffensive[NUM_TEAMS];
 #endif
 
 extern bool g_bPowerGrid;
+
+// CAMPSIM DIAGNOSTIC (read only by tools/campsim): cumulative per team, see SUPDIAG_*.
+int gSupplyDiag[NUM_TEAMS][SUPDIAG_LAST] = {{0}};
+int gSupplySplit[NUM_TEAMS][2] = {{0}};
+int gStoresFlow[NUM_TEAMS][2] = {{0}};
+// g_bSupplySplitShares: decaying averages of supply points actually used by ground units (moving, firing) and
+// squadrons (stores loaded minus returned), and the ground share of the pool last computed (%)
+float gSupplyUseGround[NUM_TEAMS] = {0}, gSupplyUseAir[NUM_TEAMS] = {0};
+int gSupplyShareG[NUM_TEAMS] = {0};
+// Last distribution ratios (x1000): share of each unit's need the pool could cover, capped at 500.
+int gSupplyRatio[NUM_TEAMS][3] = {{0}};
+int gSupplyPath[NUM_TEAMS][SUPPATH_LAST] = {{0}};
 
 
 // ====================
@@ -234,6 +247,9 @@ int ProduceSupplies(CampaignTime deltaTime)
         gFuelFromProduction[who] += fuel[who];
         gReplacmentsFromProduction[who] += replacements[who];
 #endif
+        gSupplyDiag[who][SUPDIAG_PROD_SUPPLY] += supply[who];
+        gSupplyDiag[who][SUPDIAG_PROD_FUEL] += fuel[who];
+        gSupplyDiag[who][SUPDIAG_PROD_REPL] += replacements[who];
 
         // Deplete unused extra supplies and move supplies to team supply pools
         supply[who] = (TeamInfo[who]->GetSupplyAvail() / 2) + supply[who];
@@ -332,16 +348,33 @@ int SendSupply(Objective s, Objective d, int *supply, int *fuel)
     Objective c;
     PathClass path;
     int i, l, n, loss, type;
+    extern bool g_bSupplyExactLoss;
+    const int team = s->GetTeam();
+    const int sent = *supply > 0 ? *supply : 0, sentf = *fuel > 0 ? *fuel : 0;
 
     if (not *supply and not *fuel)
         return 0;
 
     if (GetObjectivePath(&path, s, d, Foot, s->GetTeam(), PATH_MARINE) < 1)
+    {
+        gSupplyPath[team][SUPPATH_NO_PATH]++;
         return 0;
+    }
+
+    gSupplyPath[team][SUPPATH_TRIPS]++;
+    gSupplyPath[team][SUPPATH_HOPS] += path.GetLength();
 
     c = s;
     loss = 0;
     AddSupply(s, *supply / 10, *fuel / 10);
+
+    // Artscout - 2026 (g_bSupplyExactLoss, off = stock): stock applies each node's loss in integer
+    // maths, x * (100 - l) / 100, which takes at least 1 point per hop from any shipment under 50 --
+    // a unit's share is often 2-10 points, so it is gone after a handful of road nodes no matter how
+    // light the real losses are (campsim: 62% of ROK resupplies arrived empty). Exact mode keeps the
+    // surviving fraction as a float and rounds once at the end of the trip.
+    float keep = 1.0F;
+    const int s0 = *supply, f0 = *fuel;
 
     for (i = 0; i < path.GetLength(); i++)
     {
@@ -352,14 +385,29 @@ int SendSupply(Objective s, Objective d, int *supply, int *fuel)
         if (type == TYPE_ROAD or type == TYPE_INTERSECT or
             type == TYPE_RAILROAD or type == TYPE_BRIDGE)
         {
-            AddSupply(c, *supply / 10, *fuel / 10);
             l = NodeSupplyLoss(c, type);
-            *supply = *supply * (100 - l) / 100;
-            *fuel = *fuel * (100 - l) / 100;
+
+            if (g_bSupplyExactLoss)
+            {
+                keep *= (100 - l) / 100.0F;
+                *supply = FloatToInt32(s0 * keep + 0.5F);
+                *fuel = FloatToInt32(f0 * keep + 0.5F);
+                AddSupply(c, *supply / 10, *fuel / 10);
+            }
+            else
+            {
+                AddSupply(c, *supply / 10, *fuel / 10);
+                *supply = *supply * (100 - l) / 100;
+                *fuel = *fuel * (100 - l) / 100;
+            }
         }
 
         if (not *supply and not *fuel)
+        {
+            gSupplyPath[team][SUPPATH_EMPTIED]++;
+            gSupplyPath[team][SUPPATH_EMPTIED_SENT] += sent + sentf;
             return 0;
+        }
     }
 
     return 1;
@@ -413,6 +461,7 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
     Unit unit;
     int supply, fuel, replacements, gots, gotf, type;
     int sneeded = 0, fneeded = 0, rneeded = 0;
+    int sneededGround = 0, sneededAir = 0; // g_bSupplySplitShares
     float sratio, fratio, rratio;
     GridIndex x, y;
     MissionRequestClass mis;
@@ -460,8 +509,18 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
             if (unit->GetTeam() == who and
                 (unit->IsBattalion() or unit->IsSquadron()))
             {
-                sneeded += unit->GetUnitSupplyNeed(FALSE);
-                fneeded += unit->GetUnitFuelNeed(FALSE);
+                // Artscout - 2026 (g_bSupplyNeedFix, off = stock): a unit holding more than it wants reports
+                // a negative need. Stock summed those in, so a surplus anywhere could take the team total to
+                // zero or below -- and then sratio stays 0 and no unit at all is resupplied. Count only what
+                // is actually needed; the surplus is still drawn back below, unit by unit.
+                extern bool g_bSupplyNeedFix;
+                int sn = unit->GetUnitSupplyNeed(FALSE), fn = unit->GetUnitFuelNeed(FALSE);
+
+                sneeded += (g_bSupplyNeedFix and sn < 0) ? 0 : sn;
+                fneeded += (g_bSupplyNeedFix and fn < 0) ? 0 : fn;
+
+                if (sn > 0)
+                    (unit->IsSquadron() ? sneededAir : sneededGround) += sn;
                 rneeded +=
                     unit->GetFullstrengthVehicles() - unit->GetTotalVehicles();
 
@@ -508,6 +567,41 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
 
     if (sratio > MAX_SUPPLY_RATIO)
         sratio = MAX_SUPPLY_RATIO;
+
+    // Artscout - 2026 (g_bSupplySplitShares, off = stock): share the pool between ground and air by what each
+    // actually uses, then give each side a ratio from its own need. Stock used one ratio, pool / (everyone's
+    // need), and squadron need is the gap to a full stores table -- which squadrons barely draw down (campsim
+    // SUPSPLIT, ROK: ~98% of loaded weapons come back unused, ~50-100 points/day used, 8000-11000 points of
+    // "need"). That diluted every battalion's share to ~4% per trip; the rest of the pool decayed unused.
+    float sratioGround = sratio, sratioAir = sratio;
+    {
+        extern bool g_bSupplySplitShares;
+
+        if (g_bSupplySplitShares)
+        {
+            float useG = gSupplyUseGround[who], useA = gSupplyUseAir[who];
+
+            if (useA < 0.0F) // weapons returned from sorties loaded before this window
+                useA = 0.0F;
+            float shareG = (useG + useA > 1.0F) ? useG / (useG + useA) : 0.5F;
+            float pool = (float)TeamInfo[who]->GetSupplyAvail();
+
+            sratioGround = sneededGround > 0 ? pool * shareG / sneededGround : 0.0F;
+            sratioAir = sneededAir > 0 ? pool * (1.0F - shareG) / sneededAir : 0.0F;
+
+            if (sratioGround > MAX_SUPPLY_RATIO)
+                sratioGround = MAX_SUPPLY_RATIO;
+
+            if (sratioAir > MAX_SUPPLY_RATIO)
+                sratioAir = MAX_SUPPLY_RATIO;
+
+            gSupplyShareG[who] = FloatToInt32(shareG * 100.0F);
+        }
+
+        // decay the use averages: each supply pass keeps 80% of the history
+        gSupplyUseGround[who] *= 0.8F;
+        gSupplyUseAir[who] *= 0.8F;
+    }
 
     if (fneeded > 0)
         fratio = (float)TeamInfo[who]->GetFuelAvail() / fneeded;
@@ -557,6 +651,9 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
 
     // end added section
 
+    gSupplyRatio[who][0] = FloatToInt32(sratio * 1000.0F);
+    gSupplyRatio[who][1] = FloatToInt32(fratio * 1000.0F);
+    gSupplyRatio[who][2] = FloatToInt32(rratio * 1000.0F);
 
     // Supply units
     {
@@ -588,8 +685,8 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                 if (typeBonus < 0.0F)
                     typeBonus = 0.0F;
 
-                supply = FloatToInt32(unit->GetUnitSupplyNeed(FALSE) * sratio *
-                                      typeBonus);
+                supply = FloatToInt32(unit->GetUnitSupplyNeed(FALSE) *
+                                      (unit->IsSquadron() ? sratioAir : sratioGround) * typeBonus);
                 fuel = FloatToInt32(unit->GetUnitFuelNeed(FALSE) * fratio *
                                     typeBonus);
 
@@ -690,26 +787,35 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
 
                 if (fuel or supply)
                 {
+                    gSupplyDiag[who][SUPDIAG_RESUPPLIES]++;
                     unit->GetLocation(&x, &y);
                     o = FindNearestFriendlyObjective(who, &x, &y, 0);
+                    s = o ? FindNearestSupplySource(o) : NULL;
 
-                    if (o)
+                    if (o and s)
                     {
-                        s = FindNearestSupplySource(o);
+                        TeamInfo[who]->SetSupplyAvail(
+                            TeamInfo[who]->GetSupplyAvail() - supply);
+                        TeamInfo[who]->SetFuelAvail(
+                            TeamInfo[who]->GetFuelAvail() - fuel);
+                        gots = supply;
+                        gotf = fuel;
+                        gSupplyDiag[who][SUPDIAG_SENT_SUPPLY] += supply;
+                        gSupplyDiag[who][SUPDIAG_SENT_FUEL] += fuel;
 
-                        if (s)
+                        if (SendSupply(s, o, &gots, &gotf))
                         {
-                            TeamInfo[who]->SetSupplyAvail(
-                                TeamInfo[who]->GetSupplyAvail() - supply);
-                            TeamInfo[who]->SetFuelAvail(
-                                TeamInfo[who]->GetFuelAvail() - fuel);
-                            gots = supply;
-                            gotf = fuel;
-
-                            if (SendSupply(s, o, &gots, &gotf))
-                                SupplyUnit(unit, supply, gots, fuel, gotf);
+                            SupplyUnit(unit, supply, gots, fuel, gotf);
+                            gSupplyDiag[who][SUPDIAG_GOT_SUPPLY] += gots;
+                            gSupplyDiag[who][SUPDIAG_GOT_FUEL] += gotf;
+                            // campsim: supply received by battalions [0] vs squadrons [1]
+                            gSupplySplit[who][unit->IsSquadron() ? 1 : 0] += gots;
                         }
+                        else
+                            gSupplyDiag[who][SUPDIAG_LOST_ALL]++;
                     }
+                    else
+                        gSupplyDiag[who][SUPDIAG_NO_SOURCE]++;
                 }
 
                 unit->SetLastResupplyTime(TheCampaign.CurrentTime);
@@ -717,6 +823,17 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
 
             unit = GetNextUnit(&myit);
         }
+    }
+
+    if (NoTypeBonusRepl)
+    {
+        gSupplyDiag[who][SUPDIAG_REPL_GROUND] += repl_v_s;
+        gSupplyDiag[who][SUPDIAG_REPL_AIR] += repl_a_s;
+    }
+    else
+    {
+        gSupplyDiag[who][SUPDIAG_REPL_GROUND] += repl_s - repl_sa;
+        gSupplyDiag[who][SUPDIAG_REPL_AIR] += repl_sa;
     }
 
     // A.S. debug begin

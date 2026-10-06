@@ -271,4 +271,9 @@ typedef TaskForceClass *TaskForce;
 
 TaskForceClass *NewTaskForce(int type);
 
+// Player orders (campaign map right-click). Station: sail by a water route to (tx,ty) and hold
+// there until released. Release: go back to the ship AI. Return 1 if the order was accepted.
+int TaskForceOrderStation(TaskForce tf, GridIndex tx, GridIndex ty);
+void TaskForceReleaseStation(TaskForce tf);
+
 #endif

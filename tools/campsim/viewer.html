@@ -1,0 +1,200 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Campaign Sim Viewer</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#111; color:#ddd; font:13px system-ui,sans-serif; display:flex; height:100vh; }
+  #side { width:340px; padding:10px; overflow:auto; box-sizing:border-box; border-right:1px solid #333; }
+  #map { flex:1; position:relative; min-width:0; }
+  canvas { width:100%; height:100%; display:block; }
+  h3 { margin:12px 0 4px; font-size:13px; color:#9ab; }
+  button, select { background:#2a2f36; color:#ddd; border:1px solid #444; padding:4px 8px; border-radius:4px; cursor:pointer; }
+  input[type=range] { width:100%; }
+  table { border-collapse:collapse; width:100%; }
+  td, th { padding:2px 4px; text-align:right; border-bottom:1px solid #2a2a2a; }
+  td:first-child, th:first-child { text-align:left; }
+  .sw { display:inline-block; width:10px; height:10px; margin-right:4px; border-radius:2px; }
+  #clock { font-size:20px; font-weight:600; margin:6px 0; }
+  #verdict { margin-top:8px; padding:6px; background:#1d242c; border-radius:4px; }
+</style>
+<div id="side">
+  <div><a href="lab.html" style="color:#4aa3ff">← Campaign Lab</a></div>
+  <div>Run: <select id="runs"></select> <button id="load">Load</button></div>
+  <div id="clock">-</div>
+  <div>
+    <button id="play">Play</button>
+    <select id="speed"><option value="1">1 frame/s</option><option value="4">4</option><option value="12" selected>12</option><option value="30">30</option><option value="60">60</option></select>
+    <label><input type="checkbox" id="ovl" checked> show ground units</label>
+    <select id="colormode"><option value="team">colour: team</option><option value="orders">colour: orders</option></select>
+  </div>
+  <input type="range" id="seek" min="0" max="0" value="0">
+  <h3>Scripted events fired so far</h3>
+  <div id="evs" style="color:#ffc24a">-</div>
+  <h3>Ground action</h3>
+  <table id="acts"></table>
+  <h3>Objectives held</h3>
+  <table id="objs"></table>
+  <h3>Vehicles (ground / AD / aircraft / ships)</h3>
+  <table id="veh"></table>
+  <h3>Objectives held over time</h3>
+  <canvas id="chart" width="320" height="140" style="height:140px"></canvas>
+  <div id="verdict"></div>
+</div>
+<div id="map"><canvas id="c"></canvas><div id="tip" style="position:absolute;display:none;pointer-events:none;background:#000c;padding:4px 6px;border-radius:4px;font-size:12px;white-space:pre"></div></div>
+<script>
+const COL = {1:'#4aa3ff',2:'#3ddc84',3:'#9be7ff',4:'#c9a0ff',5:'#ffd23f',6:'#ff4d4d',7:'#999'};
+const BLUE = new Set([1,2,3]);
+const ORD = ['reserve','CAPTURE','secure','assault','airborne','commando','defend','support','repair','air defense','recon','radar'];
+const ORD_COL = {0:'#8a93a0',1:'#ff9f1c',2:'#ffd23f',3:'#ff5d8f',4:'#c77dff',5:'#c77dff',6:'#5ec2ff',7:'#6ad1a3',8:'#6ad1a3',9:'#b0b8c4',10:'#6ad1a3',11:'#b0b8c4'};
+const TAC = {13:'defend',14:'delay hold',15:'delay fallback',16:'move airborne',17:'move marine',18:'brigade column',19:'repair',20:'support unit',21:'support',22:'column',23:'overwatch 1',24:'overwatch 2',25:'wedge',26:'echelon',27:'reserve',28:'hold',29:'WAIT TIL READY',30:'withdraw'};
+const ACT = {0:'-',1:'defensive',2:'consolidate',3:'minor offensive',4:'OFFENSIVE'};
+const KIND = ['battalion','brigade','squadron','task force','flight'];
+let meta=null, frames=[], fin=null, idx=0, playing=false, last=0;
+let objOwner = new Map();          // campId -> team for the frame being shown
+let objState = [];                 // per-frame full owner map snapshots are rebuilt by replay
+const $ = id => document.getElementById(id);
+const cv = $('c'), g = cv.getContext('2d');
+const bg = new Image(); bg.src = 'backdrop.png';
+bg.onload = draw;
+
+async function listRuns() {
+  const r = await fetch('runs.json').then(x => x.json()).catch(() => []);
+  $('runs').innerHTML = r.map(n => `<option>${n}</option>`).join('');
+  const want = new URLSearchParams(location.search).get('run');   // lab.html "replay" links
+  if (want && r.includes(want)) $('runs').value = want;
+  if (r.length) load();
+}
+async function load() {
+  const name = $('runs').value; if (!name) return;
+  const txt = await fetch('runs/' + name).then(x => x.text());
+  frames = []; fin = null; meta = null;
+  for (const ln of txt.split('\n')) {
+    if (!ln) continue;
+    const o = JSON.parse(ln);
+    if (o.meta) meta = o; else if (o.final) fin = o; else frames.push(o);
+  }
+  // Replay objective changes once so seeking is O(objectives).
+  const cur = new Map(meta.objs.map(o => [o[0], o[4]]));
+  for (const f of frames) {
+    for (const [id, team] of f.o) cur.set(id, team);
+    f.owners = new Map(cur);
+  }
+  $('seek').max = frames.length - 1;
+  idx = 0; $('seek').value = 0;
+  chart(); show(0);
+  verdict();
+}
+function sumSide(s, teams, k) { let t = 0; for (const i of teams) t += s[i][k]; return t; }
+function verdict() {
+  if (!frames.length) return;
+  const a = frames[0].s, b = frames[frames.length-1].s;
+  const B = [1,2,3], D = [5,6];
+  const ob = sumSide(b, B, 4), od = sumSide(b, D, 4);
+  const ob0 = sumSide(a, B, 4), od0 = sumSide(a, D, 4);
+  const gb = sumSide(b,B,0)/Math.max(1,sumSide(a,B,0)), gd = sumSide(b,D,0)/Math.max(1,sumSide(a,D,0));
+  const days = (frames[frames.length-1].t / 1440).toFixed(1);
+  let w = Math.abs(ob-ob0) + Math.abs(od-od0) < 15 ? 'Stalemate - the front barely moved' :
+          (ob - ob0 > od - od0 ? 'Blue is gaining ground' : 'DPRK is gaining ground');
+  $('verdict').innerHTML = `<b>After ${days} days:</b> ${w}.<br>Objectives Blue ${ob0}→${ob}, DPRK ${od0}→${od}.<br>` +
+    `Ground strength left: Blue ${(gb*100).toFixed(0)}%, DPRK ${(gd*100).toFixed(0)}%.<br>` +
+    `Engine endgame flag: ${fin ? fin.endgame : 'run incomplete'}`;
+}
+function chart() {
+  const c = $('chart').getContext('2d'), W = 320, H = 140;
+  c.clearRect(0,0,W,H);
+  if (!frames.length) return;
+  let mx = 1;
+  const series = [['Blue',[1,2,3],'#4aa3ff'],['DPRK+PRC',[5,6],'#ff4d4d']];
+  for (const f of frames) for (const [,t] of series) mx = Math.max(mx, sumSide(f.s,t,4));
+  for (const [,t,col] of series) {
+    c.beginPath(); c.strokeStyle = col;
+    frames.forEach((f,i) => { const x = i/(frames.length-1||1)*W, y = H - sumSide(f.s,t,4)/mx*H;
+      i ? c.lineTo(x,y) : c.moveTo(x,y); });
+    c.stroke();
+  }
+  $('chart')._mx = mx;
+}
+function show(i) {
+  idx = i; $('seek').value = i;
+  const f = frames[i]; if (!f) return;
+  const days = Math.floor(f.t/1440), h = Math.floor(f.t%1440/60);
+  $('clock').textContent = `Day ${days} +${String(h).padStart(2,'0')}h  (frame ${i+1}/${frames.length})`;
+  const EVN = {7:'Blue past DMZ',9:'Blue offensive (E5)',11:'China joins',12:'Russia joins',14:'DPRK wins',15:'stalemate',16:'timeout',17:'Blue wins'};
+  $('evs').textContent = f.ev ? (f.ev.map(e => EVN[e] ? `${e} ${EVN[e]}` : e).join(', ') || 'none') : 'not recorded in this run';
+  const row = (name, teams) => {
+    return `<tr><td><span class="sw" style="background:${COL[teams[teams.length-1]]}"></span>${name}</td>`;
+  };
+  const sides = [['Blue (US/ROK/JP)',[1,2,3]],['DPRK+PRC',[5,6]],['CIS',[4]]];
+  $('objs').innerHTML = sides.map(([n,t]) => row(n,t) + `<td>${sumSide(f.s,t,4)}</td></tr>`).join('');
+  $('veh').innerHTML = '<tr><th></th><th>gnd</th><th>AD</th><th>air</th><th>sea</th></tr>' +
+    sides.map(([n,t]) => row(n,t) + [0,1,2,3].map(k => `<td>${sumSide(f.s,t,k)}</td>`).join('') + '</tr>').join('');
+  if (f.a) {
+    const at = (name, ts) => { const a = f.a[ts[ts.length-1]] || [0,0,0,0,0];
+      return `<tr><td><span class="sw" style="background:${COL[ts[ts.length-1]]}"></span>${name}</td><td style="text-align:left">${ACT[a[0]]||a[0]}</td><td>pts ${a[2]}</td><td>init ${a[3]}</td></tr>`; };
+    $('acts').innerHTML = at('Blue (ROK)', [2]) + at('DPRK', [6]);
+  }
+  draw();
+}
+function resize() { cv.width = cv.clientWidth; cv.height = cv.clientHeight; draw(); }
+function draw() {
+  g.fillStyle = '#0b1a2b'; g.fillRect(0,0,cv.width,cv.height);
+  if (!meta || !frames.length) return;
+  const S = Math.min(cv.width, cv.height), ox = (cv.width - S)/2, oy = (cv.height - S)/2, k = S/1024;
+  if (bg.complete && bg.naturalWidth) { g.globalAlpha = .75; g.drawImage(bg, ox, oy, S, S); g.globalAlpha = 1; }
+  const X = x => ox + x*k, Y = y => oy + (1024 - y)*k;
+  const f = frames[idx];
+  for (const o of meta.objs) {
+    const t = f.owners.get(o[0]); if (t === 0 || t === undefined) continue;
+    const big = o[3] === 1 || o[3] === 2;
+    g.fillStyle = COL[t] || '#888';
+    const r = big ? 3.2 : 1.1;
+    g.globalAlpha = big ? 1 : .55;
+    g.fillRect(X(o[1]) - r, Y(o[2]) - r, r*2, r*2);
+  }
+  g.globalAlpha = 1;
+  if ($('ovl').checked) for (const u of f.u) {
+    const [, kind, team, x, y, veh, full] = u;
+    if (kind > 1 && kind !== 4) continue;
+    g.fillStyle = ($('colormode').value === 'orders' && kind <= 1) ? (ORD_COL[u[9]] || '#888') : (COL[team] || '#888');
+    if (kind === 4) { g.fillRect(X(x)-1, Y(y)-1, 3, 3); continue; }
+    const r = 2 + 3*Math.sqrt(veh/Math.max(1,full));
+    g.strokeStyle = '#000'; g.lineWidth = 1;
+    g.beginPath(); g.arc(X(x), Y(y), r, 0, 7); g.fill(); g.stroke();
+  }
+}
+function tick(ts) {
+  if (playing && frames.length) {
+    const step = 1000 / $('speed').value;
+    if (ts - last >= step) { last = ts; if (idx < frames.length - 1) show(idx + 1); else playing = false, $('play').textContent = 'Play'; }
+  }
+  requestAnimationFrame(tick);
+}
+$('play').onclick = () => { playing = !playing; $('play').textContent = playing ? 'Pause' : 'Play'; };
+$('seek').oninput = e => show(+e.target.value);
+$('ovl').onchange = draw;
+$('colormode').onchange = draw;
+cv.addEventListener('mousemove', e => {
+  const tip = $('tip');
+  if (!meta || !frames.length) { tip.style.display = 'none'; return; }
+  const r = cv.getBoundingClientRect(), S = Math.min(cv.width, cv.height), ox = (cv.width - S)/2, oy = (cv.height - S)/2, k = S/1024;
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  let best = null, bd = 100;
+  for (const u of frames[idx].u) {
+    if (u[1] > 1 && u[1] !== 4) continue;
+    const dx = ox + u[3]*k - mx, dy = oy + (1024 - u[4])*k - my, d = dx*dx + dy*dy;
+    if (d < bd) { bd = d; best = u; }
+  }
+  if (!best) { tip.style.display = 'none'; return; }
+  const u = best;
+  tip.textContent = `${KIND[u[1]]} #${u[0]}  team ${meta.teams[u[2]] || u[2]}
+@ ${u[3]},${u[4]}   vehicles ${u[5]}/${u[6]}` +
+    (u[1] <= 1 ? `
+morale ${u[8]}  supply ${u[11]}
+orders ${ORD[u[9]] || u[9]}   tactic ${TAC[u[10]] || u[10]}` : '');
+  tip.style.left = (mx + 14) + 'px'; tip.style.top = (my + 14) + 'px'; tip.style.display = 'block';
+});
+cv.addEventListener('mouseleave', () => { $('tip').style.display = 'none'; });
+$('load').onclick = load;
+addEventListener('resize', resize);
+resize(); listRuns(); requestAnimationFrame(tick);
+</script>

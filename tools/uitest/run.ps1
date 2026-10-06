@@ -2,8 +2,9 @@
 #
 #   tools\uitest\run.ps1 -Script smoke.txt [-UiSize 1365x768] [-Renderer vulkan] [-Deploy] [-Png <dir>]
 #
-# -Deploy copies this worktree's Falcon4___x64_Release\FFViper.exe to <Install>\FFViper-ui.exe first,
-# so the build the install normally runs (FFViper.exe) is never touched. Scripts live in
+# -Deploy copies this worktree's Falcon4___x64_Release\FFViper.exe to <Install>\FFViper.exe first (the
+# harness used to run a separate FFViper-ui.exe to protect the rail build; the UI work is in main now),
+# so -Deploy replaces the game you play: leave it off to test the exe already installed. Scripts live in
 # <Install>\uitest\ (this folder's *.txt are copied there on every run). Results land in
 # <Install>\uitest\out\: result.log, *.json layout dumps, and *.bmp, converted to PNG in -Png.
 # The exit code is 0 only when the log ends in DONE with no FAIL lines. See UI-OVERHAUL.md.
@@ -18,7 +19,7 @@ param(
     [string]$Install = "C:\FreeFalcon6",
     [string]$Png = "",
     [int]$TimeoutSec = 240,
-    [string]$ExeName = "FFViper-ui.exe" # another name when Andrew has FFViper-ui.exe open
+    [string]$ExeName = "FFViper.exe" # the install's game; refuses to run while it is open
 )
 
 $ErrorActionPreference = "Stop"
