@@ -60,6 +60,10 @@ def one(path):
     r["t_rode"], r["t_full"], r["t_arrived"], r["t_stopped"], r["t_contact"] = (
         int(last[1]), int(last[2]), int(last[3]), int(last[4]), int(last[5]))
     r["t_china"] = len(re.findall(r"\(team \d+, country 5\) rides", rail))
+    r["t_russia"] = len(re.findall(r"\(team \d+, country 4\) rides", rail))
+    # rides that use a cross-border line at either end (Shendan/Shenji/Meiji/Khasan/Hambuk)
+    r["t_border"] = len(re.findall(r"rides \d+ km, (?:Shen|Meiji|Khasan|Hambuk)[^,]*km \d+ to", rail)) + len(
+        re.findall(r"rides \d+ km, [^,]* to (?:Shen|Meiji|Khasan|Hambuk)", rail))
     # China: battalions of team 5 in the first frame -- net km moved, and km to the nearest
     # Blue-held objective at the end (how close to the front it got)
     first = frames[0]
@@ -126,6 +130,8 @@ def main():
                 med(col("t_arrived")), med(col("t_stopped")), med(col("t_contact")))),
             ("  refused: all trains in use", med(col("t_full"))),
             ("  rides by Chinese battalions", med(col("t_china"))),
+            ("  rides by Russian battalions", med(col("t_russia"))),
+            ("  rides touching a cross-border line", med(col("t_border"))),
             ("China km moved (median bn)", med(col("china_moved"))),
             ("China vehicles left %", med(col("china_alive"))),
         ]))

@@ -1944,6 +1944,21 @@ bool RailTryBoard(UnitClass *u, GridIndex dx, GridIndex dy)
         return false;
 
     const int team = u->GetTeam();
+
+    // A side at peace with everyone does not mobilise the railway. Korea Escalation stages China and
+    // Russia inside North Korea while they are still neutral, and their own planner sends some of them
+    // home: by rail they reached Shenyang or Khasan before their country joined (campsim, 6 runs: 43
+    // Chinese battalions inside China at h24 with trains, 12 without).
+    {
+        bool atWar = false;
+
+        for (int t = 1; t < NUM_TEAMS and not atWar; t++)
+            atWar = t not_eq team and TeamInfo[t] and IsHostile(team, t);
+
+        if (not atWar)
+            return false;
+    }
+
     const float px = u->XPos(), py = u->YPos();
     const float qx = GridToSim(dy), qy = GridToSim(dx); // sim x north = grid y
     const float trip = hypotf(qx - px, qy - py);
