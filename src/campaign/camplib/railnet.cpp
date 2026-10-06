@@ -1541,6 +1541,7 @@ extern int g_nRailTroopTransferMin;
 extern int g_nRailTroopSavePct;
 extern int g_nRailTroopTrains;
 extern int g_nRailTroopStandoffKm;
+extern int g_nRailTroopContactKm;
 
 namespace
 {
@@ -2170,14 +2171,24 @@ bool RailMoveRider(UnitClass *u, int *ret)
     // In contact with enemy ground forces on the way: off the train at once, and fight from here.
     // Air attack does not stop it -- the strike's losses fall on the battalion as on any column,
     // and the train runs on (Engaged() is set by any shot, so the target is what tells them apart).
+    // Only a foe within RailTroopContactKm counts: a battalion targets ground units at detection
+    // range, and in campsim the median "contact" was 40 km away.
     CampEntity foe = u->Engaged() ? u->GetCampTarget() : nullptr;
+    const float contactFt = (g_nRailTroopContactKm > 0 ? g_nRailTroopContactKm : 0) * GRID_SIZE_FT;
 
-    if (foe and not foe->IsFlight() and not rd->stopped)
+    if (foe and not foe->IsFlight() and not rd->stopped and
+        hypotf(foe->XPos() - x, foe->YPos() - y) <= contactFt)
     {
         u->SimSetLocation(x, y, 0.0F);
-        Log("rail: troops -- battalion %d in contact with enemy ground unit %d while riding: got off at "
-            "(%.0f, %.0f)",
-            u->GetCampID(), foe->GetCampID(), y / GRID_SIZE_FT, x / GRID_SIZE_FT);
+        const char *phase = now < rd->tBoard ? "walking to the line"
+                            : now < rd->tDepart ? "entraining"
+                            : now < rd->tArrive ? "riding" : "detraining";
+        const Sample &stop = NodeSample(rd->steps.back().node);
+        Log("rail: troops -- battalion %d in contact with enemy ground unit %d while %s: got off at "
+            "(%.0f, %.0f), %.0f km from where it set out, %.0f km short of its stop, foe %.0f km away",
+            u->GetCampID(), foe->GetCampID(), phase, y / GRID_SIZE_FT, x / GRID_SIZE_FT,
+            hypotf(x - rd->px, y - rd->py) / GRID_SIZE_FT, hypotf(stop.x - x, stop.y - y) / GRID_SIZE_FT,
+            hypotf(foe->XPos() - x, foe->YPos() - y) / GRID_SIZE_FT);
         g_tstats.interrupted++;
         g_reboard.push_back(std::make_pair(u->Id(), now));
         g_riders.erase(g_riders.begin() + (rd - &g_riders[0]));
