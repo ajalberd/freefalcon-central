@@ -4,7 +4,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <algorithm>
 #include <mutex>
+#include <queue>
 #include <string>
 #include <vector>
 #include "cmpglobl.h"
@@ -100,6 +102,7 @@ std::vector<Route> g_routes;
 std::vector<Train> g_trains;
 std::string g_loadedDir;
 bool g_loadTried = false;
+int g_routeGen = 0; // bumped on every route load (troop network rebuild)
 
 void Log(const char *fmt, ...)
 {
@@ -124,6 +127,7 @@ bool LoadRoutes()
     g_routes.clear();
     g_trains.clear();
     g_bridgesBound = false;
+    g_routeGen++;
 
     char path[_MAX_PATH];
     sprintf_s(path, "%s\\rail.txt", FalconTerrainDataDir);
@@ -992,6 +996,8 @@ void UnitClass::SetTrain(int p)
 // returns at once), so the tick reads routes without the lock. Train records
 // are copied out under the lock, worked on, and written back, so the objective
 // scans in FindTermini never hold up the sim thread's per-car RailTrainPose.
+void RailTroopTick(const std::vector<std::vector<char>> &downs);
+
 void RailCampaignTick(int startup)
 {
     if (not g_bRailTrains or not FalconLocalGame or not FalconLocalGame->IsLocal())
@@ -1046,6 +1052,8 @@ void RailCampaignTick(int startup)
             }
         }
     }
+
+    RailTroopTick(downs); // Artscout - 2026: troop trains (below)
 
     // Every live train unit gets a record of its own on its nearest line -- placed in a TE,
     // from a save, or spawned here -- so several trains can share a line, each at its own
@@ -1497,4 +1505,751 @@ float RailDistanceKm(float simX, float simY)
     }
 
     return best < 0.0F ? best : best / GRID_SIZE_FT;
+}
+
+// ---------------------------------------------------------------- troop trains
+//
+// A battalion with a new destination, about to plan its road march (BattalionClass::MoveUnit,
+// just before BuildGroundWP), asks RailTryBoard whether the railway is faster. The network is
+// every route sampled every 2 km (the same samples FindTermini judges ownership on), joined where
+// one route's end lies within JUNCTION_FT of another route. Each campaign stage the samples are
+// refreshed: owner (nearest objective), cut (on or next to a dropped bridge) and safe (friendly
+// with no hostile sample within RailFrontStandoff along the line -- where troops may detrain).
+//
+// The rule, all in hours, for a trip from P to D:
+//   road = 1.3 x |PD| / RailTroopRoadKph
+//   rail = walk to the line + RailTroopLoadMin + ride / RailTrainSpeed
+//          + RailTroopTransferMin per change of line + RailTroopLoadMin + walk to D
+//   walks are 1.3 x straight line / RailTroopRoadKph, each at most RailTroopWalkKm;
+//   the ride crosses only samples not hostile to the battalion and not cut.
+// It rides if |PD| >= RailTroopMinKm, rail <= road x (100 - RailTroopSavePct)%, and fewer than
+// RailTroopTrains of its side are riding. Otherwise it marches as before.
+//
+// A rider's position is a pure function of game time along its planned journey, like a train's.
+// It leaves the ground planner (and the GTM) until it detrains; then it marches the last leg to
+// its destination with the orders it had. If the line ahead turns hostile or a bridge on it
+// drops, it stops where it is and detrains there; if it is engaged, it gets off at once.
+// Riders are not saved: a battalion riding when the game is saved marches on from where it was.
+
+extern bool g_bRailTroops;
+extern int g_nRailTroopMinKm;
+extern int g_nRailTroopRoadKph;
+extern int g_nRailTroopWalkKm;
+extern int g_nRailTroopLoadMin;
+extern int g_nRailTroopTransferMin;
+extern int g_nRailTroopSavePct;
+extern int g_nRailTroopTrains;
+
+namespace
+{
+const float JUNCTION_FT = 5.0F * GRID_SIZE_FT; // a route end this close to another route joins it
+const float ROAD_DETOUR = 1.3F;                 // road length over straight line
+const double REBOARD_SEC = 2.0 * 3600.0;        // after detraining, march for at least this long
+
+struct Sample
+{
+    float x, y;
+    short owner;
+    char cut, safe;
+};
+
+struct Junction
+{
+    int a, b;    // global sample indices
+    float hopFt; // straight line between them
+};
+
+std::vector<std::vector<Sample>> g_samples; // per route
+std::vector<int> g_sampleBase;              // global index of each route's sample 0
+std::vector<Junction> g_junctions;
+int g_sampleCount = 0;
+int g_netBuilt = -1; // g_routeGen the net was built for
+
+struct RideStep
+{
+    int node;  // global sample index
+    double t;  // game seconds when the rider is there
+};
+
+struct Rider
+{
+    VU_ID id;
+    int team;
+    float px, py;            // where it started walking
+    double tBoard, tDepart;  // reaches the line; train leaves
+    double tArrive, tRelease;
+    std::vector<RideStep> steps;
+    bool stopped;            // cut short: detrains at (sx, sy)
+    float sx, sy;
+    float destX, destY;
+};
+
+std::vector<Rider> g_riders;
+std::vector<std::pair<VU_ID, double>> g_reboard; // detrained at; no new ride before + REBOARD_SEC
+
+struct TroopStats
+{
+    int asked, rode, tooShort, noLine, noReach, notFaster, full, stopped, arrived, interrupted;
+} g_tstats = {0};
+double g_tstatsLogged = -1.0;
+
+int SampleRoute(int node)
+{
+    int r = 0;
+
+    while (r + 1 < (int)g_sampleBase.size() and g_sampleBase[r + 1] <= node)
+        r++;
+
+    return r;
+}
+
+const Sample &NodeSample(int node)
+{
+    const int r = SampleRoute(node);
+    return g_samples[r][node - g_sampleBase[r]];
+}
+
+// Samples and junctions, once per route load (under g_lock).
+void BuildNet()
+{
+    if (g_netBuilt == g_routeGen)
+        return;
+
+    g_netBuilt = g_routeGen;
+    g_riders.clear();
+    g_samples.assign(g_routes.size(), {});
+    g_sampleBase.assign(g_routes.size(), 0);
+    g_junctions.clear();
+    g_sampleCount = 0;
+
+    for (size_t ri = 0; ri < g_routes.size(); ri++)
+    {
+        const Route &r = g_routes[ri];
+        const int n = (int)(r.len / SAMPLE_FT) + 1;
+        g_sampleBase[ri] = g_sampleCount;
+        g_samples[ri].resize(n);
+
+        for (int i = 0; i < n; i++)
+        {
+            float yaw;
+            Sample &sm = g_samples[ri][i];
+            PointAt(r, i * SAMPLE_FT, &sm.x, &sm.y, &yaw);
+            sm.owner = 0;
+            sm.cut = 0;
+            sm.safe = 0;
+        }
+
+        g_sampleCount += n;
+    }
+
+    for (size_t ra = 0; ra < g_routes.size(); ra++)
+    {
+        const int na = (int)g_samples[ra].size();
+
+        for (int end = 0; end < 2; end++)
+        {
+            const int ia = end ? na - 1 : 0;
+            const Sample &ea = g_samples[ra][ia];
+
+            for (size_t rb = 0; rb < g_routes.size(); rb++)
+            {
+                if (rb == ra)
+                    continue;
+
+                float off;
+                const float s = Project(g_routes[rb], ea.x, ea.y, &off);
+
+                if (off > JUNCTION_FT)
+                    continue;
+
+                int ib = (int)(s / SAMPLE_FT + 0.5F);
+                ib = ib < 0 ? 0 : (ib >= (int)g_samples[rb].size() ? (int)g_samples[rb].size() - 1 : ib);
+                const Sample &eb = g_samples[rb][ib];
+                Junction j = {g_sampleBase[ra] + ia, g_sampleBase[rb] + ib, hypotf(eb.x - ea.x, eb.y - ea.y)};
+                bool dup = false;
+
+                for (const Junction &k : g_junctions)
+                    dup = dup or (k.a == j.b and k.b == j.a) or (k.a == j.a and k.b == j.b);
+
+                if (not dup)
+                {
+                    g_junctions.push_back(j);
+                    Log("rail: troops -- junction %s km %.0f <-> %s km %.0f (%.1f km apart)",
+                        g_routes[ra].name.c_str(), ia * SAMPLE_FT / GRID_SIZE_FT,
+                        g_routes[rb].name.c_str(), ib * SAMPLE_FT / GRID_SIZE_FT,
+                        j.hopFt / GRID_SIZE_FT);
+                }
+            }
+        }
+    }
+}
+
+// Owner / cut / safe for every sample; campaign thread, each stage.
+void TroopRefresh(const std::vector<std::vector<char>> &downs)
+{
+    {
+        std::lock_guard<std::mutex> hold(g_lock);
+        BuildNet();
+    }
+
+    std::vector<std::vector<Sample>> fresh;
+    {
+        std::lock_guard<std::mutex> hold(g_lock);
+        fresh = g_samples;
+    }
+
+    const int standoff = (int)((g_nRailFrontStandoff > 0 ? g_nRailFrontStandoff : 0) * GRID_SIZE_FT / SAMPLE_FT + 0.5F);
+
+    for (size_t ri = 0; ri < fresh.size(); ri++)
+    {
+        std::vector<Sample> &v = fresh[ri];
+        const Route &r = g_routes[ri];
+        const int n = (int)v.size();
+
+        for (int i = 0; i < n; i++)
+        {
+            Objective o = FindNearestObjective(GridOf(v[i].y), GridOf(v[i].x), NULL);
+            v[i].owner = (short)(o ? o->GetTeam() : 0);
+            v[i].cut = 0;
+        }
+
+        for (size_t k = 0; k < r.bridges.size() and ri < downs.size() and k < downs[ri].size(); k++)
+        {
+            if (not downs[ri][k])
+                continue;
+
+            const Span &sp = r.bridges[k];
+            const int mid = (int)(0.5F * (sp.s0 + sp.s1) / SAMPLE_FT + 0.5F);
+
+            for (int i = 0; i < n; i++)
+                if (i * SAMPLE_FT >= sp.s0 - CUT_STANDOFF_FT and i * SAMPLE_FT <= sp.s1 + CUT_STANDOFF_FT)
+                    v[i].cut = 1;
+
+            if (mid >= 0 and mid < n)
+                v[mid].cut = 1;
+        }
+
+        // safe = no sample of another, hostile-to-the-owner team within the standoff
+        for (int i = 0; i < n; i++)
+        {
+            bool safe = v[i].owner > 0 and not v[i].cut;
+
+            for (int j = i - standoff; safe and j <= i + standoff; j++)
+                if (j >= 0 and j < n and v[j].owner > 0 and IsHostile(v[i].owner, v[j].owner))
+                    safe = false;
+
+            v[i].safe = safe ? 1 : 0;
+        }
+    }
+
+    std::lock_guard<std::mutex> hold(g_lock);
+    g_samples.swap(fresh);
+}
+
+// Can a battalion of `team` be at this sample (ride through it)?
+bool Passable(const Sample &sm, int team)
+{
+    return not sm.cut and not(sm.owner > 0 and IsHostile(team, sm.owner));
+}
+
+// Detrain here? The sample must be safe for the owner, and the owner a friend of the team.
+bool Alightable(const Sample &sm, int team)
+{
+    return sm.safe and sm.owner > 0 and not IsHostile(team, sm.owner) and Passable(sm, team);
+}
+
+float RoadFps()
+{
+    return (g_nRailTroopRoadKph > 1 ? g_nRailTroopRoadKph : 1) * KPH_FPS;
+}
+
+double WalkSec(float ft)
+{
+    return ROAD_DETOUR * ft / RoadFps();
+}
+
+double LoadSec()
+{
+    return (g_nRailTroopLoadMin > 0 ? g_nRailTroopLoadMin : 0) * 60.0;
+}
+
+double TransferSec()
+{
+    return (g_nRailTroopTransferMin > 0 ? g_nRailTroopTransferMin : 0) * 60.0;
+}
+
+Rider *FindRider(VU_ID id)
+{
+    for (Rider &r : g_riders)
+        if (r.id == id)
+            return &r;
+
+    return nullptr;
+}
+
+// Position of a rider at game time t (sim feet); *moving = on the move.
+void RiderPos(const Rider &r, double t, float *x, float *y, int *moving)
+{
+    *moving = 0;
+
+    if (r.stopped)
+    {
+        *x = r.sx;
+        *y = r.sy;
+        return;
+    }
+
+    const Sample &b = NodeSample(r.steps.front().node);
+
+    if (t < r.tBoard)
+    {
+        // walking from (px, py) to the line, started at tBoard - WalkSec
+        const double walk = WalkSec(hypotf(b.x - r.px, b.y - r.py));
+        const double f = walk > 0.0 ? 1.0 - (r.tBoard - t) / walk : 1.0;
+        const float k = (float)(f < 0.0 ? 0.0 : (f > 1.0 ? 1.0 : f));
+        *x = r.px + (b.x - r.px) * k;
+        *y = r.py + (b.y - r.py) * k;
+        *moving = 1;
+        return;
+    }
+
+    if (t < r.tDepart)
+    {
+        *x = b.x;
+        *y = b.y;
+        return;
+    }
+
+    for (size_t i = 0; i + 1 < r.steps.size(); i++)
+    {
+        const RideStep &s0 = r.steps[i], &s1 = r.steps[i + 1];
+
+        if (t >= s1.t)
+            continue;
+
+        const int r0 = SampleRoute(s0.node), r1 = SampleRoute(s1.node);
+        const double f = s1.t > s0.t ? (t - s0.t) / (s1.t - s0.t) : 1.0;
+        const float k = (float)(f < 0.0 ? 0.0 : (f > 1.0 ? 1.0 : f));
+
+        if (r0 == r1)
+        {
+            // along the track itself, not the chord between samples
+            const float sA = (s0.node - g_sampleBase[r0]) * SAMPLE_FT;
+            const float sB = (s1.node - g_sampleBase[r0]) * SAMPLE_FT;
+            float yaw;
+            PointAt(g_routes[r0], sA + (sB - sA) * k, x, y, &yaw);
+        }
+        else
+        {
+            // a change of lines: wait at the junction, then the short hop
+            const Sample &a = NodeSample(s0.node), &c = NodeSample(s1.node);
+            const double hold = TransferSec();
+            const double ft = (t - s0.t) < hold ? 0.0 : ((t - s0.t - hold) / ((s1.t - s0.t - hold) > 0 ? (s1.t - s0.t - hold) : 1.0));
+            const float kk = (float)(ft < 0.0 ? 0.0 : (ft > 1.0 ? 1.0 : ft));
+            *x = a.x + (c.x - a.x) * kk;
+            *y = a.y + (c.y - a.y) * kk;
+        }
+
+        *moving = 1;
+        return;
+    }
+
+    const Sample &e = NodeSample(r.steps.back().node);
+    *x = e.x;
+    *y = e.y;
+}
+
+void LogTroopStats(double now, bool force)
+{
+    if (not force and g_tstatsLogged >= 0.0 and now - g_tstatsLogged < 6.0 * 3600.0)
+        return;
+
+    g_tstatsLogged = now;
+    int riding[NUM_TEAMS] = {0};
+
+    for (const Rider &r : g_riders)
+        if (r.team >= 0 and r.team < NUM_TEAMS)
+            riding[r.team]++;
+
+    Log("rail: troops -- so far %d trips weighed: %d by rail, %d marched (%d short, %d no line within reach, "
+        "%d line does not reach the destination, %d road faster, %d trains all in use); %d arrived, %d "
+        "stopped short, %d got off in ground contact; riding now by team: %d %d %d %d %d %d %d %d",
+        g_tstats.asked, g_tstats.rode, g_tstats.asked - g_tstats.rode, g_tstats.tooShort, g_tstats.noLine,
+        g_tstats.noReach,
+        g_tstats.notFaster, g_tstats.full, g_tstats.arrived, g_tstats.stopped, g_tstats.interrupted,
+        riding[0], riding[1], riding[2], riding[3], riding[4], riding[5], riding[6], riding[7]);
+}
+} // namespace
+
+// Called from RailCampaignTick each stage, after the bridge pass.
+void RailTroopTick(const std::vector<std::vector<char>> &downs)
+{
+    if (not g_bRailTroops)
+        return;
+
+    TroopRefresh(downs);
+    const double now = GameSeconds();
+    std::lock_guard<std::mutex> hold(g_lock);
+
+    // dead riders off the books
+    for (size_t i = g_riders.size(); i-- > 0;)
+    {
+        Unit u = (Unit)vuDatabase->Find(g_riders[i].id);
+
+        if (not u or u->IsDead())
+        {
+            Log("rail: troops -- battalion %d destroyed while riding (team %d)", u ? u->GetCampID() : -1,
+                g_riders[i].team);
+            g_riders.erase(g_riders.begin() + i);
+        }
+    }
+
+    for (size_t i = g_reboard.size(); i-- > 0;)
+        if (now - g_reboard[i].second > REBOARD_SEC)
+            g_reboard.erase(g_reboard.begin() + i);
+
+    LogTroopStats(now, false);
+}
+
+bool RailIsRiding(UnitClass *u)
+{
+    if (not u or g_riders.empty())
+        return false;
+
+    std::lock_guard<std::mutex> hold(g_lock);
+    return FindRider(u->Id()) not_eq nullptr;
+}
+
+bool RailTryBoard(UnitClass *u, GridIndex dx, GridIndex dy)
+{
+    if (not g_bRailTrains or not g_bRailTroops or not u or not u->IsBattalion() or u->IsTrain() or
+        u->GetDomain() not_eq DOMAIN_LAND or not u->IsAggregate() or u->Engaged() or u->Retreating() or
+        u->Cargo() or not FalconLocalGame or not FalconLocalGame->IsLocal())
+        return false;
+
+    const double now = GameSeconds();
+    std::lock_guard<std::mutex> hold(g_lock);
+
+    if (g_netBuilt not_eq g_routeGen or g_samples.empty())
+        return false;
+
+    for (const auto &rb : g_reboard)
+        if (rb.first == u->Id())
+            return false;
+
+    if (FindRider(u->Id()))
+        return false;
+
+    const int team = u->GetTeam();
+    const float px = u->XPos(), py = u->YPos();
+    const float qx = GridToSim(dy), qy = GridToSim(dx); // sim x north = grid y
+    const float trip = hypotf(qx - px, qy - py);
+    g_tstats.asked++;
+
+    if (trip < (g_nRailTroopMinKm > 0 ? g_nRailTroopMinKm : 0) * GRID_SIZE_FT)
+    {
+        g_tstats.tooShort++;
+        return false;
+    }
+
+    const float walkMax = (g_nRailTroopWalkKm > 0 ? g_nRailTroopWalkKm : 0) * GRID_SIZE_FT;
+    const double v = SpeedFps();
+    const int N = g_sampleCount;
+    std::vector<double> best(N, 1e30);
+    std::vector<int> prev(N, -1);
+    std::vector<char> done(N, 0);
+    int seeds = 0;
+
+    // Boarding: the nearest passable sample of each route within the walk.
+    for (size_t ri = 0; ri < g_routes.size(); ri++)
+    {
+        float off;
+        const float s = Project(g_routes[ri], px, py, &off);
+
+        if (off > walkMax)
+            continue;
+
+        int i = (int)(s / SAMPLE_FT + 0.5F);
+        i = i < 0 ? 0 : (i >= (int)g_samples[ri].size() ? (int)g_samples[ri].size() - 1 : i);
+        const Sample &sm = g_samples[ri][i];
+
+        if (not Passable(sm, team))
+            continue;
+
+        const int node = g_sampleBase[ri] + i;
+        const double t = WalkSec(hypotf(sm.x - px, sm.y - py)) + LoadSec();
+
+        if (t < best[node])
+            best[node] = t, prev[node] = -1, seeds++;
+    }
+
+    if (not seeds)
+    {
+        g_tstats.noLine++;
+        return false;
+    }
+
+    // Dijkstra over the samples (a few thousand nodes; once per new march order).
+    typedef std::pair<double, int> QItem;
+    std::priority_queue<QItem, std::vector<QItem>, std::greater<QItem>> open;
+
+    for (int i = 0; i < N; i++)
+        if (best[i] < 1e29)
+            open.push(QItem(best[i], i));
+
+    while (not open.empty())
+    {
+        const double bt = open.top().first;
+        const int at = open.top().second;
+        open.pop();
+
+        if (done[at] or bt > best[at])
+            continue;
+
+        done[at] = 1;
+        const int r = SampleRoute(at);
+        const int i = at - g_sampleBase[r];
+        const int n = (int)g_samples[r].size();
+
+        for (int d = -1; d <= 1; d += 2)
+        {
+            const int j = i + d;
+
+            if (j < 0 or j >= n or not Passable(g_samples[r][j], team))
+                continue;
+
+            const double t = bt + SAMPLE_FT / v;
+
+            if (t < best[at + d])
+                best[at + d] = t, prev[at + d] = at, open.push(QItem(t, at + d));
+        }
+
+        for (const Junction &jn : g_junctions)
+        {
+            const int other = jn.a == at ? jn.b : (jn.b == at ? jn.a : -1);
+
+            if (other < 0 or not Passable(NodeSample(other), team))
+                continue;
+
+            const double t = bt + TransferSec() + jn.hopFt / v;
+
+            if (t < best[other])
+                best[other] = t, prev[other] = at, open.push(QItem(t, other));
+        }
+    }
+
+    // Detraining: the safe, friendly sample within the walk of D with the best total.
+    int alight = -1;
+    double railSec = 1e30;
+
+    for (int node = 0; node < N; node++)
+    {
+        if (best[node] >= 1e29)
+            continue;
+
+        const Sample &sm = NodeSample(node);
+        const float off = hypotf(sm.x - qx, sm.y - qy);
+
+        if (off > walkMax or not Alightable(sm, team))
+            continue;
+
+        const double t = best[node] + LoadSec() + WalkSec(off);
+
+        if (t < railSec)
+            railSec = t, alight = node;
+    }
+
+    const double roadSec = WalkSec(trip);
+
+    if (alight < 0)
+    {
+        g_tstats.noReach++;
+        return false;
+    }
+
+    std::vector<int> path;
+
+    for (int k = alight; k >= 0; k = prev[k])
+        path.push_back(k);
+
+    std::reverse(path.begin(), path.end());
+
+    const float rideFt = (float)((best[alight] - best[path.front()]) * v);
+    const int save = g_nRailTroopSavePct < 0 ? 0 : (g_nRailTroopSavePct > 95 ? 95 : g_nRailTroopSavePct);
+
+    if (railSec > roadSec * (100 - save) / 100.0 or rideFt < 0.5F * g_nRailTroopMinKm * GRID_SIZE_FT)
+    {
+        g_tstats.notFaster++;
+        return false;
+    }
+
+    int riding = 0;
+
+    for (const Rider &r : g_riders)
+        riding += r.team == team ? 1 : 0;
+
+    if (riding >= g_nRailTroopTrains)
+    {
+        g_tstats.full++;
+        return false;
+    }
+
+    Rider rd;
+    rd.id = u->Id();
+    rd.team = team;
+    rd.px = px;
+    rd.py = py;
+    const Sample &b = NodeSample(path.front());
+    rd.tBoard = now + WalkSec(hypotf(b.x - px, b.y - py));
+    rd.tDepart = rd.tBoard + LoadSec();
+    const double base = rd.tDepart - best[path.front()];
+
+    for (int node : path)
+    {
+        RideStep st = {node, base + best[node]};
+        rd.steps.push_back(st);
+    }
+
+    rd.tArrive = rd.steps.back().t;
+    rd.tRelease = rd.tArrive + LoadSec();
+    rd.stopped = false;
+    rd.sx = rd.sy = 0.0F;
+    rd.destX = qx;
+    rd.destY = qy;
+    g_riders.push_back(rd);
+    g_tstats.rode++;
+
+    int changes = 0;
+
+    for (size_t k = 0; k + 1 < path.size(); k++)
+        changes += SampleRoute(path[k]) not_eq SampleRoute(path[k + 1]) ? 1 : 0;
+
+    const int r0 = SampleRoute(path.front()), r1 = SampleRoute(alight);
+    Log("rail: troops -- battalion %d (team %d) rides %.0f km, %s km %.0f to %s km %.0f, %d change(s): "
+        "%.1f h by rail vs %.1f h on the road (%.0f km away); %d of %d trains in use",
+        u->GetCampID(), team, rideFt / GRID_SIZE_FT, g_routes[r0].name.c_str(),
+        (path.front() - g_sampleBase[r0]) * SAMPLE_FT / GRID_SIZE_FT, g_routes[r1].name.c_str(),
+        (alight - g_sampleBase[r1]) * SAMPLE_FT / GRID_SIZE_FT, changes, (railSec) / 3600.0,
+        roadSec / 3600.0, trip / GRID_SIZE_FT, riding + 1, g_nRailTroopTrains);
+
+    u->DisposeWayPoints();
+    u->ClearUnitPath();
+    return true;
+}
+
+bool RailMoveRider(UnitClass *u, int *ret)
+{
+    *ret = 0;
+
+    if (not u or g_riders.empty())
+        return false;
+
+    const double now = GameSeconds();
+    std::lock_guard<std::mutex> hold(g_lock);
+    Rider *rd = FindRider(u->Id());
+
+    if (not rd)
+        return false;
+
+    if (u->IsDead())
+    {
+        g_riders.erase(g_riders.begin() + (rd - &g_riders[0]));
+        return false;
+    }
+
+    // Deaggregated (a player nearby): the sim has the vehicles; hold the timetable's place.
+    if (not u->IsAggregate())
+        return true;
+
+    float x, y;
+    int moving;
+    RiderPos(*rd, now, &x, &y, &moving);
+
+    // In contact with enemy ground forces on the way: off the train at once, and fight from here.
+    // Air attack does not stop it -- the strike's losses fall on the battalion as on any column,
+    // and the train runs on (Engaged() is set by any shot, so the target is what tells them apart).
+    CampEntity foe = u->Engaged() ? u->GetCampTarget() : nullptr;
+
+    if (foe and not foe->IsFlight() and not rd->stopped)
+    {
+        u->SimSetLocation(x, y, 0.0F);
+        Log("rail: troops -- battalion %d in contact with enemy ground unit %d while riding: got off at "
+            "(%.0f, %.0f)",
+            u->GetCampID(), foe->GetCampID(), y / GRID_SIZE_FT, x / GRID_SIZE_FT);
+        g_tstats.interrupted++;
+        g_reboard.push_back(std::make_pair(u->Id(), now));
+        g_riders.erase(g_riders.begin() + (rd - &g_riders[0]));
+        u->DisposeWayPoints();
+        u->ClearUnitPath();
+        return false;
+    }
+
+    // The line ahead turned hostile, a bridge on it dropped, or the stop is no longer safe:
+    // stop here and detrain.
+    if (not rd->stopped and now >= rd->tDepart and now < rd->tArrive)
+    {
+        bool blocked = not Alightable(NodeSample(rd->steps.back().node), rd->team);
+
+        for (size_t i = 0; not blocked and i < rd->steps.size(); i++)
+            if (rd->steps[i].t >= now and not Passable(NodeSample(rd->steps[i].node), rd->team))
+                blocked = true;
+
+        if (blocked)
+        {
+            rd->stopped = true;
+            rd->sx = x;
+            rd->sy = y;
+            rd->tArrive = now;
+            rd->tRelease = now + LoadSec();
+            g_tstats.stopped++;
+            Log("rail: troops -- battalion %d: the line ahead is cut or hostile; detrains at (%.0f, %.0f), "
+                "%.0f km short of its stop",
+                u->GetCampID(), y / GRID_SIZE_FT, x / GRID_SIZE_FT,
+                hypotf(NodeSample(rd->steps.back().node).x - x, NodeSample(rd->steps.back().node).y - y) /
+                    GRID_SIZE_FT);
+        }
+    }
+
+    u->SimSetLocation(x, y, 0.0F);
+    u->SetMoving(moving);
+
+    if (now >= rd->tRelease)
+    {
+        if (not rd->stopped)
+            g_tstats.arrived++;
+
+        Log("rail: troops -- battalion %d detrained at (%.0f, %.0f), %.0f km from its destination",
+            u->GetCampID(), y / GRID_SIZE_FT, x / GRID_SIZE_FT,
+            hypotf(rd->destX - x, rd->destY - y) / GRID_SIZE_FT);
+        g_reboard.push_back(std::make_pair(u->Id(), now));
+        g_riders.erase(g_riders.begin() + (rd - &g_riders[0]));
+        u->DisposeWayPoints();
+        u->ClearUnitPath();
+    }
+
+    return true;
+}
+
+int RailGetRiders(RailTrainInfo *out, int max)
+{
+    std::lock_guard<std::mutex> hold(g_lock);
+    const double now = GameSeconds();
+    int n = 0;
+
+    for (const Rider &r : g_riders)
+    {
+        if (n >= max)
+            break;
+
+        float x, y;
+        int moving;
+        RiderPos(r, now, &x, &y, &moving);
+        out[n].simX = x;
+        out[n].simY = y;
+        out[n].team = r.team;
+        out[n].moving = moving;
+        n++;
+    }
+
+    return n;
 }

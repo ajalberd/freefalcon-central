@@ -38,6 +38,7 @@
 #include "invalidbufferexception.h"
 
 #include "debuggr.h"
+#include "railnet.h" // Artscout - 2026: trains and riders take no GTM orders
 
 // =====================
 // Debug Mode
@@ -910,9 +911,9 @@ void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
     int i, role;
     int* why = gGtmWhy[owner];
 
-    // Artscout - 2026: a train is run by railnet.cpp (BattalionClass::MoveUnit hands it over), so
-    // it takes no orders here and must not use up a reserve slot (GtmReservesPerCycle).
-    if (u->IsTrain())
+    // Artscout - 2026: a train, or a battalion riding one, is run by railnet.cpp (BattalionClass::MoveUnit
+    // hands it over), so it takes no orders here and must not use up a reserve slot (GtmReservesPerCycle).
+    if (u->IsTrain() or RailIsRiding(u))
         return;
 
     // Artscout - 2026 (g_bGtmKeepCapture, off = stock): a unit attacking a target that is still a

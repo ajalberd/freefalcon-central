@@ -580,6 +580,14 @@ int BattalionClass::MoveUnit(CampaignTime time)
         return RailMoveTrain(this);
     }
 
+    // Artscout - 2026: a battalion riding a troop train goes where its train goes (railnet.cpp).
+    {
+        int ret;
+
+        if (RailMoveRider(this, &ret))
+            return ret;
+    }
+
     // Check if we have a valid objective
     lo = GetUnitObjective();
 
@@ -736,6 +744,10 @@ int BattalionClass::MoveUnit(CampaignTime time)
 
         if (not w)
         {
+            // Artscout - 2026: a long march may go by rail instead (RailTroops, railnet.cpp).
+            if (RailTryBoard(this, nx, ny))
+                return 0;
+
             if (BuildGroundWP(this) < 0)
             {
                 {

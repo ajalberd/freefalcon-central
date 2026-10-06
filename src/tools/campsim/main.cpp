@@ -2607,6 +2607,30 @@ static void ApplyKnobs(int argc, char **argv)
 
             printf("KNOB g_strRailTrainLines = \"%s\"\n", g_strRailTrainLines);
         }
+        else if (!strcmp(key, "troops"))
+        {
+            extern bool g_bRailTroops;
+            g_bRailTroops = atoi(val) != 0;
+            printf("KNOB g_bRailTroops = %d\n", (int)g_bRailTroops);
+        }
+        else if (!strcmp(key, "troopsave"))
+        {
+            extern int g_nRailTroopSavePct;
+            g_nRailTroopSavePct = atoi(val);
+            printf("KNOB g_nRailTroopSavePct = %d\n", g_nRailTroopSavePct);
+        }
+        else if (!strcmp(key, "trooptrains"))
+        {
+            extern int g_nRailTroopTrains;
+            g_nRailTroopTrains = atoi(val);
+            printf("KNOB g_nRailTroopTrains = %d\n", g_nRailTroopTrains);
+        }
+        else if (!strcmp(key, "troopmin"))
+        {
+            extern int g_nRailTroopMinKm;
+            g_nRailTroopMinKm = atoi(val);
+            printf("KNOB g_nRailTroopMinKm = %d\n", g_nRailTroopMinKm);
+        }
         else if (!strcmp(key, "railload"))
         {
             extern int g_nRailTrainLoad;

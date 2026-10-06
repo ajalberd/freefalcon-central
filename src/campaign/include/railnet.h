@@ -79,6 +79,16 @@ struct RailTrainInfo
 // Running trains, up to `max`; returns how many were written.
 int RailGetTrains(RailTrainInfo *out, int max);
 
+// Troop trains (RailTroops; railnet.cpp "troop trains" for the rule). BattalionClass::MoveUnit
+// asks RailTryBoard just before planning a road march to grid (dx, dy): true = the battalion now
+// rides the railway (its waypoints are cleared). While it rides, RailMoveRider moves it and
+// returns true with MoveUnit's result in *ret; false = not riding (any more), plan as usual.
+// Campaign thread.
+bool RailTryBoard(UnitClass *u, short dx, short dy);
+bool RailMoveRider(UnitClass *u, int *ret);
+bool RailIsRiding(UnitClass *u); // the GTM leaves riders alone
+// Battalions riding right now (position along their journey), for the campaign map.
+int RailGetRiders(RailTrainInfo *out, int max);
 // Distance in km from a sim position to the nearest rail line; -1 if the theater has none.
 // The TE editor uses it to leave a Supply battalion where it was dropped on a line.
 float RailDistanceKm(float simX, float simY);

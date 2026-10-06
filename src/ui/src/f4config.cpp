@@ -1032,6 +1032,15 @@ bool g_bRailTrack =
 bool g_bRailTrackLog =
     false; // Artscout - 2026: every 10 s, log how many track pieces were drawn and how far the exact ground lookup the strip uses is from the approximate one, for chasing flicker. "RailTrackLog".
 int g_nRailTrackRangeKm = 8; // Artscout - 2026: how far from the camera the track strip is drawn, km (1..30). "RailTrackRangeKm".
+bool g_bRailTroops =
+    true; // Artscout - 2026: battalions may ride the railway (railnet.cpp, RAIL.md "Troop trains"). When a battalion with a new destination is about to plan its road march, it boards instead if a friendly line runs from within RailTroopWalkKm of it to within RailTroopWalkKm of the destination and the journey (walk to the line, entrain, ride, change lines, detrain) beats the road by RailTroopSavePct. Needs RailTrains (the rail master switch). "RailTroops".
+int g_nRailTroopMinKm = 40; // Artscout - 2026: trips shorter than this (straight line, km) always march. "RailTroopMinKm".
+int g_nRailTroopRoadKph = 9; // Artscout - 2026: the road march speed the decision assumes, km/h, on a road 1.3x the straight line. 9 is the median speed of moving China/DPRK battalions in campsim (Escalation save, 6 seeds). "RailTroopRoadKph".
+int g_nRailTroopWalkKm = 10; // Artscout - 2026: farthest a battalion walks to a line, and from the line to its destination, km. "RailTroopWalkKm".
+int g_nRailTroopLoadMin = 45; // Artscout - 2026: minutes to entrain, and again to detrain. "RailTroopLoadMin".
+int g_nRailTroopTransferMin = 30; // Artscout - 2026: minutes to change lines at a junction. "RailTroopTransferMin".
+int g_nRailTroopSavePct = 25; // Artscout - 2026: the rail journey must take at least this much less time than the road march, percent. "RailTroopSavePct".
+int g_nRailTroopTrains = 6; // Artscout - 2026: troop trains per side running at once (one battalion each); with all in use, battalions march. "RailTroopTrains".
 int g_nCloudDepthAlpha = 60; // Artscout - 2026: texture alpha, in percent, at which a cumulus puff also writes depth (a second, colour-masked pass in the D3D12 renderer). The puffs are DX2D quads, which never wrote depth, so everything drawn after them showed through: the GPU particles (see ParticlesLast) and, in an external view, your own aircraft (drawn in a later flush). The dense core now occludes them; the soft edge below this alpha still only blends. Objects drawn before the clouds -- other aircraft, ground -- are unaffected: they already sat behind a ~90% opaque puff. 0 = off. "CloudDepthAlpha".
 bool g_bParticlesLast =
     true; // Artscout - 2026: draw the GPU particles (dust, smoke columns, explosions) after the DX2D world quads -- the cumulus puffs, smoke trails and the rail strip -- instead of partway through the scene. Neither writes depth, so whichever draws last paints over the other: with the particles first, a cloud behind a dust plume drew over it. Costs the rarer case, a puff between the eye and the plume. 0 = the old order. "ParticlesLast".
@@ -1787,6 +1796,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"CampMapIconHealth",
      &g_bCampMapIconHealth}, // Artscout - 2026: darken objective icons by damage
     {"RailTrains", &g_bRailTrains}, // Artscout - 2026: trains on the rail routes (railnet.cpp)
+    {"RailTroops", &g_bRailTroops}, // Artscout - 2026: battalions may ride the railway
     {"CampRailLines", &g_bCampRailLines}, // Artscout - 2026: campaign map draws the rail routes
     {"RailMapAllTrains", &g_bRailMapAllTrains}, // Artscout - 2026: mark enemy trains too (test aid)
     {"RailBridgeCuts", &g_bRailBridgeCuts}, // Artscout - 2026: a dropped bridge cuts the railway
@@ -2254,6 +2264,13 @@ static ConfigOption<int> IntOpts[] = {
     {"RailBridgeBindKm", &g_nRailBridgeBindKm}, // Artscout - 2026: bridge objective reach for a rail bridge
     {"RailBridgeMinM", &g_nRailBridgeMinM}, // Artscout - 2026: shortest rail bridge that counts
     {"RailTrackRangeKm", &g_nRailTrackRangeKm}, // Artscout - 2026: track strip draw range
+    {"RailTroopMinKm", &g_nRailTroopMinKm}, // Artscout - 2026: shortest trip by rail
+    {"RailTroopRoadKph", &g_nRailTroopRoadKph}, // Artscout - 2026: assumed road march speed
+    {"RailTroopWalkKm", &g_nRailTroopWalkKm}, // Artscout - 2026: walk to / from the line
+    {"RailTroopLoadMin", &g_nRailTroopLoadMin}, // Artscout - 2026: entrain / detrain minutes
+    {"RailTroopTransferMin", &g_nRailTroopTransferMin}, // Artscout - 2026: line change minutes
+    {"RailTroopSavePct", &g_nRailTroopSavePct}, // Artscout - 2026: time rail must save
+    {"RailTroopTrains", &g_nRailTroopTrains}, // Artscout - 2026: troop trains per side at once
     {"CloudDepthAlpha", &g_nCloudDepthAlpha}, // Artscout - 2026: cumulus cores write depth above this alpha %
     {"PathDamageCost",
      &g_nPathDamageCost}, // Artscout - 2026: damaged roads/bridges cost more to ROUTE through (0 = stock)
