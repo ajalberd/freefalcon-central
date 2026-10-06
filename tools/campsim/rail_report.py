@@ -59,6 +59,7 @@ def one(path):
     last = so[-1] if so else ("0",) * 6
     r["t_rode"], r["t_full"], r["t_arrived"], r["t_stopped"], r["t_contact"] = (
         int(last[1]), int(last[2]), int(last[3]), int(last[4]), int(last[5]))
+    r["t_china"] = len(re.findall(r"\(team \d+, country 5\) rides", rail))
     # China: battalions of team 5 in the first frame -- net km moved, and km to the nearest
     # Blue-held objective at the end (how close to the front it got)
     first = frames[0]
@@ -124,6 +125,7 @@ def main():
             ("  arrived / stopped short / ground contact", "%s / %s / %s" % (
                 med(col("t_arrived")), med(col("t_stopped")), med(col("t_contact")))),
             ("  refused: all trains in use", med(col("t_full"))),
+            ("  rides by Chinese battalions", med(col("t_china"))),
             ("China km moved (median bn)", med(col("china_moved"))),
             ("China vehicles left %", med(col("china_alive"))),
         ]))

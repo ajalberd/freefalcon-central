@@ -1514,7 +1514,8 @@ float RailDistanceKm(float simX, float simY)
 // every route sampled every 2 km (the same samples FindTermini judges ownership on), joined where
 // one route's end lies within JUNCTION_FT of another route. Each campaign stage the samples are
 // refreshed: owner (nearest objective), cut (on or next to a dropped bridge) and safe (friendly
-// with no hostile sample within RailFrontStandoff along the line -- where troops may detrain).
+// with no hostile sample within RailTroopStandoffKm along the line -- where troops may detrain:
+// at 10 km most riders ran into enemy ground units at the stop, campsim 2026-10-05).
 //
 // The rule, all in hours, for a trip from P to D:
 //   road = 1.3 x |PD| / RailTroopRoadKph
@@ -1539,6 +1540,7 @@ extern int g_nRailTroopLoadMin;
 extern int g_nRailTroopTransferMin;
 extern int g_nRailTroopSavePct;
 extern int g_nRailTroopTrains;
+extern int g_nRailTroopStandoffKm;
 
 namespace
 {
@@ -1698,7 +1700,7 @@ void TroopRefresh(const std::vector<std::vector<char>> &downs)
         fresh = g_samples;
     }
 
-    const int standoff = (int)((g_nRailFrontStandoff > 0 ? g_nRailFrontStandoff : 0) * GRID_SIZE_FT / SAMPLE_FT + 0.5F);
+    const int standoff = (int)((g_nRailTroopStandoffKm > 0 ? g_nRailTroopStandoffKm : 0) * GRID_SIZE_FT / SAMPLE_FT + 0.5F);
 
     for (size_t ri = 0; ri < fresh.size(); ri++)
     {
@@ -2125,9 +2127,9 @@ bool RailTryBoard(UnitClass *u, GridIndex dx, GridIndex dy)
         changes += SampleRoute(path[k]) not_eq SampleRoute(path[k + 1]) ? 1 : 0;
 
     const int r0 = SampleRoute(path.front()), r1 = SampleRoute(alight);
-    Log("rail: troops -- battalion %d (team %d) rides %.0f km, %s km %.0f to %s km %.0f, %d change(s): "
+    Log("rail: troops -- battalion %d (team %d, country %d) rides %.0f km, %s km %.0f to %s km %.0f, %d change(s): "
         "%.1f h by rail vs %.1f h on the road (%.0f km away); %d of %d trains in use",
-        u->GetCampID(), team, rideFt / GRID_SIZE_FT, g_routes[r0].name.c_str(),
+        u->GetCampID(), team, (int)u->GetCountry(), rideFt / GRID_SIZE_FT, g_routes[r0].name.c_str(),
         (path.front() - g_sampleBase[r0]) * SAMPLE_FT / GRID_SIZE_FT, g_routes[r1].name.c_str(),
         (alight - g_sampleBase[r1]) * SAMPLE_FT / GRID_SIZE_FT, changes, (railSec) / 3600.0,
         roadSec / 3600.0, trip / GRID_SIZE_FT, riding + 1, g_nRailTroopTrains);

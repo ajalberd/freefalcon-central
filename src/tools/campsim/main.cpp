@@ -2625,6 +2625,12 @@ static void ApplyKnobs(int argc, char **argv)
             g_nRailTroopTrains = atoi(val);
             printf("KNOB g_nRailTroopTrains = %d\n", g_nRailTroopTrains);
         }
+        else if (!strcmp(key, "troopstand"))
+        {
+            extern int g_nRailTroopStandoffKm;
+            g_nRailTroopStandoffKm = atoi(val);
+            printf("KNOB g_nRailTroopStandoffKm = %d\n", g_nRailTroopStandoffKm);
+        }
         else if (!strcmp(key, "troopmin"))
         {
             extern int g_nRailTroopMinKm;

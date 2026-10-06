@@ -1040,6 +1040,7 @@ int g_nRailTroopWalkKm = 10; // Artscout - 2026: farthest a battalion walks to a
 int g_nRailTroopLoadMin = 45; // Artscout - 2026: minutes to entrain, and again to detrain. "RailTroopLoadMin".
 int g_nRailTroopTransferMin = 30; // Artscout - 2026: minutes to change lines at a junction. "RailTroopTransferMin".
 int g_nRailTroopSavePct = 25; // Artscout - 2026: the rail journey must take at least this much less time than the road march, percent. "RailTroopSavePct".
+int g_nRailTroopStandoffKm = 20; // Artscout - 2026: troops only detrain where no enemy-held track is within this many km along the line (supply trains use RailFrontStandoff). At 10, 60 of 82 rides per campsim run ended in contact at the stop. "RailTroopStandoffKm".
 int g_nRailTroopTrains = 6; // Artscout - 2026: troop trains per side running at once (one battalion each); with all in use, battalions march. "RailTroopTrains".
 int g_nCloudDepthAlpha = 60; // Artscout - 2026: texture alpha, in percent, at which a cumulus puff also writes depth (a second, colour-masked pass in the D3D12 renderer). The puffs are DX2D quads, which never wrote depth, so everything drawn after them showed through: the GPU particles (see ParticlesLast) and, in an external view, your own aircraft (drawn in a later flush). The dense core now occludes them; the soft edge below this alpha still only blends. Objects drawn before the clouds -- other aircraft, ground -- are unaffected: they already sat behind a ~90% opaque puff. 0 = off. "CloudDepthAlpha".
 bool g_bParticlesLast =
@@ -2270,6 +2271,7 @@ static ConfigOption<int> IntOpts[] = {
     {"RailTroopLoadMin", &g_nRailTroopLoadMin}, // Artscout - 2026: entrain / detrain minutes
     {"RailTroopTransferMin", &g_nRailTroopTransferMin}, // Artscout - 2026: line change minutes
     {"RailTroopSavePct", &g_nRailTroopSavePct}, // Artscout - 2026: time rail must save
+    {"RailTroopStandoffKm", &g_nRailTroopStandoffKm}, // Artscout - 2026: troop stop distance from the enemy
     {"RailTroopTrains", &g_nRailTroopTrains}, // Artscout - 2026: troop trains per side at once
     {"CloudDepthAlpha", &g_nCloudDepthAlpha}, // Artscout - 2026: cumulus cores write depth above this alpha %
     {"PathDamageCost",
