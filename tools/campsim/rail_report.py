@@ -54,7 +54,25 @@ def one(path):
     r["empty_arrivals"] = sum(1 for a in arr if a[2] == "0")
     r["bridges_down"] = len(set(re.findall(r"bridge at km [\d.]+ \((.*?), objective \d+.*?is DOWN", rail)))
     r["stranded"] = len(re.findall(r"STRANDED", rail))
+    so = re.findall(r"troops -- so far (\d+) trips weighed: (\d+) by rail.*?(\d+) trains all in use\); "
+                    r"(\d+) arrived, (\d+) stopped short, (\d+) got off", rail)
+    last = so[-1] if so else ("0",) * 6
+    r["t_rode"], r["t_full"], r["t_arrived"], r["t_stopped"], r["t_contact"] = (
+        int(last[1]), int(last[2]), int(last[3]), int(last[4]), int(last[5]))
+    # China: battalions of team 5 in the first frame -- net km moved, and km to the nearest
+    # Blue-held objective at the end (how close to the front it got)
+    first = frames[0]
+    china = {u[0]: (u[3], u[4]) for u in first["u"] if u[1] == 0 and u[2] == 5}
+    end = {u[0]: u for u in last_frame_units(frames) if u[1] == 0}
+    moved = [((end[i][3] - x) ** 2 + (end[i][4] - y) ** 2) ** 0.5 for i, (x, y) in china.items() if i in end]
+    r["china_moved"] = statistics.median(moved) if moved else None
+    r["china_alive"] = 100.0 * sum(end[i][5] for i in china if i in end) / max(1, sum(
+        u[5] for u in first["u"] if u[0] in china))
     return r
+
+
+def last_frame_units(frames):
+    return frames[-1]["u"]
 
 
 def med(vals, fmt="%.0f"):
@@ -102,6 +120,12 @@ def main():
             ("supply / fuel handed over", "%s / %s" % (med(col("supply")), med(col("fuel")))),
             ("rail bridges reported down", med(col("bridges_down"))),
             ("stranded runs", med(col("stranded"))),
+            ("troop rides", med(col("t_rode"))),
+            ("  arrived / stopped short / ground contact", "%s / %s / %s" % (
+                med(col("t_arrived")), med(col("t_stopped")), med(col("t_contact")))),
+            ("  refused: all trains in use", med(col("t_full"))),
+            ("China km moved (median bn)", med(col("china_moved"))),
+            ("China vehicles left %", med(col("china_alive"))),
         ]))
     if not rows:
         return

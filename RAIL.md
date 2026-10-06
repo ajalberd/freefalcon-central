@@ -111,6 +111,9 @@ same side, both ends near the same friendly route, distance over roughly
 (`UnloadUnit` has an unfinished "apply damage" TODO to fill in). Phase 4:
 it touches the GTM, which is the riskiest code in the campaign to change.
 
+**Built (2026-10-05), differently:** the battalion rides as itself rather than as cargo, and
+the GTM is not touched -- see "Troop trains" below.
+
 ---
 
 ## v0: what is in the game now (branch `rail-tracks`)
@@ -207,6 +210,14 @@ train from bombs (its sim position is on the ground above).
 | `g_bRailTrack` | 0 | draw the track strip in 3D |
 | `g_bRailTrackLog` | 0 | log `RAILTRACK:` lines (pieces drawn, ground mismatch, draws per eye) |
 | `g_nRailTrackRangeKm` | 8 | how far from the camera the strip is drawn |
+| `g_bRailTroops` | 1 | battalions may ride the railway (needs `g_bRailTrains`) |
+| `g_nRailTroopMinKm` | 40 | trips shorter than this always march |
+| `g_nRailTroopRoadKph` | 9 | road march speed the decision assumes (campsim median for moving battalions) |
+| `g_nRailTroopWalkKm` | 10 | farthest walk to the line, and from the line to the destination |
+| `g_nRailTroopLoadMin` | 45 | minutes to entrain, and again to detrain |
+| `g_nRailTroopTransferMin` | 30 | minutes per change of line |
+| `g_nRailTroopSavePct` | 25 | rail must beat the road by this much |
+| `g_nRailTroopTrains` | 6 | troop trains per side at once, one battalion each |
 
 ### Turning it off again
 
@@ -214,6 +225,59 @@ Set `g_bRailTrains 0`. A train already written into a save stays in that
 save as a Supply battalion that does not move (its `MoveUnit` still returns
 early, because the unit is flagged; with the switch off nothing gives it a
 position to go to).
+
+## Troop trains: when a battalion rides instead of marching
+
+Nothing *orders* a train. The ground war is unchanged: the GTM picks units and objectives
+exactly as before. Rail only changes **how** a battalion gets there. The moment a battalion
+has a new destination and is about to plan its road march (`BattalionClass::MoveUnit`, just
+before `BuildGroundWP`), `RailTryBoard` weighs the two and the faster one wins.
+
+**The network.** Every route sampled every 2 km (the same samples the supply trains use),
+joined where a route's end lies within 5 km of another route: 10 junctions in Korea, so
+Sinuiju -> Pyongyang -> Kaesong or Manpo -> Pyongra -> Kangwon are single journeys. Each
+campaign stage (5 min) every sample gets its owner (nearest objective), whether a dropped
+bridge cuts it, and whether it is *safe* (no hostile sample within `RailFrontStandoff`,
+10 km, along the line: troops never detrain on the front line).
+
+**The rule** for a battalion at P going to D (all times in hours):
+
+```
+road = 1.3 x |PD| / 9 km/h
+rail = walk to the line + 45 min entrain + ride / 50 km/h + 30 min per change of line
+       + 45 min detrain + walk from the line to D
+       (walks: 1.3 x straight line / 9 km/h, each at most 10 km)
+```
+
+It rides when **all** of these hold, else it marches as it always did:
+
+1. the trip is at least 40 km (straight line);
+2. a line is within 10 km of it, and a safe stop on the network is within 10 km of D;
+3. every sample between the two is neither hostile to it nor cut by a dropped bridge;
+4. `rail <= 0.75 x road` (rail saves at least 25%);
+5. fewer than 6 of its side's battalions are riding (rolling stock).
+
+Worked numbers from campsim (Escalation save): a DPRK battalion near Sinuiju sent 185 km
+to the Kangwon front rides 355 km of track with two changes, **9.5 h by rail vs 26.8 h on
+the road**. A 58 km hop down the Pyongbu Line: 5.1 h vs 8.3 h, rides. Below ~30 km the two
+fixed 45-minute loading stops eat the gain and it marches. Rule 2 rejects most orders:
+by day 2 most battalions are off the line (front-line units moving between front objectives).
+
+**On the way.** The rider's position is a function of game time (walk -> entrain -> ride ->
+change -> detrain), like a train's, and it is visible and targetable as itself. The GTM leaves it
+alone until it detrains; then it marches the last leg with the orders it had.
+- Air attack does **not** stop it: strike losses fall on the battalion like on any column.
+- Ground contact (its target is a ground unit) does: it gets off where it is and fights.
+- The line ahead turns hostile, or a bridge on it drops: it stops and detrains there, and
+  marches the rest. **This is the player's lever:** dropping a bridge between China and the
+  front turns a 9 h rail move back into a 27 h march, from that point on.
+- After detraining it marches for at least 2 h before it can board again.
+- Riders are not saved; a battalion riding when the game is saved marches on from where it was.
+
+**What the player sees today:** the battalion's own icon sliding along the line on the campaign
+map, and log lines (`rail: troops -- ...` in FFDebug.log, with a 6-hourly tally of why
+orders marched). In 3D its vehicles are where the campaign puts them -- there is no troop
+train model yet.
 
 ---
 
