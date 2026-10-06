@@ -959,7 +959,8 @@ int GroundClass::Exec(void)
         RailTrackAt railAt;
         UnitClass *railUnit = (UnitClass *)GetCampaignObject();
 
-        if (railUnit and railUnit->IsBattalion() and railUnit->IsTrain() and
+        // (A battalion riding a troop train gets the same treatment: RailTrainPose answers for it too.)
+        if (railUnit and railUnit->IsBattalion() and
             RailTrainPose(railUnit, vehicleInUnit, &railX, &railY, &railYaw, &railSpeed, &railAt))
         {
             if (SimLibMajorFrameTime > 0.0F)
@@ -973,7 +974,7 @@ int GroundClass::Exec(void)
             // (z is down, so the higher of the two is the smaller z). The drawable snaps to the
             // ground itself, so it gets the same lift.
             const float groundZ = OTWDriver.GetGroundLevel(railX, railY);
-            float railLift = DrawRailTopFt();
+            float railLift = railAt.kind == 'g' ? 0.0F : DrawRailTopFt(); // 'g': walking to the train
 
             if (railAt.kind == 'b')
             {

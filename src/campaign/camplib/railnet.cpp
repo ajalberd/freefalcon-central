@@ -1361,10 +1361,15 @@ int RailMoveTrain(UnitClass *u)
     return 0;
 }
 
+bool RailRiderPose(UnitClass *u, int car, float *x, float *y, float *yaw, float *speed, RailTrackAt *at);
+
 bool RailTrainPose(UnitClass *u, int car, float *x, float *y, float *yaw, float *speed,
                    RailTrackAt *at)
 {
-    if (not u or not u->IsTrain())
+    if (u and not u->IsTrain())
+        return RailRiderPose(u, car, x, y, yaw, speed, at); // a battalion on a troop train
+
+    if (not u)
         return false;
 
     std::lock_guard<std::mutex> hold(g_lock);
@@ -1791,9 +1796,15 @@ Rider *FindRider(VU_ID id)
 }
 
 // Position of a rider at game time t (sim feet); *moving = on the move.
-void RiderPos(const Rider &r, double t, float *x, float *y, int *moving)
+// *onRoute / *onS (optional): the route and distance along it while riding on one route; -1 otherwise
+// (walking to the line, loading, changing lines, stopped).
+void RiderPos(const Rider &r, double t, float *x, float *y, int *moving, int *onRoute = nullptr,
+              float *onS = nullptr)
 {
     *moving = 0;
+
+    if (onRoute)
+        *onRoute = -1;
 
     if (r.stopped)
     {
@@ -1841,6 +1852,12 @@ void RiderPos(const Rider &r, double t, float *x, float *y, int *moving)
             const float sB = (s1.node - g_sampleBase[r0]) * SAMPLE_FT;
             float yaw;
             PointAt(g_routes[r0], sA + (sB - sA) * k, x, y, &yaw);
+
+            if (onRoute)
+                *onRoute = r0;
+
+            if (onS)
+                *onS = sA + (sB - sA) * k;
         }
         else
         {
@@ -2280,4 +2297,63 @@ int RailGetRiders(RailTrainInfo *out, int max)
     }
 
     return n;
+}
+
+// A riding battalion's vehicles in 3D (RailTrainPose for a unit that is not a train): car k is where
+// the lead was k car-lengths of travel earlier, so the battalion strings out along the track like a
+// train's cars and bunches at the stops. Walking to the line or loading, they are on the ground
+// (kind 'g': no rail-top lift).
+bool RailRiderPose(UnitClass *u, int car, float *x, float *y, float *yaw, float *speed, RailTrackAt *at)
+{
+    if (g_riders.empty())
+        return false;
+
+    std::lock_guard<std::mutex> hold(g_lock);
+    const Rider *rd = FindRider(u->Id());
+
+    if (not rd)
+        return false;
+
+    const double v = SpeedFps();
+    const double t = GameSeconds() - car * (CAR_SPACING_FT / v);
+    int moving, route;
+    float s, px, py;
+    RiderPos(*rd, t, x, y, &moving, &route, &s);
+    RiderPos(*rd, t - 1.0, &px, &py, &moving);
+
+    const float dx = *x - px, dy = *y - py;
+    *speed = hypotf(dx, dy); // ft per second, over the last second
+    *yaw = *speed > 0.01F ? atan2f(dy, dx) : 0.0F;
+
+    if (*speed <= 0.01F and route >= 0)
+    {
+        float ax, ay;
+        PointAt(g_routes[route], s + 1.0F, &ax, &ay, yaw);
+    }
+
+    if (at)
+    {
+        if (route >= 0)
+        {
+            const Route &r = g_routes[route];
+            size_t i0, i1;
+            at->kind = TrackAt(r, s, &i0, &i1);
+            at->ax = r.x[i0];
+            at->ay = r.y[i0];
+            at->bx = r.x[i1];
+            at->by = r.y[i1];
+            const float runLen = r.s[i1] - r.s[i0];
+            at->t = runLen > 0.0F ? (s - r.s[i0]) / runLen : 0.0F;
+            at->t = at->t < 0.0F ? 0.0F : (at->t > 1.0F ? 1.0F : at->t);
+        }
+        else
+        {
+            at->kind = (t < rd->tDepart or rd->stopped) ? 'g' : '-';
+            at->ax = at->bx = *x;
+            at->ay = at->by = *y;
+            at->t = 0.0F;
+        }
+    }
+
+    return true;
 }

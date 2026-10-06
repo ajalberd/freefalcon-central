@@ -40,6 +40,8 @@ struct RailTrackAt
     float ax, ay, bx, by, t;
 };
 
+// Also answers for a battalion riding a troop train (its vehicles are the cars; kind 'g' while it
+// walks to the line or loads: on the ground, no rail-top lift).
 // Where car `car` of this train sits right now (sim feet, yaw in radians,
 // speed in ft/s), and optionally what the track is there. False if the unit is
 // not a train this module is running.
