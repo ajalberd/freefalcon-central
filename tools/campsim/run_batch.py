@@ -42,6 +42,10 @@ def run_one(a, seed):
         rc = subprocess.run([os.path.join(work, "campsim.exe"), a.game, a.save,
                         str(a.days), str(seed), tl, str(a.every)] + list(a.set),
                        stdout=log, stderr=subprocess.STDOUT, cwd=work)
+    # the engine's own log (rail lines, crash notes) lands beside the exe: keep it with the run
+    dbg = os.path.join(work, "FFDebug.log")
+    if os.path.exists(dbg):
+        shutil.copy(dbg, os.path.join(runs, name + ".ffdebug.log"))
     shutil.rmtree(work, ignore_errors=True)
     if rc.returncode:
         print("seed %d: exe exited 0x%X" % (seed, rc.returncode & 0xFFFFFFFF))

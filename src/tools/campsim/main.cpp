@@ -2590,6 +2590,29 @@ static void ApplyKnobs(int argc, char **argv)
             g_nCounterAttackInitiative = atoi(val);
             printf("KNOB g_nCounterAttackInitiative = %d\n", g_nCounterAttackInitiative);
         }
+        else if (!strcmp(key, "rail"))
+        {
+            extern bool g_bRailTrains;
+            g_bRailTrains = atoi(val) != 0;
+            printf("KNOB g_bRailTrains = %d\n", (int)g_bRailTrains);
+        }
+        else if (!strcmp(key, "raillines")) // comma-separated route prefixes, '_' for a space
+        {
+            extern char g_strRailTrainLines[];
+            strncpy_s(g_strRailTrainLines, 0x100, val, _TRUNCATE);
+
+            for (char *c = g_strRailTrainLines; *c; c++)
+                if (*c == '_')
+                    *c = ' ';
+
+            printf("KNOB g_strRailTrainLines = \"%s\"\n", g_strRailTrainLines);
+        }
+        else if (!strcmp(key, "railload"))
+        {
+            extern int g_nRailTrainLoad;
+            g_nRailTrainLoad = atoi(val);
+            printf("KNOB g_nRailTrainLoad = %d\n", g_nRailTrainLoad);
+        }
         else if (!strcmp(key, "towncost"))
         {
             extern float g_fEnemyTownPathCost;
@@ -3218,6 +3241,9 @@ int main(int argc, char **argv)
             // SetTime); campaign code reads it too, e.g. squadron rebasing waits for it to pass
             // 09:00:50 day 1 ("don't relocate before the campaign has begun").
             SimLibElapsedTime = TheCampaign.CurrentTime;
+            // Same for vuxGameTime, the game clock the campaign thread follows: trains run on it
+            // (railnet.cpp GameSeconds), and without this they stood still at the start time.
+            vuxGameTime = TheCampaign.CurrentTime;
             ApplyAirTempo();
 
             if ((iter % 10) == 0)
