@@ -891,6 +891,8 @@ float g_fSunTodDimRef =
     0.6f; // Artscout - 2026: dim the sun as the TOD TextureLighting falls below this level (its brightest channel). Daytime sits above it (noon 0.85), so only dusk/dawn change: 18:45 -> x0.83, 19:00 -> x0.42, 19:30 -> x0.13. The table itself keeps Diffuse 0.45 / Specular 1.3 until the sun is on the horizon. 0 = no dimming (old).
 float g_fToneMapExposure =
     1.0f; // Artscout - 2026: exposure into the GT7 curve (multiplies the scene before tone mapping). 1.0 = scene white sits on paper white: mid-tones unchanged, highlights clip at ~1.5x white. Lower it to buy highlight headroom (everything darkens), raise it for a brighter, more compressed image.
+float g_fTerrainLightGain =
+    1.25f; // Artscout - 2026: multiplier on the terrain's sun lighting (ambient + sun*N.L). The ground was lit twice: the tile is first scaled by the time-of-day level (0.64 in the 2026-10-10 midday shot) and then by ambient 0.32 + diffuse ~0.6 * N.L 0.78 = ~0.8, so flat ground came out ~0.51 of the texture, about 20% under the stock game (which applied the level once). 1.25 restores that for flat ground at midday; slopes still shade relative to it. 1.0 = the previous look.
 float g_fPitShadowStrength =
     1.0f; // Artscout - 2026: how much a fully occluded sun texel darkens the cockpit surface. 1.0 = the sun term goes to zero in shadow (hard reality), lower = the shadow is filled by the surface's own ambient. Tunable in flight; a little under 1 usually reads best because the pit is dark already.
 bool g_bLightFalloffD3D7 =
@@ -2492,7 +2494,7 @@ static ConfigOption<float> FloatOpts[] = {
     {"HmcsHudBottom", &g_fHmcsHudBottom},
     {"HmcsScale", &g_fHmcsScale},         // Artscout - 2026: JHMCS symbology size
     {"HmcsTextScale", &g_fHmcsTextScale}, // Artscout - 2026: JHMCS glyph size
-    {"HudFontScale", &g_fHudFontScale}, // Artscout - 2026: HUD stroke font glyph size (default 0.6 of its 12x19 cell)
+    {"HudFontScale", &g_fHudFontScale}, // Artscout - 2026: HUD stroke font glyph size (default 0.8 of its 12x19 cell)
     {"MipLodBias", &g_fMipLodBias},
     {"BubbleScale", &g_fBubbleScale}, // Artscout - 2026: local-only multiplier on every non-objective sim bubble (default 1; 0.25..8). Costs CPU, not GPU. [BUBBLE] lines in FFDebug.log show the resulting ranges.
     {"FarPlaneKm", &g_fFarPlaneKm}, // Artscout - 2026: world far clip in km (default 85.34 = the old 280000 ft). Also sets the terrain-ring limit, the haze end and the Setup slider reach.
@@ -2528,6 +2530,8 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fSunTodDimRef}, // Artscout - 2026: sun fades below this TOD light level (0 = off)
     {"ToneMapExposure",
      &g_fToneMapExposure}, // Artscout - 2026: scene exposure into the GT7 curve (1 = scene white on paper white)
+    {"TerrainLightGain",
+     &g_fTerrainLightGain}, // Artscout - 2026: terrain sun-lighting multiplier (default 1.25; 1 = previous, darker look)
     {"CampMapGhostBright", &g_fCampMapGhostBright}, // Artscout - 2026: dim level of a last-known ship icon
     {"CampMapIconMin",
      &g_fCampMapIconMin}, // Artscout - 2026: brightness of a 0%-status objective icon

@@ -187,5 +187,5 @@ both the 2D and 3D sets loaded it; missing files = old behaviour. Slot 4 sits pa
 
 The atlas cell is 12x19, larger than the 10x7 step, so each font now has a `fontScale[]`
 multiplier applied in `ScreenText`, `ScreenTextWidth` and `ScreenTextHeight`. Cfg:
-`HudStrokeFont` (default 1) and `HudFontScale` (default 0.6, a guess -- tune by eye).
+`HudStrokeFont` (default 1) and `HudFontScale` (default 0.8; 0.6 read small next to BMS, whose HUD digits come out ~1.25x the old font).
 `NUM_FONT_RESOLUTIONS` went 4 -> 5 and `FontSet` gained members: **Rebuild All**.
