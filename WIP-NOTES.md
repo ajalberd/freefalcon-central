@@ -28,6 +28,14 @@ here.**
   sun shadows exist (D3D12; the fit box was stale until 2026-09-27); no world shadows. **Cumulus shadows**
   on ground, objects and pit are written and compile but are **not flown** (2026-09-29) — see its section. The "missile shading issue" turned out to be the fin z-fight, not
   lighting — see `OBJECT-RENDERING.md`.
+- `TERRAIN-AND-FILTERING.md` — **terrain seams and the flickering ring-edge lines are fixed (2026-10-10)**:
+  root cause was stale posts at each LOD ring's outer edge (the strips entering the band were never
+  uploaded). Also: linear-light mips and BC-encoded mips for big atlases, the Advanced-page aniso/mip
+  sliders, `FarPlaneKm` (the world far plane was a hard 85 km; the haze and slider reach now follow it),
+  `BubbleScale`, and the `[GPUPROF]`/`[FRAMEPROF]` profiler (Seoul: GPU ~15% busy, not GPU-bound). **Open:
+  VR has no antialiasing** (the eye path is single-sample) — likely the shimmer on static buildings; overlap
+  of the two eyes is not done (command-allocator/ring audit first); a right-eye terrain dropout seen in
+  debug flights was never separately explained.
 - `COCKPIT-OVERHAUL.md` — the cockpit displays use a **three-size GIF+`.rct` bitmap font
   set**, separate from the `.bft` menu fonts, and `g_rttFontScale` magnifies glyph geometry
   without touching UVs — the source bitmap is a hard ceiling on sharpness.

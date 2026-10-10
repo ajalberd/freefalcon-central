@@ -77,6 +77,23 @@ interface, and the renderer is picked in the graphics options.
   the ground. Falls back to the classic path when the hardware or the knob says no.
 * Fixed black ground, far‑tile fog transition, and the day/night ground level — including the
   sensor pass, which used to read the TV/IR lamp as a black sun and drive the ground to night.
+* **Ring-edge stale posts fixed** — the clipmap only uploaded the window's far edge and an 8-row rolling
+  re-scan, so when a detail ring stepped forward its new outermost column was never uploaded and its quads
+  dropped for ~50-100 ms: a line at every ring border that flickered and moved with you. The strips that
+  enter the band are now uploaded at once. Tile seams are gone too (clamped terrain sampler and
+  wrap-corrected gradients). Diagnostics: `[TERRAIN-HOLE]`, `TerrainCrackDebug`, `TerrainMeshDebugTint`.
+  See [TERRAIN-AND-FILTERING.md](TERRAIN-AND-FILTERING.md).
+* **View distance that matches what renders** — the world far plane (85 km) is now `FarPlaneKm`; the haze
+  is solid before it, terrain rings are capped to it, and the Setup sliders reach it without `-G`. Turning
+  your head no longer makes far ground pop in and out when the draw distance is stretched.
+
+### Texture filtering
+
+* **Mips built in linear light**, colour weighted by alpha (no chroma-key fringes), and **large DXT atlases
+  (cockpit/object, > 512 px) now get mip chains** — mip 0 stays compressed as shipped, lower mips are
+  re-encoded by a small built-in BC1/BC2/BC3 encoder; 16- and 24-bit textures get mips too.
+* The mesh terrain's own sampler now honours the anisotropy option and `MipLodBias` (it was fixed 8x WRAP).
+* **Setup > Graphics > Advanced**: an Anisotropic Level slider (2x-16x) and a Mip Bias slider (0 to +2).
 
 ### Sensor video and night vision
 
@@ -131,6 +148,11 @@ The long‑term goal of the render work, now shipped.
   monitor gets. The Vulkan path used to blit into the sRGB swapchain image, which encoded gamma a
   second time and washed the headset out; it now decodes in the copy shader to cancel it.
 
+* **D3D12 frame profiler** — `[GPUPROF]` (GPU ms per pass from timestamp queries, GPU busy %, CPU wait on the
+  GPU) and `[FRAMEPROF]` (the sim thread's CPU frame split, slow-frame counts, the worst frame) in
+  `FFDebug.log`; the Seoul measurement showed the headset path is not GPU-bound.
+* **VR desktop mirror** drawn at the desktop's scale instead of 1:1 real pixels.
+
 ## 3. Modernized toolchain
 
 * Migrated math from legacy **D3DX → DirectXMath**.
@@ -167,6 +189,9 @@ The long‑term goal of the render work, now shipped.
 
 ## 6. Gameplay & QoL
 
+* **Instant Action / Dogfight start-time clock** is visible again on a wide menu surface (its clip no longer
+  stops at the stock width); the **intro movie is removed**; `BubbleScale` stretches the sim bubble past the
+  Setup slider's 2x, and `[BUBBLE]` logs the real ranges per unit type.
 * **Ramp start actually works** — the JFS switch is drawn and animated in the 3D pit (it was
   modelled all along, just never given a draw mask), its green run light reads the JFS bit
   instead of the engine overheat lamp, and sixteen avionics levers follow the switch the pilot
