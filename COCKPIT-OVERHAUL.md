@@ -175,3 +175,17 @@ full redraw.
 - `g_rttFontScale` scales glyph geometry, not UVs. Source bitmap = sharpness ceiling.
 - The pit is one BSP model, parent 2402 / LOD 4105, 11 textures.
 - The RTT atlas facts (768 base, zone occupancy, blend chars) are in `WIP-NOTES.md`.
+
+### HUD stroke font (2026-10-10, compiles, not yet seen in the pit)
+
+The HUD now draws with the BMS 4.38 HUD font (`Hud_Font_d`: thin upright caps, the HUD's own
+arrow/bracket glyphs) in a **fifth font slot**, `HUD_FONT_SLOT` = 4, so the DED, MFDs and
+kneeboard keep the stock set. Assets: `art/ckptart/hudfont/hud_font.gif` + `.rct` (copied from
+BMS; same GIF+`.rct` format, so no new loader). `CockpitManager::HudFont()` returns slot 4 when
+both the 2D and 3D sets loaded it; missing files = old behaviour. Slot 4 sits past `totalFont`
+(that counter only covers the ladder + warn_font), so `SetFont` special-cases it.
+
+The atlas cell is 12x19, larger than the 10x7 step, so each font now has a `fontScale[]`
+multiplier applied in `ScreenText`, `ScreenTextWidth` and `ScreenTextHeight`. Cfg:
+`HudStrokeFont` (default 1) and `HudFontScale` (default 0.6, a guess -- tune by eye).
+`NUM_FONT_RESOLUTIONS` went 4 -> 5 and `FontSet` gained members: **Rebuild All**.

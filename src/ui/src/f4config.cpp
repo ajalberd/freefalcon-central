@@ -392,6 +392,8 @@ extern "C" int g_nBWMaxDeltaTime; // needed to link into C files (capi.c)
 extern int g_nHmcs, g_nHmcsLevel;
 extern bool g_bHmcsSlaveSeeker, g_bHmcsSlaveRadar, g_bHmcsHudBlank, g_bHmcsLog;
 extern float g_fHmcsHudHalfWidth, g_fHmcsHudTop, g_fHmcsHudBottom, g_fHmcsScale, g_fHmcsTextScale;
+extern bool g_bHudStrokeFont; // Artscout - 2026: render2d.cpp
+extern float g_fHudFontScale;
 extern "C" int g_nBWCheckDeltaTime;
 
 // #define OPENEYES //; disabled until futher
@@ -2053,6 +2055,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"EnableRandomFailures", &g_bEnableRandomFailures}, // Wombat778 12-11-2003
     {"2DPitWingFOVFix", &g_b2DPitWingFOVFix}, // Wombat778 2-25-2003
     {"OldFontTexelFix", &g_bOldFontTexelFix}, // Wombat778 4-01-04
+    {"HudStrokeFont", &g_bHudStrokeFont}, // Artscout - 2026: BMS-style HUD font from art/ckptart/hudfont (default 1; files absent = stock font)
     {"Filter2DPit", &g_bFilter2DPit}, // Wombat778 3-30-2004
     {"CrackFix", &g_bCrackFix}, // Wombat778 4-02-2004
     {"ResizeUsesResMgr", &g_bResizeUsesResMgr}, // Wombat778 4-14-2004
@@ -2489,6 +2492,7 @@ static ConfigOption<float> FloatOpts[] = {
     {"HmcsHudBottom", &g_fHmcsHudBottom},
     {"HmcsScale", &g_fHmcsScale},         // Artscout - 2026: JHMCS symbology size
     {"HmcsTextScale", &g_fHmcsTextScale}, // Artscout - 2026: JHMCS glyph size
+    {"HudFontScale", &g_fHudFontScale}, // Artscout - 2026: HUD stroke font glyph size (default 0.6 of its 12x19 cell)
     {"MipLodBias", &g_fMipLodBias},
     {"BubbleScale", &g_fBubbleScale}, // Artscout - 2026: local-only multiplier on every non-objective sim bubble (default 1; 0.25..8). Costs CPU, not GPU. [BUBBLE] lines in FFDebug.log show the resulting ranges.
     {"FarPlaneKm", &g_fFarPlaneKm}, // Artscout - 2026: world far clip in km (default 85.34 = the old 280000 ft). Also sets the terrain-ring limit, the haze end and the Setup slider reach.

@@ -25,6 +25,13 @@
 extern bool g_bAutoScaleFonts; //Wombat778 12-12-2003
 extern bool g_bOldFontTexelFix; //Wombat777 4-01-04
 
+// Artscout - 2026: the F-16 HUD stroke font (the BMS/real-jet look: thin upright caps, the HUD's own
+// arrow/caret/bracket glyphs). Lives in its own slot so the DED, MFDs and kneeboard keep the stock set.
+// g_fHudFontScale multiplies the glyph quad AND the advance; the atlas cell is 12x19, bigger than any
+// stock size, so the default brings it back near the 8x6 ladder step the HUD layout was tuned for.
+bool g_bHudStrokeFont = true;
+float g_fHudFontScale = 0.6f;
+
 int FindBestResolution(); //Wombat778 4-03-04
 
 // Artscout - 2026: see the note in Render2D::ScreenText. A caller brackets its own draws with this to pick a text
@@ -441,6 +448,9 @@ void Render2D::ScreenText(float xLeft, float yTop, const char *string,
     if (g_fTextScaleOverride > 0.0f)
         fS = g_fTextScaleOverride;
 
+    // Artscout - 2026: per-font size (the HUD stroke font's atlas cell is bigger than the layout expects).
+    fS *= pFontSet->fontScale[pFontSet->fontNum];
+
     // Select font texture here
 
     color = Color();
@@ -743,6 +753,27 @@ void Render2D::ScreenText(float xLeft, float yTop, const char *string,
 }
 
 // Global Texture mapped font stuff
+
+// Artscout - 2026: load the optional HUD stroke font into slot HUD_FONT_SLOT of `set`. Missing files are
+// not an error -- the HUD simply keeps the stock font (hasHudFont stays false).
+static void LoadHudFontSlot(FontSet &set)
+{
+    set.hasHudFont = false;
+
+    if (not g_bHudStrokeFont)
+        return;
+
+    if (set.fontTexture[HUD_FONT_SLOT].LoadImage(
+            "art/ckptart/hudfont/hud_font.gif",
+            MPR_TI_CHROMAKEY bitor MPR_TI_PALETTE, FALSE) and
+        set.ReadFontMetrics(HUD_FONT_SLOT, "art/ckptart/hudfont/hud_font.rct"))
+    {
+        set.fontTexture[HUD_FONT_SLOT].CreateTexture("hud_font.gif");
+        set.fontScale[HUD_FONT_SLOT] = g_fHudFontScale > 0.0f ? g_fHudFontScale : 1.0f;
+        set.hasHudFont = true;
+    }
+}
+
 //JAM 22Dec03 - Now a static R2D func
 void Render2D::Load2DFontSet()
 {
@@ -1071,6 +1102,8 @@ void Render2D::Load2DFontSet()
 
     //WOmbat778 12-12-2003 end of changed code
 
+    LoadHudFontSlot(Font2D);
+
 #endif
 }
 
@@ -1084,6 +1117,12 @@ void Render2D::Release2DFontSet()
 
     if (Font2D.totalFont > 3)
         Font2D.fontTexture[3].FreeAll();
+
+    if (Font2D.hasHudFont)
+    {
+        Font2D.fontTexture[HUD_FONT_SLOT].FreeAll();
+        Font2D.hasHudFont = false;
+    }
 
 #endif
 }
@@ -1408,6 +1447,8 @@ void Render2D::Load3DFontSet()
         }
     }
 
+    LoadHudFontSlot(Font3D);
+
 #endif
 }
 
@@ -1421,6 +1462,12 @@ void Render2D::Release3DFontSet()
 
     if (Font3D.totalFont > 3)
         Font3D.fontTexture[3].FreeAll();
+
+    if (Font3D.hasHudFont)
+    {
+        Font3D.fontTexture[HUD_FONT_SLOT].FreeAll();
+        Font3D.hasHudFont = false;
+    }
 
 #endif
 }

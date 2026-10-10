@@ -970,6 +970,8 @@ int VirtualDisplay::ScreenTextWidth(const char* string)
     if (g_fTextScaleOverride > 0.0f)
         fS = g_fTextScaleOverride;
 
+    fS *= pFontSet->fontScale[pFontSet->fontNum]; // per-font size, as in ScreenText
+
     return (int)(width * fS);
 #endif
 }
@@ -992,6 +994,7 @@ int VirtualDisplay::ScreenTextHeight(void)
         float h = pFontSet->fontData[pFontSet->fontNum][32].pixelHeight;
         if (g_rttBatchActive)
             h *= g_rttFontScale;
+        h *= pFontSet->fontScale[pFontSet->fontNum]; // per-font size, as in ScreenText
         return FloatToInt32(h);
     }
 #endif
@@ -1518,6 +1521,13 @@ void VirtualDisplay::SetFont(int newfont)
     // Artscout - 2026: clamp AND apply. The old form computed the clamped index and then threw it away -- the
     // assignment sat in the else branch -- so asking for a font the loaded set does not have silently kept
     // whatever font was current instead of falling back to the largest one. A dead store either way.
+    // The HUD stroke font sits past totalFont (which only counts the stock ladder + warn_font), so it is
+    // valid exactly when it loaded; otherwise it falls back like any other out-of-range request.
+    if (newfont == HUD_FONT_SLOT and pFontSet->hasHudFont)
+    {
+        pFontSet->fontNum = newfont;
+        return;
+    }
     if (newfont >= pFontSet->totalFont)
         newfont = pFontSet->totalFont - 1;
     if (newfont < 0)

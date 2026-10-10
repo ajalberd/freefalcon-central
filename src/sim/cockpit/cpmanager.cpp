@@ -5140,6 +5140,11 @@ int CockpitManager::HudFont(void)
         retval = mHudFont;
     }
 
+    // Artscout - 2026: the HUD stroke font (slot HUD_FONT_SLOT) replaces whatever the pit asked for, in
+    // both the 2D and 3D font sets. Absent files leave the pit's own choice alone.
+    if (VirtualDisplay::Font2D.hasHudFont and VirtualDisplay::Font3D.hasHudFont)
+        retval = HUD_FONT_SLOT;
+
     return retval;
 }
 

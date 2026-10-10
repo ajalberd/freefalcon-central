@@ -26,7 +26,10 @@
 
 #ifdef USE_TEXTURE_FONT
 
-#define NUM_FONT_RESOLUTIONS 4
+// Slots 0-2 are the three sizes, 3 is warn_font (a different typeface), 4 is the HUD stroke font
+// (art/ckptart/hudfont/hud_font.gif, optional -- see Render2D::LoadHudFontSlot).
+#define NUM_FONT_RESOLUTIONS 5
+#define HUD_FONT_SLOT 4
 
 typedef struct FontDataTag
 {
@@ -45,6 +48,9 @@ struct FontSet
     {
         fontNum = 0;
         totalFont = 3;
+        hasHudFont = false;
+        for (int i = 0; i < NUM_FONT_RESOLUTIONS; i++)
+            fontScale[i] = 1.0f;
     }
     ~FontSet()
     {
@@ -56,6 +62,8 @@ struct FontSet
     //int fontSpacing[NUM_FONT_RESOLUTIONS];
     int fontNum;
     int totalFont;
+    bool hasHudFont;                       // slot HUD_FONT_SLOT loaded; independent of totalFont
+    float fontScale[NUM_FONT_RESOLUTIONS]; // glyph size multiplier, applied in ScreenText and the width/height measures
 };
 
 //int  ReadFontMetrics(int indx, char*fileName);
