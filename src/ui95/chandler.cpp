@@ -96,7 +96,26 @@ void UI95_GetWindowSize(int *w, int *h)
     const int minW = g_bHiResUI ? 1024 : 800, minH = g_bHiResUI ? 768 : 600;
 
     if (VrLayout(w, h))
+    {
+        // The surface stays the VR layout (UI95_GetSurfaceSize): that is what the headset panel shows, 1:1. The
+        // DESKTOP window mirroring it used to be that same size in real pixels, which on a 4K monitor is a
+        // postage stamp. Draw the same surface bigger: the present already stretches it over the whole client
+        // and ClientToSurface maps the mouse. Same rule as the flat menu -- the desktop's scale, or, with
+        // UiWidth/UiHeight -1, as large as fits the work area -- and the layout's aspect is kept.
+        RECT outer;
+        int dw, dh;
+        UI95_GetWorkArea(&outer, &dw, &dh);
+        const float lw = (float)*w, lh = (float)*h;
+        float fit = min((float)dw / lw, (float)dh / lh);
+
+        if (g_nUiWidth >= 0 and g_nUiHeight >= 0)
+            fit = min(fit, UI95_DpiScale());
+
+        fit = max(fit, 1.0f);
+        *w = (int)(lw * fit + 0.5f);
+        *h = (int)(lh * fit + 0.5f);
         return;
+    }
 
     RECT outer;
     int dw, dh;

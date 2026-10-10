@@ -1,0 +1,14 @@
+# Main menu -> setup -> Graphics -> Advanced page, one shot and layout.
+timeout 90
+waitwin UI_MAIN_SCREEN 60000
+wait 1000
+click SP_MAIN_CTRL
+wait 4000
+click GRAPHICS_TAB
+wait 1500
+click SET_GRAPHICS_ADVANCED
+wait 2500
+windows
+shot setup_adv
+layout setup_adv
+quit

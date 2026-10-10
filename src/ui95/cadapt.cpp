@@ -754,6 +754,14 @@ void AdaptStage(C_Window *win, long sw, long sh, long gw, long gh, bool *fullOut
     {
         Grow(&u, &any, body);
         nw = u;
+
+        // A whole-window client is "the window": its clip must reach every piece the window now holds. The
+        // loop above only grew it toward the edges it touched on the stage, so a bar item that pinned to the
+        // far side of a wider surface (the Instant Action start-time clock: a 281-px window whose bar items
+        // pin right by the whole extra width) landed past the clip and was never drawn or clickable.
+        for (int i = 0; i < WIN_MAX_CLIENTS; ++i)
+            if (whole[i])
+                cNew[i] = nw;
     }
 
     // Where the body sits inside the new window. A whole-window client's scroll origin carries it,
