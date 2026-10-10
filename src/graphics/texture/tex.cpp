@@ -901,26 +901,297 @@ static void TexDecodeBCImage(const unsigned char* bc, int w, int h, int dxgiFmt,
 }
 
 #endif // _WIN32 (BC decoder above; TexBoxDown below is a backend-neutral RGBA mip helper)
+// Artscout - 2026: the mips were averaged on the raw 8-bit values, i.e. in gamma space. Averaging a bright
+// pixel with a dark one that way lands too dark (a white road line over dark ground fades faster than the eye
+// expects it to), and every mip level compounds it. Average in LINEAR light instead and re-encode, which is
+// how the GPU's own sRGB mip generation behaves. The textures stay plain UNORM -- only the filter changes --
+// so nothing in the shaders moves. Colour is also weighted by alpha: a chroma-keyed texel (alpha 0) keeps its
+// key colour in RGB, and an unweighted average bleeds that blue/black fringe into the opaque texels beside it
+// at every level. Channels 0-2 are colour, 3 is alpha, in either R8G8B8A8 or B8G8R8A8 order (symmetric here).
+namespace
+{
+struct TexLinearLut
+{
+    unsigned short dec[256]; // sRGB byte -> linear 0..65535
+    unsigned char enc[4096]; // linear 12-bit -> sRGB byte
+    TexLinearLut()
+    {
+        for (int i = 0; i < 256; ++i)
+        {
+            const double c = i / 255.0;
+            const double l = (c <= 0.04045) ? c / 12.92 :
+                                              pow((c + 0.055) / 1.055, 2.4);
+            dec[i] = (unsigned short)(l * 65535.0 + 0.5);
+        }
+        for (int i = 0; i < 4096; ++i)
+        {
+            const double l = i / 4095.0;
+            const double c = (l <= 0.0031308) ? l * 12.92 :
+                                                1.055 * pow(l, 1.0 / 2.4) - 0.055;
+            int v = (int)(c * 255.0 + 0.5);
+            enc[i] = (unsigned char)(v < 0 ? 0 : (v > 255 ? 255 : v));
+        }
+    }
+};
+
+const TexLinearLut& TexLut()
+{
+    static const TexLinearLut lut; // thread-safe init: textures load from worker threads
+    return lut;
+}
+} // namespace
+
 static void TexBoxDown(const unsigned* s, int sw, int sh, unsigned* d, int dw,
                        int dh)
 {
+    const TexLinearLut& lut = TexLut();
     for (int y = 0; y < dh; ++y)
         for (int x = 0; x < dw; ++x)
         {
             int x0 = x * 2, y0 = y * 2, x1 = (x0 + 1 < sw) ? x0 + 1 : sw - 1,
                 y1 = (y0 + 1 < sh) ? y0 + 1 : sh - 1;
-            unsigned a = s[(size_t)y0 * sw + x0], b = s[(size_t)y0 * sw + x1],
-                     c = s[(size_t)y1 * sw + x0], e = s[(size_t)y1 * sw + x1],
-                     o = 0;
-            for (int ch = 0; ch < 4; ++ch)
+            const unsigned p[4] = {s[(size_t)y0 * sw + x0],
+                                   s[(size_t)y0 * sw + x1],
+                                   s[(size_t)y1 * sw + x0],
+                                   s[(size_t)y1 * sw + x1]};
+            const unsigned a[4] = {p[0] >> 24, p[1] >> 24, p[2] >> 24,
+                                   p[3] >> 24};
+            const unsigned aSum = a[0] + a[1] + a[2] + a[3];
+            unsigned o = ((aSum + 2) >> 2) << 24;
+            for (int ch = 0; ch < 3; ++ch)
             {
-                int m = ((a >> (8 * ch)) & 0xFF) + ((b >> (8 * ch)) & 0xFF) +
-                        ((c >> (8 * ch)) & 0xFF) + ((e >> (8 * ch)) & 0xFF);
-                o |= (unsigned)(m >> 2) << (8 * ch);
+                const int sh8 = 8 * ch;
+                unsigned lin; // 16-bit linear
+                if (aSum == 0 || aSum == 4 * 255u)
+                {
+                    // fully opaque (or fully clear: nothing to weight by) -> plain mean
+                    lin = (lut.dec[(p[0] >> sh8) & 0xFF] +
+                           lut.dec[(p[1] >> sh8) & 0xFF] +
+                           lut.dec[(p[2] >> sh8) & 0xFF] +
+                           lut.dec[(p[3] >> sh8) & 0xFF] + 2) >> 2;
+                }
+                else
+                {
+                    // max 255 * 65535 * 4 = 66.8M: fits in 32 bits
+                    lin = (a[0] * lut.dec[(p[0] >> sh8) & 0xFF] +
+                           a[1] * lut.dec[(p[1] >> sh8) & 0xFF] +
+                           a[2] * lut.dec[(p[2] >> sh8) & 0xFF] +
+                           a[3] * lut.dec[(p[3] >> sh8) & 0xFF] + aSum / 2) /
+                          aSum;
+                }
+                unsigned idx = (lin + 8) >> 4;
+                if (idx > 4095)
+                    idx = 4095;
+                o |= (unsigned)lut.enc[idx] << sh8;
             }
             d[(size_t)y * dw + x] = o;
         }
 }
+
+#ifdef _WIN32
+// Artscout - 2026: a compact BC1/BC2/BC3 ENCODER (bounding-box endpoints, nearest-index). Only used to build the
+// lower mips of LARGE compressed textures (cockpit/object atlases): mip 0 is uploaded exactly as shipped, so the
+// base image is untouched and the atlas stays 4-8x smaller in VRAM than decoding it to RGBA8 would be. A
+// minified mip does not need an optimal fit; it needs to exist. Pixels are in TexDecodeBCBlock's layout
+// (byte 0 R, 1 G, 2 B, 3 A).
+static inline unsigned TexPack565(const int c[3])
+{
+    return (unsigned)(((c[0] * 31 + 127) / 255) << 11) |
+           (unsigned)(((c[1] * 63 + 127) / 255) << 5) |
+           (unsigned)((c[2] * 31 + 127) / 255);
+}
+
+static void TexEncodeBCColor(const unsigned px[16], unsigned char* out,
+                             bool oneBitAlpha)
+{
+    int mn[3] = {255, 255, 255}, mx[3] = {0, 0, 0};
+    bool anyClear = false, anyOpaque = false;
+    for (int i = 0; i < 16; ++i)
+    {
+        if (oneBitAlpha && (px[i] >> 24) < 128)
+        {
+            anyClear = true;
+            continue;
+        }
+        anyOpaque = true;
+        for (int ch = 0; ch < 3; ++ch)
+        {
+            const int v = (px[i] >> (8 * ch)) & 0xFF;
+            if (v < mn[ch])
+                mn[ch] = v;
+            if (v > mx[ch])
+                mx[ch] = v;
+        }
+    }
+    if (!anyOpaque)
+    {
+        // all clear: 3-colour mode (c0 <= c1), every index = 3 (transparent)
+        const unsigned char blk[8] = {0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF};
+        memcpy(out, blk, 8);
+        return;
+    }
+    for (int ch = 0; ch < 3; ++ch)
+    {
+        const int inset = (mx[ch] - mn[ch]) >> 4; // pull the endpoints in: fewer outliers at the ends
+        mn[ch] += inset;
+        mx[ch] -= inset;
+    }
+    unsigned c0 = TexPack565(mx), c1 = TexPack565(mn);
+    // 4-colour mode needs c0 > c1; 3-colour (the transparent index) needs c0 <= c1
+    if (anyClear ? (c0 > c1) : (c0 < c1))
+    {
+        const unsigned t = c0;
+        c0 = c1;
+        c1 = t;
+    }
+    int pal[4][3];
+    {
+        int r, g, b;
+        TexBc565(c0, r, g, b);
+        pal[0][0] = r, pal[0][1] = g, pal[0][2] = b;
+        TexBc565(c1, r, g, b);
+        pal[1][0] = r, pal[1][1] = g, pal[1][2] = b;
+    }
+    for (int ch = 0; ch < 3; ++ch)
+    {
+        if (anyClear)
+            pal[2][ch] = (pal[0][ch] + pal[1][ch]) / 2;
+        else
+        {
+            pal[2][ch] = (2 * pal[0][ch] + pal[1][ch]) / 3;
+            pal[3][ch] = (pal[0][ch] + 2 * pal[1][ch]) / 3;
+        }
+    }
+    unsigned idx = 0;
+    if (c0 != c1)
+    {
+        const int nPal = anyClear ? 3 : 4;
+        for (int i = 0; i < 16; ++i)
+        {
+            unsigned best = 3;
+            if (!(anyClear && (px[i] >> 24) < 128))
+            {
+                int bestD = 0x7FFFFFFF;
+                for (int k = 0; k < nPal; ++k)
+                {
+                    int dist = 0;
+                    for (int ch = 0; ch < 3; ++ch)
+                    {
+                        const int dd = (int)((px[i] >> (8 * ch)) & 0xFF) - pal[k][ch];
+                        dist += dd * dd;
+                    }
+                    if (dist < bestD)
+                    {
+                        bestD = dist;
+                        best = (unsigned)k;
+                    }
+                }
+            }
+            idx |= best << (2 * i);
+        }
+    }
+    else if (anyClear)
+    {
+        // flat colour but some clear texels: 0 = colour, 3 = clear
+        for (int i = 0; i < 16; ++i)
+            if ((px[i] >> 24) < 128)
+                idx |= 3u << (2 * i);
+    }
+    out[0] = (unsigned char)(c0 & 0xFF);
+    out[1] = (unsigned char)(c0 >> 8);
+    out[2] = (unsigned char)(c1 & 0xFF);
+    out[3] = (unsigned char)(c1 >> 8);
+    out[4] = (unsigned char)(idx & 0xFF);
+    out[5] = (unsigned char)((idx >> 8) & 0xFF);
+    out[6] = (unsigned char)((idx >> 16) & 0xFF);
+    out[7] = (unsigned char)(idx >> 24);
+}
+
+static void TexEncodeBC3Alpha(const unsigned px[16], unsigned char* out)
+{
+    int mn = 255, mx = 0;
+    for (int i = 0; i < 16; ++i)
+    {
+        const int a = (int)(px[i] >> 24);
+        if (a < mn)
+            mn = a;
+        if (a > mx)
+            mx = a;
+    }
+    memset(out, 0, 8);
+    out[0] = (unsigned char)mx; // a0 > a1 -> the 8-value ramp
+    out[1] = (unsigned char)mn;
+    if (mx == mn)
+        return; // every index 0
+    int at[8];
+    at[0] = mx;
+    at[1] = mn;
+    for (int i = 2; i < 8; ++i)
+        at[i] = ((8 - i) * mx + (i - 1) * mn) / 7;
+    unsigned long long bits = 0;
+    for (int i = 0; i < 16; ++i)
+    {
+        const int a = (int)(px[i] >> 24);
+        int best = 0, bestD = 0x7FFFFFFF;
+        for (int k = 0; k < 8; ++k)
+        {
+            const int dd = (a > at[k]) ? a - at[k] : at[k] - a;
+            if (dd < bestD)
+            {
+                bestD = dd;
+                best = k;
+            }
+        }
+        bits |= (unsigned long long)best << (3 * i);
+    }
+    for (int i = 0; i < 6; ++i)
+        out[2 + i] = (unsigned char)(bits >> (8 * i));
+}
+
+// rgba (w x h, tightly packed) -> BC blocks. Edge blocks replicate the last row/column.
+static void TexEncodeBCImage(const unsigned* rgba, int w, int h, int dxgiFmt,
+                             unsigned char* out)
+{
+    const int bw = (w + 3) / 4, bh = (h + 3) / 4;
+    const int bb = (dxgiFmt == DXGI_FORMAT_BC1_UNORM) ? 8 : 16;
+    for (int by = 0; by < bh; ++by)
+        for (int bx = 0; bx < bw; ++bx)
+        {
+            unsigned px[16];
+            for (int py = 0; py < 4; ++py)
+                for (int pxl = 0; pxl < 4; ++pxl)
+                {
+                    int x = bx * 4 + pxl, y = by * 4 + py;
+                    if (x >= w)
+                        x = w - 1;
+                    if (y >= h)
+                        y = h - 1;
+                    px[py * 4 + pxl] = rgba[(size_t)y * w + x];
+                }
+            unsigned char* blk = out + (size_t)(by * bw + bx) * bb;
+            if (dxgiFmt == DXGI_FORMAT_BC1_UNORM)
+                TexEncodeBCColor(px, blk, true);
+            else
+            {
+                if (dxgiFmt == DXGI_FORMAT_BC3_UNORM)
+                    TexEncodeBC3Alpha(px, blk);
+                else
+                {
+                    // BC2: explicit 4-bit alpha
+                    memset(blk, 0, 8);
+                    for (int i = 0; i < 16; ++i)
+                    {
+                        int n = (int)((px[i] >> 24) + 8) / 17;
+                        if (n > 15)
+                            n = 15;
+                        blk[i / 2] |= (unsigned char)(n << ((i & 1) * 4));
+                    }
+                }
+                TexEncodeBCColor(px, blk + 8, false);
+            }
+        }
+}
+#endif // _WIN32 (BC encoder)
 
 #ifdef _WIN32
 static bool EngineTexCreateBCnMipped(void** outHandle, void** outTex, int w,
@@ -1008,6 +1279,96 @@ static bool EngineTexCreateBCnMipped(void** outHandle, void** outTex, int w,
     *outTex = NULL;
     return true;
 }
+
+// Artscout - 2026: LARGE compressed textures (cockpit/object atlases, > 512) used to be uploaded single-mip, so a
+// minified one shimmered and the sampler's anisotropy / MipLodBias had nothing to work with. Keep mip 0 exactly as
+// shipped (still compressed), decode it once, box-filter the chain in linear light and re-encode each lower mip
+// to the SAME block format. VRAM cost is the usual +1/3, not the 4-8x of decoding to RGBA8.
+// Returns false (caller falls back to the plain single-mip upload) on any failure.
+static bool EngineTexCreateBCnLargeMipped(void** outHandle, void** outTex,
+                                          int w, int h, int dxgiFmt,
+                                          const void* blob)
+{
+    extern bool g_bUseD3D12;
+    if (!g_bUseD3D12 || !g_pD3D12TextureManager ||
+        !g_pD3D12TextureManager->IsValid() || w < 8 || h < 8)
+        return false;
+    if (dxgiFmt != DXGI_FORMAT_BC1_UNORM && dxgiFmt != DXGI_FORMAT_BC2_UNORM &&
+        dxgiFmt != DXGI_FORMAT_BC3_UNORM)
+        return false;
+
+    const DWORD t0 = GetTickCount();
+    const int bb = (dxgiFmt == DXGI_FORMAT_BC1_UNORM) ? 8 : 16;
+    int mipCount = 1;
+    {
+        int mw = w, mh = h;
+        while (mw > 1 || mh > 1)
+        {
+            mw = (mw > 1) ? mw >> 1 : 1;
+            mh = (mh > 1) ? mh >> 1 : 1;
+            ++mipCount;
+        }
+    }
+    if (mipCount > 15)
+        mipCount = 15;
+
+    unsigned char** enc = (unsigned char**)calloc(mipCount, sizeof(unsigned char*));
+    TexMipData* mips = (TexMipData*)calloc(mipCount, sizeof(TexMipData));
+    unsigned* cur = (unsigned*)malloc((size_t)w * h * 4);
+    unsigned* nxt = (unsigned*)malloc((size_t)(w > 1 ? w / 2 : 1) * (h > 1 ? h / 2 : 1) * 4);
+    bool ok = enc && mips && cur && nxt;
+    int built = 0;
+
+    if (ok)
+    {
+        mips[0].data = blob; // the original compressed base, untouched
+        mips[0].rowPitch = ((w + 3) / 4) * bb;
+        built = 1;
+        TexDecodeBCImage((const unsigned char*)blob, w, h, dxgiFmt, cur);
+        int cw = w, ch = h;
+        for (int i = 1; i < mipCount; ++i)
+        {
+            const int nw = cw > 1 ? cw >> 1 : 1, nh = ch > 1 ? ch >> 1 : 1;
+            TexBoxDown(cur, cw, ch, nxt, nw, nh);
+            const size_t bytes = (size_t)((nw + 3) / 4) * ((nh + 3) / 4) * bb;
+            enc[i] = (unsigned char*)malloc(bytes);
+            if (!enc[i])
+                break; // upload the chain we managed to build
+            TexEncodeBCImage(nxt, nw, nh, dxgiFmt, enc[i]);
+            mips[i].data = enc[i];
+            mips[i].rowPitch = ((nw + 3) / 4) * bb;
+            built = i + 1;
+            unsigned* t = cur;
+            cur = nxt;
+            nxt = t;
+            cw = nw;
+            ch = nh;
+        }
+    }
+
+    D3D12Texture* hh = NULL;
+    if (ok)
+    {
+        hh = g_pD3D12TextureManager->Alloc();
+        ok = hh && g_pD3D12TextureManager->Create(*hh, w, h, dxgiFmt, mips, built);
+        if (hh && !ok)
+            g_pD3D12TextureManager->Free(hh);
+    }
+    if (enc)
+        for (int i = 0; i < mipCount; ++i)
+            free(enc[i]);
+    free(enc);
+    free(mips);
+    free(cur);
+    free(nxt);
+    if (!ok)
+        return false;
+    fprintf(stderr, "[FF] BC mip chain %dx%d fmt=%d mips=%d %lu ms\n", w, h,
+            dxgiFmt, built, (unsigned long)(GetTickCount() - t0));
+    *outHandle = hh;
+    *outTex = NULL;
+    return true;
+}
 #endif // _WIN32 (CPU BC decoder for the D3D12 texture path)
 
 static bool EngineTexCreateBCn(void** outHandle, void** outTex, int w, int h,
@@ -1048,6 +1409,70 @@ static bool EngineTexCreateBCn(void** outHandle, void** outTex, int w, int h,
         return true;
     }
     return false; // Artscout - 2026 (D3D11 purge): D3D12 is the sole GPU texture manager
+}
+
+// Artscout - 2026: one place that builds a full linear-light mip chain for an uncompressed 32-bit image and
+// uploads it (the palette, 32-bit, 24-bit and 16-bit load paths each had, or lacked, their own copy). mip0 is
+// the caller's tightly-packed RGBA/BGRA buffer and stays the caller's. *attempted = false means "not applicable"
+// (not D3D12, or a side outside 2..2048) and nothing was uploaded, so the caller should do its single-mip upload.
+static bool EngineTexCreateMippedRGBA(void** outHandle, void** outTex, int w,
+                                      int h, int fmt, const unsigned* mip0,
+                                      bool* attempted)
+{
+    extern bool g_bUseD3D12;
+    *attempted = false;
+    if (!g_bUseD3D12 || w < 2 || h < 2 || w > 2048 || h > 2048)
+        return false;
+
+    int mc = 1;
+    {
+        int mw = w, mh = h;
+        while (mw > 1 || mh > 1)
+        {
+            mw = (mw > 1) ? mw >> 1 : 1;
+            mh = (mh > 1) ? mh >> 1 : 1;
+            ++mc;
+        }
+    }
+    if (mc > 15)
+        mc = 15;
+    unsigned** lv = (unsigned**)malloc((size_t)mc * sizeof(unsigned*));
+    int* lw = (int*)malloc((size_t)mc * sizeof(int));
+    int* lh = (int*)malloc((size_t)mc * sizeof(int));
+    TexMipData* mips = (TexMipData*)malloc((size_t)mc * sizeof(TexMipData));
+    bool ok = false;
+    if (lv && lw && lh && mips)
+    {
+        *attempted = true;
+        lv[0] = (unsigned*)mip0;
+        lw[0] = w;
+        lh[0] = h;
+        for (int i = 1; i < mc; ++i)
+        {
+            lw[i] = (lw[i - 1] > 1) ? lw[i - 1] >> 1 : 1;
+            lh[i] = (lh[i - 1] > 1) ? lh[i - 1] >> 1 : 1;
+            lv[i] = (unsigned*)malloc((size_t)lw[i] * lh[i] * 4);
+            if (!lv[i])
+            {
+                mc = i; // out of memory -> upload the chain we have
+                break;
+            }
+            TexBoxDown(lv[i - 1], lw[i - 1], lh[i - 1], lv[i], lw[i], lh[i]);
+        }
+        for (int i = 0; i < mc; ++i)
+        {
+            mips[i].data = lv[i];
+            mips[i].rowPitch = lw[i] * 4;
+        }
+        ok = EngineTexCreate(outHandle, outTex, w, h, fmt, mips, mc);
+        for (int i = 1; i < mc; ++i)
+            free(lv[i]); // lv[0] is the caller's
+    }
+    free(lv);
+    free(lw);
+    free(lh);
+    free(mips);
+    return ok;
 }
 
 static bool ResolvePaletteToGpu(void** outHandle, void** outTex, int w, int h,
@@ -1103,61 +1528,10 @@ static bool ResolvePaletteToGpu(void** outHandle, void** outTex, int w, int h,
     // 512/1024/2048 (terrtex getDDSWidth) -- the earlier 512 cap left the 1024/2048 near/mid tiles single-mip,
     // so they kept boiling under motion and MipLODBias had only mip 0 to clamp to. UI/HUD atlases are sampled
     // 1:1 (mip 0), so giving them a chain too is harmless (only +33% memory). D3D12 only.
-    extern bool g_bUseD3D12;
-    bool ok;
-    if (g_bUseD3D12 and w >= 2 and h >= 2 and w <= 2048 and h <= 2048)
-    {
-        int mc = 1;
-        {
-            int mw = w, mh = h;
-            while (mw > 1 || mh > 1)
-            {
-                mw = (mw > 1) ? mw >> 1 : 1;
-                mh = (mh > 1) ? mh >> 1 : 1;
-                ++mc;
-            }
-        }
-        if (mc > 15)
-            mc = 15;
-        unsigned** lv = (unsigned**)malloc((size_t)mc * sizeof(unsigned*));
-        int* lw = (int*)malloc((size_t)mc * sizeof(int));
-        int* lh = (int*)malloc((size_t)mc * sizeof(int));
-        TexMipData* mips = (TexMipData*)malloc((size_t)mc * sizeof(TexMipData));
-        if (lv && lw && lh && mips)
-        {
-            lv[0] = (unsigned*)rgba;
-            lw[0] = w;
-            lh[0] = h;
-            for (int i = 1; i < mc; ++i)
-            {
-                lw[i] = (lw[i - 1] > 1) ? lw[i - 1] >> 1 : 1;
-                lh[i] = (lh[i - 1] > 1) ? lh[i - 1] >> 1 : 1;
-                lv[i] = (unsigned*)malloc((size_t)lw[i] * lh[i] * 4);
-                if (!lv[i])
-                {
-                    mc = i;
-                    break;
-                }
-                TexBoxDown(lv[i - 1], lw[i - 1], lh[i - 1], lv[i], lw[i],
-                           lh[i]);
-            }
-            for (int i = 0; i < mc; ++i)
-            {
-                mips[i].data = lv[i];
-                mips[i].rowPitch = lw[i] * 4;
-            }
-            ok = EngineTexCreate(outHandle, outTex, w, h, fmt, mips, mc);
-            for (int i = 1; i < mc; ++i)
-                free(lv[i]); // lv[0] == rgba, freed below
-        }
-        else
-            ok = false;
-        free(lv);
-        free(lw);
-        free(lh);
-        free(mips);
-    }
-    else
+    bool attempted = false;
+    bool ok = EngineTexCreateMippedRGBA(outHandle, outTex, w, h, fmt,
+                                        (const unsigned*)rgba, &attempted);
+    if (not attempted)
     {
         TexMipData mip = {rgba, w * 4};
         ok = EngineTexCreate(outHandle, outTex, w, h, fmt, &mip, 1);
@@ -1270,6 +1644,9 @@ bool TextureHandle::Load(UInt16 mip, UInt chroma, UInt8* TexBuffer,
             if (g_bUseD3D12 and w <= 512 and h <= 512)
                 ok = EngineTexCreateBCnMipped(&hdl, &texptr, w, h, fmt,
                                               TexBuffer); // D3D12 CPU mip-chain
+            else if (g_bUseD3D12 and w <= 4096 and h <= 4096)
+                ok = EngineTexCreateBCnLargeMipped(&hdl, &texptr, w, h, fmt,
+                                                   TexBuffer); // keeps mip 0 compressed
 #endif
             if (not ok)
                 ok = EngineTexCreateBCn(&hdl, &texptr, w, h, fmt, TexBuffer,
@@ -1309,8 +1686,35 @@ bool TextureHandle::Load(UInt16 mip, UInt chroma, UInt8* TexBuffer,
         else if (m_dwFlags bitand MPR_TI_RGB16)
         {
             // PHASE 5: 16-bit B5G6R5 -- stride w*2 (previously else sent w*4 -> broken/white)
-            TexMipData mip = {TexBuffer, w * 2};
-            ok = EngineTexCreate(&hdl, &texptr, w, h, fmt, &mip, 1);
+            // Artscout - 2026: expand to B8G8R8A8 so it can carry a mip chain (the 565 upload had none).
+            // Falls back to the original 565 single-mip upload where no chain applies.
+            bool attempted = false;
+            if (w >= 2 and h >= 2 and w <= 2048 and h <= 2048)
+            {
+                unsigned* bgra = (unsigned*)malloc((size_t)w * h * 4);
+                if (bgra)
+                {
+                    const unsigned short* s = (const unsigned short*)TexBuffer;
+                    for (int p = 0; p < w * h; ++p)
+                    {
+                        const unsigned v = s[p];
+                        unsigned r = (v >> 11) & 0x1F, g = (v >> 5) & 0x3F,
+                                 b = v & 0x1F;
+                        r = (r << 3) | (r >> 2);
+                        g = (g << 2) | (g >> 4);
+                        b = (b << 3) | (b >> 2);
+                        bgra[p] = b | (g << 8) | (r << 16) | 0xFF000000;
+                    }
+                    ok = EngineTexCreateMippedRGBA(&hdl, &texptr, w, h, 87,
+                                                   bgra, &attempted);
+                    free(bgra);
+                }
+            }
+            if (not attempted)
+            {
+                TexMipData mip = {TexBuffer, w * 2};
+                ok = EngineTexCreate(&hdl, &texptr, w, h, fmt, &mip, 1);
+            }
         }
         else if (m_dwFlags bitand MPR_TI_RGB24)
         {
@@ -1326,8 +1730,15 @@ bool TextureHandle::Load(UInt16 mip, UInt chroma, UInt8* TexBuffer,
                     rgba[p] = (DWORD)b | ((DWORD)g << 8) | ((DWORD)r << 16) |
                               0xFF000000;
                 }
-                TexMipData mip = {rgba, w * 4};
-                ok = EngineTexCreate(&hdl, &texptr, w, h, fmt, &mip, 1);
+                bool attempted = false;
+                ok = EngineTexCreateMippedRGBA(&hdl, &texptr, w, h, fmt,
+                                               (const unsigned*)rgba,
+                                               &attempted);
+                if (not attempted)
+                {
+                    TexMipData mip = {rgba, w * 4};
+                    ok = EngineTexCreate(&hdl, &texptr, w, h, fmt, &mip, 1);
+                }
                 free(rgba);
             }
         }
@@ -1337,61 +1748,10 @@ bool TextureHandle::Load(UInt16 mip, UInt chroma, UInt8* TexBuffer,
             // color/night tiles (terrtex.cpp:988) are created 32-bit and land HERE -> they were single-mip,
             // so the far/mid ground kept boiling under motion and MipLODBias had only mip 0 to clamp to.
             // Box-downsample a mip chain (mirrors the palette path). D3D12 + <=2048; else single mip as before.
-            extern bool g_bUseD3D12;
             bool mipAttempted = false;
-            if (g_bUseD3D12 and w >= 2 and h >= 2 and w <= 2048 and h <= 2048)
-            {
-                int mc = 1;
-                {
-                    int mw = w, mh = h;
-                    while (mw > 1 || mh > 1)
-                    {
-                        mw = (mw > 1) ? mw >> 1 : 1;
-                        mh = (mh > 1) ? mh >> 1 : 1;
-                        ++mc;
-                    }
-                }
-                if (mc > 15)
-                    mc = 15;
-                unsigned** lv =
-                    (unsigned**)malloc((size_t)mc * sizeof(unsigned*));
-                int* lw = (int*)malloc((size_t)mc * sizeof(int));
-                int* lh = (int*)malloc((size_t)mc * sizeof(int));
-                TexMipData* mips =
-                    (TexMipData*)malloc((size_t)mc * sizeof(TexMipData));
-                if (lv && lw && lh && mips)
-                {
-                    lv[0] = (unsigned*)TexBuffer;
-                    lw[0] = w;
-                    lh[0] = h; // mip 0 = caller's buffer (not freed)
-                    for (int i = 1; i < mc; ++i)
-                    {
-                        lw[i] = (lw[i - 1] > 1) ? lw[i - 1] >> 1 : 1;
-                        lh[i] = (lh[i - 1] > 1) ? lh[i - 1] >> 1 : 1;
-                        lv[i] = (unsigned*)malloc((size_t)lw[i] * lh[i] * 4);
-                        if (!lv[i])
-                        {
-                            mc = i;
-                            break;
-                        }
-                        TexBoxDown(lv[i - 1], lw[i - 1], lh[i - 1], lv[i],
-                                   lw[i], lh[i]);
-                    }
-                    for (int i = 0; i < mc; ++i)
-                    {
-                        mips[i].data = lv[i];
-                        mips[i].rowPitch = lw[i] * 4;
-                    }
-                    ok = EngineTexCreate(&hdl, &texptr, w, h, fmt, mips, mc);
-                    for (int i = 1; i < mc; ++i)
-                        free(lv[i]); // lv[0] == TexBuffer, owned by caller
-                    mipAttempted = true;
-                }
-                free(lv);
-                free(lw);
-                free(lh);
-                free(mips);
-            }
+            ok = EngineTexCreateMippedRGBA(&hdl, &texptr, w, h, fmt,
+                                           (const unsigned*)TexBuffer,
+                                           &mipAttempted); // mip 0 = caller's buffer
             if (not mipAttempted)
             {
                 TexMipData mip = {

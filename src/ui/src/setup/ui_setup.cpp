@@ -54,6 +54,7 @@ extern FeaturePos *Features;
 extern Drawable2D *Smoke;
 
 int GraphicSettingMult = 1;
+bool GraphicSettingFromArg = false; // -G<n> given on the command line
 
 //M.N.
 //int skycolortime;
@@ -165,6 +166,8 @@ void MsaaSamplesCB(
 void VrResScaleSliderCB(
     long ID, short hittype,
     C_Base *control); // Artscout - 2026: OpenXR res-scale live readout
+void AdvFilterSlidersLoad(C_Window *win); // Artscout - 2026: anisotropic level + mip bias sliders (graphicstab.cpp)
+void AdvFilterSlidersSave(C_Window *win);
 //void TextureDistanceCB(long ID,short hittype,C_Base *control);
 void VideoCardCB(long ID, short hittype, C_Base *control);
 void VideoDriverCB(long ID, short hittype, C_Base *control);
@@ -1984,6 +1987,8 @@ static void SaveValues(void)
             DisplayOptions.nVrResolutionScale = 100;
     }
 
+    AdvFilterSlidersSave(win); // Artscout - 2026: anisotropic level + mip bias
+
     button = (C_Button *)win->FindControl(SETUP_ADVANCED_SCREEN_COORD_BIAS_FIX);
 
     if (button)
@@ -2046,6 +2051,10 @@ static void SaveValues(void)
             DisplayOptions
                 .bAnisotropicFiltering; // Artscout - 2026: aniso on/off + level -> samplers
         g_nAnisoSamples = DisplayOptions.nAnisotropicSamples;
+
+        extern float g_fMipLodBias; // Artscout - 2026: mip LOD bias from the Advanced slider (cfg stays in charge until it is used)
+        if (DisplayOptions.nMipBiasTenths != MIP_BIAS_UNSET)
+            g_fMipLodBias = (float)DisplayOptions.nMipBiasTenths / 10.0F;
     }
 
     PlayerOptions.SaveOptions();

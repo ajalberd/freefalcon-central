@@ -700,6 +700,9 @@ extern "C"
         void SetView(LPD3DMATRIX l_pMV);
         void SetWorld(LPD3DMATRIX l_pMW);
         void SetProjection(LPD3DMATRIX l_pMP);
+        // Artscout - 2026: set the far clip (feet) and refresh the screen-path depth constants. ZCX_Calculate is
+        // inline-declared but defined only in context.cpp, so other files cannot call it directly.
+        void SetFarPlane(float feet);
 
         void SetState(WORD State, DWORD Value);
         void SetStateInternal(WORD State, DWORD Value);

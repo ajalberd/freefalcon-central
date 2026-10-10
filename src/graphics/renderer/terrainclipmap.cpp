@@ -49,6 +49,8 @@ static const unsigned int TF_FOG = (1u << 2);
 static const unsigned int TF_WIREOVERLAY = (1u << 3);
 static const unsigned int TF_IRGREY = (1u << 4);
 static const unsigned int TF_NVG = (1u << 5);
+static const unsigned int TF_SEAMGRAD = (1u << 6); // must match TF_SEAMGRAD in ffterrain.hlsl
+static const unsigned int TF_UNDERLAP = (1u << 7); // must match TF_UNDERLAP in ffterrain.hlsl
 
 // Declared OUT here on purpose: inside the anonymous namespace below an extern
 // picks up internal linkage and never resolves to its real definition.
@@ -57,6 +59,7 @@ extern bool g_bTerrainMeshDebugTint; // flat per-LOD tint, for bring-up
 extern int g_terrainRadiusCap; // #DX12 A5: sensor pass shrinks its rings
 extern int g_nTerrainMorphPosts;  // cfg: geomorph band width, in posts
 extern int g_nTerrainRingRadius;  // cfg: fixed ring radius; 0 = streamed range
+extern float g_fFarPlaneKm;       // cfg: world far clip, km (caps every ring)
 
 namespace
 {
@@ -77,8 +80,13 @@ struct Level
     // this is streamed: the ring is a fraction of the window, and every post
     // outside it would burn a GetPost plus a tile activation for nothing.
     int actR0, actR1, actC0, actC1;
+    bool hasBand; // actR0.. held a real band last update (so the strips that just entered it can be told)
     std::vector<float> shadowZ; // CPU copy, for the per-chunk bounds
     std::vector<unsigned char> shadowOk;
+    // Artscout - 2026 (hole-line investigation): the ABSOLUTE post (row, col) that last wrote each window texel.
+    // The window is toroidal, so a texel nobody refreshed still holds the post from 256 posts away: its shadowOk
+    // says "valid" and nothing else notices. Comparing the stamp with the post the ring expects there does.
+    std::vector<int> stampR, stampC;
 };
 
 Level s_level[TCLIP_MAX_LODS];
@@ -146,6 +154,16 @@ int RingRange(RViewPoint* vp, int lod, bool applyCap)
         range = g_nTerrainRingRadius;
     if (range > TCLIP_MAX_RADIUS)
         range = TCLIP_MAX_RADIUS;
+    {
+        // Artscout - 2026: nothing past the far plane is drawn (the amplification shader culls it, and the
+        // haze is opaque by 0.9 of it), but a ring asked for more used to still be streamed and uploaded.
+        // A square box of half-width 0.95 * far plane covers the whole visible disc; add a chunk of slack.
+        float km = g_fFarPlaneKm < 20.0f ? 20.0f : (g_fFarPlaneKm > 400.0f ? 400.0f : g_fFarPlaneKm);
+        const float stepFt = FeetPerPost * (float)(1 << lod);
+        const int reach = (int)(0.95f * km * 3280.84f / stepFt) + TCLIP_CHUNK;
+        if (range > reach)
+            range = reach;
+    }
 
     // #DX12 A5: the TGP/Maverick sensor renders a SECOND full view into its RTT
     // every frame; it caps the radius so that pass stays cheap.
@@ -240,6 +258,11 @@ void UploadRect(RViewPoint* vp, Level& lv, int level, int r0, int r1, int c0,
             lv.shadowZ[(size_t)tr * TCLIP_TEXELS + tc] = p.z;
             lv.shadowOk[(size_t)tr * TCLIP_TEXELS + tc] =
                 (info & PI_VALID) ? 1 : 0;
+            if (!lv.stampR.empty())
+            {
+                lv.stampR[(size_t)tr * TCLIP_TEXELS + tc] = r0 + r;
+                lv.stampC[(size_t)tr * TCLIP_TEXELS + tc] = c0 + c;
+            }
         }
     }
 
@@ -335,7 +358,10 @@ void RecomputeBounds(const Level& lv, int level)
 void TerrainClipmap_Invalidate()
 {
     for (int i = 0; i < TCLIP_MAX_LODS; ++i)
+    {
         s_level[i].ready = false;
+        s_level[i].hasBand = false;
+    }
     s_chunkCount = 0;
     // Force a fresh CreateTerrainClipmap: leaving 3D releases the backend's
     // images, and re-using them would draw through dead descriptors.
@@ -393,10 +419,13 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
         for (int i = 0; i < levels; ++i)
         {
             s_level[i].ready = false;
+            s_level[i].hasBand = false;
             s_level[i].lod = hiLOD + i;
             s_level[i].refreshRow = 0;
             s_level[i].shadowZ.assign(TCLIP_TEXELS * TCLIP_TEXELS, 0.0f);
             s_level[i].shadowOk.assign(TCLIP_TEXELS * TCLIP_TEXELS, 0);
+            s_level[i].stampR.assign(TCLIP_TEXELS * TCLIP_TEXELS, 0x7FFFFFFF);
+            s_level[i].stampC.assign(TCLIP_TEXELS * TCLIP_TEXELS, 0x7FFFFFFF);
         }
         // NOT TerrainClipmap_Invalidate() here: it clears s_created, which would
         // re-create the clipmap every frame and never let a level past L0.
@@ -427,15 +456,43 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
         const int range = RingRange(vp, lod, false);
         if (range <= 0)
             continue;
+        {
+            // Artscout - 2026: -G distance investigation. One line per LOD whenever its ring or the streamed
+            // range changes: is the ring limited by what has streamed (avail), the TCLIP_MAX_RADIUS cap, or
+            // the window? And does its outer edge sit past the 280000 ft far plane (ContextMPR::ZFAR)?
+            static int s_lastAvail[TCLIP_MAX_LODS], s_lastRange[TCLIP_MAX_LODS];
+            static int s_logged = 0;
+            if (lod >= 0 && lod < TCLIP_MAX_LODS &&
+                (s_lastAvail[lod] != availSafe || s_lastRange[lod] != range) &&
+                s_logged < 300)
+            {
+                s_lastAvail[lod] = availSafe;
+                s_lastRange[lod] = range;
+                ++s_logged;
+                const char* why = (range == TCLIP_MAX_RADIUS)           ? "MAX_RADIUS cap" :
+                                  (range >= availSafe - 1)              ? "streamed range" :
+                                  (range == TCLIP_TEXELS / 2 - TCLIP_CHUNK) ? "window" :
+                                  (g_nTerrainRingRadius > 0)            ? "cfg radius" :
+                                  ((float)range * step >= 0.95f * g_fFarPlaneKm * 3280.84f - 2.0f * step) ? "far plane" :
+                                                                          "other";
+                const float edgeFt = (float)range * step;
+                TClipLog("[TERRAIN-RING] lod=%d avail=%d ring=%d posts (%.1f km, %.0f ft%s) limited by: %s\n",
+                         lod, availSafe, range, edgeFt / 3280.84f, edgeFt,
+                         edgeFt > g_fFarPlaneKm * 3280.84f ? " > far plane" : "", why);
+            }
+        }
         // Clamped to what the theater actually has: past availSafe every post
         // comes back invalid, and reading them was over half the work.
         int reach = range + TCLIP_CHUNK * 2;
         if (reach > availSafe)
             reach = availSafe;
+        const int oldR0 = lv.actR0, oldR1 = lv.actR1, oldC0 = lv.actC0, oldC1 = lv.actC1;
+        const bool hadBand = lv.hasBand;
         lv.actR0 = centerRow - reach;
         lv.actR1 = centerRow + reach + 1;
         lv.actC0 = centerCol - reach;
         lv.actC1 = centerCol + reach + 1;
+        lv.hasBand = true;
 
         // Window origin: the camera sits in the middle of the slice.
         const int wantRow = centerRow - TCLIP_TEXELS / 2;
@@ -507,6 +564,37 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
                 RecomputeBounds(lv, i);
             }
 
+            // Artscout - 2026: the strips that just ENTERED the band. The ring's edge is at the data-availability
+            // limit, so the band has no margin past it: when the ring steps forward, its new outermost columns/rows
+            // were never uploaded, and the 8-row rolling re-scan below took ~13 updates to reach them -- a whole
+            // edge column of quads dropped (stale posts) for ~50-100 ms every time the ring stepped. Flying along,
+            // that is a line at every ring border that flickers on and off and moves with you. Upload what entered
+            // NOW, before anything is drawn this update. (The window-edge strips above never cover it: those are
+            // at the far side of the 256-post window, outside the band.)
+            if (hadBand && (lv.actR0 != oldR0 || lv.actR1 != oldR1 || lv.actC0 != oldC0 || lv.actC1 != oldC1))
+            {
+                const int rA = lv.actR0, rB = lv.actR1, cA = lv.actC0, cB = lv.actC1;
+
+                // rows newly inside the band, across the whole new column span
+                if (rA < oldR0)
+                    FillRect(vp, lv, i, rA, (rB < oldR0) ? rB : oldR0, cA, cB, centerRow, centerCol, availSafe, useTex);
+                if (rB > oldR1)
+                    FillRect(vp, lv, i, (rA > oldR1) ? rA : oldR1, rB, cA, cB, centerRow, centerCol, availSafe, useTex);
+
+                // columns newly inside the band, over the rows the old band already covered (the rest is above)
+                const int kr0 = (rA > oldR0) ? rA : oldR0, kr1 = (rB < oldR1) ? rB : oldR1;
+                if (kr1 > kr0)
+                {
+                    if (cA < oldC0)
+                        FillRect(vp, lv, i, kr0, kr1, cA, (cB < oldC0) ? cB : oldC0, centerRow, centerCol, availSafe, useTex);
+                    if (cB > oldC1)
+                        FillRect(vp, lv, i, kr0, kr1, (cA > oldC1) ? cA : oldC1, cB, centerRow, centerCol, availSafe, useTex);
+                }
+
+                boundsDirty = true;
+                RecomputeBounds(lv, i);
+            }
+
             // Rolling re-scan over the BAND: a tile activates long after its
             // post was uploaded (the budget is a few per frame), so the band is
             // re-read a few rows at a time until every post has found its tile.
@@ -542,7 +630,17 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
     }
 
     if (!readyLevels)
+    {
+        // Artscout - 2026: a frame with no terrain at all (whole-screen hole in one eye). Capped log.
+        static int s_n = 0;
+        if (s_n < 40)
+        {
+            ++s_n;
+            TClipLog("[TERRAIN-SKIP] t=%lu no level ready (levels=%d created=%d) -> terrain NOT drawn this call\n",
+                     GetTickCount(), s_levels, (int)s_created);
+        }
         return false;
+    }
 
     if (boundsDirty)
     {
@@ -607,6 +705,100 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
             g.ringInner[3] = inB[3];
         }
 
+        {
+            // Artscout - 2026: flicker-at-a-ring-boundary investigation. Two cheap checks, capped log.
+            //  [TERRAIN-NEST]: the finer ring's box (halved, i.e. this ring's inner hole) must sit inside this
+            //    ring's outer box, or there is a hole (inner too big) -- or an overlap strip (z-fight).
+            //  [TERRAIN-BOX]: a ring box moved. Normal while flying (steps of 2 posts); the PATTERN matters --
+            //    a box that flips back and forth between two values on consecutive updates (one per eye, or
+            //    camera jitter at a snap boundary) is a ring edge that dances.
+            static int s_nestLogged = 0, s_boxLogged = 0;
+            static int s_lastBox[TCLIP_MAX_LODS][4];
+            static bool s_haveBox[TCLIP_MAX_LODS];
+
+            // [TERRAIN-HOLE]: every post the ring's quads use must be valid AND be the post this texel is
+            // supposed to hold. A bad row or column is a straight hole. CPU-side only; capped log.
+            static int s_holeLogged = 0;
+            static unsigned long s_holeT0 = 0;
+            if (!s_holeT0)
+                s_holeT0 = GetTickCount();
+            // the first few seconds after a (re)fill are legitimately incomplete: don't spend the log on them
+            if (s_holeLogged < 120 && !lv.stampR.empty() && GetTickCount() - s_holeT0 > 10000)
+            {
+                int rowBad[TCLIP_TEXELS] = {0}, colBad[TCLIP_TEXELS] = {0};
+                int bad = 0, stale = 0, invalid = 0, firstR = 0, firstC = 0;
+                const int hh = rHi - rLo + 1, ww = cHi - cLo + 1;
+
+                if (hh > 0 && ww > 0 && hh <= TCLIP_TEXELS && ww <= TCLIP_TEXELS)
+                {
+                    for (int r = rLo; r <= rHi; ++r)
+                        for (int c = cLo; c <= cHi; ++c)
+                        {
+                            const size_t ix = (size_t)WrapTexel(r) * TCLIP_TEXELS + WrapTexel(c);
+                            const bool st = (lv.stampR[ix] != r || lv.stampC[ix] != c);
+                            const bool iv = !lv.shadowOk[ix];
+
+                            if (st || iv)
+                            {
+                                if (!bad)
+                                    firstR = r, firstC = c;
+                                ++bad;
+                                stale += st;
+                                invalid += (!st && iv);
+                                ++rowBad[r - rLo];
+                                ++colBad[c - cLo];
+                            }
+                        }
+                }
+
+                if (bad > 0)
+                {
+                    int worstRow = -1, worstRowN = 0, worstCol = -1, worstColN = 0;
+                    for (int k = 0; k < hh; ++k)
+                        if (rowBad[k] > worstRowN)
+                            worstRowN = rowBad[k], worstRow = rLo + k;
+                    for (int k = 0; k < ww; ++k)
+                        if (colBad[k] > worstColN)
+                            worstColN = colBad[k], worstCol = cLo + k;
+
+                    ++s_holeLogged;
+                    TClipLog("[TERRAIN-HOLE] t=%lu lod=%d %d bad of %d posts (stale %d, invalid %d) first (%d,%d) | worst row %d: %d/%d | worst col %d: %d/%d%s\n",
+                             GetTickCount(), lod, bad, hh * ww, stale, invalid, firstR, firstC, worstRow, worstRowN,
+                             ww, worstCol, worstColN, hh,
+                             (worstRowN * 2 >= ww || worstColN * 2 >= hh) ? "  <== A LINE" : "");
+                }
+            }
+
+            if (hasInner && s_nestLogged < 40 &&
+                (inB[0] < rLo || inB[1] > rHi || inB[2] < cLo || inB[3] > cHi))
+            {
+                ++s_nestLogged;
+                TClipLog("[TERRAIN-NEST] lod=%d finer box/2 = (%d..%d, %d..%d) NOT inside outer (%d..%d, %d..%d)\n",
+                         lod, inB[0], inB[1], inB[2], inB[3], rLo, rHi, cLo, cHi);
+            }
+
+            if (i < TCLIP_MAX_LODS)
+            {
+                const int nb[4] = {rLo, rHi, cLo, cHi};
+
+                if (s_haveBox[i] && s_boxLogged < 120 &&
+                    (nb[0] != s_lastBox[i][0] || nb[1] != s_lastBox[i][1] ||
+                     nb[2] != s_lastBox[i][2] || nb[3] != s_lastBox[i][3]))
+                {
+                    ++s_boxLogged;
+                    TClipLog("[TERRAIN-BOX] t=%lu lod=%d (%d..%d, %d..%d) was (%d..%d, %d..%d) cam=(%.0f,%.0f)\n",
+                             GetTickCount(), lod, nb[0], nb[1], nb[2], nb[3],
+                             s_lastBox[i][0], s_lastBox[i][1], s_lastBox[i][2], s_lastBox[i][3],
+                             camPos[0], camPos[1]);
+                }
+
+                for (int q = 0; q < 4; ++q)
+                    s_lastBox[i][q] = nb[q];
+
+                s_haveBox[i] = true;
+            }
+        }
+
         // Chunks align to absolute posts that are a multiple of TCLIP_CHUNK, so
         // one chunk maps onto exactly one bounds tile.
         const int chunkR0 = FloorDiv(rLo, TCLIP_CHUNK);
@@ -632,6 +824,20 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
     }
 
     s_chunkCount = chunkId;
+
+    if (chunkId == 0)
+    {
+        static int s_n0 = 0;
+        if (s_n0 < 40)
+        {
+            ++s_n0;
+            int av[TCLIP_MAX_LODS] = {0};
+            for (int i = 0; i < s_levels && i < TCLIP_MAX_LODS; ++i)
+                av[i] = vp->GetAvailablePostRange(s_level[i].lod);
+            TClipLog("[TERRAIN-SKIP] t=%lu zero chunks (levels=%d ready=%d) avail=%d,%d,%d,%d,%d\n", GetTickCount(),
+                     s_levels, readyLevels, av[0], av[1], av[2], av[3], av[4]);
+        }
+    }
 
     // Every view slot gets the base matrix, then the backend overwrites them per
     // eye if this pass is view-instanced / multiview (stereo or quad-views).
@@ -718,6 +924,15 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
 
     if (g_bTerrainMeshDebugTint)
         s_cb.flags[0] |= TF_WIREOVERLAY;
+
+    {
+        extern int g_nTerrainSeamFix; // cfg: bit 1 = wrap-corrected pixel gradients
+        if (g_nTerrainSeamFix & 2)
+            s_cb.flags[0] |= TF_SEAMGRAD;
+        // cfg: bit 2 (4) = coarser ring slips a sunk one-quad rim under the finer ring (plugs hairline gaps)
+        if (g_nTerrainSeamFix & 4)
+            s_cb.flags[0] |= TF_UNDERLAP;
+    }
 
     if (g_pRenderer->IsIRGrey())
         s_cb.flags[0] |= TF_IRGREY;
@@ -851,6 +1066,33 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
                 }
             }
         }
+    }
+
+    {
+        // Artscout - 2026: right-eye whole-screen terrain dropout investigation.
+        //  * "TerrainNoCull": zero every frustum plane. The amplification shader treats a zero plane as "rejects
+        //    nothing", so no chunk is ever culled. If the dropout / the line goes away with this on, the cull
+        //    (frustum planes or the per-tile height bounds) is the culprit; if not, it is not the cull.
+        //  * [TERRAIN-FRUSTUM]: the far plane's offset should be steady frame to frame; log if it jumps.
+        extern bool g_bTerrainNoCull;
+        static float s_lastFar = 0.0f;
+        static int s_frLogged = 0;
+        const float farD = s_cb.frustum[4][3];
+
+        if (s_lastFar != 0.0f && s_frLogged < 60 &&
+            fabsf(farD - s_lastFar) > 0.02f * fabsf(s_lastFar))
+        {
+            ++s_frLogged;
+            TClipLog("[TERRAIN-FRUSTUM] t=%lu far plane d %.0f -> %.0f | near %.0f | left (%.3f %.3f %.3f %.0f) right (%.3f %.3f %.3f %.0f)\n",
+                     GetTickCount(), s_lastFar, farD, s_cb.frustum[5][3], s_cb.frustum[0][0], s_cb.frustum[0][1],
+                     s_cb.frustum[0][2], s_cb.frustum[0][3], s_cb.frustum[1][0], s_cb.frustum[1][1],
+                     s_cb.frustum[1][2], s_cb.frustum[1][3]);
+        }
+        s_lastFar = farD;
+
+        if (g_bTerrainNoCull)
+            for (int p = 0; p < 6; ++p)
+                s_cb.frustum[p][0] = s_cb.frustum[p][1] = s_cb.frustum[p][2] = s_cb.frustum[p][3] = 0.0f;
     }
 
     // The sensor pass overwrites every shared static, so keep its own view of

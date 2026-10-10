@@ -2171,6 +2171,10 @@ enum
     SETUP_ADVANCED_QUADVIEWS = 70351,
     SETUP_ADVANCED_VR_RESSCALE = 70352,
     SETUP_ADVANCED_VR_RESSCALE_READOUT = 70353,
+    SETUP_ADVANCED_ANISO_LEVEL = 70354,            // Advanced page: anisotropic level slider (2x 4x 8x 16x)
+    SETUP_ADVANCED_ANISO_LEVEL_READOUT = 70355,
+    SETUP_ADVANCED_MIP_BIAS = 70356,               // Advanced page: mip LOD bias slider (-1.0 .. +2.0)
+    SETUP_ADVANCED_MIP_BIAS_READOUT = 70357,
 
     // #24: axis-selection dropdowns for pitch/roll (previously set via the controller dropdown)
     SETUP_ADVANCED_PITCH_AXIS = 70417,

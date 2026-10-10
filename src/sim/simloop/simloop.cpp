@@ -29,6 +29,7 @@
 #include "gamemgr.h"
 #include "fsound.h"
 #include "graphics/include/texbank.h"
+#include "graphics/dxengine/d3d12gpuprof.h" // Artscout - 2026: [FRAMEPROF] CPU span timers
 #include "msginc/simcampmsg.h"
 #include "acmi/src/include/acmirec.h"
 #include "ui/include/uicomms.h"
@@ -542,13 +543,17 @@ void SimulationLoopControl::Loop(void)
 #if NEW_SYNC
         //START_PROFILE("CA WAIT");
         //bool gotSig = ThreadManager::sim_wait_for_campaign((currentMode == RunningGraphics) ? 5 : INFINITE);
+        const double fpT0 = GpuProf_NowMs();
         bool gotSig = ThreadManager::sim_wait_for_campaign(INFINITE);
+        const double fpT1 = GpuProf_NowMs();
+        GpuProf_AddCpu(GPCPU_CAMP_WAIT, fpT1 - fpT0); // time blocked waiting for the campaign thread
 
         //STOP_PROFILE("CA WAIT");
         // life goes on
         if (gotSig)
         {
             RealTimeFunction(vuxRealTime, NULL);
+            GpuProf_AddCpu(GPCPU_REALTIME, GpuProf_NowMs() - fpT1);
 
             if (currentMode == StoppingSim)
             {
@@ -570,6 +575,7 @@ void SimulationLoopControl::Loop(void)
         //STOP_PROFILE("SIMDIRTY");
 
         //START_PROFILE("SIMCYCLE");
+        const double fpS0 = GpuProf_NowMs();
 #if NO_CAMP_LOCK
         SimDriver.Cycle();
 #else
@@ -577,6 +583,7 @@ void SimulationLoopControl::Loop(void)
         SimDriver.Cycle();
         CampLeaveCriticalSection();
 #endif
+        GpuProf_AddCpu(GPCPU_SIM_CYCLE, GpuProf_NowMs() - fpS0);
         //STOP_PROFILE("SIMCYCLE");
 
         // Do any graphics related processing required
@@ -597,7 +604,11 @@ void SimulationLoopControl::Loop(void)
 
             gGraphicsTime = GetTickCount();
             // we cant profile here, since its zeroed inside function
-            OTWDriver.Cycle();
+            {
+                const double fpO0 = GpuProf_NowMs();
+                OTWDriver.Cycle();
+                GpuProf_AddCpu(GPCPU_OTW_CYCLE, GpuProf_NowMs() - fpO0);
+            }
             gGraphicsTimeLast = GetTickCount() - gGraphicsTime;
 
             // Campaign gets fed some food by putting us to sleep

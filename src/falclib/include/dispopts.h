@@ -9,6 +9,8 @@
 #define _DISPLAY_OPTIONS_
 
 
+#define MIP_BIAS_UNSET (-99) // DisplayOptionsClass::nMipBiasTenths: never set from the UI
+
 class DisplayOptionsClass
 {
 public:
@@ -34,6 +36,7 @@ public:
     bool bMsaaEnable; // 3D-scene + RTT multisample AA on/off (Graphics page)
     int nMsaaSamples; // requested MSAA sample count 1..8 (snapped to a supported level in the backend)
     int nAnisotropicSamples; // max anisotropy 1..16 for the anisotropic filter (Graphics page). On/off = bAnisotropicFiltering.
+    int nMipBiasTenths; // mip LOD bias in tenths (0..+20 = 0.0..+2.0 from the slider), Advanced page -> g_fMipLodBias. MIP_BIAS_UNSET = leave the cfg "MipLodBias" alone.
     bool
         bUseOpenXR; // VR via OpenXR (Advanced page) -> g_bUseOpenXR. Default OFF = flat desktop path.
     bool

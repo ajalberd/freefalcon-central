@@ -126,7 +126,6 @@ const char *FREE_FALCON_VERSION = "7.0.0";
 
 
 // GLOBAL VARIABLES
-bool intro_movie = true;
 bool cockpit_verifier = false;
 bool g_writeMissionTbl = false;
 bool g_writeSndTbl = false;
@@ -926,6 +925,10 @@ signed int PASCAL handle_WinMain(HINSTANCE h_instance,
                 .bAnisotropicFiltering; // Artscout - 2026: aniso on/off + level -> samplers
         g_nAnisoSamples = DisplayOptions.nAnisotropicSamples;
 
+        extern float g_fMipLodBias; // Artscout - 2026: the Advanced page's mip bias, once the player has set one
+        if (DisplayOptions.nMipBiasTenths != MIP_BIAS_UNSET)
+            g_fMipLodBias = (float)DisplayOptions.nMipBiasTenths / 10.0F;
+
         if (UiTest_Requested())
             g_bUseOpenXR = false; // a scripted UI run is a desktop run, whatever the saved options say
     }
@@ -1444,6 +1447,8 @@ void ParseCommandLine(LPSTR cmdLine)
             {
                 int temp = atoi(&arg[2]);
                 GraphicSettingMult = temp >= 1 ? temp : 1;
+                extern bool GraphicSettingFromArg; // stops the cfg's far-plane-derived default overriding -G
+                GraphicSettingFromArg = true;
             }
 
             if (not stricmp(arg, "-window"))
@@ -1547,8 +1552,10 @@ void ParseCommandLine(LPSTR cmdLine)
                     g_fUiScale = (float)atof(scale);
             }
 
+            // "-nomovie" is still accepted (the UI test harness passes it); there is no intro movie to skip now.
             if (_strnicmp(arg, "-nomovie", 8) == 0)
-                intro_movie = false;
+            {
+            }
 
             if (_strnicmp(arg, "-noUIcomms", 8) == 0)
                 noUIcomms = TRUE;
@@ -2179,9 +2186,8 @@ LRESULT CALLBACK FalconMessageHandler(HWND hwnd, UINT message, WPARAM wParam,
     case FM_START_GAME:
         SystemLevelInit();
 
-        if (intro_movie)
-            SendMessage(hwnd, FM_PLAY_INTRO_MOVIE, 0, 0); // Play Movie
-
+        // Artscout - 2026: no intro movie. It switched the display into its own movie mode (and back) before the
+        // menu came up, which fought the window/resolution setup the front end now does itself.
         PostMessage(hwnd, FM_START_UI, 0, 0); // Start UI
 
         break;
@@ -2706,15 +2712,8 @@ LRESULT CALLBACK FalconMessageHandler(HWND hwnd, UINT message, WPARAM wParam,
         break;
 
     case FM_PLAY_INTRO_MOVIE:
-        FalconDisplay.EnterMode(FalconDisplayConfiguration::Movie);
-        SetFocus(hwnd);
-
-        // RV - Biker - Add theater switching for into movie
-        char tmpPath[MAX_PATH];
-        sprintf(tmpPath, "%s/intro.avi", FalconMovieDirectory);
-        PlayMovie(tmpPath, -1, -1, 0, 0,
-                  FalconDisplay.GetImageBuffer()->frontSurface());
-        FalconDisplay.LeaveMode();
+        // Artscout - 2026: the intro movie is gone (see FM_START_GAME). The message stays defined so the FM_*
+        // numbering does not shift; nothing sends it.
         break;
 
     case FM_EXIT_GAME:

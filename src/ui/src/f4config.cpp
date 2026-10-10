@@ -942,6 +942,13 @@ int g_nTerrainMorphPosts =
     10; // Artscout - 2026: #78 -- width, in posts, of the geomorph band at each LOD ring's outer edge. The ring box snaps to EVEN posts, so it jumps 2 posts at a time as the camera crosses a post; every post in this band then steps its blend weight by 2/width AT ONCE, which is a discrete height pop on a whole ring of ground. Wider = smaller step (gentler) but more of the fine ring dragged onto the coarse surface. 0 or 1 = morph off except the boundary row (still watertight) -- the bisect case for "is the stutter the morph?".
 int g_nTerrainRingRadius =
     0; // Artscout - 2026: #78 -- force every LOD ring to this radius in posts instead of tracking GetAvailablePostRange(), which shrinks whenever a terrain block is still streaming and grows back when it lands, so the rings BREATHE frame to frame. 0 = auto (stock). The bisect case for "is the stutter the rings resizing?"; capped by the clipmap window either way.
+bool g_bGpuProf = true; // see BoolOpts "GpuProf"
+bool g_bTerrainCrackDebug = false; // see BoolOpts "TerrainCrackDebug"
+bool g_bTerrainNoCull = false; // see BoolOpts "TerrainNoCull"
+float g_fBubbleScale = 1.0f; // see FloatOpts "BubbleScale"
+float g_fFarPlaneKm = 85.34f; // Artscout - 2026: see FloatOpts "FarPlaneKm"
+int g_nTerrainSeamFix =
+    7; // (bit 2 / value 4 = the ring underlap: the coarser ring keeps a one-quad rim sunk under the finer ring, so a hairline gap between rings shows ground instead of sky. 7 = all three.) Artscout - 2026: ground tile seams. Bit 0 (1) = CLAMP addressing on the terrain sampler instead of WRAP (a tile-edge quad's uv overshoots 0..1 and WRAP blends in the tile's opposite edge). Bit 1 (2) = wrap-corrected pixel gradients, so the mip/aniso selection no longer spikes where one tile ends and the next begins. 3 = both (default), 0 = the old behaviour. Bit 0 is read when the renderer starts (restart to change).
 int g_nBillboardMode =
     1; // Artscout - 2026: how the 2D engine orients billboard quads (clouds, smoke, particle sprites). The stock basis is ONE matrix per frame -- RotY(pitch) * RotZ(yaw) from Euler angles pulled back out of the camera matrix -- so every sprite in the scene is aimed at the middle of the view rather than at you, and the Euler pair is singular looking straight up, where the extracted yaw swings wildly and spins every sprite with it. Both errors scale with field of view, which is why they read as a 90s sprite wobble in a headset and as nothing much on a monitor. 1 = per-quad basis (aimed down the ray to each quad, so head rotation cannot enter it) for callers that ask -- today the cumulus clouds. 2 = per-quad for EVERY billboard, which also covers smoke trails and particle effects but can kink a smoke ribbon drawn close to the camera, since adjacent segments no longer share one basis. 0 = stock.
 bool g_bShowFpsOnStart =
@@ -1168,6 +1175,8 @@ int g_nUiHeight = 0;
 // Artscout - 2026 (VR UI): in a headset the menu layout is VrUiWidth x VrUiHeight (0 = follow UiWidth/
 // UiHeight/UiScale), shown on a curved panel VrUiHeightDeg tall at VrUiRadius m; its width follows the
 // aspect (1920x768 at 45 deg is ~120 deg round). VrUiCylinder 0 = the old flat quad.
+// (2026-10-09: tried 1366x768 at 60 deg for "tiny" menus -- that complaint was the DESKTOP mirror window, and the
+// bigger headset panel filled the whole field of view. Back to the original; VrUiHeightDeg is the size knob.)
 int g_nVrUiWidth = 1920;
 int g_nVrUiHeight = 768;
 float g_fVrUiRadius = 2.0f;
@@ -1798,6 +1807,12 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bObjFog}, // Artscout - 2026: fog lit world objects like the terrain (D3D12)
     {"ObjPixelLight",
      &g_bObjPixelLight}, // Artscout - 2026: per-pixel object lighting (small lamps stop washing whole panels)
+    {"TerrainNoCull",
+     &g_bTerrainNoCull}, // Artscout - 2026: debug: never frustum-cull terrain chunks (zero planes). Costs GPU time; tells whether the chunk cull causes a terrain dropout. Live.
+    {"TerrainCrackDebug",
+     &g_bTerrainCrackDebug}, // Artscout - 2026: debug: no sky dome / horizon filler, magenta eye clear -> any hole through the terrain shows magenta (VR eye path). Restart to apply.
+    {"GpuProf",
+     &g_bGpuProf}, // Artscout - 2026: D3D12 per-pass GPU timing -> "[GPUPROF]" lines in FFDebug.log every 5 s (default on)
     {"CampMapShipWrecks",
      &g_bCampMapShipWrecks}, // Artscout - 2026: destroyed ships stay as dark wreck markers
     {"NavalMoveFix", &g_bNavalMoveFix}, // 1 = ships follow their route cell by cell
@@ -2303,6 +2318,8 @@ static ConfigOption<int> IntOpts[] = {
      &g_nBillboardMode}, // Artscout - 2026: 0 = one camera-facing matrix for all sprites (stock), 1 = per-quad basis for clouds, 2 = per-quad for every billboard
     {"TerrainRingRadius",
      &g_nTerrainRingRadius}, // Artscout - 2026: #78 -- fixed LOD ring radius in posts; 0 = track the streamed range.
+    {"TerrainSeamFix",
+     &g_nTerrainSeamFix}, // Artscout - 2026: ground tile seams: 1 = clamp the terrain sampler, 2 = wrap-corrected gradients, 3 = both (default), 0 = old
     {"VrRayToggle",
      &g_nVrRayToggle}, // Artscout - 2026 (VR hands): -1 auto(by profile) / 0 hold / 1 toggle grip activation
 
@@ -2468,6 +2485,8 @@ static ConfigOption<float> FloatOpts[] = {
     {"HmcsScale", &g_fHmcsScale},         // Artscout - 2026: JHMCS symbology size
     {"HmcsTextScale", &g_fHmcsTextScale}, // Artscout - 2026: JHMCS glyph size
     {"MipLodBias", &g_fMipLodBias},
+    {"BubbleScale", &g_fBubbleScale}, // Artscout - 2026: local-only multiplier on every non-objective sim bubble (default 1; 0.25..8). Costs CPU, not GPU. [BUBBLE] lines in FFDebug.log show the resulting ranges.
+    {"FarPlaneKm", &g_fFarPlaneKm}, // Artscout - 2026: world far clip in km (default 85.34 = the old 280000 ft). Also sets the terrain-ring limit, the haze end and the Setup slider reach.
     {"SubtitleX",
      &g_fSubtitleX}, // Artscout - 2026: radio subtitle left edge, viewport NDC (+ = right)
     {"SubtitleY",
@@ -3107,4 +3126,19 @@ void ReadFalcon4Config()
 
     delete[] strDir;
     delete[] strAppPath;
+
+    // Artscout - 2026: the Setup draw-distance sliders used to top out at 80 km unless the game was launched
+    // with -G<n> (which just stretches them), while the far plane clips at ~85 km -- so the flag could only
+    // ever ask for ground that is never drawn. Derive the slider reach from the far plane instead: the terrain
+    // slider is 40 + (6N-2)*10 km at its end, so pick the N whose end sits at the far plane. -G still overrides.
+    {
+        extern int GraphicSettingMult;
+        extern bool GraphicSettingFromArg;
+        if (!GraphicSettingFromArg)
+        {
+            const float steps = ((g_fFarPlaneKm - 40.0f) / 10.0f + 2.0f) / 6.0f;
+            int n = (int)(steps + 0.5f);
+            GraphicSettingMult = n < 1 ? 1 : (n > 4 ? 4 : n);
+        }
+    }
 }

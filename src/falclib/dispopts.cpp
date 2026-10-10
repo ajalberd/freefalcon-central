@@ -61,6 +61,7 @@ void DisplayOptionsClass::Initialize(void)
     nMsaaSamples = 4;
     nAnisotropicSamples =
         16; // Artscout - 2026: default max anisotropy (on/off = bAnisotropicFiltering)
+    nMipBiasTenths = MIP_BIAS_UNSET; // until the Advanced page slider is moved, the cfg "MipLodBias" rules
     bUseOpenXR = false;
     bUseQuadViews = false;
     nVrResolutionScale = 100;
@@ -136,6 +137,7 @@ int DisplayOptionsClass::LoadOptions(char *filename)
                 &nAnisotropicSamples); // Artscout - 2026: max anisotropy 1..16
             e->QueryBoolAttribute("linearmip", &bLinearMipFiltering);
             e->QueryBoolAttribute("mipmapping", &bMipmapping);
+            e->QueryIntAttribute("mipBiasTenths", &nMipBiasTenths);
             e->QueryBoolAttribute("zbuffer", &bZBuffering);
             e->QueryBoolAttribute("fontTexel", &bFontTexelAlignment);
             e->QueryBoolAttribute("specular", &bSpecularLighting);
@@ -188,6 +190,8 @@ int DisplayOptionsClass::LoadOptions(char *filename)
         nMsaaSamples = 4;
     if (nAnisotropicSamples < 1 or nAnisotropicSamples > 16)
         nAnisotropicSamples = 16;
+    if (nMipBiasTenths != MIP_BIAS_UNSET and (nMipBiasTenths < -20 or nMipBiasTenths > 40))
+        nMipBiasTenths = MIP_BIAS_UNSET;
     if (nVrResolutionScale < 50 or nVrResolutionScale > 100)
         nVrResolutionScale = 100;
 #ifdef _WIN32
@@ -266,6 +270,8 @@ int DisplayOptionsClass::SaveOptions(void)
         nMsaaSamples = 4;
     if (nAnisotropicSamples < 1 or nAnisotropicSamples > 16)
         nAnisotropicSamples = 16;
+    if (nMipBiasTenths != MIP_BIAS_UNSET and (nMipBiasTenths < -20 or nMipBiasTenths > 40))
+        nMipBiasTenths = MIP_BIAS_UNSET;
     if (nVrResolutionScale < 50 or nVrResolutionScale > 100)
         nVrResolutionScale = 100;
 #ifdef _WIN32
@@ -304,6 +310,8 @@ int DisplayOptionsClass::SaveOptions(void)
         nAnisotropicSamples); // Artscout - 2026: max anisotropy 1..16
     e->SetAttribute("linearmip", bLinearMipFiltering);
     e->SetAttribute("mipmapping", bMipmapping);
+    if (nMipBiasTenths != MIP_BIAS_UNSET)
+        e->SetAttribute("mipBiasTenths", nMipBiasTenths);
     e->SetAttribute("zbuffer", bZBuffering);
     e->SetAttribute("fontTexel", bFontTexelAlignment);
     e->SetAttribute("specular", bSpecularLighting);

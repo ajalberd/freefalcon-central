@@ -41,6 +41,8 @@
 #define TF_WIREOVERLAY  (1u << 3)   // debug: tint by LOD instead of terrain colour
 #define TF_IRGREY       (1u << 4)   // #A5 sensor pass (TGP/MAV/FLIR): luma only
 #define TF_NVG          (1u << 5)   // #97 night vision: green phosphor + gain
+#define TF_SEAMGRAD     (1u << 6)   // wrap-corrected uv gradients (tile seams)
+#define TF_UNDERLAP     (1u << 7)   // coarser ring keeps a one-quad rim under the finer ring, sunk below it
 
 // Per-post info bits (gClipInfo).
 #define PI_VALID        (1u << 16)  // the post is resident (else the quad is skipped)
@@ -408,14 +410,20 @@ void MS_Terrain(uint gtid : SV_GroupThreadID,
         const int bi = (pr + 1) * BORDER_POSTS + (pc + 1);
 
         float z = s_rawZ[bi];
+        bool morphFallback = false; // wanted the coarse height but it was not resident (debug marker, see PS)
         if (doMorph)
         {
             const float a = MorphAlpha(post, outer);
             float coarseZ;
             // No coarse data yet -> keep the fine height. A seam is far better
             // than a patch sinking to zero.
-            if (a > 0.0f && CoarseHeight(post, slice + 1, coarseZ))
-                z = lerp(z, coarseZ, a);
+            if (a > 0.0f)
+            {
+                if (CoarseHeight(post, slice + 1, coarseZ))
+                    z = lerp(z, coarseZ, a);
+                else
+                    morphFallback = true;
+            }
         }
 
         const float4 pd = LoadPost(post, slice);
@@ -425,7 +433,7 @@ void MS_Terrain(uint gtid : SV_GroupThreadID,
         pc2.wpos = PostToWorld(post, shift, z);
         pc2.uv = pd.yz;
         pc2.d = pd.w;
-        pc2.info = info;
+        pc2.info = info | (morphFallback ? (1u << 24) : 0u); // bit 24: debug marker; PI_* and the slot mask never touch it
         // Central difference over the raw grid; z points DOWN, hence the sign.
         pc2.normal = normalize(float3(s_rawZ[bi + BORDER_POSTS] - s_rawZ[bi - BORDER_POSTS],
                                       s_rawZ[bi + 1] - s_rawZ[bi - 1],
@@ -446,12 +454,21 @@ void MS_Terrain(uint gtid : SV_GroupThreadID,
              && (p0.y >= outer.z) && (p0.y + 1 <= outer.w);
 
     // The finer LOD owns everything inside the inner box.
+    // TF_UNDERLAP: except the one-quad rim of it, where this (coarser) ring is kept but sunk below the finer
+    // surface (see the vertex loop). Any hairline gap between the two rings then shows ground, not sky.
+    bool underlap = false;
     if (keep && hasInner)
     {
+        const int m = ((gTerrFlags.x & TF_UNDERLAP) != 0) ? 1 : 0;
         const bool insideInner = (p0.x >= inner.x) && (p0.x + 1 <= inner.y)
                               && (p0.y >= inner.z) && (p0.y + 1 <= inner.w);
-        keep = !insideInner;
+        const bool insideShrunk = (p0.x >= inner.x + m) && (p0.x + 1 <= inner.y - m)
+                               && (p0.y >= inner.z + m) && (p0.y + 1 <= inner.w - m);
+        keep = !insideShrunk;
+        underlap = (m != 0) && insideInner && !insideShrunk;
     }
+    // How far the rim sinks: more for coarser rings, whose surface differs more from the fine one near the edge.
+    const float underlapDrop = 40.0f + 0.03f * (gTerrParams.x * (float)(1u << (uint)shift));
 
     const uint c00 = (uint)(qi * CHUNK_POSTS + qj);
     const uint c10 = c00 + CHUNK_POSTS;
@@ -478,13 +495,17 @@ void MS_Terrain(uint gtid : SV_GroupThreadID,
     {
         const PostCache src = s_post[idx[k]];
         TerrVertex o;
-        o.wpos = src.wpos;
-        o.pos = mul(mul(float4(src.wpos, 1.0f), gTerrView[viewId]),
+        float3 wp = src.wpos;
+        if (underlap)
+            wp.z += underlapDrop; // z is DOWN: larger = lower
+        o.wpos = wp;
+        o.pos = mul(mul(float4(wp, 1.0f), gTerrView[viewId]),
                     gTerrProj[viewId]);
         o.uv = corner.uv + uvOff[k] * corner.d;
         o.normal = src.normal;
         o.slot = slot;
-        o.lod = slice;
+        // bit 8: one of this quad's posts could not morph to the coarse surface (TerrainMeshDebugTint paints it white)
+        o.lod = slice | ((((s_post[c00].info | s_post[c10].info | s_post[c01].info | s_post[c11].info) >> 24) & 1u) << 8);
         verts[vb + k] = o;
     }
 
@@ -538,9 +559,32 @@ float4 PS_Terrain(TerrVertex i) : SV_Target
         // is undefined per wave and NVIDIA returns black -- the Vulkan branch
         // below always had it, which is why only D3D12 lost its ground.
         Texture2D tile = ResourceDescriptorHeap[NonUniformResourceIndex(i.slot)];
-        rgb = tile.Sample(gTileSampler, i.uv).rgb;
+        // Each quad's uv comes from its own corner post, so where one tile ends and the next begins the uv
+        // jumps by ~1 between two neighbouring pixels. The hardware derivative then reads "this pixel spans a
+        // whole tile" and picks the blurriest mip (and a huge anisotropic footprint) along the boundary --
+        // a line that sits exactly on the seam. A real step is a small fraction of a tile per pixel, so
+        // dropping the nearest whole number leaves the true gradient and removes only the jump.
+        if ((gTerrFlags.x & TF_SEAMGRAD) != 0)
+        {
+            float2 gx = ddx(i.uv);
+            float2 gy = ddy(i.uv);
+            gx -= round(gx);
+            gy -= round(gy);
+            rgb = tile.SampleGrad(gTileSampler, i.uv, gx, gy).rgb;
+        }
+        else
+            rgb = tile.Sample(gTileSampler, i.uv).rgb;
 #elif defined(FF_BINDLESS_ARRAY)
-        rgb = gTiles[NonUniformResourceIndex(i.slot)].Sample(gTileSampler, i.uv).rgb;
+        if ((gTerrFlags.x & TF_SEAMGRAD) != 0)
+        {
+            float2 gx = ddx(i.uv);
+            float2 gy = ddy(i.uv);
+            gx -= round(gx);
+            gy -= round(gy);
+            rgb = gTiles[NonUniformResourceIndex(i.slot)].SampleGrad(gTileSampler, i.uv, gx, gy).rgb;
+        }
+        else
+            rgb = gTiles[NonUniformResourceIndex(i.slot)].Sample(gTileSampler, i.uv).rgb;
 #else
         rgb = float3(1.0f, 1.0f, 1.0f);
 #endif
@@ -567,6 +611,9 @@ float4 PS_Terrain(TerrVertex i) : SV_Target
         const float3 lodTint[4] = { float3(1, 0.3f, 0.3f), float3(0.3f, 1, 0.3f),
                                     float3(0.3f, 0.5f, 1), float3(1, 1, 0.3f) };
         rgb = lerp(rgb, lodTint[i.lod & 3], 0.35f);
+
+        if ((i.lod & 0x100u) != 0)
+            rgb = float3(1.0f, 1.0f, 1.0f); // morph fell back here: the fine edge kept its own height
     }
 
     if ((gTerrFlags.x & TF_FOG) != 0)

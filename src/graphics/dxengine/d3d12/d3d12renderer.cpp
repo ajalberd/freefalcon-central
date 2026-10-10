@@ -56,6 +56,7 @@
 #include "d3d12renderer.h"
 #include "graphics/include/fflog.h" // mirror the debug stream into FFDebug.log
 #include "graphics/dxengine/d3d12backend.h" // g_pD3D12Backend (device + command list)
+#include "graphics/dxengine/d3d12gpuprof.h" // Artscout - 2026: per-pass GPU timing marks
 #include "graphics/dxengine/embeddedshader.h" // Artscout - 2026: FFEmu.hlsl from external file or embedded RCDATA
 #include "graphics/shaders/ffshaderblobs.h" // #78: DXIL for the mesh-shader terrain
 #include "graphics/dxengine/d3d12/d3d12texturemanager.h" // D3D12Texture (srvCpuPtr) for the SRV ring
@@ -1378,6 +1379,7 @@ void D3D12Renderer::SetPitShadowVP(const float* vp, float bias, float strength)
 
 bool D3D12Renderer::BeginPitShadowPass()
 {
+    GpuProf_Mark(Cmd(), "pit-shadow");
     if (!g_pD3D12Backend)
         return false;
     // The shadow map is square and fixed; the backend caches it across frames. 1024 is plenty for
@@ -1485,6 +1487,7 @@ void D3D12Renderer::SetRttGlare(const float* glare20)
 }
 bool D3D12Renderer::ToneMapScene()
 {
+    GpuProf_Mark(Cmd(), "tonemap");
     return g_pD3D12Backend && g_pD3D12Backend->ToneMapSceneGT7();
 }
 void D3D12Renderer::SetIRGrey(bool on)
@@ -2748,6 +2751,7 @@ static D3D_PRIMITIVE_TOPOLOGY TopoOf(int primType)
 
 void D3D12Renderer::BeginScreenPass()
 {
+    GpuProf_Mark(Cmd(), "2d-screen");
     m_pass = 0;
     m_cull = 0;
     m_bias = 0;
@@ -2759,6 +2763,7 @@ void D3D12Renderer::BeginScreenPass()
 
 void D3D12Renderer::BeginObjectPass()
 {
+    GpuProf_Mark(Cmd(), "objects");
     m_pass = 1;
     m_cull = 0;
     m_bias = 1; // #16 object depth-bias toward camera
@@ -2787,6 +2792,7 @@ void D3D12Renderer::BeginObjectPass()
 void D3D12Renderer::BeginTerrainPass()
 {
     BeginObjectPass();
+    GpuProf_Mark(Cmd(), "terrain");
     m_bias = 2; // #78 terrain bias key: reversed-Z slope-scaled bias from
     // g_fGpuTerrainSlopeBias/DepthBias (both 0 by default -> no
     // push, biased objects still win the seam). Tune SlopeBias
@@ -2818,6 +2824,7 @@ void D3D12Renderer::RebuildTerrainRasters()
 // 2D sky). No lighting, no fog, no cull (dome viewed from inside). Vertex-colour (gradient), or textured (stars/sun).
 void D3D12Renderer::BeginSkyPass(bool blend)
 {
+    GpuProf_Mark(Cmd(), "sky");
     m_pass = 1;
     m_cull = 0;
     m_bias = 0;
@@ -3479,11 +3486,32 @@ ID3D12PipelineState* D3D12Renderer::GetMeshTerrainPso()
 
         D3D12_STATIC_SAMPLER_DESC samp;
         ZeroMemory(&samp, sizeof(samp));
-        samp.Filter = D3D12_FILTER_ANISOTROPIC;
-        samp.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        samp.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        samp.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        samp.MaxAnisotropy = 8;
+        // Artscout - 2026: this is the sampler the GROUND is actually drawn with (the s0/s1 pair above serves the
+        // object pass). It was hard-wired 8x aniso + WRAP and ignored both the anisotropy option and MipLodBias.
+        //  * CLAMP (g_nTerrainSeamFix bit 0): every terrain tile is its own texture, and a quad on a tile's edge
+        //    extrapolates its uv a little past 0..1. WRAP turns that into a sample from the tile's OPPOSITE edge,
+        //    and the filter kernel (wider at every mip, wider again with anisotropy) blends the two -> a line of
+        //    wrong colour along every tile boundary that grows with distance. CLAMP repeats the edge texel.
+        //  * the anisotropy option and MipLodBias now apply to the ground as they do to everything else.
+        extern bool g_bAnisoEnable;
+        extern int g_nAnisoSamples;
+        extern float g_fMipLodBias;
+        extern int g_nTerrainSeamFix;
+        int aniso = g_nAnisoSamples;
+        if (aniso < 1)
+            aniso = 1;
+        if (aniso > 16)
+            aniso = 16;
+        const bool useAniso = g_bAnisoEnable && aniso >= 2;
+        const D3D12_TEXTURE_ADDRESS_MODE addr = (g_nTerrainSeamFix & 1) ?
+                                                    D3D12_TEXTURE_ADDRESS_MODE_CLAMP :
+                                                    D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        samp.Filter = useAniso ? D3D12_FILTER_ANISOTROPIC : D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        samp.AddressU = addr;
+        samp.AddressV = addr;
+        samp.AddressW = addr;
+        samp.MaxAnisotropy = useAniso ? aniso : 1;
+        samp.MipLODBias = g_fMipLodBias < -4.0f ? -4.0f : (g_fMipLodBias > 4.0f ? 4.0f : g_fMipLodBias);
         samp.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
         samp.MaxLOD = D3D12_FLOAT32_MAX;
         samp.ShaderRegister = 0;
@@ -3687,6 +3715,8 @@ void D3D12Renderer::DrawTerrainMeshShader(const void* constants,
     ID3D12GraphicsCommandList* cl = Cmd();
     if (!cl)
         return;
+    GpuProf_Mark(cl, "terrain");
+    GpuProf_Count(0, 0, chunkCount);
 
     ID3D12GraphicsCommandList6* cl6 = 0;
     if (FAILED(cl->QueryInterface(IID_PPV_ARGS(&cl6))) || !cl6)
@@ -4230,6 +4260,7 @@ void D3D12Renderer::DrawObjectIndexed(int primType, void* vbHandle, int stride,
     ID3D12GraphicsCommandList* cl = Cmd();
     if (!cl)
         return;
+    GpuProf_Count(1, indexCount / 3, 0);
 
     // Artscout - 2026: the decisive datum for untextured menu 3D models. SelectTexture proved
     // the bank hands over a real texture; what this reports is whether that survives to the

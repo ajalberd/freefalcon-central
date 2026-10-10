@@ -212,6 +212,26 @@ void RenderOTW::Setup(ImageBuffer *imageBuffer, RViewPoint *vp)
     SetTunnelPercent(0.0f, 0x80808080);
     PreSceneCloudOcclusion(0.0f, 0x80808080);
 
+    // Artscout - 2026: the world's far clip plane, from FFViper.cfg "FarPlaneKm" (default = the old 280000 ft).
+    // Set here, not in ContextMPR's constructor: that runs before the cfg is read.
+    {
+        extern float g_fFarPlaneKm;
+        float km = g_fFarPlaneKm;
+        if (km < 20.0f)
+            km = 20.0f;
+        if (km > 400.0f)
+            km = 400.0f;
+        // The 3D sky dome (and its sun/moon/star discs) sits at g_fSkyDomeRadius and is drawn depth-OFF, but it
+        // is still clipped by the far plane; keep the plane out past it or the sky loses its edge.
+        extern float g_fSkyDomeRadius;
+        float ft = km * 3280.84f;
+        const float domeFloor = 1.25f * ((g_fSkyDomeRadius > 1000.0f) ? g_fSkyDomeRadius : 200000.0f);
+        if (ft < domeFloor)
+            ft = domeFloor;
+        context.SetFarPlane(ft);
+        g_fFarPlaneKm = ft / 3280.84f; // every other consumer (terrain rings, haze, sliders) reads the EFFECTIVE value
+    }
+
     // Adjust our back clipping plane based on the range defined for this viewpoint
     SetFar(viewpoint->GetMaxRange() *
            0.707f); // far = maxRange * cos(half_angle)
@@ -435,6 +455,23 @@ void RenderOTW::SetTerrainTextureLevel(int level)
     // Rearrange the texture blend settings
     // blend_start = viewpoint->GetMaxRange( textureLevel - 1 );
     // blend_depth = viewpoint->GetMaxRange( textureLevel ) * 0.8f;
+
+    // Artscout - 2026: the haze must be OPAQUE before the far plane cuts the world, or the cut shows. The far
+    // plane is planar (depth along the view axis) while the haze is radial, so at the edge of a wide FOV
+    // ground is drawn well past the plane distance and straight ahead it stops at it: turn your head and the
+    // far ground appears and disappears. -G (or any big draw distance) scaled the haze out to hundreds of km
+    // against a far plane that never moved. Pull the haze in, keeping its shape, so it is solid by 90% of the
+    // plane; at the stock settings it already is (0.6 * far_clip = 72 km vs 85 km), so those do not change.
+    {
+        const float hazeEnd = haze_depth; // still the ABSOLUTE end here; made relative to the start just below
+        const float cap = 0.9f * context.ZFAR;
+        if (hazeEnd > cap && hazeEnd > 0.0f)
+        {
+            const float k = cap / hazeEnd;
+            haze_start *= k;
+            haze_depth *= k;
+        }
+    }
 
     // Convert from range from viewer to range from start
     haze_depth -= haze_start;
@@ -772,15 +809,17 @@ void RenderOTW::DrawScene(const Tpoint *offset, const Trotation *orientation)
         {
             extern bool g_bVulkanProfile;
             on = g_bVulkanProfile;
-            if (on)
-                t = std::chrono::steady_clock::now();
+            t = std::chrono::steady_clock::now(); // always: the D3D12 [GPUPROF] line wants it too
         }
         ~DsProfGuard()
         {
+            extern void GpuProf_AddDrawSceneMs(double ms);
+            const double ms = std::chrono::duration<double, std::milli>(
+                                  std::chrono::steady_clock::now() - t)
+                                  .count();
+            GpuProf_AddDrawSceneMs(ms);
             if (on)
-                FrameProf_DrawScene(std::chrono::duration<double, std::milli>(
-                                        std::chrono::steady_clock::now() - t)
-                                        .count());
+                FrameProf_DrawScene(ms);
         }
     } _dsProfGuard;
 

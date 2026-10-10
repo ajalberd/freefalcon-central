@@ -20,6 +20,7 @@
 #include "msginc/sendaircraftslot.h"
 #include "sim/include/simdrive.h"
 #include "sim/include/otwdrive.h"
+#include "graphics/include/fflog.h" // Artscout - 2026: [BUBBLE] log lines
 
 //sfr: added for checks
 #include "invalidbufferexception.h"
@@ -740,7 +741,49 @@ int FalconSessionEntity::InSessionBubble(FalconEntity* ent,
     }
     else
     {
-        ent_bubble_range = ent->EntityType()->bubbleRange_ * bubbleRatio;
+        // Artscout - 2026: cfg "BubbleScale" stretches every non-objective bubble on top of the Setup slider /
+        // number-key ratio (those stop at 2x / 3x). Applied here, not to bubbleRatio, because bubbleRatio is
+        // saved and sent to other sessions -- this is a local-only multiplier.
+        extern float g_fBubbleScale;
+        float scale = g_fBubbleScale;
+        if (scale < 0.25f)
+            scale = 0.25f;
+        else if (scale > 8.0f)
+            scale = 8.0f;
+        ent_bubble_range = ent->EntityType()->bubbleRange_ * bubbleRatio * scale;
+
+        // One line per entity type, the first time it is asked about (capped): what range the bubble really
+        // gives each kind of thing. Answers "how far out do aircraft / SAMs / vehicles exist as 3D objects".
+        {
+            static unsigned short s_seen[96];
+            static int s_nSeen = 0;
+            const unsigned short tid = ent->EntityType()->id_;
+            bool seen = false;
+            for (int k = 0; k < s_nSeen; ++k)
+                if (s_seen[k] == tid)
+                {
+                    seen = true;
+                    break;
+                }
+            if (!seen && s_nSeen < 96)
+            {
+                s_seen[s_nSeen++] = tid;
+                char ln[200];
+                const float r = ent->EntityType()->bubbleRange_;
+                _snprintf(ln, sizeof(ln) - 1,
+                          "[BUBBLE] type=%u class=%d/%d/%d base=%.0f ft (%.1f nm, %.1f km) x ratio %.2f x scale %.2f x cam %.2f => %.1f km\n",
+                          (unsigned)tid, (int)ent->EntityType()->classInfo_[0],
+                          (int)ent->EntityType()->classInfo_[1],
+                          (int)ent->EntityType()->classInfo_[2], r, r / 6076.1f,
+                          r / 3280.84f, bubbleRatio, scale,
+                          CameraCount() > 0 && GetCameraEntity(0) ?
+                              GetCameraEntity(0)->EntityType()->fineUpdateMultiplier_ :
+                              1.0f,
+                          ent_bubble_range / 3280.84f);
+                ln[sizeof(ln) - 1] = 0;
+                FFDebugLog(ln);
+            }
+        }
     }
 
     for (i = 0; i < CameraCount(); i++)

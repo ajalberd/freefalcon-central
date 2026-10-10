@@ -3325,11 +3325,19 @@ int OpenXRBackend::BeginStereoFrame()
     {
         extern bool g_bVulkanProfile;
         extern void FrameProf_XrWaitFrame(double ms);
-        std::chrono::steady_clock::time_point _xw0;
-        if (g_bVulkanProfile)
-            _xw0 = std::chrono::steady_clock::now();
+        std::chrono::steady_clock::time_point _xw0 =
+            std::chrono::steady_clock::now(); // Artscout - 2026: always timed now, for the D3D12 [GPUPROF] line
         if (XR_FAILED(XrWaitGated(p, &p->stereoFrameState)))
             return -1; // #107 turbo-gated (consume pre-wait)
+        {
+            extern void GpuProf_AddXrWaitMs(double ms);
+            const double xwMs = std::chrono::duration<double, std::milli>(
+                                    std::chrono::steady_clock::now() - _xw0)
+                                    .count();
+            GpuProf_AddXrWaitMs(xwMs);
+            if (g_bVulkanProfile)
+                FrameProf_XrWaitFrame(xwMs); // the Vulkan [VKPROF] line
+        }
         if (g_bVulkanProfile)
             FrameProf_XrWaitFrame(std::chrono::duration<double, std::milli>(
                                       std::chrono::steady_clock::now() - _xw0)

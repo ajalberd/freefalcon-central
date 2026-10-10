@@ -79,6 +79,343 @@ static void D12Log(const char* fmt, ...)
         }                                                                      \
     } while (0)
 
+//=============================================================================
+// Artscout - 2026: GPU frame profiler (see d3d12gpuprof.h). One slot = one command list. Timestamps are
+// written on every pass-label change, resolved into a readback buffer at the end of the list, and read once
+// the fence for that list has passed. Everything here is free functions/statics: no D3D12Backend member
+// changes (so a plain Build is enough).
+//=============================================================================
+#include "d3d12gpuprof.h"
+extern bool g_bGpuProf; // cfg "GpuProf" (default on)
+
+namespace
+{
+const int GP_MAX = 512;    // timestamps per slot
+const int GP_LABELS = 24;  // distinct pass labels
+
+struct GpuProfState
+{
+    bool tried, ok, active, pending, skipSlot;
+    ID3D12QueryHeap* heap;
+    ID3D12Resource* readback;
+    double msPerTick;
+    UINT n;
+    const char* lab[GP_MAX];
+    UINT pendN;
+    const char* pendLab[GP_MAX];
+    unsigned __int64 pendFence;
+    // aggregates over the report window
+    const char* names[GP_LABELS];
+    double sumMs[GP_LABELS];
+    int nNames;
+    int slots, frames;
+    double busyMs, cpuWaitMs, drawSceneMs, xrWaitMs;
+    long long draws, tris, chunks;
+    DWORD t0;
+    // CPU spans on the sim thread, summed over the window, and the same per frame for hitch attribution
+    double cpuMs[GPCPU_COUNT];
+    double frCpu[GPCPU_COUNT];     // this frame so far
+    double frDraw, frGpuWait;      // this frame so far
+    double lastTick;               // ms timestamp of the previous frame tick (0 = none yet)
+    double frameSumMs, worstMs;
+    double worstCpu[GPCPU_COUNT], worstDraw, worstGpuWait, worstXr;
+    int framesTimed, over12, over20, over33;
+};
+GpuProfState gp;
+
+double GpNowMs()
+{
+    static LARGE_INTEGER f = {0};
+    if (!f.QuadPart)
+        QueryPerformanceFrequency(&f);
+    LARGE_INTEGER c;
+    QueryPerformanceCounter(&c);
+    return 1000.0 * (double)c.QuadPart / (double)f.QuadPart;
+}
+
+void GpuProfReport()
+{
+    const DWORD now = GetTickCount();
+    const double wall = (double)(now - gp.t0);
+    if (gp.slots > 0)
+    {
+        char b[900];
+        int o = 0;
+        o += _snprintf(b + o, sizeof(b) - o,
+                       "[GPUPROF] %.1fs: %d slots, %d frames (%.0f fps) | GPU busy %.1f%% of wall, %.2f ms/slot | "
+                       "CPU blocked on GPU %.2f ms/slot | passes (ms/slot):",
+                       wall / 1000.0, gp.slots, gp.frames ? gp.frames : gp.slots,
+                       wall > 0 ? (gp.frames ? gp.frames : gp.slots) * 1000.0 / wall : 0.0,
+                       wall > 0 ? 100.0 * gp.busyMs / wall : 0.0,
+                       gp.busyMs / gp.slots, gp.cpuWaitMs / gp.slots);
+        for (int i = 0; i < gp.nNames; ++i)
+            o += _snprintf(b + o, sizeof(b) - o, " %s=%.2f", gp.names[i],
+                           gp.sumMs[i] / gp.slots);
+        o += _snprintf(b + o, sizeof(b) - o,
+                       " | draws/slot=%lld tris/slot=%lld terrainChunks/slot=%lld | CPU DrawScene %.2f ms/frame, "
+                       "xrWaitFrame %.2f ms/frame\n",
+                       gp.draws / gp.slots, gp.tris / gp.slots, gp.chunks / gp.slots,
+                       gp.frames ? gp.drawSceneMs / gp.frames : 0.0,
+                       gp.frames ? gp.xrWaitMs / gp.frames : 0.0);
+        b[sizeof(b) - 1] = 0;
+        FFDebugLog(b);
+    }
+    if (gp.framesTimed > 0)
+    {
+        // Where the CPU frame goes (sim thread), and the worst frame in the window with its own breakdown.
+        // "other" = what no timer covers (VR submit, mirror present, the OS). xr = xrWaitFrame, i.e. idle.
+        const double n = (double)gp.framesTimed;
+        char b[700];
+        _snprintf(b, sizeof(b) - 1,
+                  "[FRAMEPROF] %d frames, avg %.2f ms | per frame: campaign-wait %.2f, realtime-fn %.2f, "
+                  "sim-cycle %.2f, otw-cycle %.2f (draw-scene %.2f of it) | frames over 12ms: %d, 20ms: %d, 33ms: %d | "
+                  "WORST %.1f ms = camp %.1f + realtime %.1f + sim %.1f + otw %.1f (draw %.1f, gpu-wait %.1f) + xr %.1f\n",
+                  gp.framesTimed, gp.frameSumMs / n, gp.cpuMs[GPCPU_CAMP_WAIT] / n,
+                  gp.cpuMs[GPCPU_REALTIME] / n, gp.cpuMs[GPCPU_SIM_CYCLE] / n,
+                  gp.cpuMs[GPCPU_OTW_CYCLE] / n, gp.drawSceneMs / n, gp.over12, gp.over20,
+                  gp.over33, gp.worstMs, gp.worstCpu[GPCPU_CAMP_WAIT],
+                  gp.worstCpu[GPCPU_REALTIME], gp.worstCpu[GPCPU_SIM_CYCLE],
+                  gp.worstCpu[GPCPU_OTW_CYCLE], gp.worstDraw, gp.worstGpuWait, gp.worstXr);
+        b[sizeof(b) - 1] = 0;
+        FFDebugLog(b);
+    }
+    for (int i = 0; i < GPCPU_COUNT; ++i)
+        gp.cpuMs[i] = gp.worstCpu[i] = 0.0;
+    gp.frameSumMs = gp.worstMs = gp.worstDraw = gp.worstGpuWait = gp.worstXr = 0.0;
+    gp.framesTimed = gp.over12 = gp.over20 = gp.over33 = 0;
+    gp.slots = gp.frames = 0;
+    gp.busyMs = gp.cpuWaitMs = gp.drawSceneMs = gp.xrWaitMs = 0.0;
+    gp.draws = gp.tris = gp.chunks = 0;
+    for (int i = 0; i < gp.nNames; ++i)
+        gp.sumMs[i] = 0.0;
+    gp.t0 = now;
+}
+
+// Read the resolved timestamps of the pending slot and fold them into the aggregates.
+void GpuProfCollect()
+{
+    if (!gp.pending || !gp.readback)
+        return;
+    gp.pending = false;
+    const UINT n = gp.pendN;
+    if (n < 2)
+        return;
+    D3D12_RANGE rr = {0, (SIZE_T)n * sizeof(unsigned __int64)};
+    unsigned __int64* ts = 0;
+    if (FAILED(gp.readback->Map(0, &rr, (void**)&ts)) || !ts)
+        return;
+    bool sane = true;
+    for (UINT i = 1; i < n; ++i)
+        if (ts[i] < ts[i - 1])
+            sane = false; // different engines / reset: do not trust this slot
+    if (sane)
+    {
+        for (UINT i = 0; i + 1 < n; ++i)
+        {
+            const char* l = gp.pendLab[i];
+            if (!strcmp(l, "end"))
+                continue;
+            const double ms = (double)(ts[i + 1] - ts[i]) * gp.msPerTick;
+            int k = 0;
+            while (k < gp.nNames && strcmp(gp.names[k], l))
+                ++k;
+            if (k == gp.nNames)
+            {
+                if (gp.nNames >= GP_LABELS)
+                    continue;
+                gp.names[gp.nNames] = l;
+                gp.sumMs[gp.nNames] = 0.0;
+                ++gp.nNames;
+            }
+            gp.sumMs[k] += ms;
+        }
+        gp.busyMs += (double)(ts[n - 1] - ts[0]) * gp.msPerTick;
+        ++gp.slots;
+    }
+    D3D12_RANGE none = {0, 0};
+    gp.readback->Unmap(0, &none);
+}
+
+bool GpuProfInit(ID3D12Device* dev, ID3D12CommandQueue* q)
+{
+    if (gp.tried)
+        return gp.ok;
+    gp.tried = true;
+    if (!dev || !q)
+        return false;
+    UINT64 freq = 0;
+    if (FAILED(q->GetTimestampFrequency(&freq)) || freq == 0)
+        return false;
+    gp.msPerTick = 1000.0 / (double)freq;
+
+    D3D12_QUERY_HEAP_DESC qd;
+    ZeroMemory(&qd, sizeof(qd));
+    qd.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    qd.Count = GP_MAX;
+    if (FAILED(dev->CreateQueryHeap(&qd, IID_PPV_ARGS(&gp.heap))))
+        return false;
+
+    D3D12_HEAP_PROPERTIES hp;
+    ZeroMemory(&hp, sizeof(hp));
+    hp.Type = D3D12_HEAP_TYPE_READBACK;
+    D3D12_RESOURCE_DESC rd;
+    ZeroMemory(&rd, sizeof(rd));
+    rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    rd.Width = GP_MAX * sizeof(unsigned __int64);
+    rd.Height = rd.DepthOrArraySize = rd.MipLevels = 1;
+    rd.SampleDesc.Count = 1;
+    rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    if (FAILED(dev->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+                                            D3D12_RESOURCE_STATE_COPY_DEST, NULL,
+                                            IID_PPV_ARGS(&gp.readback))))
+    {
+        gp.heap->Release();
+        gp.heap = 0;
+        return false;
+    }
+    gp.t0 = GetTickCount();
+    gp.ok = true;
+    FFDebugLog("[GPUPROF] enabled (D3D12 timestamp queries)\n");
+    return true;
+}
+} // namespace
+
+void GpuProf_Mark(ID3D12GraphicsCommandList* cl, const char* label)
+{
+    if (!gp.active || gp.skipSlot || !cl || !label || gp.n >= GP_MAX - 2)
+        return;
+    if (gp.n > 0 && !strcmp(gp.lab[gp.n - 1], label))
+        return;
+    cl->EndQuery(gp.heap, D3D12_QUERY_TYPE_TIMESTAMP, gp.n);
+    gp.lab[gp.n++] = label;
+}
+
+void GpuProf_Count(int draws, int triangles, int terrainChunks)
+{
+    if (!gp.active)
+        return;
+    gp.draws += draws;
+    gp.tris += triangles;
+    gp.chunks += terrainChunks;
+}
+
+double GpuProf_NowMs()
+{
+    return GpNowMs();
+}
+
+void GpuProf_AddDrawSceneMs(double ms)
+{
+    if (gp.ok)
+    {
+        gp.drawSceneMs += ms;
+        gp.frDraw += ms;
+    }
+}
+
+void GpuProf_AddCpu(int what, double ms)
+{
+    if (!gp.ok || what < 0 || what >= GPCPU_COUNT)
+        return;
+    gp.cpuMs[what] += ms;
+    gp.frCpu[what] += ms;
+}
+
+// One call per frame, right after xrWaitFrame returned: that is the frame boundary.
+void GpuProf_AddXrWaitMs(double ms)
+{
+    if (!gp.ok)
+        return;
+    gp.xrWaitMs += ms;
+    ++gp.frames;
+
+    const double now = GpNowMs();
+    if (gp.lastTick > 0.0)
+    {
+        const double frame = now - gp.lastTick;
+        ++gp.framesTimed;
+        gp.frameSumMs += frame;
+        if (frame > 12.0)
+            ++gp.over12;
+        if (frame > 20.0)
+            ++gp.over20;
+        if (frame > 33.0)
+            ++gp.over33;
+        if (frame > gp.worstMs)
+        {
+            gp.worstMs = frame;
+            for (int i = 0; i < GPCPU_COUNT; ++i)
+                gp.worstCpu[i] = gp.frCpu[i];
+            gp.worstDraw = gp.frDraw;
+            gp.worstGpuWait = gp.frGpuWait;
+            gp.worstXr = ms;
+        }
+    }
+    gp.lastTick = now;
+    for (int i = 0; i < GPCPU_COUNT; ++i)
+        gp.frCpu[i] = 0.0;
+    gp.frDraw = gp.frGpuWait = 0.0;
+}
+
+// A new command list was opened. Called from BeginCommandList.
+static void GpuProf_BeginSlot(ID3D12Device* dev, ID3D12CommandQueue* q,
+                              ID3D12Fence* fence)
+{
+    gp.active = false;
+    if (!g_bGpuProf || !GpuProfInit(dev, q))
+        return;
+    if (gp.pending && fence && fence->GetCompletedValue() >= gp.pendFence)
+        GpuProfCollect();
+    // The previous slot's results are not back yet (async flat path): skip this one rather than overwrite them.
+    gp.skipSlot = gp.pending;
+    gp.n = 0;
+    gp.active = true;
+}
+
+// The list is about to be closed. Called before every Close() of a frame list.
+static void GpuProf_EndSlot(ID3D12GraphicsCommandList* cl)
+{
+    if (!gp.active)
+        return;
+    gp.active = false;
+    if (gp.skipSlot || gp.n == 0 || !cl)
+        return;
+    cl->EndQuery(gp.heap, D3D12_QUERY_TYPE_TIMESTAMP, gp.n);
+    gp.lab[gp.n++] = "end";
+    cl->ResolveQueryData(gp.heap, D3D12_QUERY_TYPE_TIMESTAMP, 0, gp.n, gp.readback, 0);
+    gp.pendN = gp.n;
+    for (UINT i = 0; i < gp.n; ++i)
+        gp.pendLab[i] = gp.lab[i];
+    gp.pending = true;
+    gp.pendFence = (unsigned __int64)-1; // set by GpuProf_Submitted
+}
+
+// The list was executed and `fence` will signal when it retires.
+static void GpuProf_Submitted(unsigned __int64 fence)
+{
+    if (gp.pending && gp.pendFence == (unsigned __int64)-1)
+        gp.pendFence = fence;
+}
+
+// A synchronous path (VR) has waited for the fence: the data is ready now. cpuWaitMs = how long the CPU sat there.
+static void GpuProf_Synced(double cpuWaitMs)
+{
+    if (!gp.ok)
+        return;
+    gp.cpuWaitMs += cpuWaitMs;
+    gp.frGpuWait += cpuWaitMs;
+    GpuProfCollect();
+    if (GetTickCount() - gp.t0 >= 5000)
+        GpuProfReport();
+}
+
+// Flat path: report from the next BeginSlot's collect.
+static void GpuProf_MaybeReport()
+{
+    if (gp.ok && GetTickCount() - gp.t0 >= 5000)
+        GpuProfReport();
+}
+
 D3D12Backend::D3D12Backend()
     : m_hWnd(0), m_nWidth(0), m_nHeight(0), m_bFullscreen(false),
       m_bRecording(false), m_pDevice(0), m_pQueue(0), m_pSwapChain(0),
@@ -1042,6 +1379,7 @@ void D3D12Backend::Present(bool bVSync)
         b.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
         b.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
         m_pList->ResourceBarrier(1, &b);
+        GpuProf_EndSlot(m_pList);
         m_pList->Close();
 
         ID3D12CommandList* lists[] = {(ID3D12CommandList*)m_pList};
@@ -1050,6 +1388,8 @@ void D3D12Backend::Present(bool bVSync)
         extern void D3D12TexMgr_SyncRenderQueue(struct ID3D12CommandQueue * q);
         D3D12TexMgr_SyncRenderQueue(m_pQueue);
         m_pQueue->ExecuteCommandLists(1, lists);
+        GpuProf_Submitted(SignalQueue()); // flat path: results are collected by a later BeginCommandList
+        GpuProf_MaybeReport();
         m_bRecording = false;
     }
 
@@ -1108,12 +1448,28 @@ void D3D12Backend::BeginCommandList()
     // unsubmitted work) so the Reset below is legal instead of corrupting a live allocator.
     if (m_bRecording)
     {
+        // Artscout - 2026: a list that was still open is being thrown away UNSUBMITTED. Whatever was recorded in it
+        // is lost -- if that included the terrain, that eye shows no ground for the frame. Say what it held.
+        static int s_discards = 0;
+        if (s_discards < 80)
+        {
+            ++s_discards;
+            char ln[400];
+            int o = _snprintf(ln, sizeof(ln) - 1, "[LIST-DISCARD] t=%lu open list dropped, recorded passes:", GetTickCount());
+            for (UINT i = 0; i < gp.n && o < (int)sizeof(ln) - 40; ++i)
+                o += _snprintf(ln + o, sizeof(ln) - 1 - o, " %s", gp.lab[i]);
+            o += _snprintf(ln + o, sizeof(ln) - 1 - o, " (%u marks, active=%d)\n", gp.n, (int)gp.active);
+            ln[sizeof(ln) - 1] = 0;
+            FFDebugLog(ln);
+        }
         m_pList->Close();
         m_bRecording = false;
     }
     WaitForFence(m_allocFence[m_frameIndex]);
     m_pAlloc[m_frameIndex]->Reset();
     m_pList->Reset(m_pAlloc[m_frameIndex], NULL);
+    GpuProf_BeginSlot(m_pDevice, m_pQueue, m_pFence);
+    GpuProf_Mark(m_pList, "setup"); // clears, HDR bind, barriers before the first pass
 }
 
 void D3D12Backend::WaitForGpu()
@@ -2171,6 +2527,7 @@ void D3D12Backend::OutputHdrScene()
 {
     if (!m_pList || !m_bRecording || !m_pHdrCur)
         return;
+    GpuProf_Mark(m_pList, "hdr-out");
     HdrSnapshotScene();
     HdrDraw(m_hdrOutRtvPtr, BackBufferFormat(), 1, m_sceneW, m_sceneH, 0.0f);
     m_pHdrCur = 0;
@@ -3000,6 +3357,7 @@ void D3D12Backend::EndStereoInstancedFrame(void* arrayImg)
         return;
     (void)
         arrayImg; // runtime owns the swapchain image state (no RT->COMMON barrier; see BeginEyeFrame)
+    GpuProf_EndSlot(m_pList);
     m_pList->Close();
     ID3D12CommandList* lists[] = {(ID3D12CommandList*)m_pList};
     extern void D3D12TexMgr_SyncRenderQueue(struct ID3D12CommandQueue * q);
@@ -3009,7 +3367,12 @@ void D3D12Backend::EndStereoInstancedFrame(void* arrayImg)
     // the drain) is what lets BeginCommandList recycle this allocator safely on its own terms.
     m_pQueue->ExecuteCommandLists(1, lists);
     m_allocFence[m_frameIndex] = SignalQueue();
-    WaitForFence(m_allocFence[m_frameIndex]);
+    GpuProf_Submitted(m_allocFence[m_frameIndex]);
+    {
+        const double w0 = GpNowMs();
+        WaitForFence(m_allocFence[m_frameIndex]);
+        GpuProf_Synced(GpNowMs() - w0); // how long the CPU sat waiting for the GPU
+    }
     m_bRecording = false;
 
     // Artscout - 2026 (VR screenshots): view-instanced stereo renders both eyes into one
@@ -3563,8 +3926,10 @@ void D3D12Backend::BeginEyeFrame(void* eyeImg, unsigned __int64 eyeRtvPtr,
     // path always has been) and EndEyeFrame writes the result into the XR image. The XR image itself is
     // untouched until then, so the runtime-owned state rule below still holds.
     extern bool g_bToneMapGT7;
+    extern bool g_bTerrainCrackDebug; // cfg: holes in the terrain show as magenta (sky dome + filler are skipped)
+    const unsigned long eyeClearArgb = g_bTerrainCrackDebug ? 0xFFFF00FFul : 0xFF000000ul;
     if (g_bToneMapGT7 &&
-        BeginHdrScene(HdrEyeSlot(w, h), w, h, 1, eyeRtvPtr, 0xFF000000,
+        BeginHdrScene(HdrEyeSlot(w, h), w, h, 1, eyeRtvPtr, eyeClearArgb,
                       m_pEyeDsvHeap ? (unsigned __int64)m_pEyeDsvHeap
                                           ->GetCPUDescriptorHandleForHeapStart()
                                           .ptr :
@@ -3592,7 +3957,8 @@ void D3D12Backend::BeginEyeFrame(void* eyeImg, unsigned __int64 eyeRtvPtr,
     if (g_pD3D12Renderer)
         g_pD3D12Renderer->SetDepthTargetBound(m_pEyeDsvHeap != 0);
     const float black[4] = {0, 0, 0, 1};
-    m_pList->ClearRenderTargetView(rtv, black, 0, NULL);
+    const float magenta[4] = {1, 0, 1, 1};
+    m_pList->ClearRenderTargetView(rtv, g_bTerrainCrackDebug ? magenta : black, 0, NULL);
     if (m_pEyeDsvHeap)
         m_pList->ClearDepthStencilView(
             dsv, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 0.0f, 0, 0,
@@ -3636,6 +4002,7 @@ void D3D12Backend::EndEyeFrame(void* eyeImg)
     // composites it directly from RENDER_TARGET. Just close + execute + fence so the image is filled on release.
     (void)eyeImg;
     OutputHdrScene(); // Artscout - 2026: HDR eye -> the XR image (no-op on an 8-bit eye)
+    GpuProf_EndSlot(m_pList);
     m_pList->Close();
     ID3D12CommandList* lists[] = {(ID3D12CommandList*)m_pList};
     // Artscout - 2026 (#65 perf): GPU-side wait so async texture/VB uploads submitted this eye frame are
@@ -3645,7 +4012,12 @@ void D3D12Backend::EndEyeFrame(void* eyeImg)
     // Artscout - 2026: #DX12 -- see EndStereoInstancedFrame: stamp this allocator's retire fence, then drain on it.
     m_pQueue->ExecuteCommandLists(1, lists);
     m_allocFence[m_frameIndex] = SignalQueue();
-    WaitForFence(m_allocFence[m_frameIndex]);
+    GpuProf_Submitted(m_allocFence[m_frameIndex]);
+    {
+        const double w0 = GpNowMs();
+        WaitForFence(m_allocFence[m_frameIndex]);
+        GpuProf_Synced(GpNowMs() - w0); // how long the CPU sat waiting for the GPU
+    }
     m_bRecording = false;
 
     // Artscout - 2026 (VR screenshots): the eye is rendered and fenced and we still hold the

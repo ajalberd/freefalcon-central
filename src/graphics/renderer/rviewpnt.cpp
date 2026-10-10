@@ -15,6 +15,7 @@
 #include "falclib/include/dispopts.h" //JAM 04Oct03
 #include "tmap.h" // Artscout - 2026 (#79): TheMap.LastFarTexLOD() for the far-LOD clamp
 #include "terrainclipmap.h" // #78: drop the clipmap windows with the viewpoint
+#include "graphics/include/fflog.h" // -G distance investigation log lines
 
 //JAM 18Nov03
 #include "realweather.h"
@@ -106,6 +107,25 @@ void RViewPoint::Setup(float gndRange, int maxDetail, int minDetail,
 
         // Make each cover half the distance of the one before
         gndRange /= 2.0f;
+    }
+
+    {
+        // Artscout - 2026: -G distance investigation -- what the draw-distance setting actually asked for.
+        char ln[200];
+        _snprintf(ln, sizeof(ln) - 1,
+                  "[TERRAIN-RANGE] minDetail=%d farLodExtra applied; ranges(km):", minDetail);
+        ln[sizeof(ln) - 1] = 0;
+        FFDebugLog(ln);
+        for (i = 0; i <= minDetail; i++)
+        {
+            _snprintf(ln, sizeof(ln) - 1, " L%d=%.0f", i, ranges[i] / 3280.84f);
+            ln[sizeof(ln) - 1] = 0;
+            FFDebugLog(ln);
+        }
+        extern float g_fFarPlaneKm;
+        _snprintf(ln, sizeof(ln) - 1, "  (far plane = %.0f km)\n", g_fFarPlaneKm);
+        ln[sizeof(ln) - 1] = 0;
+        FFDebugLog(ln);
     }
 
     TViewPoint::Setup(maxDetail, minDetail, ranges);

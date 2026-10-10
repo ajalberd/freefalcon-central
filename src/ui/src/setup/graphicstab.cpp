@@ -1445,6 +1445,141 @@ void DisableEnableResolutions(C_ListBox *)
 {
 }
 
+// Artscout - 2026: Advanced page -- anisotropic level (2x 4x 8x 16x) and mip LOD bias (0.0 .. +2.0 in 0.5 steps)
+// sliders, same machinery as the OpenXR resolution scale. The checkboxes beside them still switch the features on
+// and off; these set how much. Bias is shown in tenths (x0.1) because the readout is an integer box.
+static const int kAnisoMaxStep = 3;  // 0..3 -> 2,4,8,16
+static const int kBiasMaxStep = 4;   // 0..4 -> 0,5,10,15,20 tenths (0.0 .. +2.0). No negatives: the readout box cannot show them, and a sharper-than-native bias only brings shimmer back.
+static int s_initAnisoStep = -1, s_initBiasStep = -1; // what the page showed on open: only a CHANGE is written back
+void AdvFilterSliderCB(long ID, short hittype, C_Base *control);
+
+static int AnisoFromStep(int s)
+{
+    return 2 << (s < 0 ? 0 : (s > kAnisoMaxStep ? kAnisoMaxStep : s));
+}
+
+static int StepFromAniso(int a)
+{
+    int s = 0;
+
+    while (s < kAnisoMaxStep and (2 << s) < a)
+        ++s;
+
+    return s;
+}
+
+static int BiasTenthsFromStep(int s)
+{
+    return 5 * (s < 0 ? 0 : (s > kBiasMaxStep ? kBiasMaxStep : s));
+}
+
+static int StepFromBiasTenths(int t)
+{
+    if (t <= 0)
+        return 0; // a negative cfg bias shows as the 0 stop
+
+    const int s = (t + 2) / 5; // nearest 0.5 stop
+
+    return s > kBiasMaxStep ? kBiasMaxStep : s;
+}
+
+static int SliderStep(C_Slider *slider, int maxStep)
+{
+    const int span = slider->GetSliderMax() - slider->GetSliderMin();
+    int step = (span > 0) ? FloatToInt32((float)slider->GetSliderPos() / (float)span * (float)maxStep + 0.5F) : 0;
+
+    return step < 0 ? 0 : (step > maxStep ? maxStep : step);
+}
+
+static void SetStepSlider(C_Window *win, long sliderId, long readoutId, int step, int maxStep, int shown)
+{
+    C_Slider *slider = (C_Slider *)win->FindControl(sliderId);
+
+    if (not slider)
+        return;
+
+    const int span = slider->GetSliderMax() - slider->GetSliderMin();
+    slider->SetSliderPos(FloatToInt32((float)span * (float)step / (float)maxStep));
+    slider->SetUserNumber(0, readoutId);
+    slider->SetCallback(AdvFilterSliderCB);
+
+    C_EditBox *ebox = (C_EditBox *)win->FindControl(readoutId);
+
+    if (ebox)
+    {
+        ebox->SetInteger(shown);
+        ebox->Refresh();
+    }
+}
+
+void AdvFilterSliderCB(long, short, C_Base *control)
+{
+    C_Slider *slider = (C_Slider *)control;
+    const long roId = slider->GetUserNumber(0);
+
+    if (not roId or not control->Parent_)
+        return;
+
+    C_EditBox *ebox = (C_EditBox *)control->Parent_->FindControl(roId);
+
+    if (not ebox)
+        return;
+
+    if (control->GetID() == SETUP_ADVANCED_ANISO_LEVEL)
+        ebox->SetInteger(AnisoFromStep(SliderStep(slider, kAnisoMaxStep)));
+    else
+        ebox->SetInteger(BiasTenthsFromStep(SliderStep(slider, kBiasMaxStep)));
+
+    ebox->Refresh();
+}
+
+// Page <- DisplayOptions (or the cfg's MipLodBias while the options have none).
+void AdvFilterSlidersLoad(C_Window *win)
+{
+    extern float g_fMipLodBias;
+
+    if (not win)
+        return;
+
+    s_initAnisoStep = StepFromAniso(DisplayOptions.nAnisotropicSamples);
+    const int tenths = (DisplayOptions.nMipBiasTenths != MIP_BIAS_UNSET) ?
+                           DisplayOptions.nMipBiasTenths :
+                           FloatToInt32(g_fMipLodBias * 10.0F);
+    s_initBiasStep = StepFromBiasTenths(tenths);
+
+    SetStepSlider(win, SETUP_ADVANCED_ANISO_LEVEL, SETUP_ADVANCED_ANISO_LEVEL_READOUT, s_initAnisoStep,
+                  kAnisoMaxStep, AnisoFromStep(s_initAnisoStep));
+    SetStepSlider(win, SETUP_ADVANCED_MIP_BIAS, SETUP_ADVANCED_MIP_BIAS_READOUT, s_initBiasStep, kBiasMaxStep,
+                  BiasTenthsFromStep(s_initBiasStep));
+}
+
+// Page -> DisplayOptions, only where the slider was moved from what the page showed.
+void AdvFilterSlidersSave(C_Window *win)
+{
+    if (not win)
+        return;
+
+    C_Slider *slider = (C_Slider *)win->FindControl(SETUP_ADVANCED_ANISO_LEVEL);
+
+    if (slider and s_initAnisoStep >= 0)
+    {
+        const int step = SliderStep(slider, kAnisoMaxStep);
+
+        if (step != s_initAnisoStep)
+            DisplayOptions.nAnisotropicSamples = AnisoFromStep(step);
+    }
+
+    slider = (C_Slider *)win->FindControl(SETUP_ADVANCED_MIP_BIAS);
+
+    if (slider and s_initBiasStep >= 0)
+    {
+        const int step = SliderStep(slider, kBiasMaxStep);
+
+        if (step != s_initBiasStep)
+            DisplayOptions.nMipBiasTenths = BiasTenthsFromStep(step);
+    }
+}
+
 // Artscout - 2026: live readout for the OpenXR Resolution Scale slider. The ui95 slider fires its callback
 // (C_TYPE_MOUSEMOVE) on every drag step; the stock graphics sliders had NO callback, so their linked readout
 // (SetUserNumber(0,id)) never actually updated -- nobody consumes that link. Wire it explicitly: recompute the
@@ -1615,6 +1750,8 @@ void SetAdvanced()
                 VrResScaleSliderCB); // Artscout - 2026: live readout on drag
         }
     }
+
+    AdvFilterSlidersLoad(win); // Artscout - 2026: anisotropic level + mip bias
 
     button = (C_Button *)win->FindControl(SETUP_ADVANCED_SCREEN_COORD_BIAS_FIX);
 

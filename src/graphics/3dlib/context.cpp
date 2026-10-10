@@ -122,6 +122,12 @@ inline void ContextMPR::ZCX_Calculate(void)
     szCX2 = ZFAR * zNear / (zNear - ZFAR);
 }
 
+void ContextMPR::SetFarPlane(float feet)
+{
+    ZFAR = feet;
+    ZCX_Calculate();
+}
+
 // Macro to use CXes
 #define SCALE_SZ(x) (szCX1 + szCX2 / x)
 

@@ -143,6 +143,12 @@ BOOL RenderOTW::DrawSky(void)
     // needTerrain preserves the 2D logic: FALSE only when above the cloud roof (no ground visible), else TRUE.
     if (g_b3DSky)
     {
+        // Artscout - 2026: "TerrainCrackDebug" -- no dome, no horizon filler. The eye clear is magenta in this mode
+        // (D3D12Backend::BeginEyeFrame), so a hole through the terrain shows as magenta instead of sky-haze.
+        extern bool g_bTerrainCrackDebug;
+        if (g_bTerrainCrackDebug)
+            return (skyRoof and viewpoint->Z() < -SKY_ROOF_HEIGHT) ? FALSE : TRUE;
+
         DrawSkyDome();
 
         if (skyRoof and viewpoint->Z() < -SKY_ROOF_HEIGHT)
