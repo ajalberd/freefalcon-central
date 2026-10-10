@@ -21,6 +21,48 @@
 #endif
 #include "falclib/include/playerop.h"
 #include "falclib/include/dispopts.h"
+#include <thread> // Artscout - 2026: TexParallelFor
+#include <functional>
+#include <vector>
+#include <algorithm>
+
+// Artscout - 2026: the texture loads that hitch the sim thread (terrain tile activation, the cockpit texture set
+// switch, [HITCH] samples in TexBoxDown / TexDecodeBCImage / TexEncodeBCImage) do their pixel work on ONE core.
+// The mip box filter, the BC decoder and the BC encoder are pure functions over independent rows/blocks, so they
+// split cleanly: run [0,count) as up to 8 contiguous chunks, one on the calling thread and the rest on short-lived
+// workers, and join before returning. Output is bit-identical to the serial loop. `work` is a rough pixel count:
+// small jobs stay serial, where spawning threads would cost more than the job.
+static void TexParallelFor(int count, long long work, const std::function<void(int, int)>& fn)
+{
+    int nt = (int)std::thread::hardware_concurrency();
+
+    if (nt > 8)
+        nt = 8;
+
+    if (nt < 2 || work < 262144 || count < nt * 2)
+    {
+        fn(0, count);
+        return;
+    }
+
+    const int per = (count + nt - 1) / nt;
+    std::vector<std::thread> workers;
+
+    for (int t = 1; t < nt; ++t)
+    {
+        const int a = t * per, b = (std::min)(count, a + per);
+
+        if (a >= b)
+            break;
+
+        workers.emplace_back([&fn, a, b]() { fn(a, b); });
+    }
+
+    fn(0, (std::min)(count, per));
+
+    for (size_t i = 0; i < workers.size(); ++i)
+        workers[i].join();
+}
 
 #ifdef USE_SH_POOLS
 MEM_POOL Palette::pool;
@@ -885,7 +927,8 @@ static void TexDecodeBCImage(const unsigned char* bc, int w, int h, int dxgiFmt,
 {
     const int bw = (w + 3) / 4, bh = (h + 3) / 4,
               bb = (dxgiFmt == DXGI_FORMAT_BC1_UNORM) ? 8 : 16;
-    for (int by = 0; by < bh; ++by)
+    TexParallelFor(bh, (long long)w * h, [&](int by0, int by1) {
+    for (int by = by0; by < by1; ++by)
         for (int bx = 0; bx < bw; ++bx)
         {
             unsigned blk[16];
@@ -898,6 +941,7 @@ static void TexDecodeBCImage(const unsigned char* bc, int w, int h, int dxgiFmt,
                         rgba[(size_t)y * w + x] = blk[py * 4 + px];
                 }
         }
+    });
 }
 
 #endif // _WIN32 (BC decoder above; TexBoxDown below is a backend-neutral RGBA mip helper)
@@ -945,7 +989,8 @@ static void TexBoxDown(const unsigned* s, int sw, int sh, unsigned* d, int dw,
                        int dh)
 {
     const TexLinearLut& lut = TexLut();
-    for (int y = 0; y < dh; ++y)
+    TexParallelFor(dh, (long long)dw * dh * 4, [&](int y0r, int y1r) {
+    for (int y = y0r; y < y1r; ++y)
         for (int x = 0; x < dw; ++x)
         {
             int x0 = x * 2, y0 = y * 2, x1 = (x0 + 1 < sw) ? x0 + 1 : sw - 1,
@@ -986,6 +1031,7 @@ static void TexBoxDown(const unsigned* s, int sw, int sh, unsigned* d, int dw,
             }
             d[(size_t)y * dw + x] = o;
         }
+    });
 }
 
 #ifdef _WIN32
@@ -1154,7 +1200,8 @@ static void TexEncodeBCImage(const unsigned* rgba, int w, int h, int dxgiFmt,
 {
     const int bw = (w + 3) / 4, bh = (h + 3) / 4;
     const int bb = (dxgiFmt == DXGI_FORMAT_BC1_UNORM) ? 8 : 16;
-    for (int by = 0; by < bh; ++by)
+    TexParallelFor(bh, (long long)w * h * 2, [&](int by0, int by1) {
+    for (int by = by0; by < by1; ++by)
         for (int bx = 0; bx < bw; ++bx)
         {
             unsigned px[16];
@@ -1190,6 +1237,7 @@ static void TexEncodeBCImage(const unsigned* rgba, int w, int h, int dxgiFmt,
                 TexEncodeBCColor(px, blk + 8, false);
             }
         }
+    });
 }
 #endif // _WIN32 (BC encoder)
 

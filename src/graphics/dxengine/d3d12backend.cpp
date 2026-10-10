@@ -18,6 +18,8 @@
 // wrong guesses). Headers must therefore be unconditional.
 #include <d3d12sdklayers.h> // ID3D12Debug / ID3D12InfoQueue
 #include <set> // dedupe the InfoQueue drain (PumpD3D12Messages)
+#include <vector> // Artscout - 2026: CompositeBitmap565's per-row dirty flags
+#include <emmintrin.h> // SSE2: OR-reduce a 565 row
 #include "../include/fflog.h" // Artscout - 2026: [SHOT] screenshot trace
 
 #include "d3d12backend.h"
@@ -169,14 +171,14 @@ void GpuProfReport()
         _snprintf(b, sizeof(b) - 1,
                   "[FRAMEPROF] %d frames, avg %.2f ms | per frame: campaign-wait %.2f, realtime-fn %.2f, "
                   "sim-cycle %.2f, otw-cycle %.2f (draw-scene %.2f of it; viewpoint-update %.2f, ext-list %.2f, "
-                  "xrBeginFrame %.2f, xr-end %.2f), mirror-present %.2f | frames over 12ms: %d, 20ms: %d, 33ms: %d | "
+                  "xrBeginFrame %.2f, xr-end %.2f, swap-buffers %.2f), mirror-present %.2f | frames over 12ms: %d, 20ms: %d, 33ms: %d | "
                   "WORST %.1f ms = camp %.1f + realtime %.1f + sim %.1f + otw %.1f (draw %.1f, viewpoint %.1f, "
                   "extlist %.1f, gpu-wait %.1f, xr-begin %.1f, xr-end %.1f, mirror %.1f) + xr %.1f\n",
                   gp.framesTimed, gp.frameSumMs / n, gp.cpuMs[GPCPU_CAMP_WAIT] / n,
                   gp.cpuMs[GPCPU_REALTIME] / n, gp.cpuMs[GPCPU_SIM_CYCLE] / n,
                   gp.cpuMs[GPCPU_OTW_CYCLE] / n, gp.drawSceneMs / n, gp.cpuMs[GPCPU_VIEWPOINT] / n,
                   gp.cpuMs[GPCPU_EXTLIST] / n, gp.cpuMs[GPCPU_XR_BEGIN] / n, gp.cpuMs[GPCPU_XR_END] / n,
-                  gp.cpuMs[GPCPU_MIRROR] / n, gp.over12, gp.over20, gp.over33, gp.worstMs,
+                  gp.cpuMs[GPCPU_SWAP] / n, gp.cpuMs[GPCPU_MIRROR] / n, gp.over12, gp.over20, gp.over33, gp.worstMs,
                   gp.worstCpu[GPCPU_CAMP_WAIT], gp.worstCpu[GPCPU_REALTIME], gp.worstCpu[GPCPU_SIM_CYCLE],
                   gp.worstCpu[GPCPU_OTW_CYCLE], gp.worstDraw, gp.worstCpu[GPCPU_VIEWPOINT],
                   gp.worstCpu[GPCPU_EXTLIST], gp.worstGpuWait, gp.worstCpu[GPCPU_XR_BEGIN],
@@ -2908,6 +2910,17 @@ bool D3D12Backend::EnsureQuadPipeline()
 }
 
 // #DX12 п.2: composite the UI surface over the 3D scene. 565 black -> alpha 0 (3D shows through), else opaque.
+// Artscout - 2026: per-row "the upload buffer's row may hold non-zero pixels" flags for CompositeBitmap565's
+// skip-empty-rows path. The upload buffer is shared with BlitBitmap565 (the opaque menu blit) and is recreated
+// with the quad texture, so both of those mark every row dirty (QuadRowsInvalidate).
+static std::vector<unsigned char> s_quadRowDirty;
+static void QuadRowsInvalidate()
+{
+    s_quadRowDirty.clear(); // size mismatch -> CompositeBitmap565 re-fills it with 1s
+}
+// Set by CompositeBitmap565: the 565 surface it just read had no non-black pixel. SwapBuffers then skips clearing it.
+bool g_bUiSurfaceEmpty = false;
+
 void D3D12Backend::CompositeBitmap565(const void* pSrc565, int srcW, int srcH)
 {
     if (!m_bRecording || !pSrc565 || srcW < 1 || srcH < 1)
@@ -2923,26 +2936,56 @@ void D3D12Backend::CompositeBitmap565(const void* pSrc565, int srcW, int srcH)
     noRead.End = 0;
     if (FAILED(m_pQuadUpload->Map(0, &noRead, &mapped)) || !mapped)
         return;
+    // Artscout - 2026: this ran for EVERY 3D frame -- including every VR frame, where it feeds the desktop window
+    // -- and converted the whole 565 surface (3840x2160 = 8.3 Mpixels) pixel by pixel on the sim thread, then
+    // SwapBuffers cleared 16.6 MB of it. The [HITCH] sampler caught it past 40 ms. Same output, much less work:
+    //   * a 64K-entry lookup replaces the per-pixel shifts (the table is computed with the original arithmetic);
+    //   * a row that is all zero now AND whose upload row is already all zero (written zero last time) is
+    //     skipped outright -- the overlay is almost always empty in flight;
+    //   * g_bUiSurfaceEmpty tells SwapBuffers it can skip clearing a surface that had nothing on it.
     const unsigned short* s = (const unsigned short*)pSrc565;
-    for (int y = 0; y < srcH; ++y)
+    static unsigned* s_lut = 0;
+    if (!s_lut)
     {
-        unsigned* dst =
-            (unsigned*)((unsigned char*)mapped + (size_t)y * m_quadRowPitch);
-        const unsigned short* row = s + (size_t)y * srcW;
-        for (int x = 0; x < srcW; ++x)
+        s_lut = (unsigned*)malloc(65536 * sizeof(unsigned));
+        for (unsigned v = 0; v < 65536; ++v)
         {
-            unsigned short v = row[x];
-            unsigned a = v ? 0xFF000000u :
-                             0u; // black 565 -> transparent (3D behind shows)
+            unsigned a = v ? 0xFF000000u : 0u; // black 565 -> transparent (3D behind shows)
             unsigned r = (v >> 11) & 0x1F;
             r = (r << 3) | (r >> 2);
             unsigned g = (v >> 5) & 0x3F;
             g = (g << 2) | (g >> 4);
             unsigned b = v & 0x1F;
             b = (b << 3) | (b >> 2);
-            dst[x] = a | (b << 16) | (g << 8) | r;
+            s_lut[v] = a | (b << 16) | (g << 8) | r;
         }
     }
+    if ((int)s_quadRowDirty.size() != srcH)
+        s_quadRowDirty.assign((size_t)srcH, 1); // unknown contents: write every row once
+    bool anyNonZero = false;
+    for (int y = 0; y < srcH; ++y)
+    {
+        const unsigned short* row = s + (size_t)y * srcW;
+        // any non-zero pixel in this row? (OR-reduce 16 bytes at a time)
+        __m128i acc = _mm_setzero_si128();
+        int x = 0;
+        for (; x + 8 <= srcW; x += 8)
+            acc = _mm_or_si128(acc, _mm_loadu_si128((const __m128i*)(row + x)));
+        unsigned short tail = 0;
+        for (; x < srcW; ++x)
+            tail |= row[x];
+        const bool nz = tail != 0 || _mm_movemask_epi8(_mm_cmpeq_epi8(acc, _mm_setzero_si128())) != 0xFFFF;
+
+        if (!nz && !s_quadRowDirty[y])
+            continue; // empty now, and the upload row already holds zeros
+
+        unsigned* dst = (unsigned*)((unsigned char*)mapped + (size_t)y * m_quadRowPitch);
+        for (int px = 0; px < srcW; ++px)
+            dst[px] = s_lut[row[px]];
+        s_quadRowDirty[y] = nz ? 1 : 0;
+        anyNonZero |= nz;
+    }
+    g_bUiSurfaceEmpty = !anyNonZero;
     m_pQuadUpload->Unmap(0, NULL);
 
     if (m_quadTexState != (unsigned)D3D12_RESOURCE_STATE_COPY_DEST)
@@ -3005,6 +3048,7 @@ bool D3D12Backend::EnsureQuadTexture(int w, int h)
     WaitForGpu(); // the old texture/upload buffer may still be referenced by an in-flight frame
     D12_RELEASE(m_pQuadTex);
     D12_RELEASE(m_pQuadUpload);
+    QuadRowsInvalidate();
     m_quadTexW = w;
     m_quadTexH = h;
 
@@ -3073,6 +3117,7 @@ void D3D12Backend::BlitBitmap565(const void* pSrc565, int srcW, int srcH)
         return;
     if (!EnsureQuadTexture(srcW, srcH))
         return;
+    QuadRowsInvalidate(); // this opaque blit overwrites every upload row: the skip-empty-rows flags are stale
 
     // 565 -> RGBA8 into the (256-aligned) upload buffer.
     void* mapped = 0;

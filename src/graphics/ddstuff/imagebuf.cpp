@@ -957,9 +957,14 @@ void ImageBuffer::SwapBuffers(bool bDontFlip)
                 if (g_pD3D12Backend)
                     g_pD3D12Backend
                         ->ResolveMsaaToBackBuffer(); // MSAA: resolve 3D into backbuffer BEFORE the UI composite
+                // Artscout - 2026: CompositeBitmap565 now reports an empty surface; clearing 16.6 MB (3840x2160) of
+                // zeros every frame was pure waste. Default false = clear, so a composite that did not run
+                // (no recording list, ...) still clears exactly as before.
+                extern bool g_bUiSurfaceEmpty;
+                g_bUiSurfaceEmpty = false;
                 if (m_pSysMem && g_pRenderer)
                     g_pRenderer->CompositeUISurface(m_pSysMem, width, height);
-                if (m_pSysMem)
+                if (m_pSysMem && !g_bUiSurfaceEmpty)
                     memset(m_pSysMem, 0, (size_t)width * height * 2);
                 g_pD3D12Backend->Present(true);
             }

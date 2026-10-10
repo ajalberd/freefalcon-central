@@ -3204,7 +3204,9 @@ void OTWDriverClass::RenderFrame()
     // COBRA - DX - Flip here, to make some work parallel to the GPU and increase fps
     if (g_intellivibeData.In3D)
     {
+        const double fpW0 = GpuProf_NowMs();
         OTWImage->SwapBuffers(false);
+        GpuProf_AddCpu(GPCPU_SWAP, GpuProf_NowMs() - fpW0);
     }
 
     //if( not SkipSwap){ OTWImage->SwapBuffers(false); }

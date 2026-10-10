@@ -36,6 +36,7 @@ enum GpuProfCpu
     GPCPU_MIRROR,    // D3D12Backend::Present: the desktop mirror window
     GPCPU_XR_BEGIN,  // xrBeginFrame
     GPCPU_XR_END,    // OpenXRBackend::EndStereoFrame: composition-layer submit
+    GPCPU_SWAP,      // OTWDriver: OTWImage->SwapBuffers (the 2D overlay composite + desktop present)
     GPCPU_COUNT
 };
 void GpuProf_AddCpu(int what, double ms);

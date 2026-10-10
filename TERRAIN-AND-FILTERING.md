@@ -140,6 +140,22 @@ Only Vulkan had one. `FFDebug.log` now gets, every 5 s (cfg `GpuProf`, default o
   thread sat. `[FRAMEPROF]` now also splits the OTW cycle: viewpoint update, external list, `xrBeginFrame`,
   `EndStereoFrame` submit, and the desktop-mirror `Present`.
 
+**First `[HITCH]` capture (2026-10-10, ~190 s over Seoul, 71 samples)** says where the sim thread blocks:
+
+| Where | Samples | What it is |
+|---|---|---|
+| `TextureBankClass::WaitUpdates` (from `OTWDriverClass::VCock_Exec`) | 23 | every frame the virtual cockpit calls `SetTextureSet` then drains the loader synchronously; when the cockpit texture set changes, every cockpit texture reloads on the sim thread (100-240 ms; seen at mission start, 37 s and 160 s) |
+| `XrWaitGated` | 14 | the runtime's frame pacing after a long frame (Link), not game code |
+| `D3D12Backend::CompositeBitmap565` (from `ImageBuffer::SwapBuffers`, every 3D frame) | 10 | the whole 2D screen surface (3840x2160 = 8.3 Mpixels) converted RGB565 -> RGBA per pixel on the CPU, uploaded, then 16.6 MB cleared, for the DESKTOP window, every VR frame |
+| `TexBoxDown` / `TexDecodeBCImage` / `TexEncodeBCColor` (from `TextureDB::Activate`, `TextureHandle::Load`) | ~13 | the mip chains this document added, built on the sim thread while terrain tiles and cockpit atlases load |
+| `LoadTextureFile` (WIC decode), `UploadAndBarrier` | 4 | sky textures at mission start |
+
+Changes made from it (same output, less work): the overlay composite skips rows that are empty now and were
+empty last frame, uses a 64K lookup instead of per-pixel shifts, and `SwapBuffers` skips clearing a surface
+that had nothing on it (`g_bUiSurfaceEmpty`); the mip box filter, the BC decoder and the BC encoder
+(`TexParallelFor`) run as up to 8 chunks on worker threads (bit-identical to the serial loop, checked with a
+hash over a 2048x2048 chain; ~2.5x faster). `[FRAMEPROF]` now also reports `swap-buffers`. Not yet flown.
+
 Measured over Seoul (RTX 5080, Quest 3 over Link at 1.9x, 120 Hz): **not GPU-bound**. GPU busy was 13-22%
 (~1.1-1.7 ms per eye; terrain 0.08 ms, objects 0.2-0.8 ms, ~3,400 draws and ~200k triangles per eye).
 Frames ran 60-115 per second. The visible cost is that `EndEyeFrame` waits on a fence after every eye, so
