@@ -25,8 +25,24 @@ void GpuProf_AddDrawSceneMs(double ms);   // RenderOTW::DrawScene CPU time
 void GpuProf_AddXrWaitMs(double ms);      // xrWaitFrame (the compositor pacing the loop); one call per frame; also the frame tick
 
 // Sim-thread spans (SimulationLoopControl): which part of the CPU frame is it?
-enum GpuProfCpu { GPCPU_CAMP_WAIT = 0, GPCPU_REALTIME, GPCPU_SIM_CYCLE, GPCPU_OTW_CYCLE, GPCPU_COUNT };
+enum GpuProfCpu
+{
+    GPCPU_CAMP_WAIT = 0,
+    GPCPU_REALTIME,
+    GPCPU_SIM_CYCLE,
+    GPCPU_OTW_CYCLE,
+    GPCPU_VIEWPOINT, // OTWDriver: viewPoint->Update (terrain block management, object lists)
+    GPCPU_EXTLIST,   // OTWDriver: BuildExternalNearList
+    GPCPU_MIRROR,    // D3D12Backend::Present: the desktop mirror window
+    GPCPU_XR_BEGIN,  // xrBeginFrame
+    GPCPU_XR_END,    // OpenXRBackend::EndStereoFrame: composition-layer submit
+    GPCPU_COUNT
+};
 void GpuProf_AddCpu(int what, double ms);
-double GpuProf_NowMs();                   // QPC, for the callers' timers
+double GpuProf_NowMs(); // QPC, for the callers' timers
+
+// Also here, with no call to make: a hitch sampler. When a VR frame has been running 40 ms or more, the sim
+// thread's call stack is sampled and logged as "[HITCH] ..." (module+offset frames);
+// tools/profiling/hitchsym.cpp turns them into function names. Armed by the first GpuProf_AddXrWaitMs.
 
 #endif

@@ -165,17 +165,22 @@ void GpuProfReport()
         // Where the CPU frame goes (sim thread), and the worst frame in the window with its own breakdown.
         // "other" = what no timer covers (VR submit, mirror present, the OS). xr = xrWaitFrame, i.e. idle.
         const double n = (double)gp.framesTimed;
-        char b[700];
+        char b[1100];
         _snprintf(b, sizeof(b) - 1,
                   "[FRAMEPROF] %d frames, avg %.2f ms | per frame: campaign-wait %.2f, realtime-fn %.2f, "
-                  "sim-cycle %.2f, otw-cycle %.2f (draw-scene %.2f of it) | frames over 12ms: %d, 20ms: %d, 33ms: %d | "
-                  "WORST %.1f ms = camp %.1f + realtime %.1f + sim %.1f + otw %.1f (draw %.1f, gpu-wait %.1f) + xr %.1f\n",
+                  "sim-cycle %.2f, otw-cycle %.2f (draw-scene %.2f of it; viewpoint-update %.2f, ext-list %.2f, "
+                  "xrBeginFrame %.2f, xr-end %.2f), mirror-present %.2f | frames over 12ms: %d, 20ms: %d, 33ms: %d | "
+                  "WORST %.1f ms = camp %.1f + realtime %.1f + sim %.1f + otw %.1f (draw %.1f, viewpoint %.1f, "
+                  "extlist %.1f, gpu-wait %.1f, xr-begin %.1f, xr-end %.1f, mirror %.1f) + xr %.1f\n",
                   gp.framesTimed, gp.frameSumMs / n, gp.cpuMs[GPCPU_CAMP_WAIT] / n,
                   gp.cpuMs[GPCPU_REALTIME] / n, gp.cpuMs[GPCPU_SIM_CYCLE] / n,
-                  gp.cpuMs[GPCPU_OTW_CYCLE] / n, gp.drawSceneMs / n, gp.over12, gp.over20,
-                  gp.over33, gp.worstMs, gp.worstCpu[GPCPU_CAMP_WAIT],
-                  gp.worstCpu[GPCPU_REALTIME], gp.worstCpu[GPCPU_SIM_CYCLE],
-                  gp.worstCpu[GPCPU_OTW_CYCLE], gp.worstDraw, gp.worstGpuWait, gp.worstXr);
+                  gp.cpuMs[GPCPU_OTW_CYCLE] / n, gp.drawSceneMs / n, gp.cpuMs[GPCPU_VIEWPOINT] / n,
+                  gp.cpuMs[GPCPU_EXTLIST] / n, gp.cpuMs[GPCPU_XR_BEGIN] / n, gp.cpuMs[GPCPU_XR_END] / n,
+                  gp.cpuMs[GPCPU_MIRROR] / n, gp.over12, gp.over20, gp.over33, gp.worstMs,
+                  gp.worstCpu[GPCPU_CAMP_WAIT], gp.worstCpu[GPCPU_REALTIME], gp.worstCpu[GPCPU_SIM_CYCLE],
+                  gp.worstCpu[GPCPU_OTW_CYCLE], gp.worstDraw, gp.worstCpu[GPCPU_VIEWPOINT],
+                  gp.worstCpu[GPCPU_EXTLIST], gp.worstGpuWait, gp.worstCpu[GPCPU_XR_BEGIN],
+                  gp.worstCpu[GPCPU_XR_END], gp.worstCpu[GPCPU_MIRROR], gp.worstXr);
         b[sizeof(b) - 1] = 0;
         FFDebugLog(b);
     }
@@ -321,6 +326,137 @@ void GpuProf_AddCpu(int what, double ms)
     gp.frCpu[what] += ms;
 }
 
+//-----------------------------------------------------------------------------
+// Artscout - 2026: hitch sampler. The 120-950 ms spikes in [FRAMEPROF] are not GPU time (the GPU is ~85% idle)
+// and sit outside DrawScene, so something on the sim thread blocks or works for a long time. A watcher thread
+// notices a frame that has been running 40 ms+ and samples the sim thread's call stack (SuspendThread +
+// RtlVirtualUnwind, the same technique as FFHangWatchdog in winmain.cpp). While the thread is suspended it only
+// copies raw return addresses into a fixed buffer -- no heap, no CRT, no loader lock, since the suspended thread
+// might hold any of them; module names and the log write happen after it is resumed. tools/profiling/hitchsym.cpp
+// resolves "FFViper.exe+0x..." against RedViper.pdb. Frames older than 1.5 s are not sampled (the VR loop simply
+// stopped: a menu, a pause, an exit).
+//-----------------------------------------------------------------------------
+static volatile LONG64 s_hsLastTick = 0; // QPC ticks of the last frame tick
+static volatile LONG s_hsSimTid = 0;
+static volatile LONG s_hsStarted = 0;
+
+static DWORD WINAPI HitchSamplerThread(LPVOID)
+{
+    LARGE_INTEGER freq;
+    QueryPerformanceFrequency(&freq);
+    HANDLE th = NULL;
+    DWORD tid = 0;
+    int logged = 0;
+    LONG64 lastSampleTick = 0;
+
+    for (;;)
+    {
+        Sleep(6);
+        const DWORD sim = (DWORD)s_hsSimTid;
+
+        if (!sim || logged >= 500)
+            continue;
+
+        if (sim != tid)
+        {
+            if (th)
+                CloseHandle(th);
+            th = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, sim);
+            tid = sim;
+        }
+
+        if (!th)
+            continue;
+
+        LARGE_INTEGER now;
+        QueryPerformanceCounter(&now);
+        const LONG64 tick = s_hsLastTick;
+        const double age = (double)(now.QuadPart - tick) * 1000.0 / (double)freq.QuadPart;
+
+        if (age < 40.0 || age > 1500.0)
+            continue;
+
+        // at most one sample per 20 ms
+        if ((double)(now.QuadPart - lastSampleTick) * 1000.0 / (double)freq.QuadPart < 20.0)
+            continue;
+        lastSampleTick = now.QuadPart;
+
+        DWORD64 rips[28];
+        int n = 0;
+
+        if (SuspendThread(th) != (DWORD)-1)
+        {
+            CONTEXT ctx;
+            ZeroMemory(&ctx, sizeof(ctx));
+            ctx.ContextFlags = CONTEXT_FULL;
+
+            if (GetThreadContext(th, &ctx))
+            {
+                CONTEXT c = ctx;
+
+                for (int d = 0; d < 28 && c.Rip; ++d)
+                {
+                    rips[n++] = c.Rip;
+                    DWORD64 imageBase = 0;
+                    PRUNTIME_FUNCTION fe = RtlLookupFunctionEntry(c.Rip, &imageBase, NULL);
+
+                    if (fe)
+                    {
+                        PVOID handlerData = NULL;
+                        DWORD64 frame[2] = {0, 0};
+                        RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, c.Rip, fe, &c, &handlerData, frame, NULL);
+                    }
+                    else
+                    {
+                        if (!c.Rsp || IsBadReadPtr((const void*)c.Rsp, 8))
+                            break;
+
+                        c.Rip = *(DWORD64*)c.Rsp;
+                        c.Rsp += 8;
+                    }
+                }
+            }
+
+            ResumeThread(th);
+        }
+
+        if (n == 0)
+            continue;
+
+        char ln[900];
+        int o = _snprintf(ln, sizeof(ln) - 1, "[HITCH] t=%lu frame running %.0f ms:", GetTickCount(), age);
+
+        for (int i = 0; i < n && o < (int)sizeof(ln) - 60; ++i)
+        {
+            HMODULE hm = NULL;
+            char name[MAX_PATH] = "?";
+            DWORD64 base = 0;
+
+            if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                   (LPCSTR)rips[i], &hm) && hm)
+            {
+                char path[MAX_PATH];
+                GetModuleFileNameA(hm, path, MAX_PATH);
+                const char* nm = path;
+
+                for (const char* q = path; *q; ++q)
+                    if (*q == '\\' || *q == '/')
+                        nm = q + 1;
+
+                lstrcpynA(name, nm, MAX_PATH);
+                base = (DWORD64)hm;
+            }
+
+            o += _snprintf(ln + o, sizeof(ln) - 1 - o, " %s+0x%llx", name, (unsigned long long)(rips[i] - base));
+        }
+
+        o += _snprintf(ln + o, sizeof(ln) - 1 - o, "\n");
+        ln[sizeof(ln) - 1] = 0;
+        FFDebugLog(ln);
+        ++logged;
+    }
+}
+
 // One call per frame, right after xrWaitFrame returned: that is the frame boundary.
 void GpuProf_AddXrWaitMs(double ms)
 {
@@ -328,6 +464,24 @@ void GpuProf_AddXrWaitMs(double ms)
         return;
     gp.xrWaitMs += ms;
     ++gp.frames;
+
+    {
+        // arm / refresh the hitch sampler: this call IS the frame tick, and it runs on the sim thread
+        LARGE_INTEGER q;
+        QueryPerformanceCounter(&q);
+        s_hsLastTick = q.QuadPart;
+        s_hsSimTid = (LONG)GetCurrentThreadId();
+
+        if (InterlockedExchange(&s_hsStarted, 1) == 0)
+        {
+            HANDLE h = CreateThread(NULL, 0, HitchSamplerThread, NULL, 0, NULL);
+            if (h)
+            {
+                SetThreadPriority(h, THREAD_PRIORITY_ABOVE_NORMAL); // it must wake DURING a stall
+                CloseHandle(h);
+            }
+        }
+    }
 
     const double now = GpNowMs();
     if (gp.lastTick > 0.0)
@@ -1361,6 +1515,13 @@ bool D3D12Backend::CaptureTextureToBmp(ID3D12Resource* src, unsigned subresource
 
 void D3D12Backend::Present(bool bVSync)
 {
+    // Artscout - 2026: time the whole desktop-mirror present for [FRAMEPROF].
+    struct PresentSpan
+    {
+        double t0;
+        PresentSpan() : t0(GpNowMs()) {}
+        ~PresentSpan() { GpuProf_AddCpu(GPCPU_MIRROR, GpNowMs() - t0); }
+    } presentSpan;
     if (!m_pDevice || !m_pList || !m_pSwapChain)
         return;
     PumpD3D12Messages(m_pDevice);

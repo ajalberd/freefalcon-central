@@ -2,6 +2,7 @@
 #include <chrono> // #107 PERF: profiler phase timing (DrawScene / group blit)
 #include "graphics/include/frameprof.h" // #107 PERF: FrameProf_*
 #include "graphics/dxengine/openxrbackend.h" // VR: HMD head-tracking + per-eye stereo
+#include "graphics/dxengine/d3d12gpuprof.h" // Artscout - 2026: CPU span timers ([FRAMEPROF])
 #include "graphics/dxengine/d3d12backend.h" // #DX12 п.5: VR per-eye overlays under D3D12 (g_pD3D12Backend)
 #include "graphics/dxengine/d3d12/d3d12renderer.h" // #DX12 п.5: g_pD3D12Renderer (view-instanced stereo params)
 #include "graphics/vulkan/vulkanbackend.h" // #107 VR-Vulkan: g_pVulkanBackend (multiview scene array + XR blit)
@@ -3146,7 +3147,11 @@ void OTWDriverClass::RenderFrame()
     }
 
     // Now update everyone
-    viewPoint->Update(&viewPos);
+    {
+        const double fpV0 = GpuProf_NowMs();
+        viewPoint->Update(&viewPos);
+        GpuProf_AddCpu(GPCPU_VIEWPOINT, GpuProf_NowMs() - fpV0);
+    }
     //F4SoundFXSetCamPos( viewPos.x, viewPos.y, viewPos.z );
     // MLR 2003-10-17  10-27 returned to normal
     F4SoundFXSetCamPosAndOrient(&viewPos, &cameraRot, &cameraVel);
@@ -3155,7 +3160,11 @@ void OTWDriverClass::RenderFrame()
                            (unsigned long)FloatToInt32(todOffset * 1000.0F));
     ((WeatherClass*)realWeather)->UpdateWeather();
 
-    BuildExternalNearList();
+    {
+        const double fpE0 = GpuProf_NowMs();
+        BuildExternalNearList();
+        GpuProf_AddCpu(GPCPU_EXTLIST, GpuProf_NowMs() - fpE0);
+    }
 
 
     // Set up the black out effects

@@ -132,6 +132,14 @@ Only Vulkan had one. `FFDebug.log` now gets, every 5 s (cfg `GpuProf`, default o
 * **`[FRAMEPROF]`**: the sim thread's CPU frame split (campaign wait, real-time function, sim cycle, OTW
   cycle), counts of frames over 12/20/33 ms, and the worst frame with its own breakdown.
 
+* **`[HITCH]`** (written 2026-10-10, not yet flown): a watcher thread samples the sim thread's call stack
+  every ~20 ms while a VR frame has been running 40 ms or more (but under 1.5 s, so a menu or exit is not a
+  hitch). It copies raw return addresses while the thread is suspended (no heap, no CRT, no loader lock) and
+  logs them as `module+0xoffset` after resuming. `tools/profiling/hitchsym.cpp` (build line in its header)
+  resolves them with the PDB built WITH that exe (`RedViper.pdb`, not `FFViper.pdb`) and tallies where the sim
+  thread sat. `[FRAMEPROF]` now also splits the OTW cycle: viewpoint update, external list, `xrBeginFrame`,
+  `EndStereoFrame` submit, and the desktop-mirror `Present`.
+
 Measured over Seoul (RTX 5080, Quest 3 over Link at 1.9x, 120 Hz): **not GPU-bound**. GPU busy was 13-22%
 (~1.1-1.7 ms per eye; terrain 0.08 ms, objects 0.2-0.8 ms, ~3,400 draws and ~200k triangles per eye).
 Frames ran 60-115 per second. The visible cost is that `EndEyeFrame` waits on a fence after every eye, so

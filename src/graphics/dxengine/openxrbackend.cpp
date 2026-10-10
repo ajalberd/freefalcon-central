@@ -60,6 +60,7 @@ static void XrDbg(const char* fmt, ...)
 #include <openxr/openxr_platform.h>
 
 #include "openxrbackend.h"
+#include "d3d12gpuprof.h" // Artscout - 2026: [FRAMEPROF] spans
 #ifdef _WIN32
 #include "d3d12backend.h" // #DX12 п.5: g_pD3D12Backend (device + queue for the XR binding)
 #endif
@@ -3344,11 +3345,13 @@ int OpenXRBackend::BeginStereoFrame()
                                       .count());
     }
     XrFrameBeginInfo fbi = {XR_TYPE_FRAME_BEGIN_INFO};
+    const double xrb0 = GpuProf_NowMs();
     if (XR_FAILED(xrBeginFrame(p->session, &fbi)))
     {
         p->xrTurboWarmup = 0;
         return -1;
     } // failed begin -> re-warm turbo
+    GpuProf_AddCpu(GPCPU_XR_BEGIN, GpuProf_NowMs() - xrb0);
     // #107 turbo: absorb the NEXT frame's pacing block on the gate thread, overlapped with this frame. Warm up with
     // synchronous waits for the first frames after (re)entry -- the PVR runtime raced the earliest turbo frames.
     if (++p->xrTurboWarmup > 5)
@@ -4661,6 +4664,13 @@ bool OpenXRBackend::SubmitFpsQuad(void* tex, int w, int h)
 
 void OpenXRBackend::EndStereoFrame()
 {
+    // Artscout - 2026: time the whole composition-layer submit for [FRAMEPROF].
+    struct EndSpan
+    {
+        double t0;
+        EndSpan() : t0(GpuProf_NowMs()) {}
+        ~EndSpan() { GpuProf_AddCpu(GPCPU_XR_END, GpuProf_NowMs() - t0); }
+    } endSpan;
     Impl* p = m_impl;
     if (!p->inStereoFrame)
         return;
