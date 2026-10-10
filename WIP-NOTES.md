@@ -33,7 +33,7 @@ here.**
   uploaded). Also: linear-light mips and BC-encoded mips for big atlases, the Advanced-page aniso/mip
   sliders, `FarPlaneKm` (the world far plane was a hard 85 km; the haze and slider reach now follow it),
   `BubbleScale`, and the `[GPUPROF]`/`[FRAMEPROF]` profiler (Seoul: GPU ~15% busy, not GPU-bound). **Open:
-  VR has no antialiasing** (the eye path is single-sample) — likely the shimmer on static buildings; overlap
+  VR antialiasing landed (`VrMsaaSamples`, flown, helps); overlap
   of the two eyes is not done (command-allocator/ring audit first); a right-eye terrain dropout seen in
   debug flights was never separately explained.
 - `COCKPIT-OVERHAUL.md` — the cockpit displays use a **three-size GIF+`.rct` bitmap font

@@ -168,7 +168,7 @@ row or column; silent for the first 10 s after a refill), `[TERRAIN-BOX]` (ring 
 
 ## Open
 
-* **VR antialiasing: written 2026-10-10, not yet flown.** The per-eye path was single-sample
+* **VR antialiasing: flown 2026-10-10, confirmed to help (static buildings stop crawling).** The per-eye path was single-sample
   (`BeginEyeFrame`), so building edges and alpha-tested (chroma-key) windows and fences crawled with head
   micro-motion even when paused. Now cfg **`VrMsaaSamples`** (0 = off, the default; 2/4/8) renders the eye
   into the multisampled FP16 scene the flat path already used and resolves it in `OutputHdrScene`. The one
@@ -185,8 +185,11 @@ row or column; silent for the first 10 s after a refill), `[TERRAIN-BOX]` (ring 
   the PSO state are one function of values in the PSO key (`A2cWanted`), and the render constants are
   re-filled whenever its answer flips. If an external `FFEmu.hlsl` lacks `FF_A2C` the renderer switches it
   off at start-up (an old shader on an A2C pipeline would dither holes into cut-outs).
-  **To check:** pause on buildings in the headset with `VrMsaaSamples 4` and compare with 0; look for holes
-  or dithering in window/fence cut-outs (that would be the A2C bookkeeping); watch VRAM.
+  **Measured (Seoul, same flight style, `[GPUPROF]`):** GPU per eye 1.16-1.25 ms off -> 1.30-1.54 ms at 4x
+  (+0.15-0.3 ms; terrain 0.07 -> 0.14 ms, objects roughly unchanged), GPU busy still 14-18%, frame rate
+  unchanged. The GPU accepted 4x for FP16 + D32S8 at 2720x2976 (`[VRMSAA] requested x4 -> using x4`).
+  Still to watch if you change content: holes or dithering in window/fence cut-outs would be the A2C
+  bookkeeping (`AlphaToCoverage 0` isolates it from MSAA itself).
 * Overlap the two eyes (above).
 * Smooth the coarsest terrain ring.
 * World sun shadows (only the cockpit has them), linear-light lighting, temporal AA.

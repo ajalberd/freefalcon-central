@@ -152,6 +152,10 @@ The long‑term goal of the render work, now shipped.
   GPU) and `[FRAMEPROF]` (the sim thread's CPU frame split, slow-frame counts, the worst frame) in
   `FFDebug.log`; the Seoul measurement showed the headset path is not GPU-bound.
 * **VR desktop mirror** drawn at the desktop's scale instead of 1:1 real pixels.
+* **MSAA in the headset** (`VrMsaaSamples`, off by default; 4x costs about +0.2 ms/eye and ~0.5 GB VRAM on a
+  5080) and **alpha-to-coverage** for alpha-tested cut-outs (windows, fences) when the target is multisampled
+  (`AlphaToCoverage`). The per-eye path was single-sample before, so building edges crawled with head
+  micro-motion even when paused.
 
 ## 3. Modernized toolchain
 
