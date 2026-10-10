@@ -370,6 +370,18 @@ bool D3D12Renderer::CompileShaders(const char* shaderDir)
     const char* srcName =
         fromFile ? "FFEmu.hlsl(file)" : "FFEmu.hlsl(embedded)";
 
+    // Artscout - 2026: alpha-to-coverage needs the shader and the pipeline to agree (the PS must output coverage
+    // instead of hard-discarding). An external FFEmu.hlsl older than that change would not know FF_A2C: with a
+    // pipeline that has it on, alpha-tested edges would dither into holes. Turn it off rather than risk that.
+    {
+        extern bool g_bAlphaToCoverage;
+        if (g_bAlphaToCoverage && src.find("FF_A2C") == std::string::npos)
+        {
+            g_bAlphaToCoverage = false;
+            R12Log("[D3D12R] %s has no FF_A2C -> alpha-to-coverage OFF\n", srcName);
+        }
+    }
+
     // Artscout - 2026: shader debug info is gated on g_bD3D12Debug, NOT on _DEBUG -- exactly like the D3D12
     // validation layer, and for the same reason: the builds that actually get flown are RELEASE, so under _DEBUG
     // the information was never there when it was needed. Without it RenderDoc's pixel debugger has no HLSL to
@@ -1546,6 +1558,18 @@ ID3D12GraphicsCommandList* D3D12Renderer::Cmd()
 // pixel shader. Two copies of these numbers drifting apart would put the cache and the draw on different
 // clouds, and "two sources of truth, one silently wrong" is the shape of most of this session's lost time.
 // void* because CBRender is file-local to this .cpp and does not belong in the header.
+// Artscout - 2026: alpha-to-coverage (cfg "AlphaToCoverage", on by default, only ever meaningful on a multisampled
+// target). A pure function of values that are also in the PSO key (samples, blend, shadow, prime) -- deliberately
+// NOT of the pass, because the object draws hand GetPSO a literal pass 1 while m_pass is a separate state -- so the
+// PSO and the constant buffer (FF_A2C) cannot disagree. Opaque draws only: a blended draw uses its alpha as alpha,
+// and the depth-only / depth-prime variants write no colour. An opaque draw that is not alpha-tested outputs
+// alpha 1 under this rule (see the PS), so it still covers every sample.
+static bool A2cWanted(int samples, int blend, bool shadowPass, bool depthPrime)
+{
+    extern bool g_bAlphaToCoverage;
+    return g_bAlphaToCoverage && samples > 1 && blend == BLEND_OPAQUE && !shadowPass && !depthPrime;
+}
+
 void D3D12Renderer::FillRenderCB(void* pCb)
 {
     CBRender& cb = *(CBRender*)pCb;
@@ -1554,6 +1578,8 @@ void D3D12Renderer::FillRenderCB(void* pCb)
     // it) AND the GPU-terrain path (BeginTerrainPass/DrawTerrainMesh set m_flags directly, bypassing SetState).
     cb.flags = m_flags | (m_irGrey ? FF_IRGREY : 0u) |
                (m_fullBright ? FF_FULLBRIGHT : 0u);
+    if (A2cWanted(g_pD3D12Backend ? g_pD3D12Backend->CurrentSampleCount() : 1, m_blend, m_shadowPass, m_depthPrime))
+        cb.flags |= FF_A2C;
     // Artscout - 2026: fog the lit world objects -- buildings, vehicles, other aircraft -- exactly as the
     // terrain is fogged. Only BeginTerrainPass ever set FF_FOG on this backend, so a building 13 nm out
     // sat unhazed on hazed ground and read as a black silhouette whenever you saw its shaded side
@@ -1967,6 +1993,18 @@ void D3D12Renderer::FlushConstants()
         if (va)
             cl->SetGraphicsRootConstantBufferView(2, va);
         m_dObject = false;
+    }
+    {
+        // The A2C answer depends on the bound target's sample count and the blend mode, neither of which marks the
+        // render constants dirty on its own: re-fill them whenever the answer flips.
+        static bool s_lastA2c = false;
+        const bool a2c = A2cWanted(g_pD3D12Backend ? g_pD3D12Backend->CurrentSampleCount() : 1, m_blend, m_shadowPass,
+                                   m_depthPrime);
+        if (a2c != s_lastA2c)
+        {
+            s_lastA2c = a2c;
+            m_dRender = true;
+        }
     }
     if (m_dRender)
     {
@@ -2399,6 +2437,7 @@ ID3D12PipelineState* D3D12Renderer::GetPSO(int pass, int blend, bool dWrite,
     D3D12_RENDER_TARGET_BLEND_DESC& rt = pd.BlendState.RenderTarget[0];
     // Artscout - 2026: the DX2D depth prime writes depth only (SetDynamic2DDepthPrime).
     rt.RenderTargetWriteMask = m_depthPrime ? 0 : D3D12_COLOR_WRITE_ENABLE_ALL;
+    pd.BlendState.AlphaToCoverageEnable = A2cWanted(samples, blend, m_shadowPass, m_depthPrime) ? TRUE : FALSE;
     if (blend == BLEND_OPAQUE)
     {
         rt.BlendEnable = FALSE;

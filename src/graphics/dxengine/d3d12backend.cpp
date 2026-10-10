@@ -3907,6 +3907,132 @@ void* D3D12Backend::SubRttTex()
     return (m_pSubRtt && m_pSubRtt->tex) ? (void*)m_pSubRtt : NULL;
 }
 
+//-----------------------------------------------------------------------------
+// Artscout - 2026: MSAA for the per-eye VR path (cfg "VrMsaaSamples", 0/1 = off).
+//
+// The eye path rendered single-sample, so every building edge, roof line and alpha-tested window crawled with the
+// head's micro-motion even on a paused scene. The pieces were already there: BeginHdrScene takes a sample count
+// (the flat path uses it), HdrSnapshotScene resolves a multisampled FP16 scene, PSOs are cached by sample count,
+// and SetSceneDepthReadable already copes with a multisampled depth (m_sceneDepthMs). What was missing is a
+// MULTISAMPLED EYE DEPTH BUFFER, below. Both eyes share the FP16 target set (HdrEyeSlot picks by size) and this
+// depth: the eye command lists run one after the other and each clears both. File-statics, not members, so the
+// header does not change.
+//-----------------------------------------------------------------------------
+static ID3D12Resource* s_eyeMsDepth = 0;
+static ID3D12DescriptorHeap* s_eyeMsDsv = 0;
+static int s_eyeMsW = 0, s_eyeMsH = 0, s_eyeMsN = 0;
+
+static void ReleaseEyeMsDepth()
+{
+    D12_RELEASE(s_eyeMsDepth);
+    D12_RELEASE(s_eyeMsDsv);
+    s_eyeMsW = s_eyeMsH = s_eyeMsN = 0;
+}
+
+// The requested count, snapped DOWN to one the device supports for BOTH the FP16 colour and the D32S8 depth.
+static int EyeMsaaPick(ID3D12Device* dev)
+{
+    extern int g_nVrMsaaSamples;
+    static int s_want = -1, s_pick = 1;
+    int want = g_nVrMsaaSamples;
+
+    if (want < 2 || !dev)
+        return 1;
+    if (want > 8)
+        want = 8;
+    if (want == s_want)
+        return s_pick;
+
+    s_want = want;
+    s_pick = 1;
+    const DXGI_FORMAT fmts[2] = {DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_D32_FLOAT_S8X24_UINT};
+
+    for (int s = want; s >= 2 && s_pick == 1; --s)
+    {
+        bool ok = true;
+
+        for (int f = 0; f < 2; ++f)
+        {
+            D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS ql;
+            ZeroMemory(&ql, sizeof(ql));
+            ql.Format = fmts[f];
+            ql.SampleCount = (UINT)s;
+            if (FAILED(dev->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &ql, sizeof(ql))) ||
+                ql.NumQualityLevels == 0)
+                ok = false;
+        }
+
+        if (ok)
+            s_pick = s;
+    }
+
+    char ln[120];
+    _snprintf(ln, sizeof(ln) - 1, "[VRMSAA] requested x%d -> using x%d\n", want, s_pick);
+    ln[sizeof(ln) - 1] = 0;
+    FFDebugLog(ln);
+    return s_pick;
+}
+
+static bool EyeMsDepthWouldRebuild(int w, int h, int n)
+{
+    return !(s_eyeMsDepth && s_eyeMsW == w && s_eyeMsH == h && s_eyeMsN == n);
+}
+
+static bool EnsureEyeMsDepth(ID3D12Device* dev, int w, int h, int n)
+{
+    if (!EyeMsDepthWouldRebuild(w, h, n))
+        return true;
+
+    ReleaseEyeMsDepth(); // the caller has drained the GPU if anything was live
+
+    D3D12_DESCRIPTOR_HEAP_DESC hd;
+    ZeroMemory(&hd, sizeof(hd));
+    hd.NumDescriptors = 1;
+    hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    if (FAILED(dev->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&s_eyeMsDsv))))
+        return false;
+
+    D3D12_HEAP_PROPERTIES hp;
+    ZeroMemory(&hp, sizeof(hp));
+    hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC rd;
+    ZeroMemory(&rd, sizeof(rd));
+    rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    rd.Width = (UINT64)w;
+    rd.Height = (UINT)h;
+    rd.DepthOrArraySize = 1;
+    rd.MipLevels = 1;
+    rd.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    rd.SampleDesc.Count = (UINT)n;
+    rd.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    D3D12_CLEAR_VALUE cv;
+    ZeroMemory(&cv, sizeof(cv));
+    cv.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    cv.DepthStencil.Depth = 0.0f; // reversed-Z: 0 is the far plane
+    if (FAILED(dev->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_DEPTH_WRITE, &cv,
+                                            IID_PPV_ARGS(&s_eyeMsDepth))))
+    {
+        ReleaseEyeMsDepth();
+        return false;
+    }
+
+    D3D12_DEPTH_STENCIL_VIEW_DESC dv;
+    ZeroMemory(&dv, sizeof(dv));
+    dv.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    dv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMS;
+    dev->CreateDepthStencilView(s_eyeMsDepth, &dv, s_eyeMsDsv->GetCPUDescriptorHandleForHeapStart());
+    s_eyeMsW = w;
+    s_eyeMsH = h;
+    s_eyeMsN = n;
+
+    char ln[140];
+    _snprintf(ln, sizeof(ln) - 1, "[VRMSAA] eye depth %dx%d x%d up\n", w, h, n);
+    ln[sizeof(ln) - 1] = 0;
+    FFDebugLog(ln);
+    return true;
+}
+
 // #DX12 п.5 (VR): open a command list rendering INTO an XR eye image (bind eye RTV + VR depth, clear both).
 void D3D12Backend::BeginEyeFrame(void* eyeImg, unsigned __int64 eyeRtvPtr,
                                  int w, int h)
@@ -3928,16 +4054,34 @@ void D3D12Backend::BeginEyeFrame(void* eyeImg, unsigned __int64 eyeRtvPtr,
     extern bool g_bToneMapGT7;
     extern bool g_bTerrainCrackDebug; // cfg: holes in the terrain show as magenta (sky dome + filler are skipped)
     const unsigned long eyeClearArgb = g_bTerrainCrackDebug ? 0xFFFF00FFul : 0xFF000000ul;
-    if (g_bToneMapGT7 &&
-        BeginHdrScene(HdrEyeSlot(w, h), w, h, 1, eyeRtvPtr, eyeClearArgb,
-                      m_pEyeDsvHeap ? (unsigned __int64)m_pEyeDsvHeap
-                                          ->GetCPUDescriptorHandleForHeapStart()
-                                          .ptr :
-                                      0))
+    unsigned __int64 eyeDsvPtr = m_pEyeDsvHeap ? (unsigned __int64)m_pEyeDsvHeap
+                                                      ->GetCPUDescriptorHandleForHeapStart()
+                                                      .ptr :
+                                                  0;
+    // Artscout - 2026: multisampled eye (cfg VrMsaaSamples). Needs the FP16 scene (it is what resolves); any
+    // failure drops to the single-sample eye below, never to a broken frame.
+    int eyeMs = 1;
+    if (g_bToneMapGT7)
     {
-        m_pSceneDepthRes = m_pEyeDepthTex;
+        eyeMs = EyeMsaaPick(m_pDevice);
+
+        if (eyeMs > 1)
+        {
+            if (EyeMsDepthWouldRebuild(w, h, eyeMs) && s_eyeMsDepth)
+                WaitForGpu(); // the old depth may be referenced by a frame in flight
+
+            if (EnsureEyeMsDepth(m_pDevice, w, h, eyeMs))
+                eyeDsvPtr = (unsigned __int64)s_eyeMsDsv->GetCPUDescriptorHandleForHeapStart().ptr;
+            else
+                eyeMs = 1;
+        }
+    }
+
+    if (g_bToneMapGT7 && BeginHdrScene(HdrEyeSlot(w, h), w, h, eyeMs, eyeRtvPtr, eyeClearArgb, eyeDsvPtr))
+    {
+        m_pSceneDepthRes = (eyeMs > 1) ? s_eyeMsDepth : m_pEyeDepthTex;
         m_sceneDepthSlices = 1;
-        m_sceneDepthMs = false;
+        m_sceneDepthMs = (eyeMs > 1); // a multisampled depth has no Texture2DArray view: no cloud/shadow depth read
         m_sceneDepthReadable = false;
         m_bRecording = true;
         return;
@@ -4556,6 +4700,7 @@ void D3D12Backend::Release()
     D12_RELEASE(m_pHdrPS);
     D12_RELEASE(m_pEyeDepthTex);
     D12_RELEASE(m_pEyeDsvHeap);
+    ReleaseEyeMsDepth(); // Artscout - 2026: the multisampled eye depth (VrMsaaSamples)
     for (int i = 0; i < 2; ++i)
     {
         D12_RELEASE(m_eyeDepth[i].tex);

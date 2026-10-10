@@ -83,6 +83,10 @@ enum FFFlags
     // (and the Blinn-Phong specular) per pixel -- the lamp falls off at its real range.
     // Set by the backends' BeginObjectPass from g_bObjPixelLight; terrain/2D never set FF_LIGHTING.
     FF_PIXELLIGHT = 1u << 20,
+    // Artscout - 2026: the PSO for this draw has ALPHA-TO-COVERAGE on (opaque object pass, multisampled target).
+    // The PS then outputs alpha as COVERAGE: a sharpened version of the texture alpha for an alpha-tested draw
+    // (the hard-edged `discard` becomes a per-sample mask that MSAA smooths) and 1.0 for everything else.
+    FF_A2C = 1u << 24,
 };
 
 // Coarse buckets the ~38 states collapse into. Each names a small set of D3D11

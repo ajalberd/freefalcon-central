@@ -96,6 +96,7 @@ cbuffer cbViewStereo : register(b5)
                                     // the per-vertex slot instead of t0. Set only by DrawTerrainMeshBindless;
                                     // same bit as FF_BINDLESS in the Vulkan shader and in ffstatemap.h.
 #define FF_PIXELLIGHT   (1u << 20)  // Artscout - 2026: per-PIXEL object lighting (see FFObjectLighting below).
+#define FF_A2C          (1u << 24)  // Artscout - 2026: PSO has alpha-to-coverage: output alpha is COVERAGE (see the alpha test)
                                     // The light model is unchanged; the VS then leaves the vertex colour unlit and
                                     // passes the world normal/position/view vector, and the PS runs the light loop
                                     // and the Blinn-Phong specular per pixel. Fixes small lamps smearing their
@@ -2124,8 +2125,23 @@ float4 PS_Main(VSOut i) : SV_Target
         // palette/RGBA loader), so per-vertex alpha cannot spuriously discard
         // opaque geometry. Screen/2D path (untextured) falls back to final alpha.
         float aTest = (gFlags & FF_TEXTURE0) ? texA : c.a;
-        if (aTest < gAlphaRef)
+        if (gFlags & FF_A2C)
+        {
+            // Alpha-to-coverage: do not cut the edge with a hard discard. Output alpha as COVERAGE, sharpened to
+            // about one pixel of ramp around the threshold (the usual A2C-with-mips fix: the raw alpha of a
+            // minified texture is a wide soft gradient, which would make the whole cut-out look translucent),
+            // and let MSAA turn it into a per-sample mask. Fully outside the cut still discards.
+            float w = max(fwidth(aTest), 1.0e-4f);
+            c.a = saturate((aTest - gAlphaRef) / w + 0.5f);
+            if (c.a <= 0.0f)
+                discard;
+        }
+        else if (aTest < gAlphaRef)
             discard;
+    }
+    else if (gFlags & FF_A2C)
+    {
+        c.a = 1.0f; // an opaque draw on an A2C pipeline must cover every sample
     }
 
     // The specular highlight is added ON TOP of the texture (like D3D7 specular), before fog.

@@ -168,12 +168,25 @@ row or column; silent for the first 10 s after a refill), `[TERRAIN-BOX]` (ring 
 
 ## Open
 
-* **VR has no antialiasing.** `BeginEyeFrame` passes one sample (`d3d12backend.cpp`, "VR eye is
-  single-sample for now"); the Setup MSAA checkbox only affects the flat monitor. Building edges and
-  alpha-tested (chroma-key) windows and fences, which are a hard `discard`, crawl with head micro-motion
-  even when paused. The pieces for MSAA in the eye path exist (the HDR scene begin takes a sample count;
-  PSOs are cached by sample count); it needs a multisampled eye depth buffer and a resolve. Alpha-to-coverage
-  follows from it.
+* **VR antialiasing: written 2026-10-10, not yet flown.** The per-eye path was single-sample
+  (`BeginEyeFrame`), so building edges and alpha-tested (chroma-key) windows and fences crawled with head
+  micro-motion even when paused. Now cfg **`VrMsaaSamples`** (0 = off, the default; 2/4/8) renders the eye
+  into the multisampled FP16 scene the flat path already used and resolves it in `OutputHdrScene`. The one
+  missing piece was a **multisampled eye depth buffer** (file-static in `d3d12backend.cpp`, shared by both
+  eyes; D32S8). The count is snapped down to what the GPU supports for FP16 colour *and* D32S8; any failure
+  falls back to the single-sample eye. Needs the HDR scene (`g_bToneMapGT7`). 4x at 2720x2976 per eye is
+  about 0.5 GB of extra VRAM. Log: `[VRMSAA] requested xN -> using xM`, `[VRMSAA] eye depth WxH xN up`.
+  Every PSO builder already follows the bound target's sample count (checked), and a multisampled depth
+  has no array view, so the (unused) cloud/shadow depth read is skipped via `m_sceneDepthMs`.
+  **Alpha-to-coverage** (cfg `AlphaToCoverage`, default on, only meaningful when the target is multisampled,
+  so flat MSAA gets it too): opaque draws get `AlphaToCoverageEnable`, and for an alpha-tested draw the PS
+  outputs a sharpened alpha (one pixel of ramp around `gAlphaRef`, via `fwidth`) as coverage instead of
+  hard-`discard`ing the edge; an opaque draw that is not alpha-tested outputs alpha 1. `FF_A2C` (cb bit 24) and
+  the PSO state are one function of values in the PSO key (`A2cWanted`), and the render constants are
+  re-filled whenever its answer flips. If an external `FFEmu.hlsl` lacks `FF_A2C` the renderer switches it
+  off at start-up (an old shader on an A2C pipeline would dither holes into cut-outs).
+  **To check:** pause on buildings in the headset with `VrMsaaSamples 4` and compare with 0; look for holes
+  or dithering in window/fence cut-outs (that would be the A2C bookkeeping); watch VRAM.
 * Overlap the two eyes (above).
 * Smooth the coarsest terrain ring.
 * World sun shadows (only the cockpit has them), linear-light lighting, temporal AA.

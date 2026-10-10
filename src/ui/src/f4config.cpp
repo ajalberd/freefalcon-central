@@ -943,7 +943,9 @@ int g_nTerrainMorphPosts =
 int g_nTerrainRingRadius =
     0; // Artscout - 2026: #78 -- force every LOD ring to this radius in posts instead of tracking GetAvailablePostRange(), which shrinks whenever a terrain block is still streaming and grows back when it lands, so the rings BREATHE frame to frame. 0 = auto (stock). The bisect case for "is the stutter the rings resizing?"; capped by the clipmap window either way.
 bool g_bGpuProf = true; // see BoolOpts "GpuProf"
+int g_nVrMsaaSamples = 0; // Artscout - 2026: MSAA sample count for the per-eye VR path: 0/1 = off (the old single-sample eye), 2/4/8 = that many, snapped down to what the GPU supports for FP16 colour + D32S8 depth. Needs the HDR scene (g_bToneMapGT7). 4 is the sensible start: ~0.5 GB of extra VRAM at 2720x2976 per eye. "VrMsaaSamples".
 bool g_bTerrainCrackDebug = false; // see BoolOpts "TerrainCrackDebug"
+bool g_bAlphaToCoverage = true; // see BoolOpts "AlphaToCoverage"
 bool g_bTerrainNoCull = false; // see BoolOpts "TerrainNoCull"
 float g_fBubbleScale = 1.0f; // see FloatOpts "BubbleScale"
 float g_fFarPlaneKm = 85.34f; // Artscout - 2026: see FloatOpts "FarPlaneKm"
@@ -1807,6 +1809,8 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bObjFog}, // Artscout - 2026: fog lit world objects like the terrain (D3D12)
     {"ObjPixelLight",
      &g_bObjPixelLight}, // Artscout - 2026: per-pixel object lighting (small lamps stop washing whole panels)
+    {"AlphaToCoverage",
+     &g_bAlphaToCoverage}, // Artscout - 2026: alpha-tested object textures (windows, fences, lattices) are cut with alpha-to-coverage instead of a hard discard WHEN the target is multisampled (flat MSAA, or VrMsaaSamples). On by default; 0 = the old hard edge. Restart to apply.
     {"TerrainNoCull",
      &g_bTerrainNoCull}, // Artscout - 2026: debug: never frustum-cull terrain chunks (zero planes). Costs GPU time; tells whether the chunk cull causes a terrain dropout. Live.
     {"TerrainCrackDebug",
@@ -2387,6 +2391,7 @@ static ConfigOption<int> IntOpts[] = {
     {"BWMaxDeltaTime", &g_nBWMaxDeltaTime}, // 2002-04-12 MN
     {"BWCheckDeltaTime", &g_nBWCheckDeltaTime}, // 2002-04-12 MN
     {"VUMaxDeltaTime", &g_nVUMaxDeltaTime}, // 2002-04-12 MN
+    {"VrMsaaSamples", &g_nVrMsaaSamples}, // Artscout - 2026: per-eye VR MSAA, 0 = off (default), 2/4/8. Restart to apply.
     {"UiWidth", &g_nUiWidth}, // Artscout - 2026: menu surface size, 0 = 1024x768
     {"UiFilter", &g_nUiFilter}, // Artscout - 2026: 1 = sharp bilinear menu scaling, 0 = plain
     {"VrUiWidth", &g_nVrUiWidth}, // Artscout - 2026: VR menu layout size, 0 = desktop knobs
