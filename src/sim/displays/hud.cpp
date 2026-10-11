@@ -1,6 +1,7 @@
 #include "stdhdr.h"
 #include <float.h>
 #include "hud.h"
+#include "graphics/include/fflog.h"
 #include "graphics/dxengine/dxengine.h"
 #include "graphics/dxengine/dxvbmanager.h"
 #include "guns.h"
@@ -2565,6 +2566,27 @@ void HudClass::CalculateBrightness(float percent, DWORD* color)
 
 // COBRA - RED - Completely rewritten
 void HudClass::SetLightLevel(void)
+{
+    SetLightLevelCalc();
+
+    // logged when the switch, the SYM wheel or the resulting alpha changes (the night-brightness report)
+    static int s_sw = -1;
+    static float s_wheel = -1.0f, s_alpha = -1.0f;
+    const float a = (float)((curHudColor >> 24) & 0xff) / 255.0f;
+
+    if (s_sw != (int)brightnessSwitch or fabsf(s_wheel - SymWheelPos) > 0.001f or fabsf(s_alpha - a) > 0.02f)
+    {
+        char buf[128];
+        sprintf(buf, "HUD light: switch=%d wheel=%.2f alpha=%.2f realistic=%d\n", (int)brightnessSwitch,
+                SymWheelPos, a, g_bRealisticAvionics ? 1 : 0);
+        FFDebugLog(buf);
+        s_sw = (int)brightnessSwitch;
+        s_wheel = SymWheelPos;
+        s_alpha = a;
+    }
+}
+
+void HudClass::SetLightLevelCalc(void)
 {
     float Value;
 

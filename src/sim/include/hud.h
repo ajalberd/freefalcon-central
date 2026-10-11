@@ -397,6 +397,7 @@ public:
     void SetHudColor(DWORD);
     void HudColorStep(void);
     void SetLightLevel(void);
+    void SetLightLevelCalc(void);
     void CalculateBrightness(float, DWORD*);
     void SetContrastLevel(void);
 
@@ -426,6 +427,13 @@ public:
     void CycleRadarSwitch(void);
 
     int GetBrightnessSwitch(void);
+    // Artscout - 2026: the pit switch's mesh mask for the current position (DAY 2, AUTO BRT 1, NIGHT 4 -- what the
+    // SimHUDBrt* hotspots set). The cycle commands and the per-frame pit update each used their own formula, so the
+    // switch showed a different position from the one it was in.
+    int BrightnessSwitchMask(void)
+    {
+        return brightnessSwitch == DAY ? 2 : (brightnessSwitch == BRIGHT_AUTO ? 1 : 4);
+    };
     void SetBrightnessSwitch(BrightnessSwitch);
     void CycleBrightnessSwitch(void);
     void CycleBrightnessSwitchUp(void); //MI

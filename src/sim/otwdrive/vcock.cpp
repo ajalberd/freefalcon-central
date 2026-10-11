@@ -76,6 +76,7 @@ float resScale = 0.66667f;
 // in ScreenText/ScreenTextWidth/Height ONLY during the RTT pass (g_rttBatchActive).
 // 1.0 = no scale (atlas 512/high resolution). Set in the 1024 blocks below.
 float g_rttFontScale = 1.0f;
+float g_fHudGainNight = 2.0f; // Artscout - 2026: HUD gain at the top of the SYM wheel in the dark ("HudGainNight"); 1.0 = no night boost
 
 // #7 display SSAA (variant 2, VR goal): a SINGLE supersampling multiplier for the RTT atlas.
 // Atlas = 768*SS, zones *SS (resScale), font *SS (g_rttFontScale) -- all three consistent,
@@ -4533,7 +4534,7 @@ void OTWDriverClass::VCock_Exec(void)
 
         // HUD brightness switch
         vrCockpit->SetSwitchMask(COMP_3DPIT_HUD_DAY_NITE,
-                                 1 << TheHud->GetBrightnessSwitch());
+                                 TheHud->BrightnessSwitchMask());
 
         // Chaff Remaining units digit
         if (((AircraftClass*)(SimDriver.GetPlayerEntity()))
@@ -5053,6 +5054,14 @@ void OTWDriverClass::VCock_Exec(void)
     // ASSO: BEGIN
     if (renderer->HasRttTarget())
     {
+        // Artscout - 2026: the HUD FLIR raster's renderer must be set up while no atlas pass is open
+        {
+            extern bool g_bHudFlir;
+
+            if (g_bHudFlir and theLantirn and theLantirn->IsFLIR())
+                theLantirn->EnsureHudRenderer(renderer->GetImageBuffer());
+        }
+
         renderer->EndDraw(); //588
         renderer->StartRtt(renderer);
 
@@ -5068,6 +5077,11 @@ void OTWDriverClass::VCock_Exec(void)
         //
         if (vHUDrenderer) // JPO - use basic info
         {
+            // Artscout - 2026: AUTO BRT only recomputed its level when a switch or the SYM wheel was touched, so it
+            // never followed the sky as the day went on
+            if (TheHud and TheHud->GetBrightnessSwitch() == HudClass::BRIGHT_AUTO)
+                TheHud->SetLightLevel();
+
             vHUDrenderer->AdjustRttViewport();
 
             if (g_b3DRTTCockpitDebug)
@@ -5565,6 +5579,7 @@ void OTWDriverClass::VCock_Exec(void)
         {
             extern bool g_bRttLightExempt;
             extern float g_rttHudGain, g_fHudGainMin, g_fHudGainMax;
+            extern float g_fHudGainNight;
             g_bRttLightExempt = true; // the HUD dims itself (HudClass::SetLightLevel)
 
             // Artscout - 2026: the SYM wheel scales the HUD's gain, fading out toward night (where
@@ -5577,7 +5592,10 @@ void OTWDriverClass::VCock_Exec(void)
                 float env = TheTimeOfDay.GetLightLevel();
                 env = (env < 0.0f) ? 0.0f : (env > 1.0f) ? 1.0f : env;
                 const float wheelGain = g_fHudGainMin + (g_fHudGainMax - g_fHudGainMin) * w;
-                g_rttHudGain = 1.0f + (wheelGain - 1.0f) * env;
+                // at night the wheel still works: 1.0 at the bottom up to g_fHudGainNight at the top (the NIGHT
+                // and AUTO alpha curves in SetLightLevel top out at 0.4 / 0.3, which read dim at full wheel)
+                const float nightGain = 1.0f + (g_fHudGainNight - 1.0f) * w;
+                g_rttHudGain = nightGain + (wheelGain - nightGain) * env;
             }
 
             vHUDrenderer->DrawRttQuad();

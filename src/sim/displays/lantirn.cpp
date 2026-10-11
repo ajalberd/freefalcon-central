@@ -2,6 +2,7 @@
 #include <float.h>
 #include "lantirn.h"
 #include "graphics/include/renderir.h"
+#include "graphics/include/fflog.h"
 #include "graphics/include/imagebuf.h" // Artscout - 2026: off-screen RTT for FLIR/TGP scene
 #include "graphics/include/rviewpnt.h"
 #include "otwdrive.h"
@@ -275,6 +276,33 @@ void LantirnClass::DrawTerrain()
 // Conformal: the camera looks along the aircraft's x axis (pitched down by the HUD's own boresight offset, so
 // the nose lands where the boresight cross is drawn), with the HUD's field of view. HudFlirTrim (degrees, up
 // positive) is the boresight adjustment (BMS "BSGT"); HudFlirScale scales the field of view.
+// Called from the 3D-pit draw BEFORE renderer->StartRtt: builds the HUD raster's RenderIR while no atlas pass is open.
+void LantirnClass::EnsureHudRenderer(ImageBuffer *atlas)
+{
+    extern bool g_bUseD3D12, g_bUseVulkan, g_bSensorSceneD3D12, g_bSensorSceneVulkan;
+
+    if (not g_bHudFlir or not atlas or not IsFLIR())
+        return;
+
+    if ((g_bUseD3D12 or g_bUseVulkan) and not(g_bSensorSceneD3D12 or (g_bUseVulkan and g_bSensorSceneVulkan)))
+        return;
+
+    if (m_hudIr and m_hudIr->GetImageBuffer() == atlas)
+        return;
+
+    if (m_hudIr)
+    {
+        m_hudIr->Cleanup();
+        delete m_hudIr;
+        m_hudIr = NULL;
+    }
+
+    m_hudIr = new RenderIR;
+    m_hudIr->Setup(atlas, OTWDriver.GetViewpoint());
+    m_hudIr->SetColor(0xff00ff00);
+    FFDebugLog("HUD FLIR: raster renderer created (outside the atlas pass)\n");
+}
+
 void LantirnClass::DrawHudRaster(VirtualDisplay *hudCanvas, ImageBuffer *atlas, float halfAngleDeg, float boresightRad)
 {
     extern bool g_bUseD3D12, g_bUseVulkan, g_bSensorSceneD3D12, g_bSensorSceneVulkan;
@@ -290,13 +318,10 @@ void LantirnClass::DrawHudRaster(VirtualDisplay *hudCanvas, ImageBuffer *atlas, 
     if ((g_bUseD3D12 or g_bUseVulkan) and not(g_bSensorSceneD3D12 or (g_bUseVulkan and g_bSensorSceneVulkan)))
         return;
 
-    if (not m_hudIr)
-    {
-        m_hudIr = new RenderIR;
-        m_hudIr->Setup(atlas, OTWDriver.GetViewpoint());
-    }
-    else if (m_hudIr->GetImageBuffer() not_eq atlas)
-        m_hudIr->SetImageBuffer(atlas);
+    // the renderer is made by EnsureHudRenderer BEFORE the atlas pass opens (Setup inside the pass blanked every
+    // display in the atlas -- the MFD code closes the pass around its DisplayInit for the same reason)
+    if (not m_hudIr or m_hudIr->GetImageBuffer() not_eq atlas)
+        return;
 
     // the HUD's raster is green, in proportion to the BRT wheel and the gain/level
     {

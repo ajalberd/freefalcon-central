@@ -48,6 +48,8 @@ and the features ported from it. Branch `rail-tracks`, commits tagged `avionics:
 
 ## Not done, and why
 
+- **First night flight (2026-10-11), FLIR ON blanked the HUD, DED and MFDs.** The HUD raster's `RenderIR` was created (`Setup`) inside the open atlas pass; the MFD code closes the pass around its own `DisplayInit` for that reason. It is now built by `LantirnClass::EnsureHudRenderer` from vcock.cpp BEFORE `renderer->StartRtt`. FFDebug.log shows `HUD FLIR: raster renderer created` when it happens. If the displays still blank, set `HudFlir 0` and send the log.
+- **Same flight, HUD dim at night / SYM wheel dead / DAY-AUTO-NIGHT switch looked stuck.** Causes found: the SYM-wheel gain was blended out by the daylight level (so the wheel did nothing at night, and it starts at full anyway) - new cfg `HudGainNight` (default 2.0); the NIGHT/AUTO alpha curves cap at 0.4/0.3; AUTO BRT only recomputed on a switch or wheel touch (now every frame); and the pit switch mesh mask used three different formulas (cycle commands, `SimHUDBrt*`, and the per-frame pit update that overwrote them) - now one: `HudClass::BrightnessSwitchMask()` (DAY 2, AUTO 1, NIGHT 4). `HUD light: switch= wheel= alpha=` lines in FFDebug.log record every change. Untested; if the mesh shows the wrong position the three numbers in that function are the thing to swap.
 - **FLIR:** WHOT/BHOT polarity, look-into-turn / snaplook, the throttle cursor as the BSGT slew, and pit hotspots for the BRT wheel / FLIR arrows (key-bind only).
 - **Pit hotspots** for SYS TEST and ECM XMIT: the pit's RWR/ECM panels would have to be matched to a texture legend
   first (the technique is in the 2026-09-26 WIP note: texture trace through the UVs, x -569). Key-only for now.

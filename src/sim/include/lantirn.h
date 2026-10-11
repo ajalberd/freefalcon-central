@@ -167,6 +167,7 @@ public:
     // Artscout - 2026: the nav FLIR raster on the 3D-pit HUD (TO 1F-16CMAM-34-1-1 2.6.2.1). Renders the IR scene
     // into the HUD's own atlas zone, behind the symbology, with the same sequence the TGP and Maverick pages use for
     // theirs. Experimental: cfg HudFlir, default off. See AVIONICS-PORT.md.
+    void EnsureHudRenderer(class ImageBuffer* atlas);
     void DrawHudRaster(VirtualDisplay* hudCanvas, class ImageBuffer* atlas, float halfAngleDeg, float boresightRad);
     class RenderIR* m_hudIr;
 
