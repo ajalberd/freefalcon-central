@@ -47,11 +47,61 @@ extern bool g_bnewAMRAAMdlz;
 
 float FindMinDistance(vector* a, vector* c, vector* b, vector* d);
 
+// Artscout - 2026: the Attitude Awareness Arc of the Dogfight mode (TO 1F-16CMAM-34-1-1 2.1.7.6.23
+// and 4.3.2.2, figure on p.594). A 99.5 mR-radius arc below the centre of the field of view: the
+// ground, seen as the part of a sphere under the horizon. Level, it is a half circle; nose up it
+// shrinks (smallest at +87 degrees), nose down it closes into nearly a full circle. Roll
+// stabilised -- its middle always points at the ground -- and fixed against wind and yaw. Two
+// 5.2 mR ticks stand outward from its ends. Blanked when the gear is down (landing).
+void HudClass::DrawAttitudeAwarenessArc(void)
+{
+    if (not ownship or not ownship->af or ownship->af->gearPos > 0.5F)
+        return;
+
+    const float radius = MRToHudUnits(99.5F);
+    const float tick = MRToHudUnits(5.2F);
+
+    float s = (float)sin(ownship->Pitch());
+
+    if (s > 1.0F)
+        s = 1.0F;
+    else if (s < -1.0F)
+        s = -1.0F;
+
+    // half the arc's angle, measured from straight down: the horizon chord sits R*sin(pitch) below centre
+    const float half = (float)acos(s);
+    const float cr = (float)cos(ownship->Roll());
+    const float sr = (float)sin(ownship->Roll());
+    const int segments = 40;
+    float px = 0.0F, py = 0.0F;
+
+    for (int i = 0; i <= segments; i++)
+    {
+        const float phi = -half + 2.0F * half * (float)i / (float)segments;
+        const float lx = radius * (float)sin(phi);
+        const float ly = -radius * (float)cos(phi);
+        // roll the whole arc counter-clockwise by the aircraft's roll so its middle keeps pointing down
+        const float x = lx * cr - ly * sr;
+        const float y = lx * sr + ly * cr;
+
+        if (i > 0)
+            display->Line(px, py, x, y);
+
+        if (i == 0 or i == segments)
+            display->Line(x, y, x * (radius + tick) / radius, y * (radius + tick) / radius);
+
+        px = x;
+        py = y;
+    }
+}
+
 void HudClass::DrawDogfight()
 {
     AircraftClass* playerAC = SimDriver.GetPlayerAircraft();
     float ang;
     char str[12];
+
+    DrawAttitudeAwarenessArc();
 
     // JPO dogfight can use aim120.
     if (FCC->GetDgftSubMode() == FireControlComputer::Aim120)

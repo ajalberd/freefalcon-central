@@ -208,6 +208,7 @@ private:
     // A-A Missile modes
     void DrawAirMissile(void);
     void DrawDogfight(void);
+    void DrawAttitudeAwarenessArc(void); // Artscout - 2026
     void DrawMissileOverride(void);
     void DrawMissileReticle(float radius, int showRange, int showAspect);
     void DrawAim9Diamond(void);
