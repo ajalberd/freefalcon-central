@@ -1069,6 +1069,8 @@ void FireControlComputer::NavDisplay(void)
 
             LabelButton(4, "CNTL");
             LabelButton(6, "FRZ", NULL, IsHsdState(HSDFRZ));
+            // Artscout - 2026: HSD cursor zero (TO 1F-16CMAM-34-1-1 2.1.6.18.11), same button as on the A-G FCR
+            LabelButton(8, "C", "Z");
         }
 
         display->SetColor(tmpColor);

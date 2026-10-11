@@ -1320,6 +1320,17 @@ void FireControlComputer::PushButton(int whichButton, int whichMFD)
 
         break;
 
+    case 8: // CZ: drop any slew the radar cursor / system point of interest picked up; works whoever is SOI
+        if (g_bRealisticAvionics)
+        {
+            RadarDopplerClass* hsdRadar = (RadarDopplerClass*)FindSensor(platform, SensorClass::Radar);
+
+            if (hsdRadar)
+                hsdRadar->ToggleAGcursorZero();
+        }
+
+        break;
+
     case 10:
         if (g_bRealisticAvionics)
         {
