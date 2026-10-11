@@ -102,7 +102,11 @@ void RViewPoint::Setup(float gndRange, int maxDetail, int minDetail,
         }
         else
         {
-            ranges[i] = gndRange * kNearDrawScale;
+            // Artscout - 2026: TerrainRingScale widens every ring except the last, so each LOD reaches that much
+            // further (more posts at the same spacing): 2 puts the 4 km posts past a 150 km far plane and the 2 km
+            // posts out to ~100 km. 1 = stock. Clamped later by the clipmap window (RingRange).
+            extern float g_fTerrainRingScale;
+            ranges[i] = gndRange * kNearDrawScale * ((g_fTerrainRingScale > 1.0f) ? g_fTerrainRingScale : 1.0f);
         }
 
         // Make each cover half the distance of the one before
@@ -193,7 +197,8 @@ void RViewPoint::SetGroundRange(float gndRange, int maxDetail, int minDetail)
 
     for (i = minDetail; i >= 0; i--)
     {
-        Ranges[i] = gndRange;
+        extern float g_fTerrainRingScale;
+        Ranges[i] = gndRange * ((i < minDetail && g_fTerrainRingScale > 1.0f) ? g_fTerrainRingScale : 1.0f);
         gndRange /= 2.0f;
     }
 

@@ -891,6 +891,13 @@ float g_fSunTodDimRef =
     0.6f; // Artscout - 2026: dim the sun as the TOD TextureLighting falls below this level (its brightest channel). Daytime sits above it (noon 0.85), so only dusk/dawn change: 18:45 -> x0.83, 19:00 -> x0.42, 19:30 -> x0.13. The table itself keeps Diffuse 0.45 / Specular 1.3 until the sun is on the horizon. 0 = no dimming (old).
 float g_fToneMapExposure =
     1.0f; // Artscout - 2026: exposure into the GT7 curve (multiplies the scene before tone mapping). 1.0 = scene white sits on paper white: mid-tones unchanged, highlights clip at ~1.5x white. Lower it to buy highlight headroom (everything darkens), raise it for a brighter, more compressed image.
+bool g_bCpuTerrainXform = false; // see BoolOpts "CpuTerrainXform"
+int g_nHitchMs = 40; // see IntOpts "HitchMs"
+float g_fTerrainRingScale = 1.0f; // see FloatOpts "TerrainRingScale"
+int g_nVrEyeOverlap = 0; // see IntOpts "VrEyeOverlap"
+bool g_bVrHmcsQuad = true; // see BoolOpts "VrHmcsQuad"
+float g_fVrHmcsQuadHalfFov = 35.0f; // see FloatOpts "VrHmcsQuadHalfFov"
+float g_fVrHmcsQuadDist = 60.0f; // see FloatOpts "VrHmcsQuadDist"
 float g_fTerrainLightGain =
     1.25f; // Artscout - 2026: multiplier on the terrain's sun lighting (ambient + sun*N.L). The ground was lit twice: the tile is first scaled by the time-of-day level (0.64 in the 2026-10-10 midday shot) and then by ambient 0.32 + diffuse ~0.6 * N.L 0.78 = ~0.8, so flat ground came out ~0.51 of the texture, about 20% under the stock game (which applied the level once). 1.25 restores that for flat ground at midday; slopes still shade relative to it. 1.0 = the previous look.
 float g_fPitShadowStrength =
@@ -1815,6 +1822,10 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bObjPixelLight}, // Artscout - 2026: per-pixel object lighting (small lamps stop washing whole panels)
     {"AlphaToCoverage",
      &g_bAlphaToCoverage}, // Artscout - 2026: alpha-tested object textures (windows, fences, lattices) are cut with alpha-to-coverage instead of a hard discard WHEN the target is multisampled (flat MSAA, or VrMsaaSamples). On by default; 0 = the old hard edge. Restart to apply.
+    {"VrHmcsQuad",
+     &g_bVrHmcsQuad}, // Artscout - 2026: draw the JHMCS symbology as a head-locked quad layer (the runtime keeps it glued to the head in hard turns) instead of into each eye image. D3D12 VR only. 0 = in-eye (the old way). Restart to apply.
+    {"CpuTerrainXform",
+     &g_bCpuTerrainXform}, // Artscout - 2026: debug: 1 = run the legacy CPU terrain vertex transform + lighting even when GPU terrain draws (it is skipped by default: nothing reads it). Live.
     {"TerrainNoCull",
      &g_bTerrainNoCull}, // Artscout - 2026: debug: never frustum-cull terrain chunks (zero planes). Costs GPU time; tells whether the chunk cull causes a terrain dropout. Live.
     {"TerrainCrackDebug",
@@ -2396,6 +2407,10 @@ static ConfigOption<int> IntOpts[] = {
     {"BWMaxDeltaTime", &g_nBWMaxDeltaTime}, // 2002-04-12 MN
     {"BWCheckDeltaTime", &g_nBWCheckDeltaTime}, // 2002-04-12 MN
     {"VUMaxDeltaTime", &g_nVUMaxDeltaTime}, // 2002-04-12 MN
+    {"HitchMs",
+     &g_nHitchMs}, // Artscout - 2026: [HITCH] sampler trigger: sample the sim thread's stack while a VR frame has run this many ms (default 40 = spikes only). Set ~14 to profile slow-but-steady frames (samples every 8 ms, up to 6000 lines; 6 samples the whole frame, 14 only its tail). Restart to apply.
+    {"VrEyeOverlap",
+     &g_nVrEyeOverlap}, // Artscout - 2026: 1 = overlap the eyes: the CPU does not wait for eye 1's GPU work before recording eye 2 (each eye records into its own command allocator and upload-ring slot; the last eye of the frame still waits). Saves ~1-1.5 ms of CPU per frame when the GPU is mostly idle. 0 = the old wait-per-eye (default). Restart to apply.
     {"VrMsaaSamples", &g_nVrMsaaSamples}, // Artscout - 2026: per-eye VR MSAA, 0 = off (default), 2/4/8. Restart to apply.
     {"UiWidth", &g_nUiWidth}, // Artscout - 2026: menu surface size, 0 = 1024x768
     {"UiFilter", &g_nUiFilter}, // Artscout - 2026: 1 = sharp bilinear menu scaling, 0 = plain
@@ -2530,6 +2545,12 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fSunTodDimRef}, // Artscout - 2026: sun fades below this TOD light level (0 = off)
     {"ToneMapExposure",
      &g_fToneMapExposure}, // Artscout - 2026: scene exposure into the GT7 curve (1 = scene white on paper white)
+    {"TerrainRingScale",
+     &g_fTerrainRingScale}, // Artscout - 2026: widen every terrain LOD ring except the last by this factor (default 1 = stock). 2 doubles the posts per ring at the same spacing: the 4 km posts leave the 150 km view, 2 km posts reach ~100 km. Costs data streaming/tile textures and a little CPU; the GPU terrain pass is ~0.1 ms. Capped by the clipmap window (~2.3x). Restart to apply.
+    {"VrHmcsQuadHalfFov",
+     &g_fVrHmcsQuadHalfFov}, // Artscout - 2026: half-angle (deg) the head-locked HMCS quad covers around the head's forward axis (default 35; symbology beyond it is clipped)
+    {"VrHmcsQuadDist",
+     &g_fVrHmcsQuadDist}, // Artscout - 2026: distance (m) of the head-locked HMCS quad (default 60, ~infinity; the quad is sized to the half-angle so this does not change what you see)
     {"TerrainLightGain",
      &g_fTerrainLightGain}, // Artscout - 2026: terrain sun-lighting multiplier (default 1.25; 1 = previous, darker look)
     {"CampMapGhostBright", &g_fCampMapGhostBright}, // Artscout - 2026: dim level of a last-known ship icon

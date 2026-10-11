@@ -156,6 +156,7 @@ The long‑term goal of the render work, now shipped.
   5080) and **alpha-to-coverage** for alpha-tested cut-outs (windows, fences) when the target is multisampled
   (`AlphaToCoverage`). The per-eye path was single-sample before, so building edges crawled with head
   micro-motion even when paused.
+* **Hitch hunting** — `[HITCH]` stack sampler for 40 ms+ VR frames (`tools/profiling/hitchsym` resolves it), a cheaper desktop overlay composite, and mip/BC building spread over worker threads; the virtual cockpit no longer drains the whole texture loader every frame (only when the cockpit texture set changes). `[HEADPOSE]` logs head-vs-eye pose angles to diagnose head-locked symbology doubling in hard turns.
 
 ## 3. Modernized toolchain
 

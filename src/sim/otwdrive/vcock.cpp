@@ -3353,14 +3353,24 @@ void OTWDriverClass::VCock_Exec(void)
         DrawableBSP* bsp =
             (DrawableBSP*)SimDriver.GetPlayerAircraft()->drawPointer;
         int t = bsp->GetTextureSet();
-        vrCockpit->SetTextureSet(t % vrCockpit->GetNTextureSet());
+        // Only drain the loader when the cockpit set actually changed (or its textures were never loaded).
+        // WaitUpdates drains the WHOLE loader queue, so calling it every frame turned any pending scenery
+        // texture into a 100-250 ms stall on the sim thread (seen by the [HITCH] sampler).
+        static DrawableBSP* s_lastBsp = NULL;
+        static int s_lastSet = -1;
+        const int newSet = t % vrCockpit->GetNTextureSet();
+        const bool setChanged = (bsp != s_lastBsp) or (newSet != s_lastSet);
+        s_lastBsp = bsp;
+        s_lastSet = newSet;
+        vrCockpit->SetTextureSet(newSet);
 
         // PHASE 5 (D3D11, white cockpit panels): SetTextureSet references the cockpit texture set
         // into the loader queue, but the async loader thread is unreliable under D3D11 (loads part and stalls:
         // 912/2046 ok, 1308/1888/3599/3212/1290 -- not). Drain the queue synchronously (an engine
         // mechanism, as in RenderOTW::PreLoadScene). After loading the queue is empty -> WaitUpdates
         // early-returns (zero cost). Loads ALL cockpit textures before drawing.
-        TheTextureBank.WaitUpdates();
+        if (setChanged)
+            TheTextureBank.WaitUpdates();
     }
 
 
@@ -6996,7 +7006,11 @@ void OTWDriverClass::VCock_Exec(void)
             if (knob)
                 DrawHmcsKnob(renderer, headPan, headMatrix, curEye);
 
-            if (cueing and not(xrPick and g_pOpenXRBackend->IsQuadViews() and curEye < 2))
+            // The head-locked HMCS quad (otwloop.cpp, VrHmcsQuad) carries the symbology when it drew last frame.
+            extern bool g_bVrHmcsQuadActive;
+
+            if (cueing and not(xrPick and g_pOpenXRBackend->IsQuadViews() and curEye < 2) and
+                not(xrPick and g_bVrHmcsQuadActive))
                 Hmcs_Draw(renderer, &headMatrix);
         }
     }

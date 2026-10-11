@@ -16,6 +16,7 @@
 #include <d3d11.h>
 #include <d3d11_4.h> // ID3D11Multithread (context multithread protection)
 #endif
+#include "../include/fflog.h" // [HEADPOSE] log
 #include <vector>
 #include <math.h>
 #include <stdio.h>
@@ -345,6 +346,15 @@ struct OpenXRBackend::Impl
     int subW = 0, subH = 0;
     XrCompositionLayerQuad subQuad;
     bool subQuadPending = false;
+    // HMCS quad (head-locked, see SubmitHmcsQuad): same plumbing as the subtitle quad.
+    XrSwapchain hmcsSwapchain = XR_NULL_HANDLE;
+#ifdef _WIN32
+    std::vector<XrSwapchainImageD3D12KHR> hmcsImages12;
+    void* hmcsTexD3D12 = NULL;
+#endif
+    int hmcsW = 0, hmcsH = 0;
+    XrCompositionLayerQuad hmcsQuad;
+    bool hmcsQuadPending = false;
 
 #ifdef _WIN32
     ID3D11Device* device;
@@ -2361,8 +2371,14 @@ static void XrWaitThreadFn(OpenXRBackend::Impl* p)
 // Consume the gate: hand out the pre-waited state if one is pending/ready (waiting only for the thread to finish
 // if it is mid-wait), else fall through to a plain synchronous xrWaitFrame. EVERY xrWaitFrame call site uses this,
 // so a pre-wait requested in the 3D loop is correctly consumed by whichever path begins the next frame.
+extern volatile long g_hsInXrWait; // d3d12backend.cpp: the [HITCH] sampler ignores a thread parked in the frame-pacing wait
 static XrResult XrWaitGated(OpenXRBackend::Impl* p, XrFrameState* out)
 {
+    struct InWait
+    {
+        InWait() { g_hsInXrWait = 1; }
+        ~InWait() { g_hsInXrWait = 0; }
+    } inWait;
     {
         std::unique_lock<std::mutex> lk(p->xrWaitMtx);
         if (p->xrWaitReady || p->xrWaitPending || p->xrWaitInFlight)
@@ -3363,6 +3379,7 @@ int OpenXRBackend::BeginStereoFrame()
     p->fpsQuadPending = false;
     p->subQuadPending = false; // #DX12 п.5: same for the FPS quad
     p->subQuadPending = false; // #59: same for the subtitle quad
+    p->hmcsQuadPending = false;
 
     // Artscout - 2026 (#67): apply a pending recenter here -- the render thread owns appSpace and we have a
     // fresh predicted time, so this is safe (no destroy-while-in-use). Rebuild the LOCAL app space at the
@@ -3634,7 +3651,13 @@ void OpenXRBackend::EndEye(int eye)
         int idx =
             (eye < (int)p->eyeImgIndex.size()) ? (int)p->eyeImgIndex[eye] : -1;
         if (idx >= 0 && idx < (int)sc.images12.size())
+        {
+            // Artscout - 2026: VrEyeOverlap -- every eye but the last may leave its GPU work running (see
+            // D3D12Backend::EndEyeFrame); the runtime orders the image behind it on the shared queue.
+            extern int g_nVrEyeOverlap;
+            g_pD3D12Backend->SetEyeNoWait(g_nVrEyeOverlap > 0 && (eye + 1) < (int)p->views.size());
             g_pD3D12Backend->EndEyeFrame(sc.images12[idx].texture);
+        }
     }
 #endif
 
@@ -3654,6 +3677,62 @@ void OpenXRBackend::EndEye(int eye)
         pv.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
         pv.next = NULL;
         pv.pose = p->views[eye].pose;
+        // Artscout - 2026 [HEADPOSE]: head-locked symbology (HMCS) shows double in the two eyes during hard turns. Is that
+        // the app (the head basis it is drawn with differs from the pose submitted for the eye) or the runtime
+        // re-warping head-locked content? Per ~2 s: the largest angle between the drawn head orientation and each
+        // submitted eye orientation, between the two eyes, the largest head turn rate, and the age of the pose.
+        {
+            static double sMaxCant[2] = {0, 0}, sMaxEyeEye = 0, sMaxRate = 0, sMaxAge = 0, sLastT = 0, sLog = 0;
+            static XrQuaternionf sPrevHead = {0, 0, 0, 1};
+            static bool sHavePrev = false;
+            static int sFrames = 0;
+            auto angDeg = [](const XrQuaternionf& a, const XrQuaternionf& b) -> double
+            {
+                double d = fabs((double)a.x * b.x + (double)a.y * b.y + (double)a.z * b.z + (double)a.w * b.w);
+                if (d > 1.0)
+                    d = 1.0;
+                return 2.0 * acos(d) * 57.29577951308232;
+            };
+            const double now = GpuProf_NowMs();
+            if (eye < 2 && p->haveHeadPose)
+            {
+                const double c = angDeg(p->lastHeadPose.orientation, p->views[eye].pose.orientation);
+                if (c > sMaxCant[eye])
+                    sMaxCant[eye] = c;
+                if (eye == 1)
+                {
+                    const double ee = angDeg(p->views[0].pose.orientation, p->views[1].pose.orientation);
+                    if (ee > sMaxEyeEye)
+                        sMaxEyeEye = ee;
+                    ++sFrames;
+                    if (sHavePrev && sLastT > 0)
+                    {
+                        const double dt = (now - sLastT) * 0.001;
+                        if (dt > 0.0005)
+                        {
+                            const double r = angDeg(sPrevHead, p->lastHeadPose.orientation) / dt;
+                            if (r > sMaxRate)
+                                sMaxRate = r;
+                        }
+                    }
+                    sPrevHead = p->lastHeadPose.orientation;
+                    sHavePrev = true;
+                    sLastT = now;
+                }
+                if (eye == 1 && now - sLog > 2000.0)
+                {
+                    char ln[240];
+                    _snprintf(ln, sizeof(ln) - 1,
+                              "[HEADPOSE] %d frames: head-vs-eye cant L %.2f R %.2f deg, eye-vs-eye %.2f deg, max head turn %.0f deg/s\n",
+                              sFrames, sMaxCant[0], sMaxCant[1], sMaxEyeEye, sMaxRate);
+                    ln[sizeof(ln) - 1] = 0;
+                    FFDebugLog(ln);
+                    sMaxCant[0] = sMaxCant[1] = sMaxEyeEye = sMaxRate = 0;
+                    sFrames = 0;
+                    sLog = now;
+                }
+            }
+        }
         // Artscout - 2026: submit the fov the engine actually rendered with. STEREO renders symmetric
         // (SetFOV) and submits the symmetric submitFov so the two eyes fuse. QUAD-VIEWS renders each view
         // with its TRUE off-axis (gaze) fov (SetVRFrustum(views[eye].fov)) -> it MUST submit that same
@@ -4589,6 +4668,100 @@ bool OpenXRBackend::SubmitSubtitleQuad(void* tex, int w, int h)
     return true;
 }
 
+// Artscout - 2026: the HMCS quad's swapchain (D3D12 only; same recipe as the subtitle quad's).
+bool OpenXRBackend::EnsureHmcsQuadSwapchain(int w, int h)
+{
+    Impl* p = m_impl;
+    if (w <= 0 || h <= 0 || p->uiFormat == 0)
+        return false;
+    if (p->hmcsSwapchain != XR_NULL_HANDLE && p->hmcsW == w && p->hmcsH == h)
+        return true;
+    if (p->hmcsSwapchain != XR_NULL_HANDLE)
+    {
+        xrDestroySwapchain(p->hmcsSwapchain);
+        p->hmcsSwapchain = XR_NULL_HANDLE;
+    }
+#ifdef _WIN32
+    p->hmcsImages12.clear();
+#endif
+
+    XrSwapchainCreateInfo ci = {XR_TYPE_SWAPCHAIN_CREATE_INFO};
+    ci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
+                    XR_SWAPCHAIN_USAGE_SAMPLED_BIT |
+                    XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
+    ci.format = p->uiFormat;
+    ci.sampleCount = 1;
+    ci.width = w;
+    ci.height = h;
+    ci.faceCount = 1;
+    ci.arraySize = 1;
+    ci.mipCount = 1;
+    if (XR_FAILED(xrCreateSwapchain(p->session, &ci, &p->hmcsSwapchain)))
+    {
+        XrDbg("OpenXR: HMCS xrCreateSwapchain failed (%dx%d)\n", w, h);
+        return false;
+    }
+
+    uint32_t imgCount = 0;
+    xrEnumerateSwapchainImages(p->hmcsSwapchain, 0, &imgCount, NULL);
+#ifdef _WIN32
+    if (p->useD3D12)
+    {
+        p->hmcsImages12.resize(imgCount);
+        for (uint32_t i = 0; i < imgCount; ++i)
+        {
+            p->hmcsImages12[i].type = XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR;
+            p->hmcsImages12[i].next = NULL;
+        }
+        xrEnumerateSwapchainImages(
+            p->hmcsSwapchain, imgCount, &imgCount,
+            (XrSwapchainImageBaseHeader*)p->hmcsImages12.data());
+    }
+#endif
+    p->hmcsW = w;
+    p->hmcsH = h;
+    return true;
+}
+
+// Artscout - 2026: stage the HMCS RTT (a D3D12Texture*, transparent canvas) as a head-locked quad. The runtime keeps a
+// VIEW-space layer glued to the head and re-projects it to the true display-time pose, so the symbology stays put
+// when the head turns hard instead of being warped with the world image (the doubling between the eyes). The quad
+// sits far away (VrHmcsQuadDist, metres) so the two eyes see it at ~infinity, and is sized to cover exactly the
+// +/-halfFovDeg the RTT was projected with. The copy into the swapchain happens in EndStereoFrame.
+bool OpenXRBackend::SubmitHmcsQuad(void* tex, int w, int h, float halfFovDeg)
+{
+    Impl* p = m_impl;
+    if (!p->inStereoFrame || !tex || w <= 0 || h <= 0 || !p->useD3D12)
+        return false;
+    if (p->viewSpace == XR_NULL_HANDLE)
+        return false;
+    if (!EnsureHmcsQuadSwapchain(w, h))
+        return false;
+#ifdef _WIN32
+    p->hmcsTexD3D12 = tex;
+#endif
+    extern float g_fVrHmcsQuadDist;
+    const float dist = (g_fVrHmcsQuadDist > 2.0f) ? g_fVrHmcsQuadDist : 60.0f;
+    const float half = (halfFovDeg > 5.0f && halfFovDeg < 80.0f) ? halfFovDeg : 35.0f;
+    const float side = 2.0f * dist * tanf(half * 0.017453292519943295f);
+    XrCompositionLayerQuad& q = p->hmcsQuad;
+    memset(&q, 0, sizeof(q));
+    q.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+    q.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    q.space = p->viewSpace; // head-locked
+    q.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+    q.subImage.swapchain = p->hmcsSwapchain;
+    q.subImage.imageRect.extent.width = w;
+    q.subImage.imageRect.extent.height = h;
+    q.subImage.imageArrayIndex = 0;
+    q.pose.orientation.w = 1.0f;
+    q.pose.position.z = -dist;
+    q.size.width = side;
+    q.size.height = side;
+    p->hmcsQuadPending = true;
+    return true;
+}
+
 // Artscout - 2026: #DX12 п.5 -- stage the FPS RTT (a D3D12Texture*) as a small HEAD-LOCKED quad (upper-centre, in
 // front of the head, independent of gaze/foveation). Copy into the FPS swapchain happens in EndStereoFrame (the RTT
 // was drawn on the not-yet-executed eye list). Mirrors SubmitInSceneMenuQuad but small + positioned up.
@@ -4768,6 +4941,35 @@ void OpenXRBackend::EndStereoFrame()
         }
         p->subTexD3D12 = NULL;
     }
+    // Artscout - 2026: and for the HMCS quad.
+    if (p->useD3D12 && p->hmcsQuadPending && p->hmcsTexD3D12 &&
+        p->hmcsSwapchain != XR_NULL_HANDLE)
+    {
+        D3D12Texture* ht = (D3D12Texture*)p->hmcsTexD3D12;
+        if (ht && ht->tex)
+        {
+            uint32_t idx = 0;
+            XrSwapchainImageAcquireInfo ai = {
+                XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+            if (XR_SUCCEEDED(
+                    xrAcquireSwapchainImage(p->hmcsSwapchain, &ai, &idx)))
+            {
+                XrSwapchainImageWaitInfo wi = {
+                    XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+                wi.timeout = XR_INFINITE_DURATION;
+                if (XR_SUCCEEDED(xrWaitSwapchainImage(p->hmcsSwapchain, &wi)) &&
+                    idx < p->hmcsImages12.size())
+                    XrCopyD3D12TexToUiImage(
+                        p->alloc12, p->list12, p->d3d12Queue, p->fence12,
+                        p->fenceEvt12, &p->fenceVal12, ht->tex, ht->rtState,
+                        p->hmcsImages12[idx].texture);
+                XrSwapchainImageReleaseInfo ri = {
+                    XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+                xrReleaseSwapchainImage(p->hmcsSwapchain, &ri);
+            }
+        }
+        p->hmcsTexD3D12 = NULL;
+    }
 #endif // _WIN32 (D3D12 deferred menu/FPS/subtitle quad copies)
 
     XrCompositionLayerProjection layer = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
@@ -4779,7 +4981,7 @@ void OpenXRBackend::EndStereoFrame()
         layer.views = p->projViews.data();
     }
     // Artscout - 2026 (#59 VR menu): projection layer first, then head-locked quads ON TOP (menu, then FPS).
-    XrCompositionLayerBaseHeader* layers[4];
+    XrCompositionLayerBaseHeader* layers[6];
     uint32_t nLayers = 0;
     if (haveLayer)
         layers[nLayers++] = (XrCompositionLayerBaseHeader*)&layer;
@@ -4790,6 +4992,8 @@ void OpenXRBackend::EndStereoFrame()
     if (p->subQuadPending)
         layers[nLayers++] =
             (XrCompositionLayerBaseHeader*)&p->subQuad; // #59 subtitles
+    if (p->hmcsQuadPending)
+        layers[nLayers++] = (XrCompositionLayerBaseHeader*)&p->hmcsQuad; // HMCS, head-locked
 
     // Artscout - 2026: #DX12 п.5 -- one-shot dump of the submitted projection views (which swapchain handle + array
     // index each references). If xrEndFrame returns HANDLE_INVALID, this pinpoints the bad handle/layout.

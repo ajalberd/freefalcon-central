@@ -60,6 +60,7 @@ extern int g_terrainRadiusCap; // #DX12 A5: sensor pass shrinks its rings
 extern int g_nTerrainMorphPosts;  // cfg: geomorph band width, in posts
 extern int g_nTerrainRingRadius;  // cfg: fixed ring radius; 0 = streamed range
 extern float g_fFarPlaneKm;       // cfg: world far clip, km (caps every ring)
+extern float g_fTerrainLightGain; // cfg: terrain sun-lighting multiplier (see f4config.cpp)
 
 namespace
 {
@@ -888,7 +889,7 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
             s_cb.sunAmbient[0] = (sa[0] > floorAmb) ? sa[0] : floorAmb;
             s_cb.sunAmbient[1] = (sa[1] > floorAmb) ? sa[1] : floorAmb;
             s_cb.sunAmbient[2] = (sa[2] > floorAmb) ? sa[2] : floorAmb;
-            s_cb.sunAmbient[3] = 0.0f;
+            s_cb.sunAmbient[3] = g_fTerrainLightGain; // w = TerrainLightGain (ffterrain.hlsl)
             sunOk = true;
         }
     }
@@ -915,7 +916,7 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
         s_cb.sunAmbient[0] = (sa.r > dayNight * 0.5f) ? sa.r : dayNight * 0.5f;
         s_cb.sunAmbient[1] = (sa.g > dayNight * 0.5f) ? sa.g : dayNight * 0.5f;
         s_cb.sunAmbient[2] = (sa.b > dayNight * 0.5f) ? sa.b : dayNight * 0.5f;
-        s_cb.sunAmbient[3] = 0.0f;
+        s_cb.sunAmbient[3] = g_fTerrainLightGain; // w = TerrainLightGain (ffterrain.hlsl)
     }
 
     // #A5/#97: the sensor pass is monochrome and NVG greens the world; the mesh

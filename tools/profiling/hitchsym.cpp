@@ -110,8 +110,11 @@ int main(int argc, char** argv)
     std::map<std::string, int> tally;
     int hitches = 0;
     static char line[16384];
-    const char* exeName = strrchr(exePath, '\\');
-    exeName = exeName ? exeName + 1 : exePath;
+    const char* exeName = exePath;
+
+    for (const char* q = exePath; *q; ++q) // either slash: Git Bash passes forward slashes
+        if (*q == '\\' || *q == '/')
+            exeName = q + 1;
 
     while (fgets(line, sizeof(line), f))
     {

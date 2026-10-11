@@ -33,7 +33,7 @@ here.**
   uploaded). Also: linear-light mips and BC-encoded mips for big atlases, the Advanced-page aniso/mip
   sliders, `FarPlaneKm` (the world far plane was a hard 85 km; the haze and slider reach now follow it),
   `BubbleScale`, and the `[GPUPROF]`/`[FRAMEPROF]` profiler (Seoul: GPU ~15% busy, not GPU-bound). **Open:
-  VR antialiasing landed (`VrMsaaSamples`, flown, helps); overlap
+  VR antialiasing landed (`VrMsaaSamples`, flown, helps). **Roadmap status table is in that doc's "Open" section** (eye overlap, far-ring smoothing, world sun shadows, view instancing, linear light, TAA: none started; A2C done). **Unflown 2026-10-10:** `VCock_Exec` drains the texture loader only when the cockpit set changes (was every frame = 100-250 ms stalls); HMCS head-locked quad FIXED the doubling (flown). `VrEyeOverlap` (default 0) written and flown: HUD looks doubled with it on (slightly even when off) -- logged in the doc, not investigated. Old note: `[HEADPOSE]` log to diagnose the HMCS left/right doubling in hard turns (suspect: runtime timewarp of head-locked content; fix would be a view-space quad layer). Overlap
   of the two eyes is not done (command-allocator/ring audit first); a right-eye terrain dropout seen in
   debug flights was never separately explained.
 - `COCKPIT-OVERHAUL.md` — the cockpit displays use a **three-size GIF+`.rct` bitmap font
@@ -1670,3 +1670,15 @@ user later said it "seems alright now". If it returns: send FFDebug.log and note
 - Harness commands added this session: hovericon/hovership, rclickship, listships (prints ghost flag), mapmove,
   mapzoom, curinfo, spotships, sinkship, compress, fitflight, freeze. Scripts: hover*.txt, ghost.txt,
   wreck.txt, music.txt, fit.txt, hang.txt, addpkg3.txt, recon*.txt, ship*.txt.
+
+### Task force supply 250% (2026-10-10, rail worktree)
+
+Two causes, both in the naval classes. (1) Scenario data: 10 of 29 Blue (team 2) task forces in save0 are saved with
+supply 250/255 (corvettes, the 65th Destroyer, the 76th Carrier, the 93rd Aegis); `supply` is a `uchar` and nothing
+clamped it. Now clamped to 100 when loaded (`TaskForceClass::Decode`, navunit.cpp). (2) `NavalClass::SetUnitSupply(uchar)`
+only HID `UnitClass::SetUnitSupply(int)` (a different signature, so not an override): `CollectWeapons` calls it through a
+`Unit`, hit the empty base version, and a ship's supply never went down. (The earlier note "supply only goes down" was
+wrong.) Now `SetUnitSupply(int)` overrides and clamps 0-100, so ships spend ammo and the "port below 30%" rule can fire.
+campsim (`NAVSUP` / `NAVSUPOVER` lines, tools/campsim, 3 days seed 5): after the fix 1-3 ships per side sit at 30-99%,
+none below 30 -- ships fire so rarely that the port rule almost never triggers. A 250 supply also made `CollectWeapons`
+fire 2.5x salvos; that is gone.

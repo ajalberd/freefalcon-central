@@ -124,8 +124,14 @@ public:
     }
     unsigned FrameIndex() const
     {
-        return m_frameIndex;
-    } // which of the kFrameCount ring slots is live
+        return m_eyeSlot >= 0 ? (unsigned)m_eyeSlot : m_frameIndex;
+    } // which of the kFrameCount ring slots is live (a VR eye under VrEyeOverlap uses its own slot, not the swap-chain index)
+    // Artscout - 2026 (VrEyeOverlap): the caller says whether the CPU may skip the fence wait after THIS eye's list
+    // (true for every eye but the last of the frame). Set just before EndEyeFrame; ignored unless the cfg is on.
+    void SetEyeNoWait(bool noWait)
+    {
+        m_eyeNoWait = noWait;
+    }
     void EnsureFrameStarted(unsigned long argbClear = 0xFF000000)
     {
         if (!m_bRecording)
@@ -228,6 +234,11 @@ public:
     void EnsureSubRtt(int w, int h);
     void BindSubRtt(bool clear);
     void* SubRttTex();
+    // Artscout - 2026: and again for the head-locked HMCS quad (a big square RTT, drawn once per frame). Not a share of
+    // the subtitle RTT: different size, and both can be live in one frame. See OpenXRBackend::SubmitHmcsQuad.
+    void EnsureHmcsRtt(int w, int h);
+    void BindHmcsRtt(bool clear);
+    void* HmcsRttTex();
     // Fixed formats the renderer bakes into its PSOs (must match the swap chain / depth buffer).
     static int BackBufferFormat(); // DXGI_FORMAT_R8G8B8A8_UNORM
     static int
@@ -500,6 +511,11 @@ private:
     int m_fpsRttW, m_fpsRttH;
     D3D12Texture* m_pSubRtt; // radio-subtitle quad color RTT (owned; no depth)
     int m_subRttW, m_subRttH;
+    D3D12Texture* m_pHmcsRtt; // HMCS quad color RTT (owned; no depth)
+    int m_eyeSlot; // VrEyeOverlap: allocator + ring slot this eye records into (-1 = the swap-chain index)
+    bool m_eyeNoWait; // VrEyeOverlap: skip the CPU fence wait after this eye
+    unsigned m_eyeParity; // VrEyeOverlap: alternates 0/1 per eye
+    int m_hmcsRttW, m_hmcsRttH;
     ID3D12Resource* m_pBackBuffer[kFrameCount];
     ID3D12CommandAllocator* m_pAlloc[kFrameCount];
     ID3D12GraphicsCommandList* m_pList;

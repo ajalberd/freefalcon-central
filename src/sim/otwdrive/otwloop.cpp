@@ -3,6 +3,7 @@
 #include "graphics/include/frameprof.h" // #107 PERF: FrameProf_*
 #include "graphics/dxengine/openxrbackend.h" // VR: HMD head-tracking + per-eye stereo
 #include "graphics/dxengine/d3d12gpuprof.h" // Artscout - 2026: CPU span timers ([FRAMEPROF])
+#include "hmcs.h" // Artscout - 2026: Hmcs_Cueing / Hmcs_Draw for the head-locked HMCS quad
 #include "graphics/dxengine/d3d12backend.h" // #DX12 п.5: VR per-eye overlays under D3D12 (g_pD3D12Backend)
 #include "graphics/dxengine/d3d12/d3d12renderer.h" // #DX12 п.5: g_pD3D12Renderer (view-instanced stereo params)
 #include "graphics/vulkan/vulkanbackend.h" // #107 VR-Vulkan: g_pVulkanBackend (multiview scene array + XR blit)
@@ -739,6 +740,9 @@ void OTWDriverClass::ToggleSubTitles() // Retro 20Dec2003
 // in-eye draw below stands down. Drawing them into each eye image doubles them; the quad is one image the
 // runtime composites for both eyes, so it cannot.
 bool g_bVrSubQuadDrewThisFrame = false;
+// Artscout - 2026: set when the head-locked HMCS QUAD carried the symbology on the previous frame, so VCock_Exec's
+// per-eye Hmcs_Draw stands down (the quad is one head-locked image; drawing it in each eye too would double it).
+bool g_bVrHmcsQuadActive = false;
 
 void OTWDriverClass::DrawSubTitles(void) // Retro 16Dec2003 (all)
 {
@@ -4203,6 +4207,48 @@ void OTWDriverClass::RenderFrame()
 #endif // _WIN32
                             }
                         }
+                    }
+
+                    // ---- HMCS as a HEAD-LOCKED QUAD (Artscout - 2026) ----
+                    // The JHMCS symbology is head-stabilised, but drawn into the eye images the runtime treats it as
+                    // world-locked and re-warps it to the display-time pose; in hard turns the two eyes warp it
+                    // differently and the text splits (the [HEADPOSE] log showed the app's eye poses agree to
+                    // 0.05 deg). Drawn once here into a square RTT, symmetric +/-VrHmcsQuadHalfFov about the head's
+                    // forward axis, and submitted as a view-space quad layer: the runtime keeps those glued to the
+                    // head. VCock_Exec skips its in-eye draw while g_bVrHmcsQuadActive (set below).
+                    if (xrEye == 0)
+                    {
+                        extern bool g_bVrHmcsQuad, g_bVrHmcsQuadActive;
+                        extern float g_fVrHmcsQuadHalfFov;
+                        bool hmcsDrew = false;
+#ifdef _WIN32
+                        if (g_bVrHmcsQuad and g_bUseD3D12 and g_pD3D12Backend and g_pOpenXRBackend and
+                            Hmcs_Cueing(otwPlatform.get()))
+                        {
+                            const int hw = 2048, hh = 2048;
+                            g_pD3D12Backend->EnsureHmcsRtt(hw, hh);
+                            void* hmcsTex = g_pD3D12Backend->HmcsRttTex();
+                            if (hmcsTex)
+                            {
+                                g_pD3D12Backend->BindHmcsRtt(true);
+                                renderer->VR_SetRes(hw, hh);
+                                renderer->SetViewport(-1.0f, 1.0f, 1.0f, -1.0f);
+                                VR_GSCREEN(hw, hh);
+                                const float ha = ((g_fVrHmcsQuadHalfFov > 5.0f and g_fVrHmcsQuadHalfFov < 80.0f) ?
+                                                      g_fVrHmcsQuadHalfFov :
+                                                      35.0f) * DTR;
+                                renderer->SetVRFrustum(-ha, ha, ha, -ha);
+                                renderer->SetCamera(&headOrigin, &headMatrix);
+                                Hmcs_Draw(renderer, &headMatrix);
+                                renderer->context.FlushPending();
+                                hmcsDrew = g_pOpenXRBackend->SubmitHmcsQuad(hmcsTex, hw, hh, ha / DTR);
+                                renderer->VR_SetRes(ew, eh);
+                                VR_GSCREEN(ew, eh);
+                                g_pD3D12Backend->BindBackBufferRTV();
+                            }
+                        }
+#endif // _WIN32
+                        g_bVrHmcsQuadActive = hmcsDrew;
                     }
 
                     // ---- SUBTITLES: per-eye periphery (these are NOT the comms/exit menu) ----

@@ -83,6 +83,10 @@ hook is not being reached. The mesh-terrain PSO line now prints `fmt=` (10 = FP1
   (0.5 -> 0.5). White 1.0 -> 0.924; everything clips at ~1.47x scene white; over-bright colours roll
   toward white (the afterburner/lamp look). Checked offline: the ICtCp round trip is exact to 1e-5.
 
+### Terrain brightness (2026-10-10) — `TerrainLightGain`
+
+A midday shot over Korea looked dim. `[terr-mesh] sun` in FFDebug.log gave the numbers: tile level (`dayNight`) 0.64, ambient 0.32, sun diffuse (0.54 0.66 0.70), sun elevation ~51 deg so N.L ~0.78 on flat ground. The mesh terrain lights the tile by the level AND by ambient + sun*N.L, so flat ground came out ~0.64 x 0.8 = ~0.51 of the texture; the stock game applied the level once (~0.64). New cfg `TerrainLightGain` (default 1.25, carried in `sunAmbient.w`) multiplies the sun term to put flat ground back at ~the level; slopes still shade relative to it. 1.0 = the old look. Cumulus/overcast scenes may want a lower value. Not flown. Objects are lit by a separate path and were not changed.
+
 ### Sun colour from the time of day (2026-09-27) — `SunTodTint`, `SunTodDimRef`
 
 `CDXEngine::TheSunColour` was white forever, so the object sun (and its specular glint) stayed white

@@ -147,6 +147,11 @@ public:
     // #59 (per Albert): head-locked SUBTITLE/chat quad -- rendered once into a small RTT, composited by the runtime
     // (crisp at panel res, independent of the eye passes which grouped multiview skips). Clone of the FPS quad.
     bool SubmitSubtitleQuad(void* subTex, int w, int h);
+    // Artscout - 2026: head-locked HMCS quad. The symbology is drawn ONCE into a square RTT (symmetric +/-halfFovDeg
+    // about the head's forward axis) and the runtime composites it in VIEW space at a far distance, so it is
+    // re-projected to the real head pose like any head-locked layer instead of being warped as part of the world
+    // image (which doubled it between the eyes in hard turns). D3D12 only.
+    bool SubmitHmcsQuad(void* hmcsTex, int w, int h, float halfFovDeg);
 
     // Submit the projection layer (all eyes) -- balances BeginStereoFrame's xrBeginFrame.
     void EndStereoFrame();
@@ -238,6 +243,7 @@ private:
     EnsureFpsSwapchain(int w,
                        int h); // (re)create the FPS quad swapchain (#DX12 п.5)
     bool EnsureSubQuadSwapchain(int w, int h); // #59: subtitle quad swapchain
+    bool EnsureHmcsQuadSwapchain(int w, int h); // HMCS quad swapchain
     bool
     CreateInputActions(); // Artscout - 2026 (VR controllers): action set + bindings + spaces + attach
     void

@@ -1247,8 +1247,17 @@ void RenderOTW::DrawGroundAndObjects(ObjectDisplayList *objectList)
     TrimCornerSet();
 
     // Transform all the verteces required to draw the terrain squares described in the span list
-    BuildVertexSet();
-    TransformVertexSet();
+    // Artscout - 2026: with GPU terrain the CPU terrain squares are never drawn (cpuTerr below), and nothing but
+    // DrawTerrainRing/DrawConnectorRing/DrawGapFiller reads these vertices -- yet the transform + per-vertex
+    // lighting (TransformRun/ComputeVertexColor) was ~a third of the sim thread's samples in a [HITCH] profile, and
+    // it scales with the ring size (TerrainRingScale). The span list above is still built: DrawBeyond uses it.
+    // g_bCpuTerrainXform = true restores the old unconditional transform (debug).
+    extern bool g_bCpuTerrainXform;
+    if (!g_bGpuTerrain || _rttOpen || g_bCpuTerrainXform)
+    {
+        BuildVertexSet();
+        TransformVertexSet();
+    }
     // #107 PERF: terrain phase done (GPU render + CPU span/vertex transform); the rest of this function is objects.
     if (_prof)
     {

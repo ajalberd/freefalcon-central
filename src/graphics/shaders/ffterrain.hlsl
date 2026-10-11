@@ -603,7 +603,8 @@ float4 PS_Terrain(TerrVertex i) : SV_Target
         // convention as the object shader, so negate to face the sun.
         const float ndl = saturate(dot(normalize(i.normal), -gSunDir.xyz));
         // Cloud shadow takes the SUN term only; the ambient under a cloud is unchanged.
-        rgb *= saturate(gSunAmbient.rgb + gSunColor.rgb * ndl * TerrainCloudShadow(i.wpos));
+        // gSunAmbient.w = TerrainLightGain (cfg): the ground was lit twice (tile level, then this), see f4config.cpp.
+        rgb *= saturate((gSunAmbient.rgb + gSunColor.rgb * ndl * TerrainCloudShadow(i.wpos)) * gSunAmbient.w);
     }
 
     if ((gTerrFlags.x & TF_WIREOVERLAY) != 0)

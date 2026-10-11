@@ -132,7 +132,7 @@ Only Vulkan had one. `FFDebug.log` now gets, every 5 s (cfg `GpuProf`, default o
 * **`[FRAMEPROF]`**: the sim thread's CPU frame split (campaign wait, real-time function, sim cycle, OTW
   cycle), counts of frames over 12/20/33 ms, and the worst frame with its own breakdown.
 
-* **`[HITCH]`** (written 2026-10-10, not yet flown): a watcher thread samples the sim thread's call stack
+* **`[HITCH]`** (flown 2026-10-10): a watcher thread samples the sim thread's call stack
   every ~20 ms while a VR frame has been running 40 ms or more (but under 1.5 s, so a menu or exit is not a
   hitch). It copies raw return addresses while the thread is suspended (no heap, no CRT, no loader lock) and
   logs them as `module+0xoffset` after resuming. `tools/profiling/hitchsym.cpp` (build line in its header)
@@ -154,7 +154,9 @@ Changes made from it (same output, less work): the overlay composite skips rows 
 empty last frame, uses a 64K lookup instead of per-pixel shifts, and `SwapBuffers` skips clearing a surface
 that had nothing on it (`g_bUiSurfaceEmpty`); the mip box filter, the BC decoder and the BC encoder
 (`TexParallelFor`) run as up to 8 chunks on worker threads (bit-identical to the serial loop, checked with a
-hash over a 2048x2048 chain; ~2.5x faster). `[FRAMEPROF]` now also reports `swap-buffers`. Not yet flown.
+hash over a 2048x2048 chain; ~2.5x faster). `[FRAMEPROF]` now also reports `swap-buffers`. **Flown:** frame time fell from a locked 16.7 ms to 10.5-14.5 ms,
+`CompositeBitmap565` no longer appears in the hitch list, and the remaining hitches were mission load (up to 460 ms in the first
+2 s), the threaded mip work finishing, and the cockpit `WaitUpdates` stalls (fixed above, unflown).
 
 Measured over Seoul (RTX 5080, Quest 3 over Link at 1.9x, 120 Hz): **not GPU-bound**. GPU busy was 13-22%
 (~1.1-1.7 ms per eye; terrain 0.08 ms, objects 0.2-0.8 ms, ~3,400 draws and ~200k triangles per eye).
@@ -214,6 +216,45 @@ row or column; silent for the first 10 s after a refill), `[TERRAIN-BOX]` (ring 
   unchanged. The GPU accepted 4x for FP16 + D32S8 at 2720x2976 (`[VRMSAA] requested x4 -> using x4`).
   Still to watch if you change content: holes or dithering in window/fence cut-outs would be the A2C
   bookkeeping (`AlphaToCoverage 0` isolates it from MSAA itself).
-* Overlap the two eyes (above).
-* Smooth the coarsest terrain ring.
-* World sun shadows (only the cockpit has them), linear-light lighting, temporal AA.
+### Status of the remaining roadmap (updated 2026-10-10)
+
+| Item | Status | Notes |
+|---|---|---|
+| Overlap the two eyes | **written, not flown** (`VrEyeOverlap`, default 0; see "Eye overlap" below) | CPU frame time is the limit, not the GPU. Needs a separate command allocator per eye and an audit of the per-frame constant/vertex rings (they probably assume the previous eye finished). Audit first. |
+| Smooth the coarsest far terrain ring | **knob written, not flown** (`TerrainRingScale`) | Rings were L0 13 km @250 m, L1 26 km @500 m, L2 52 km @1 km, L3 104 km @2 km, L4 296 km @4 km (each LOD reaches half the next; every ring is 52 posts wide). `TerrainRingScale 2` makes every ring but the last twice as wide at the same spacing, so with a 150 km far plane the 4 km posts are never seen and 2 km posts reach ~100 km. Costs data streaming/tile textures and some CPU; GPU terrain is ~0.1 ms. Capped by the clipmap window (~2.3x). Try 1.5 then 2. |
+| World sun shadows | **not started** | Only the cockpit has them. Biggest visual jump left and the biggest job. |
+| View-instanced (stereo-instanced) rendering | **off on purpose** | Constants are quad-tuned and break plain stereo; see the VR rig memory. Do not enable until that is untangled. |
+| Alpha-to-coverage for cut-outs | **done, flown** | `AlphaToCoverage` (default on); only acts when the target is multisampled. |
+| Small positive mip bias | **available, not recommended yet** | The Advanced-page slider goes to +0.5 / +1.0 (less crawl on distant building textures, a little less sharpness). Untested on the user's rig; MSAA already removed most of the crawl. |
+| Specular glints on roofs | **unconfirmed** | Per-pixel Blinn-Phong may twinkle with micro-motion; capping the power would calm it. Not seen on the user's buildings; do not change blind. |
+| Gamma-space lighting -> linear light | **not started** | Fixes the washed-out look but changes the whole look; needs tuning. |
+| Temporal AA | **not started** | Was blocked on MSAA; MSAA has landed, so it is unblocked. |
+
+New this session, written but **not yet flown**:
+
+* **Cockpit texture drain.** `VCock_Exec` called `TheTextureBank.WaitUpdates()` every frame; that drains the
+  whole loader queue, so any pending scenery texture became a 100-250 ms sim-thread stall (the
+  `WaitUpdates` hitch samples above). It now drains only when the cockpit's drawable or texture set changed.
+  Check the `[HITCH]` list after the first seconds of a flight.
+* **HMCS / head-locked symbology doubles between the eyes during hard turns** (text splits left vs right;
+  screenshots look fine). The code draws both eyes from one head basis, so it is not a per-eye projection
+  bug. Leading theory: the runtime re-warps the submitted eye images (timewarp/ASW) and treats head-locked
+  content as world-locked. New log line **`[HEADPOSE]`** (every ~2 s, `openxrbackend.cpp`): largest angle
+  between the head orientation the game draws with and each submitted eye pose (`cant L/R`), between the two
+  eyes, and the peak head turn rate. Large cant or eye-vs-eye angle = app-side; ~0 = the runtime warp. If
+  it is the warp, the fix is to draw the HMCS/HUD into a head-locked OpenXR quad layer (view space) instead
+  of the world image; a quad has a fixed depth, so "at infinity" needs a large distant quad.
+
+**Update (HEADPOSE flown):** the app's poses agree (head-vs-eye 0.07 deg, eye-vs-eye 0.05 deg at up to 167 deg/s), so the doubling is the runtime re-warping head-locked content. **Head-locked HMCS quad: flown 2026-10-10, the doubling is fixed** (cfg `VrHmcsQuad`, default 1; `VrHmcsQuadHalfFov` 35 deg, `VrHmcsQuadDist` 60 m; `VrHmcsQuad 0` = the old in-eye draw): the HMCS is drawn once per frame at xrEye 0 into a 2048x2048 RTT (`D3D12Backend::EnsureHmcsRtt/BindHmcsRtt/HmcsRttTex`, a header change -> Rebuild All) with a symmetric +/-35 deg frustum about the head's forward axis, and submitted as a VIEW-space quad layer (`OpenXRBackend::SubmitHmcsQuad`, copied in `EndStereoFrame`, same plumbing as the subtitle quad). `VCock_Exec` skips its per-eye `Hmcs_Draw` while `g_bVrHmcsQuadActive` (previous frame's result). Things to check in the headset: symbology size/position unchanged vs before, text sharpness (29 px/deg), nothing clipped beyond 35 deg, and the quad appears on top of the canopy. Dynamic cues that follow world targets are baked at the sim-time pose, so they lag a turn by one frame like a real helmet display; the cross and data block are exactly head-fixed. D3D12 only; the knob (`DrawHmcsKnob`) is part of the pit and still draws in the eyes.
+
+### Eye overlap (cfg `VrEyeOverlap`, default 0; written 2026-10-10, NOT built or flown)
+
+Audit result: both eyes shared one allocator and one set of per-frame rings (constant, vertex, index, SRV-descriptor, clipmap-strip) because the slot was the swap-chain index and the rings reset per eye; `EndEyeFrame` fence-waited, so that was safe. Overlap needs only a distinct slot per eye: with `VrEyeOverlap 1` each eye alternates between slot 0 and 1 (`D3D12Backend::FrameIndex()` returns the eye slot, which drives `BeginCommandList`'s allocator + `m_allocFence` and the renderer's ring slot), and every eye but the LAST of the frame skips the fence wait (`SetEyeNoWait`, from `OpenXRBackend::EndEye`). The last eye still waits, so the CPU-written single buffers (clipmap chunk bounds, the desktop overlay upload, the XR quad copies, the mirror) are never touched while the GPU reads them. Checked and left alone: shared FP16/MSAA targets and eye depth (GPU-ordered on one queue), texture frees (deferred 8 epochs), texture uploads (GPU-side queue sync). A pending screenshot forces the wait. Expect ~1-1.5 ms less CPU per frame (the eye-1 GPU time stays on the critical path because the last eye still waits; waiting lazily at the next frame start would save the rest but needs the bounds buffer double-buffered first). `[GPUPROF]` now reports only eyes it could collect (it skips a slot while the previous one is pending). Watch for: flicker or wrong constants in the second eye, corrupted terrain, a debug-layer error about allocators or resources in use. If anything looks off, `VrEyeOverlap 0` is the old path.
+
+**Flown 2026-10-10 (HUD doubling, logged, not investigated):** with `VrEyeOverlap 1` the HUD looked doubled between the eyes; with 0 it can still happen but only very slightly. So there are two causes, not yet separated: (1) a small baseline doubling (the HUD is pit geometry drawn in each eye image at the glass depth, so it is subject to the same runtime re-warp the HMCS had, and its symbology is meant to read at infinity); (2) something extra under overlap -- suspect per-eye CPU state (the combiner/RTT HUD texture or its constants) that the eye-2 recording reads while eye 1's GPU work is still using it. `VrEyeOverlap` stays default 0 until (2) is understood. Next steps if picked up: compare `[HEADPOSE]` and a screenshot of each eye with overlap on; check whether the HUD RTT is redrawn per eye or once (a once-per-frame RTT sampled by an overlapped eye would show last frame's content in one eye); consider moving the HUD symbology into the head-locked quad like the HMCS.
+
+### Whole-frame CPU profile (2026-10-10, `HitchMs 6`, `TerrainRingScale 2`, 6000 samples; fixed afterwards, not re-flown)
+
+Inclusive share of the sim thread's samples: `OTWDriverClass::Cycle` 91%; `DrawScene` 44%; **`RenderOTW::TransformVertexSet`/`TransformRun`/`ComputeVertexColor` 32% (+ `cosf`/`sinf` 11%)**; `D3D12Backend::EndEyeFrame` fence wait 18% (the GPU, not work: the eye overlap target); `CDXEngine::FlushBuffers` (object draws) 15%; `TerrainClipmap_Update` 7% (`UploadRect`/`FillRect` 5%); `TerrainGpu_Render` 7%; texture mip building ~5%; particles ~3%. The big one was dead work: with GPU terrain on, `DrawGroundAndObjects` still ran `BuildVertexSet` + `TransformVertexSet` -- the legacy CPU screen-space terrain transform with per-vertex lighting -- although `DrawTerrainRing/ConnectorRing/GapFiller` are skipped (`cpuTerr`) and nothing else reads those vertices. It scaled with ring width, which is why `TerrainRingScale 2` cost so much CPU (draw-scene 3.3 -> 9-10 ms) while the GPU terrain pass stayed ~0.1 ms. Now skipped unless the sensor-RTT path needs it (cfg `CpuTerrainXform 1` restores it). The span list is still built (objects use it). Re-measure with `[GPUPROF]` draw-scene ms and `TerrainRingScale 2`. Tools: `HitchMs` (6 = whole frame), `tools/profiling/hitchsym.exe`; run it on the last N samples only: `grep HITCH FFDebug.log | tail -6000`.
+
+**Flown 2026-10-10 after the fix (`TerrainRingScale 2`):** draw-scene 2.0-2.6 ms/frame (was 9-10; stock ring 3.3), 60 fps locked, 0 frames over 20 ms in every 5 s window, GPU busy 14-22%, ~2,000-2,300 terrain chunks per eye at 0.11 ms. `TerrainRingScale 2` is now affordable and a good default candidate.

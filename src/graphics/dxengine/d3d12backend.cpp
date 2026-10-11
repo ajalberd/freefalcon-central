@@ -341,6 +341,7 @@ void GpuProf_AddCpu(int what, double ms)
 static volatile LONG64 s_hsLastTick = 0; // QPC ticks of the last frame tick
 static volatile LONG s_hsSimTid = 0;
 static volatile LONG s_hsStarted = 0;
+volatile long g_hsInXrWait = 0; // set while the sim thread sits in xrWaitFrame (idle pacing, not work)
 
 static DWORD WINAPI HitchSamplerThread(LPVOID)
 {
@@ -356,7 +357,14 @@ static DWORD WINAPI HitchSamplerThread(LPVOID)
         Sleep(6);
         const DWORD sim = (DWORD)s_hsSimTid;
 
-        if (!sim || logged >= 500)
+        // cfg HitchMs: the frame age that triggers a sample (default 40). Set it near the typical frame time (e.g. 14)
+        // to profile where the sim thread spends a SLOW-BUT-STEADY frame, not just the spikes: samples are then taken
+        // every 8 ms and the log cap is 6000 lines.
+        extern int g_nHitchMs;
+        const double thrMs = (g_nHitchMs >= 6) ? (double)g_nHitchMs : 40.0;
+        const double gapMs = (thrMs >= 40.0) ? 20.0 : 8.0;
+
+        if (!sim || logged >= (thrMs >= 40.0 ? 500 : 6000))
             continue;
 
         if (sim != tid)
@@ -375,11 +383,11 @@ static DWORD WINAPI HitchSamplerThread(LPVOID)
         const LONG64 tick = s_hsLastTick;
         const double age = (double)(now.QuadPart - tick) * 1000.0 / (double)freq.QuadPart;
 
-        if (age < 40.0 || age > 1500.0)
+        if (age < thrMs || age > 1500.0 || g_hsInXrWait)
             continue;
 
         // at most one sample per 20 ms
-        if ((double)(now.QuadPart - lastSampleTick) * 1000.0 / (double)freq.QuadPart < 20.0)
+        if ((double)(now.QuadPart - lastSampleTick) * 1000.0 / (double)freq.QuadPart < gapMs)
             continue;
         lastSampleTick = now.QuadPart;
 
@@ -581,7 +589,7 @@ D3D12Backend::D3D12Backend()
       m_eyeDepthH(0), m_eyeDepthCur(0), m_viColorCur(0), m_viTier(-1),
       m_pList1(0), m_pMenuRtt(0), m_pMenuDepthTex(0), m_pMenuDsvHeap(0),
       m_menuRttW(0), m_menuRttH(0), m_pFpsRtt(0), m_fpsRttW(0), m_fpsRttH(0),
-      m_pSubRtt(0), m_subRttW(0), m_subRttH(0),
+      m_pSubRtt(0), m_subRttW(0), m_subRttH(0), m_pHmcsRtt(0), m_hmcsRttW(0), m_hmcsRttH(0), m_eyeSlot(-1), m_eyeNoWait(false), m_eyeParity(0),
       m_pMsaaColorTex(0), m_pMsaaRtvHeap(0), m_pMsaaDepthTex(0),
       m_pMsaaDsvHeap(0), m_msaaSamples(1), m_msaaW(0), m_msaaH(0),
       m_curSampleCount(1), m_pEyeResolveImg(0), m_curRtvPtr(0),
@@ -1628,9 +1636,12 @@ void D3D12Backend::BeginCommandList()
         m_pList->Close();
         m_bRecording = false;
     }
-    WaitForFence(m_allocFence[m_frameIndex]);
-    m_pAlloc[m_frameIndex]->Reset();
-    m_pList->Reset(m_pAlloc[m_frameIndex], NULL);
+    // Artscout - 2026 (VrEyeOverlap): a VR eye records into its own allocator slot (FrameIndex()), so the previous
+    // eye's list can still be executing. The wait below is still what makes reusing a slot safe.
+    const unsigned slot = FrameIndex();
+    WaitForFence(m_allocFence[slot]);
+    m_pAlloc[slot]->Reset();
+    m_pList->Reset(m_pAlloc[slot], NULL);
     GpuProf_BeginSlot(m_pDevice, m_pQueue, m_pFence);
     GpuProf_Mark(m_pList, "setup"); // clears, HDR bind, barriers before the first pass
 }
@@ -4113,6 +4124,84 @@ void* D3D12Backend::SubRttTex()
     return (m_pSubRtt && m_pSubRtt->tex) ? (void*)m_pSubRtt : NULL;
 }
 
+// Artscout - 2026: HMCS quad RTT -- the same trio again, its own texture (square, large, live alongside the
+// subtitle and FPS quads).
+void D3D12Backend::EnsureHmcsRtt(int w, int h)
+{
+    if (!m_pDevice || w <= 0 || h <= 0)
+        return;
+    if (m_pHmcsRtt && m_pHmcsRtt->tex && m_hmcsRttW == w && m_hmcsRttH == h)
+        return; // already at size
+    if (m_pHmcsRtt)
+    {
+        if (g_pD3D12TextureManager)
+            g_pD3D12TextureManager->Destroy(*m_pHmcsRtt);
+        delete m_pHmcsRtt;
+        m_pHmcsRtt = 0;
+    }
+    m_hmcsRttW = m_hmcsRttH = 0;
+    if (!g_pD3D12TextureManager)
+        return;
+    m_pHmcsRtt = new D3D12Texture();
+    if (!g_pD3D12TextureManager->CreateRenderTarget(*m_pHmcsRtt, w, h))
+    {
+        delete m_pHmcsRtt;
+        m_pHmcsRtt = 0;
+        return;
+    }
+    m_hmcsRttW = w;
+    m_hmcsRttH = h;
+}
+
+void D3D12Backend::BindHmcsRtt(bool clear)
+{
+    if (!m_pList || !m_bRecording || !m_pHmcsRtt || !m_pHmcsRtt->tex)
+        return;
+    if (m_pHmcsRtt->rtState != (unsigned)D3D12_RESOURCE_STATE_RENDER_TARGET)
+    {
+        D3D12_RESOURCE_BARRIER b;
+        ZeroMemory(&b, sizeof(b));
+        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b.Transition.pResource = m_pHmcsRtt->tex;
+        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        b.Transition.StateBefore = (D3D12_RESOURCE_STATES)m_pHmcsRtt->rtState;
+        b.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        m_pList->ResourceBarrier(1, &b);
+        m_pHmcsRtt->rtState = (unsigned)D3D12_RESOURCE_STATE_RENDER_TARGET;
+    }
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv;
+    rtv.ptr = (SIZE_T)m_pHmcsRtt->rtvCpuPtr;
+    m_curRtvPtr = (unsigned __int64)rtv.ptr;
+    m_curSampleCount = 1;
+    m_pList->OMSetRenderTargets(1, &rtv, FALSE, NULL); // no depth for 2D text
+    if (g_pD3D12Renderer)
+        g_pD3D12Renderer->SetDepthTargetBound(false);
+    D3D12_VIEWPORT vp;
+    vp.TopLeftX = 0;
+    vp.TopLeftY = 0;
+    vp.Width = (FLOAT)m_hmcsRttW;
+    vp.Height = (FLOAT)m_hmcsRttH;
+    vp.MinDepth = 0;
+    vp.MaxDepth = 1;
+    D3D12_RECT sc;
+    sc.left = 0;
+    sc.top = 0;
+    sc.right = m_hmcsRttW;
+    sc.bottom = m_hmcsRttH;
+    m_pList->RSSetViewports(1, &vp);
+    m_pList->RSSetScissorRects(1, &sc);
+    if (clear)
+    {
+        const float z[4] = {0, 0, 0, 0};
+        m_pList->ClearRenderTargetView(rtv, z, 0, NULL);
+    } // transparent canvas
+}
+
+void* D3D12Backend::HmcsRttTex()
+{
+    return (m_pHmcsRtt && m_pHmcsRtt->tex) ? (void*)m_pHmcsRtt : NULL;
+}
+
 //-----------------------------------------------------------------------------
 // Artscout - 2026: MSAA for the per-eye VR path (cfg "VrMsaaSamples", 0/1 = off).
 //
@@ -4245,6 +4334,12 @@ void D3D12Backend::BeginEyeFrame(void* eyeImg, unsigned __int64 eyeRtvPtr,
 {
     if (!m_pDevice || !m_pList || !eyeImg || !eyeRtvPtr)
         return;
+    {
+        // Artscout - 2026 (cfg VrEyeOverlap): alternate eyes between the two allocator/ring slots so one eye's GPU work
+        // can overlap the next eye's CPU recording. Cleared again at EndEyeFrame.
+        extern int g_nVrEyeOverlap;
+        m_eyeSlot = (g_nVrEyeOverlap > 0) ? (int)(m_eyeParity++ & 1u) : -1;
+    }
     BeginCommandList();
     m_pHdrCur = 0; // Artscout - 2026: HDR is re-decided per eye (below)
     m_renderEpoch++;
@@ -4347,7 +4442,11 @@ void D3D12Backend::BeginEyeFrame(void* eyeImg, unsigned __int64 eyeRtvPtr,
 void D3D12Backend::EndEyeFrame(void* eyeImg)
 {
     if (!m_pList || !m_bRecording || !eyeImg)
+    {
+        m_eyeSlot = -1; // VrEyeOverlap: never leave an eye's slot override behind for the next list
+        m_eyeNoWait = false;
         return;
+    }
     // #DX12 п.5: no RT->COMMON transition (see BeginEyeFrame) -- the runtime owns the swapchain image state and
     // composites it directly from RENDER_TARGET. Just close + execute + fence so the image is filled on release.
     (void)eyeImg;
@@ -4361,11 +4460,20 @@ void D3D12Backend::EndEyeFrame(void* eyeImg)
     D3D12TexMgr_SyncRenderQueue(m_pQueue);
     // Artscout - 2026: #DX12 -- see EndStereoInstancedFrame: stamp this allocator's retire fence, then drain on it.
     m_pQueue->ExecuteCommandLists(1, lists);
-    m_allocFence[m_frameIndex] = SignalQueue();
-    GpuProf_Submitted(m_allocFence[m_frameIndex]);
+    const unsigned slot = FrameIndex();
+    m_allocFence[slot] = SignalQueue();
+    GpuProf_Submitted(m_allocFence[slot]);
+    // Artscout - 2026 (VrEyeOverlap): not the last eye of the frame -> do not wait; the next eye records into the other
+    // slot while this one executes, and the queue keeps them in order. The last eye still waits, so everything the
+    // rest of the frame touches (CPU-written upload buffers, the XR quads' copies, the mirror) sees an idle GPU as
+    // before. A pending screenshot needs the finished eye, so it forces the wait.
+    const bool skipWait = m_eyeNoWait && !s_capturePath[0];
+    m_eyeNoWait = false;
+    m_eyeSlot = -1;
+    if (!skipWait)
     {
         const double w0 = GpNowMs();
-        WaitForFence(m_allocFence[m_frameIndex]);
+        WaitForFence(m_allocFence[slot]);
         GpuProf_Synced(GpNowMs() - w0); // how long the CPU sat waiting for the GPU
     }
     m_bRecording = false;
