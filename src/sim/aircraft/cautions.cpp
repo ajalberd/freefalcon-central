@@ -566,10 +566,26 @@ void AircraftClass::CautionCheck(void)
         }
 
         //MI RF In SILENT gives TF FAIL
-        if (RFState == 2)
+        // Artscout - 2026: and so does losing the nav pod (LEFT HDPT off) while the TF autopilot is flying:
+        // WARN, the TF FAIL light, the aural PULL UP, and the FLCS drops back to manual (2.6.3.6.2.2)
+        bool tfFail = (RFState == 2);
+
+        if (not tfFail and g_bRealisticAvionics and autopilotType == LantirnAP and
+            not HasPower(AircraftClass::LeftHptPower))
+        {
+            tfFail = true;
+            SetAutopilot(APOff);
+        }
+
+        if (tfFail)
         {
             if (not mFaults->GetFault(tf_fail))
+            {
                 mFaults->SetWarning(tf_fail);
+
+                if (lastapType == LantirnAP and not SoundPos.IsPlaying(af->auxaeroData->sndBBPullup))
+                    SoundPos.Sfx(af->auxaeroData->sndBBPullup);
+            }
         }
         else
             mFaults->ClearFault(tf_fail);

@@ -129,6 +129,19 @@ public:
     float GetGLimit();
     void Exec(AircraftClass* self); // do whats necessary
 
+    // Artscout - 2026: TFR warm-up and advisories (TO 1F-16CMAM-34-1-1 2.6.3.4-2.6.3.6)
+    float coolTime; // s of warm-up left after the NVP was powered ("NOT TIMED OUT"); 0 = ready
+    bool powerInit, powerSeen; // NVP (LEFT HDPT) power as seen last frame
+    bool limitExceeded; // HUD / MFD "LIMIT": bank or dive outside what the TFR can command
+    int turnAdvisory; // HUD "TERRAIN": 1 = terrain to the left (turn right), -1 = right, 2 = both, 0 = none
+    int sideFrame;
+    bool IsTimedOut(void)
+    {
+        return coolTime <= 0.0f;
+    };
+    void UpdateCooldown(AircraftClass* self);
+    void UpdateAdvisories(AircraftClass* self);
+
     //new variables
     float PID_MX, PID_lastErr, PID_error, PID_Output;
     float MaxG, MinG;

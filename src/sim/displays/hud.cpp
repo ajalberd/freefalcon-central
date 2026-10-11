@@ -1536,6 +1536,21 @@ void HudClass::DrawAlphaNumeric(void)
             ownship->AutopilotType() == AircraftClass::LantirnAP and theLantirn->gAlt > 0.0f and
             theLantirn->gAlt < 0.75f * (float)theLantirn->GetTFRAlt())
             display->TextCenter(0, -0.12, "LO TF", 0);
+
+        // Artscout - 2026: LIMIT and TERRAIN advisories (TO 1F-16CMAM-34-1-1 2.6.3.6.2.1 / .5). TERRAIN
+        // names the side to turn away from: terrain on the left asks for "TERRAIN ->".
+        if (g_bTFRFixes and flash and ownship->AutopilotType() == AircraftClass::LantirnAP)
+        {
+            if (theLantirn->limitExceeded)
+                display->TextCenter(-0.4, -0.12, "LIMIT", 0);
+
+            if (theLantirn->turnAdvisory == 1)
+                display->TextCenter(0, -0.2, "TERRAIN ->", 0);
+            else if (theLantirn->turnAdvisory == -1)
+                display->TextCenter(0, -0.2, "<- TERRAIN", 0);
+            else if (theLantirn->turnAdvisory == 2)
+                display->TextCenter(0, -0.2, "<- TERRAIN ->", 0);
+        }
     }
 
 } //End function

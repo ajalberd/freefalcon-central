@@ -53,6 +53,12 @@ LantirnClass::LantirnClass() : DrawableClass()
     min_Radius = 0.0F;
     min_safe_dist = 0.0F;
     SpeedUp = FALSE;
+    coolTime = 0.0F;
+    powerInit = false;
+    powerSeen = true;
+    limitExceeded = false;
+    turnAdvisory = 0;
+    sideFrame = 0;
     roll = 0.0F;
     featureDistance = 0.0F;
     featureDistance2 = 0.0F;
@@ -348,9 +354,82 @@ void LantirnClass::GetCameraPos(Tpoint *pos)
 #endif
 }
 
+// Artscout - 2026: the nav pod needs about three minutes after its LEFT HDPT power comes on before the
+// TFR can leave standby (BMS: "NOT TIMED OUT"; only ride and clearance can be set meanwhile). A jet that
+// spawns with the pod already powered counts as warmed up, so hot starts and air starts are unchanged.
+static const float kTfrWarmupSeconds = 180.0F;
+
+void LantirnClass::UpdateCooldown(AircraftClass *self)
+{
+    extern bool g_bRealisticAvionics;
+
+    if (not g_bRealisticAvionics or self not_eq SimDriver.GetPlayerAircraft())
+    {
+        coolTime = 0.0F;
+        return;
+    }
+
+    const bool powered = self->HasPower(AircraftClass::LeftHptPower) ? true : false;
+
+    if (not powerInit)
+    {
+        powerInit = true;
+        powerSeen = powered;
+        coolTime = 0.0F;
+    }
+
+    if (powered and not powerSeen)
+        coolTime = kTfrWarmupSeconds;
+
+    powerSeen = powered;
+
+    if (powered and coolTime > 0.0F)
+    {
+        coolTime -= SimLibMajorFrameTime;
+
+        if (coolTime < 0.0F)
+            coolTime = 0.0F;
+
+        m_tfrmode = TFR_STBY;
+
+        if (self->AutopilotType() == AircraftClass::LantirnAP)
+            self->SetAutopilot(AircraftClass::APOff);
+    }
+}
+
+// HUD LIMIT and TERRAIN advisories. The bank/dive limits are an interpretation (the manual only says the
+// antenna scan limits valid commands in roll, dive, speed and turn rate); TERRAIN looks 20 degrees to each
+// side, every fourth frame, for ground inside 1.5 turn radii.
+void LantirnClass::UpdateAdvisories(AircraftClass *self)
+{
+    if (self->AutopilotType() not_eq AircraftClass::LantirnAP)
+    {
+        limitExceeded = false;
+        turnAdvisory = 0;
+        return;
+    }
+
+    limitExceeded = ((float)fabs(self->Roll()) > 60.0F * DTR) or (self->Pitch() < -20.0F * DTR);
+
+    if (++sideFrame >= 4)
+    {
+        sideFrame = 0;
+        const float zOff = (gAlt > self->af->GetTFR_Clearance()) ? self->af->GetTFR_Clearance() : gAlt / 2.0F;
+        const float spread = 20.0F * DTR;
+        const float dl = GetGroundDistance(self, zOff, self->Yaw() - spread, self->af->gmma);
+        const float dr = GetGroundDistance(self, zOff, self->Yaw() + spread, self->af->gmma);
+        const float reach = 1.5F * turnradius;
+        const bool left = dl > 0.0F and dl < reach;
+        const bool right = dr > 0.0F and dr < reach;
+        turnAdvisory = (left and right) ? 2 : (left ? 1 : (right ? -1 : 0));
+    }
+}
+
 // JB 010325 Rewritten
 void LantirnClass::Exec(AircraftClass *self)
 {
+    UpdateCooldown(self);
+
     if (g_bTFRFixes)
     {
         SpeedUp = FALSE;
@@ -504,6 +583,8 @@ void LantirnClass::Exec(AircraftClass *self)
         }
         else if (-self->ZPos() - groundAlt < 0.5 * m_tfr_alt)
             evasize = 1;
+
+        UpdateAdvisories(self);
     }
     else
     {

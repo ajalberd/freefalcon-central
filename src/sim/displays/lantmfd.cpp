@@ -256,12 +256,17 @@ void LantirnDrawable::PushButton(int whichButton, int whichMFD)
         MfdDrawable::PushButton(whichButton, whichMFD);
         return;
 
+    // while the pod is warming up only ride, clearance and power can be changed (standby stays)
     case 15:
-        theLantirn->SetTFRMode(LantirnClass::TFR_ECCM);
+        if (theLantirn->IsTimedOut())
+            theLantirn->SetTFRMode(LantirnClass::TFR_ECCM);
+
         break;
 
     case 16:
-        theLantirn->SetTFRMode(LantirnClass::TFR_WX);
+        if (theLantirn->IsTimedOut())
+            theLantirn->SetTFRMode(LantirnClass::TFR_WX);
+
         break;
 
     case 17:
@@ -269,11 +274,15 @@ void LantirnDrawable::PushButton(int whichButton, int whichMFD)
         break;
 
     case 18:
-        theLantirn->SetTFRMode(LantirnClass::TFR_LP1);
+        if (theLantirn->IsTimedOut())
+            theLantirn->SetTFRMode(LantirnClass::TFR_LP1);
+
         break;
 
     case 19:
-        theLantirn->SetTFRMode(LantirnClass::TFR_NORM);
+        if (theLantirn->IsTimedOut())
+            theLantirn->SetTFRMode(LantirnClass::TFR_NORM);
+
         break;
     }
 }
@@ -416,6 +425,20 @@ void LantirnDrawable::DrawTerrain()
 
 void LantirnDrawable::DrawWarnings()
 {
+    // Artscout - 2026: the nav pod is still warming up (about three minutes after power-on)
+    if (not theLantirn->IsTimedOut())
+    {
+        display->TextCenter(0.0f, 0.0f, "NOT TIMED OUT");
+        return;
+    }
+
+    // flashing TFR LIMITS: limits exceeded, vertical clearance warning or low speed advisory
+    if (flash and theLantirn->IsEnabled() and
+        (theLantirn->limitExceeded or theLantirn->SpeedUp or
+         (theLantirn->gAlt > 0.0f and theLantirn->gAlt < 0.75f * (float)theLantirn->GetTFRAlt() and
+          SimDriver.GetPlayerAircraft() and
+          SimDriver.GetPlayerAircraft()->AutopilotType() == AircraftClass::LantirnAP)))
+        display->TextCenter(0.0f, 0.15f, "TFR LIMITS");
 }
 
 void LantirnDrawable::DrawFlightInfo()
