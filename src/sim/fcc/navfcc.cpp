@@ -2273,6 +2273,93 @@ void FireControlComputer::DrawWingmen()
             Draw1WingmanGnd(wingman); //Cobra
         }
     }
+
+    if (not IsHsdState(HSDNOADLNK))
+        DrawFriendlyFlights();
+}
+
+// Artscout - 2026: Link 16 "lite". An aircraft with a Link 16 terminal (VEH_HAS_LINK16 on its vehicle
+// class) sees the other friendly flights whose aircraft also carry one, as the same wingman-style
+// symbol the air data link already uses: ring, altitude in thousands of feet below, heading line.
+// Only airborne flights are shown, and only those on the screen; the ADLNK declutter toggle on the HSD
+// control page covers them. Positions come from the campaign air list, so they include flights that
+// are not loaded into the sim bubble. No hostile tracks: this is the friendly picture only.
+void FireControlComputer::DrawFriendlyFlights()
+{
+    AircraftClass* playerAC = SimDriver.GetPlayerAircraft();
+
+    if (not platform or not playerAC)
+        return;
+
+    VehicleClassDataType* myVc =
+        (VehicleClassDataType*)Falcon4ClassTable[platform->Type() - VU_LAST_ENTITY_TYPE].dataPtr;
+
+    if (not myVc or not(myVc->Flags bitand VEH_HAS_LINK16))
+        return;
+
+    if (g_bRealisticAvionics and g_bINS and not playerAC->INSState(AircraftClass::INS_HSD_STUFF))
+        return;
+
+    CampBaseClass* ownFlight = platform->GetCampaignObject();
+    const int myTeam = platform->GetTeam();
+    mlTrig trig;
+    mlSinCos(&trig, platform->Yaw());
+
+    VuListIterator it(AllAirList);
+
+    for (Unit u = (Unit)it.GetFirst(); u; u = (Unit)it.GetNext())
+    {
+        if (u == ownFlight or not u->IsFlight() or u->IsDead() or u->GetTeam() not_eq myTeam)
+            continue;
+
+        if (not u->GetClassData())
+            continue;
+
+        VehicleClassDataType* vc = GetVehicleClassData(u->GetClassData()->VehicleType[0]);
+
+        if (not vc or not(vc->Flags bitand VEH_HAS_LINK16))
+            continue;
+
+        // lead aircraft if the flight is loaded in the sim, else the flight's own position
+        SimBaseClass* lead = u->GetComponentNumber(0);
+        const float fx = lead ? lead->XPos() : u->XPos();
+        const float fy = lead ? lead->YPos() : u->YPos();
+        const float fz = lead ? lead->ZPos() : u->ZPos();
+
+        // on the ground or just rolling: not on the net picture
+        if (OTWDriver.GetGroundLevel(fx, fy) - fz < 300.0f)
+            continue;
+
+        float y = (fx - platform->XPos()) * FT_TO_NM / HSDRange;
+        float x = (fy - platform->YPos()) * FT_TO_NM / HSDRange;
+
+        if (g_bRealisticAvionics and HSDZoom not_eq 0)
+        {
+            y *= HSDZoom;
+            x *= HSDZoom;
+        }
+
+        const float displayX = trig.cos * x - trig.sin * y;
+        const float displayY = trig.sin * x + trig.cos * y;
+
+        if (displayX * displayX + displayY * displayY > 1.0f)
+            continue;
+
+        display->SetColor(GetMfdColor(MFD_DL_TEAM14));
+        display->AdjustOriginInViewport(displayX, displayY);
+        display->Circle(0.0f, 0.0f, 0.03f);
+
+        if (lead)
+        {
+            const float dir = lead->Yaw() - platform->Yaw();
+            display->Line(0.0f, 0.0f, 0.07f * (float)sin(dir), 0.07f * (float)cos(dir));
+        }
+
+        char alt[12];
+        sprintf(alt, "%d", (int)((-fz + 500.0f) / 1000.0f));
+        display->TextCenterVertical(0.0f, -0.09f, alt);
+        display->AdjustOriginInViewport(-displayX, -displayY);
+    }
 }
 
 //Cobra GDLINK

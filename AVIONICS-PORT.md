@@ -36,6 +36,7 @@ FF6 source, and the features ported from it. Branch `rail-tracks`, commits tagge
 | `091aad84` | **HUD "LO TF"** (TFR vertical-clearance warning, flashes below 75 % of the set clearance while the TF autopilot flies). | `hud.cpp`; needs `g_bTFRFixes` | LANTIRN F-16, TF engaged, pick 1000 ft, be at 600. |
 | `f01af9a5` | **HSD cursor zero (CZ)** on OSB 9; zeroes the radar's slews, works whoever is SOI. | `navfcc.cpp`, `fccmain.cpp` | Slew in FCR A-G, switch to HSD, press CZ. OSB 9 vs 10 is a guess from the figure; the text says OSB 10. |
 | `5225bc58` | **EWS page FDBK / REQCTR / BINGO** are real toggles: dobber to the line, any digit toggles. FDBK gates "CHAFF FLARE", REQCTR gates "COUNTER", BINGO gates "LOW" *and* "OUT" (was LOW only). Defaults ON = old behaviour. | `icp.h` (`EDIT_FDBK/EDIT_REQCTR`, `EWS_FDBK_ON/EWS_REQCTR_ON`), `icplist.cpp`, `icpcniswitch.cpp`, `icp.cpp`, `chafflare.cpp`, `playerrwr.cpp` | LIST 7, dobber down through CH, FL, REQJAM, FDBK, REQCTR, BINGO. |
+| (this batch) | **Link 16 "lite" on the HSD**: other friendly flights, airborne and on screen, drawn as the same ring + altitude + heading line the wingman datalink uses. Only for an aircraft whose vehicle class has `VEH_HAS_LINK16` (0x10000000), and only flights whose aircraft have it too. Rides the ADLNK toggle on the HSD CNTL page; same DL power / fault / INS gates as the wingman layer. No hostile tracks. | `FireControlComputer::DrawFriendlyFlights` (navfcc.cpp), `vehicle.h`, `tools/avionics/set_link16.py` | Needs the flag in the data: applied 2026-10-11 to `terrdata/objects` and the four `campaign/*/CampaignDB` `FALCON4.VCD` (backups `*.bak-pre-link16`). Flagged: F-16CJ, F-16DJ, F-16C+, KF-16C/D. Not flagged (use `--add`): F-16A/B/C/CG/DG/XL, MLU AM-B/AM-D, HAF C/D, AGSR, and every non-F-16. Fly an F-16CJ with another F-16CJ/KF-16 flight airborne nearby: it should appear on the HSD. |
 | `f5732b64` | **HUD Attitude Awareness Arc** in Dogfight mode: 99.5 mR arc, shrinks nose-up (smallest at +87), closes nose-down, roll-stabilised, 5.2 mR end ticks, gone with the gear down. | `HudClass::DrawAttitudeAwarenessArc` (mislhud.cpp) | Dogfight override. Level = half circle under the centre, ground-side always down. Centre assumed at HUD (0,0). |
 
 Build: `mfd.h`, `aircrft.h`, `icp.h`, `hud.h`, `playerrwr.h`, `commands.h` changed, so **Rebuild All**.
@@ -51,9 +52,8 @@ Build: `mfd.h`, `aircrft.h`, `icp.h`, `hud.h`, `playerrwr.h`, `commands.h` chang
   `laserpod.cpp` notes), so these were left alone unattended.
 - **HUD landing declutter** (uncage with gear down in NAV: heading scale up, roll indicator / ILS bars / FD / DED data removed).
 - **TFR:** "NOT TIMED OUT" 3-minute cooldown, NO TER, LIMIT, TERRAIN arrows, WARN / TF-FAIL, LANTIRN AAF.
-- **Link 16 / MIDS / IDM:** none in the code. Flight members are already on the HSD (ADLNK). A "lite" version
-  (other flights + AWACS tracks as PPLI/SA symbols on HSD, FCR, HUD) needs the campaign's air picture exposed to the
-  sim; not started.
+- **Link 16 / MIDS / IDM:** full Link 16 (net entry, STN, donors, MIDS DED pages, FCR/HUD/HMCS symbology, PDLT) is not in
+  the code. The friendly-flights layer on the HSD is done (above); hostile/AWACS tracks and the FCR/HUD layers are not.
 - **Weapons:** SDB GBU-39, JASSM AGM-158, WCMD CBU-103/105 are not in `FALCON4.WCD`; each needs a model, WCD rows,
   loadouts and SMS pages.
 - **Pit hotspots** for the new callbacks (SYS TEST etc.) and the IFF/UHF backup panels: pit art, not code.

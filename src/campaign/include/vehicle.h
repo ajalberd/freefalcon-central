@@ -33,6 +33,9 @@
 #define VEH_HAS_CREW 0x4000
 #define VEH_IS_TOWED 0x8000
 #define VEH_HAS_JAMMER 0x10000 // Has built in self protection jamming
+// Artscout - 2026: carries a Link 16 terminal (MIDS). Lives in FALCON4.VCD; tools/avionics/set_link16.py sets it.
+// 0x20000000 is the HMS flag (otwdrive/hmcs.cpp); no stock vehicle uses this bit.
+#define VEH_HAS_LINK16 0x10000000
 #define VEH_IS_AIR_DEFENSE                                                     \
     0x20000 // This ground thing prefers to shoot air things
 
