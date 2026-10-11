@@ -9,9 +9,10 @@ too. The flag lives in the vehicle table, so which blocks have a terminal is pla
   python set_link16.py --apply --add "F-16AM-B" <VCD> ...     ... plus extra names (repeatable)
   python set_link16.py --remove  <VCD> ...                    clear it on the default names
 
-Default names are the F-16 blocks that can carry MIDS: Block 50/52 (F-16CJ, F-16DJ), Block 52+ (F-16C+)
-and the Korean Block 52s (KF-16C, KF-16D). Not in the list, deliberately: F-16A/B, F-16C/CG/DG (Block 30 to
-42), F-16XL, the MLU F-16AM-B/AM-D, the Greek F-16C/D HAF and F-16 AGSR -- pass them with --add if wanted.
+Default names: the F-16 blocks that can carry MIDS -- Block 50/52 (F-16CJ, F-16DJ), Block 52+ (F-16C+), the
+Korean Block 52s (KF-16C, KF-16D) and the MLU F-16AM-B/AM-D -- plus F-15K, F/A-18E/F and the E-3 and E-2C
+AWACS so they share the picture. Not in the list, deliberately: F-16A/B, F-16C/CG/DG (Block 30 to 42), F-16XL,
+the Greek F-16C/D HAF and F-16 AGSR -- pass them with --add if wanted.
 
 A backup `<file>.bak-pre-link16` is written once, before the first change. Both VCD framings are handled
 (plain count first, or 0 first with the count at the end); the flag word is 4 bytes at record offset 4.
@@ -23,7 +24,8 @@ import sys
 
 RECORD = 160
 FLAG = 0x10000000
-DEFAULT_NAMES = ["F-16CJ", "F-16DJ", "F-16C+", "KF-16C", "KF-16D"]
+DEFAULT_NAMES = ["F-16CJ", "F-16DJ", "F-16C+", "KF-16C", "KF-16D",
+                 "F-16AM-B", "F-16AM-D", "F-15K", "F/A-18E", "F/A-18F", "E-3", "E-2C"]
 
 
 def records(raw):
