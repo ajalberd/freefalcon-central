@@ -155,9 +155,12 @@ public:
     {
         orders = o;
     }
-    virtual void SetUnitSupply(uchar s)
+    // int, to override UnitClass::SetUnitSupply(int): with a uchar parameter this only hid it, so
+    // CollectWeapons' call through a Unit never reached a ship and its supply never went down.
+    // Supply is a percentage; some scenario ships were saved at 250/255.
+    virtual void SetUnitSupply(int s)
     {
-        supply = s;
+        supply = (Percentage)(s < 0 ? 0 : s > 100 ? 100 : s);
     }
     virtual void SetUnitNextMove(void)
     {

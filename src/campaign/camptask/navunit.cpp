@@ -126,6 +126,10 @@ TaskForceClass::TaskForceClass(VU_BYTE **stream, long *rem)
 
     memcpychk(&orders, stream, sizeof(uchar), rem);
     memcpychk(&supply, stream, sizeof(Percentage), rem);
+
+    if (supply > 100) // some scenario task forces were saved at 250/255; supply is a percentage
+        supply = 100;
+
     air_target = FalconNullId;
     missiles_flying = 0;
     radar_mode = FEC_RADAR_OFF;

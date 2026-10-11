@@ -566,6 +566,39 @@ static void GtmLog(int hour)
         }
     }
 
+    // Task force supply and orders (a ship's supply is a uchar; the tooltip once read 250%)
+    {
+        for (int t : {1, 2, 6})
+        {
+            int n = 0, s0 = 0, low = 0, mid = 0, full = 0, over = 0, maxs = 0, ord[16] = {0};
+            VuListIterator uit(AllUnitList);
+
+            for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+            {
+                if (!u->IsTaskForce() || u->GetTeam() != t)
+                    continue;
+
+                int s = u->GetUnitSupply();
+                n++, s0 += s == 0, low += s > 0 && s < 30, mid += s >= 30 && s < 100, full += s == 100,
+                    over += s > 100, maxs = s > maxs ? s : maxs;
+                ord[u->GetUnitOrders() & 15]++;
+
+                if (s > 100 && hour <= 6)
+                {
+                    char nm[48] = "";
+                    u->GetName(nm, 40, FALSE);
+                    printf("NAVSUPOVER team %d %s type %d supply %d orders %d\n", t, nm, (int)u->GetType(), s,
+                           (int)u->GetUnitOrders());
+                }
+            }
+
+            if (n)
+                printf("NAVSUP h=%d team %d: %d task forces -- supply 0:%d <30:%d 30-99:%d 100:%d >100:%d (max %d) | "
+                       "orders by id: %d %d %d %d %d %d %d %d\n", hour, t, n, s0, low, mid, full, over, maxs, ord[0],
+                       ord[1], ord[2], ord[3], ord[4], ord[5], ord[6], ord[7]);
+        }
+    }
+
     // Scrambles (atm.cpp gScramble): intercept requests, flights diverted to them, how many of those were ALERT
     // flights waiting on the ground, and requests that found no flight -- per team, last 6 h
     {
