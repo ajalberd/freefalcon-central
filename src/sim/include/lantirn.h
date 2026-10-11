@@ -165,11 +165,13 @@ public:
     void UpdateAdvisories(AircraftClass* self);
 
     // Artscout - 2026: the nav FLIR raster on the 3D-pit HUD (TO 1F-16CMAM-34-1-1 2.6.2.1). The IR scene is drawn
-    // into a render target of its own (RenderHudFlir, once per frame, before the pit's display atlas pass), then
+    // into a render target of its own (PrepareHudFlir before the pit's atlas pass; RenderHudFlir inside it at the HUD, once per frame), then
     // composited on the HUD glass under the symbology (DrawHudFlirQuad, per eye, with the HUD's own canvas, collimation
     // and stencil). Drawing it into the HUD's patch of the shared atlas did not show and disturbed the other displays.
     bool HudFlirWanted(void);
+    void PrepareHudFlir(class Render3D* mainRenderer);
     void RenderHudFlir(class Render3D* mainRenderer, float halfAngleDeg, float boresightRad);
+    void DrawHudFlirDebug(VirtualDisplay* anyDisplay);
     void DrawHudFlirQuad(VirtualDisplay* hudCanvas);
     class RenderIR* m_hudIr;
     class TextureHandle* m_hudTex;

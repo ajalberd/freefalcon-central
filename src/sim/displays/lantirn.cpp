@@ -280,7 +280,7 @@ void LantirnClass::DrawTerrain()
 // RenderHudFlir draws the nav pod's IR view into a render target of its OWN (m_hudTex, square, HudFlirRes px) --
 // not into the HUD's patch of the shared display atlas. That first attempt never showed (the IR scene drawn into
 // the zone did not survive to the composite) and it upset the other displays sharing the atlas. vcock.cpp calls it
-// once per frame (first eye only; the second eye reuses the texture), BEFORE the pit's atlas pass opens. It swaps
+// once per frame (first eye only; the second eye reuses the texture), INSIDE the pit's atlas pass at the HUD. It swaps
 // m_hudTex in as the RTT target so the proven sensor sequence (TGP / Maverick pages: StartDraw, rebind, confine,
 // DrawScene, confine, flush 2D + objects inside the bracket, rebind, EndDraw) runs on it unchanged.
 //
@@ -305,13 +305,13 @@ bool LantirnClass::HudFlirWanted(void)
     return true;
 }
 
-void LantirnClass::RenderHudFlir(Render3D *mainRenderer, float halfAngleDeg, float boresightRad)
+// Before the atlas pass opens (vcock.cpp): make the IR renderer and the target. Setting a renderer up or creating a
+// render target inside the pass blanked every display in the atlas (first flight).
+void LantirnClass::PrepareHudFlir(Render3D *mainRenderer)
 {
-    extern bool g_bUseD3D12, g_bUseVulkan;
     extern int g_nHudFlirRes;
-    AircraftClass *playerAC = SimDriver.GetPlayerAircraft();
 
-    if (not mainRenderer or not playerAC or halfAngleDeg <= 0.0F or not HudFlirWanted())
+    if (not mainRenderer or not HudFlirWanted())
         return;
 
     ImageBuffer *image = mainRenderer->GetImageBuffer();
@@ -319,7 +319,6 @@ void LantirnClass::RenderHudFlir(Render3D *mainRenderer, float halfAngleDeg, flo
     if (not image)
         return;
 
-    // the renderer and the target are made here, outside any RTT pass
     if (m_hudIr and m_hudIr->GetImageBuffer() not_eq image)
     {
         m_hudIr->Cleanup();
@@ -352,10 +351,23 @@ void LantirnClass::RenderHudFlir(Render3D *mainRenderer, float halfAngleDeg, flo
         char buf[96];
         sprintf(buf, "HUD FLIR: own render target %dx%d %s\n", size, size, m_hudTex ? "created" : "FAILED");
         FFDebugLog(buf);
-
-        if (not m_hudTex)
-            return;
     }
+}
+
+// INSIDE the atlas pass, at the HUD (vcock.cpp), first eye only: draw the IR scene into m_hudTex as a sub-render,
+// exactly as the MFD sensor pages draw theirs inside the pass, only with m_hudTex swapped in as the target. The
+// caller re-binds the atlas afterwards (vHUDrenderer->ReBindRttTarget / AdjustRttViewport). A separate
+// StartRtt/FinishRtt pass on the eye's list before the atlas pass broke that eye's displays (second flight).
+void LantirnClass::RenderHudFlir(Render3D *mainRenderer, float halfAngleDeg, float boresightRad)
+{
+    extern bool g_bUseD3D12, g_bUseVulkan;
+    AircraftClass *playerAC = SimDriver.GetPlayerAircraft();
+
+    if (not mainRenderer or not playerAC or halfAngleDeg <= 0.0F or not m_hudIr or not m_hudTex or
+        not HudFlirWanted() or m_hudIr->GetImageBuffer() not_eq mainRenderer->GetImageBuffer())
+        return;
+
+    const int size = m_hudTexSize;
 
     Tpoint cameraPos;
     GetCameraPos(&cameraPos);
@@ -386,22 +398,18 @@ void LantirnClass::RenderHudFlir(Render3D *mainRenderer, float halfAngleDeg, flo
     extern void FF_SetIRGrey(bool);
     extern void FF_SetTerrainRadiusCap(int);
 
-    // open a pass on OUR target: swap it in, bind (StartRtt), clear it
+    // our target in place of the atlas for the sensor sequence (TGP page: StartDraw, rebind, confine, DrawScene,
+    // confine, flush 2D + objects inside the bracket, rebind, EndDraw)
     TextureHandle *atlas = VirtualDisplay::SwapRttTexture(m_hudTex);
-
-    mainRenderer->EndDraw();
-    mainRenderer->StartRtt(mainRenderer);
-    mainRenderer->StartDraw();
-    mainRenderer->SetBackground(0x00000000);
-    mainRenderer->ClearDraw();
 
     m_hudIr->SetRttRect(0, 0, size, size);
     m_hudIr->SetViewport(-1.0F, 1.0F, 1.0F, -1.0F); // pixel bounds from the new rect, as StartRtt does
-    m_hudIr->AdjustRttViewport();
     m_hudIr->SetFOV(2.0F * halfAngleDeg * DTR * g_fHudFlirScale);
 
     m_hudIr->StartDraw();
-    ((VirtualDisplay *)m_hudIr)->ReBindRttTarget();
+    ((VirtualDisplay *)m_hudIr)->ReBindRttTarget(); // binds m_hudTex
+    m_hudIr->SetBackground(0x00000000);
+    m_hudIr->ClearDraw(); // clears the bound target (we are inside the atlas pass, so the clear is armed)
     ((VirtualDisplay *)m_hudIr)->ConfineObjectViewportToZone();
     FF_SetIRGrey(true);
     FF_SetTerrainRadiusCap(32);
@@ -412,23 +420,37 @@ void LantirnClass::RenderHudFlir(Render3D *mainRenderer, float halfAngleDeg, flo
     if (DisplayOptions.bZBuffering or g_bUseD3D12 or g_bUseVulkan)
         m_hudIr->context.FlushPolyLists();
 
-    // the sensor's objects queue into the MAIN renderer's lists -- flush them while our target is bound
-    mainRenderer->context.FlushPolyLists();
+    // as on the MFD pages: Vulkan queues the sensor's objects in the main renderer's lists
+    if (g_bUseVulkan)
+        mainRenderer->context.FlushPolyLists();
 
     FF_SetIRGrey(false);
     FF_SetTerrainRadiusCap(0);
     ((VirtualDisplay *)m_hudIr)->ReBindRttTarget();
     m_hudIr->EndDraw();
 
-    // close the pass (the texture goes back to shader-readable) and put the atlas back
-    mainRenderer->FinishRtt();
+    // m_hudTex -> sampleable, then the atlas back in place (the caller re-binds it)
+    VirtualDisplay::ReleaseExtraRtt(m_hudTex);
     VirtualDisplay::SwapRttTexture(atlas);
-    mainRenderer->StartDraw();
 
     if (not m_hudTexValid)
-        FFDebugLog("HUD FLIR: first frame rendered into the own target\n");
+        FFDebugLog("HUD FLIR: first frame rendered into the own target (inside the atlas pass)\n");
 
     m_hudTexValid = true;
+}
+
+// HudFlirDebug 1: the raw FLIR target in a corner of the screen (top-left quarter of it, magnified) -- tells "the
+// scene is not being drawn" from "it is drawn but the HUD composite loses it" in one screenshot.
+void LantirnClass::DrawHudFlirDebug(VirtualDisplay *anyDisplay)
+{
+    extern bool g_bHudFlirDebug;
+
+    if (not g_bHudFlirDebug or not anyDisplay or not m_hudTex or not m_hudTexValid)
+        return;
+
+    TextureHandle *atlas = VirtualDisplay::SwapRttTexture(m_hudTex);
+    anyDisplay->DrawRttDebugOverlay();
+    VirtualDisplay::SwapRttTexture(atlas);
 }
 
 void LantirnClass::DrawHudFlirQuad(VirtualDisplay *hudCanvas)

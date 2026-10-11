@@ -76,6 +76,7 @@ float resScale = 0.66667f;
 // in ScreenText/ScreenTextWidth/Height ONLY during the RTT pass (g_rttBatchActive).
 // 1.0 = no scale (atlas 512/high resolution). Set in the 1024 blocks below.
 float g_rttFontScale = 1.0f;
+bool g_bHudFlirDebug = false; // Artscout - 2026: show the raw HUD FLIR render target in a screen corner ("HudFlirDebug")
 int g_nHudFlirRes = 512; // Artscout - 2026: HUD FLIR render target edge in pixels ("HudFlirRes", 128..2048)
 float g_fHudGainNight = 2.0f; // Artscout - 2026: HUD gain at the top of the SYM wheel in the dark ("HudGainNight"); 1.0 = no night boost
 
@@ -5062,16 +5063,10 @@ void OTWDriverClass::VCock_Exec(void)
     // ASSO: BEGIN
     if (renderer->HasRttTarget())
     {
-        // Artscout - 2026: the HUD FLIR raster renders into its own target here, before the atlas pass opens, once
-        // per frame (first eye only -- the other eye composites the same texture). See LantirnClass::RenderHudFlir.
-        if (TheHud and theLantirn and theLantirn->HudFlirWanted())
-        {
-            extern bool g_bVrFrameActive;
-            const int flirEye = (g_bVrFrameActive and g_pOpenXRBackend) ? g_pOpenXRBackend->CurrentEye() : -1;
-
-            if (flirEye <= 0)
-                theLantirn->RenderHudFlir(renderer, TheHud->GetHalfAngleDeg(), TheHud->HudUnitsToRadians(vBoresightY));
-        }
+        // Artscout - 2026: the HUD FLIR's renderer and render target are made here, while no atlas pass is open
+        // (see LantirnClass::PrepareHudFlir); the picture itself is drawn inside the pass, at the HUD.
+        if (theLantirn)
+            theLantirn->PrepareHudFlir(renderer);
 
         renderer->EndDraw(); //588
         renderer->StartRtt(renderer);
@@ -5166,6 +5161,22 @@ void OTWDriverClass::VCock_Exec(void)
             }
 
             vHUDrenderer->AdjustOriginInViewport(XOffset, YOffset);
+
+            // Artscout - 2026: the nav FLIR picture, into its own target (not this zone), first eye only -- the other
+            // eye composites the same texture. Re-bind the atlas and this zone afterwards, as the MFD sensor pages do.
+            if (theLantirn and theLantirn->HudFlirWanted())
+            {
+                extern bool g_bVrFrameActive;
+                const int flirEye = (g_bVrFrameActive and g_pOpenXRBackend) ? g_pOpenXRBackend->CurrentEye() : -1;
+
+                if (flirEye <= 0)
+                {
+                    theLantirn->RenderHudFlir(renderer, TheHud->GetHalfAngleDeg(),
+                                              TheHud->HudUnitsToRadians(vBoresightY));
+                    vHUDrenderer->ReBindRttTarget();
+                    vHUDrenderer->AdjustRttViewport();
+                }
+            }
 
             TheHud->Display(vHUDrenderer, true);
 
@@ -5586,15 +5597,15 @@ void OTWDriverClass::VCock_Exec(void)
                 w = (w < 0.0f) ? 0.0f : (w > 1.0f) ? 1.0f : w;
                 float env = TheTimeOfDay.GetLightLevel();
                 env = (env < 0.0f) ? 0.0f : (env > 1.0f) ? 1.0f : env;
-                const float wheelGain = g_fHudGainMin + (g_fHudGainMax - g_fHudGainMin) * w;
-                // at night the wheel still works: 1.0 at the bottom up to g_fHudGainNight at the top (the NIGHT
-                // and AUTO alpha curves in SetLightLevel top out at 0.4 / 0.3, which read dim at full wheel)
-                const float nightGain = 1.0f + (g_fHudGainNight - 1.0f) * w;
-                g_rttHudGain = nightGain + (wheelGain - nightGain) * env;
+                // The composite can only dim (gain 0..1: the vertex colour packing overflows above 1, see
+                // DrawRttQuad), so full brightness is 1.0 -- the stock HUD. The wheel runs HudGainMin..1, day or night.
+                const float gmin = (g_fHudGainMin < 0.0f) ? 0.0f : (g_fHudGainMin > 1.0f) ? 1.0f : g_fHudGainMin;
+                g_rttHudGain = gmin + (1.0f - gmin) * w;
 
                 // The DAY / AUTO BRT / NIGHT switch. Its alpha (SetLightLevel) is in the HUD colour but the pit's
                 // composite does not show it, so the switch looked dead: apply it here, to the gain, the way the
-                // SYM wheel is. DAY full; NIGHT half; AUTO BRT follows the sky between the two.
+                // SYM wheel is. DAY full; NIGHT half; AUTO BRT follows the sky between the two. (HudGainMax and
+                // HudGainNight no longer do anything: they asked for gains above 1, which only garbled the colour.)
                 float modeScale = 1.0f;
 
                 if (TheHud->GetBrightnessSwitch() == HudClass::NIGHT)
@@ -5610,6 +5621,7 @@ void OTWDriverClass::VCock_Exec(void)
                 theLantirn->DrawHudFlirQuad(vHUDrenderer);
 
             vHUDrenderer->DrawRttQuad();
+
             g_rttHudGain = 1.0f;
             g_bRttLightExempt = false;
         }
@@ -5698,6 +5710,10 @@ void OTWDriverClass::VCock_Exec(void)
         // DIAG (RTT): raw atlas overlay -- DISABLED again (diagnosis: the atlas HAS content, the display render
         // works; the regression was the #615 drop, fixed by SetDepthTargetBound). Re-enable only to re-check.
         //renderer->DrawRttDebugOverlay();
+
+        // Artscout - 2026: cfg HudFlirDebug -- the raw HUD FLIR target in a corner of the screen, after every panel
+        if (theLantirn and vHUDrenderer)
+            theLantirn->DrawHudFlirDebug(vHUDrenderer);
     }
 
     // ASSO: END

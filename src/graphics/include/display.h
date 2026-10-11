@@ -292,6 +292,9 @@ public:
     // work on it unchanged. Swap back before anything else touches the atlas.
     static TextureHandle *CreateExtraRtt(int w, int h);
     static TextureHandle *SwapRttTexture(TextureHandle *t);
+    // make an extra target sampleable (render-target -> shader-resource) after drawing into it INSIDE the atlas pass;
+    // the backend then binds the scene target, so the caller re-binds the atlas (ReBindRttTarget) to carry on
+    static void ReleaseExtraRtt(TextureHandle *t);
     void StartRtt(Render3D *r3d_);
     void FinishRtt();
     // Artscout - 2026: re-bind the shared RTT atlas as the active D3D11 target WITHOUT the StartRtt

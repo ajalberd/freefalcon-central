@@ -394,6 +394,7 @@ extern bool g_bHmcsSlaveSeeker, g_bHmcsSlaveRadar, g_bHmcsHudBlank, g_bHmcsLog;
 extern float g_fHmcsHudHalfWidth, g_fHmcsHudTop, g_fHmcsHudBottom, g_fHmcsScale, g_fHmcsTextScale;
 extern bool g_bHudStrokeFont; // Artscout - 2026: render2d.cpp
 extern float g_fHudFontScale;
+extern bool g_bHudFlirDebug; // Artscout - 2026: vcock.cpp, raw HUD FLIR target overlay
 extern int g_nHudFlirRes; // Artscout - 2026: vcock.cpp, HUD FLIR render target size
 extern float g_fHudGainNight; // Artscout - 2026: vcock.cpp, HUD gain at the top of the SYM wheel at night
 extern float g_fHudGainMin, g_fHudGainMax; // Artscout - 2026: display.cpp, HUD SYM-wheel gain
@@ -2092,6 +2093,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"HudTextTrace", &g_bHudTextTrace}, // Artscout - 2026: DIAGNOSTIC, logs who draws the HUD string "50" (see display.cpp)
     {"Sync2D3DPit", &g_bSync2D3DPit}, // Wombat778 11-17-2004
     {"HudFlir", &g_bHudFlir}, // Artscout - 2026: kill switch for the nav FLIR raster in the 3D-pit HUD zone (default 1)
+    {"HudFlirDebug", &g_bHudFlirDebug}, // Artscout - 2026: DIAGNOSTIC, the raw HUD FLIR render target in a screen corner (default 0)
     {"Link16Hostile", &g_bLink16Hostile}, // Artscout - 2026: hostile air tracks on the HSD for Link 16 aircraft while an AWACS is up (default 1)
     {"LowBwVoice", &g_bLowBwVoice},
     {"AGTargetWPFix", &g_bAGTargetWPFix}, // 2002-04-06 MN

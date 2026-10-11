@@ -1640,6 +1640,25 @@ TextureHandle* VirtualDisplay::SwapRttTexture(TextureHandle* t)
     return old;
 }
 
+void VirtualDisplay::ReleaseExtraRtt(TextureHandle* t)
+{
+    if (not t or not t->m_pDDS)
+        return;
+
+    if (g_bUseD3D12)
+    {
+#ifdef _WIN32
+        if (g_pD3D12Backend)
+            g_pD3D12Backend->UnbindSceneRtt(t->m_pDDS);
+#endif
+    }
+    else if (g_bUseVulkan)
+    {
+        if (g_pVulkanBackend)
+            g_pVulkanBackend->UnbindSceneRtt(t->m_pDDS);
+    }
+}
+
 bool VirtualDisplay::CleanupRttTarget()
 {
     if (renderTexture)
@@ -2131,9 +2150,13 @@ void VirtualDisplay::DrawRttQuad()
 
     if (g_bRttLightExempt)
     {
-        lr = g_rttHudGain * g_rttHudTint[0];
-        lg = g_rttHudGain * g_rttHudTint[1];
-        lb = g_rttHudGain * g_rttHudTint[2];
+        // Artscout - 2026: clamp to 0..1. The vertex colour is packed with D3DRGBA, which neither clamps nor masks,
+        // so a gain above 1 (the SYM wheel used to reach 2.0) overflowed into the neighbouring channels: "brighter"
+        // was never brighter, the HUD brightness switch came out scrambled, and the colour could wash out.
+        const float g = g_rttHudGain < 0.0f ? 0.0f : (g_rttHudGain > 1.0f ? 1.0f : g_rttHudGain);
+        lr = g * g_rttHudTint[0];
+        lg = g * g_rttHudTint[1];
+        lb = g * g_rttHudTint[2];
     }
     else
     {
