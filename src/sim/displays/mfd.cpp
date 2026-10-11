@@ -69,6 +69,7 @@ SensorClass* FindSensor(SimMoverClass* theObject, int sensorType);
 //DrawableClass* MFDClass::lantirnDraw = NULL;
 DrawableClass* MFDClass::mfdDraw[MaxPrivMode];
 DrawableClass* MFDClass::HadDrawable;
+DrawableClass* MFDClass::TcnDrawable;
 
 
 // location and dimensions of the 2 MFD's in the virtual cockpit
@@ -119,7 +120,7 @@ char* MFDClass::ModeNames[MAXMODES] = {
     "  ", // blank
     "", // menu
     "TFR", "FLIR", "TEST", "DTE", "FLCS", "WPN",
-    "TGP", "HSD",  "FCR",  "SMS", "RWR",  /*"HUD,*/ "HAD",
+    "TGP", "HSD",  "FCR",  "SMS", "RWR",  /*"HUD,*/ "HAD", "TCN",
 };
 
 MFDClass::MfdMode MFDClass::initialMfdL[MFDClass::MAXMM][3] = {
@@ -320,6 +321,10 @@ void MFDClass::CreateDrawables(void)
     if (HadDrawable == NULL)
         HadDrawable = new HadMfdDrawable;
 
+    // Artscout - 2026: TCN page, held the same way as HAD
+    if (TcnDrawable == NULL)
+        TcnDrawable = new TcnMfdDrawable;
+
     for (DWORD i = 0; i < MaxPrivMode; i++)
     {
         if (mfdDraw[i] == NULL)
@@ -356,6 +361,13 @@ void MFDClass::DestroyDrawables(void)
         HadDrawable->DisplayExit();
         delete HadDrawable;
         HadDrawable = NULL;
+    }
+
+    if (TcnDrawable)
+    {
+        TcnDrawable->DisplayExit();
+        delete TcnDrawable;
+        TcnDrawable = NULL;
     }
 }
 
@@ -565,6 +577,10 @@ void MFDClass::SetMode(MfdMode newMode)
 
     case HADMode:
         drawable = HadDrawable;
+        break;
+
+    case TCNMode:
+        drawable = TcnDrawable;
         break;
 
     case FCCMode:

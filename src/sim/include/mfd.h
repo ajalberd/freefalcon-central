@@ -69,6 +69,7 @@ public:
         SMSMode,
         RWRMode,
         HADMode,
+        TCNMode, // Artscout - 2026: backup TACAN control page (after HAD, so no private mode shifts)
         /*HUDMode,*/ InputMode,
         MAXMODES
     };
@@ -144,6 +145,7 @@ public:
     static DrawableClass* mfdDraw[MaxPrivMode];
     static DrawableClass*
         HadDrawable; // RV - I-Hawk - Added for HAD mode instead of HUDMode
+    static DrawableClass* TcnDrawable; // Artscout - 2026: TCN page, same arrangement as HAD
     int Color(void);
     unsigned int GetIntensity(void);
     void IncreaseBrightness(void);
@@ -309,6 +311,23 @@ private:
     void DrawHDPT(VirtualDisplay* display, SMSClass* Sms);
     char HdptStationSym(int n, SMSClass* Sms);
     void DrawDLZ(VirtualDisplay* display);
+};
+
+// Artscout - 2026: the TCN format (TO 1F-16CMAM-34-1-1 2.1.6.16): backup TACAN channel, band
+// and mode control, on whichever control source (UFC or the AUX COMM panel) is currently live.
+class TcnMfdDrawable : public MfdDrawable
+{
+public:
+    TcnMfdDrawable() : entering(false), digits(0), entry(0) {};
+    ~TcnMfdDrawable(void) {};
+    virtual void Display(VirtualDisplay*);
+    void PushButton(int, int);
+
+private:
+    bool entering; // OSB 8 opened the digit keypad
+    int digits; // digits typed so far
+    int entry; // value typed so far
+    void CommitEntry(void);
 };
 
 class TgpMfdDrawable : public MfdDrawable

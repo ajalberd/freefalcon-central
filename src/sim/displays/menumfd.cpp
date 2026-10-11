@@ -34,7 +34,7 @@ static const MfdMenuButtons mainpage[20] = {
     //{NULL, NULL, MFDClass::HUDMode},
     {NULL, NULL, MFDClass::HADMode}, // RV - I-Hawk
     {NULL, NULL, MFDClass::RWRMode},
-    {"RCCE", NULL, MfdMenuButtons::ModeNoop},
+    {NULL, NULL, MFDClass::TCNMode}, // was the unimplemented RCCE slot (OSB 4)
     {"RESET", "MENU", MfdMenuButtons::ModeReset}, // 5
     {NULL, NULL, MFDClass::SMSMode},
     {NULL, NULL, MFDClass::FCCMode},

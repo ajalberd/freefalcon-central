@@ -80,6 +80,9 @@
     <ClCompile Include="smsdraw.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="TcnMfd.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="TestMfd.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

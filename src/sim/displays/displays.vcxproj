@@ -334,6 +334,7 @@
     <ClCompile Include="navhud.cpp" />
     <ClCompile Include="Sms.cpp" />
     <ClCompile Include="smsdraw.cpp" />
+    <ClCompile Include="TcnMfd.cpp" />
     <ClCompile Include="TestMfd.cpp" />
     <ClCompile Include="TgpMfd.cpp" />
     <ClCompile Include="WpnMfd.cpp" />
