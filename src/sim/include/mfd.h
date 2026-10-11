@@ -359,6 +359,7 @@ private:
     void DrawRange(VirtualDisplay* display);
     void CoolingDisplay(VirtualDisplay* display);
     void OSBLabels(VirtualDisplay* display);
+    void DrawSniperReadouts(VirtualDisplay* display); // Artscout - 2026
 };
 
 // RV - I-Hawk - Added a display class for HAD MFD mode

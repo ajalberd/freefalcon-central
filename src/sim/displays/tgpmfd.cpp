@@ -16,6 +16,8 @@
 #include "radardoppler.h"
 #include "laserpod.h"
 #include "airframe.h"
+#include "navsystem.h"
+#include "phyconst.h"
 
 void DrawBullseyeCircle(VirtualDisplay* display, float cursorX, float cursorY);
 SensorClass* FindLaserPod(SimMoverClass* theObject);
@@ -143,6 +145,7 @@ void TgpMfdDrawable::Display(VirtualDisplay* newDisplay)
         LaserIndicator(display);
         ImpactTime(display);
         DrawHDPT(display, Sms);
+        DrawSniperReadouts(display);
     }
 
     theRadar->GetCursorPosition(&cX, &cY);
@@ -391,6 +394,68 @@ char TgpMfdDrawable::HdptStationSym(int n, SMSClass* Sms) // JPO new routine
 
     return ' ';
 }
+// Artscout - 2026: the readouts of the Sniper XR base page that this pod page lacked
+// (TO 1F-16CMAM-34-1-1 2.6.1.2, figure on p.316): the sensor point of interest's latitude,
+// longitude and elevation top left, the zoom setting, the north pointer, and the laser mode,
+// status and code along the bottom. Positions are read off that figure (-1..1 across the screen).
+// Display only; nothing here changes how the pod behaves.
+void TgpMfdDrawable::DrawSniperReadouts(VirtualDisplay* display)
+{
+    if (not laserPod or StbyMode)
+        return;
+
+    char buf[32];
+
+    // Sensor point of interest: where the pod is looking on the ground
+    float px, py, pz;
+    laserPod->GetTargetPosition(&px, &py, &pz);
+
+    float lat, lon;
+    ApproxLatLong(px, py, &lat, &lon);
+    lat *= RTD;
+    lon *= RTD;
+
+    const float latMin = (float)fabs(lat - (int)lat) * DEG_TO_MIN;
+    const float lonMin = (float)fabs(lon - (int)lon) * DEG_TO_MIN;
+
+    sprintf(buf, "%d:%06.3f", (int)fabs(lat), latMin);
+    display->TextLeft(-0.72f, 0.62f, buf);
+    sprintf(buf, "%d:%06.3f", (int)fabs(lon), lonMin);
+    display->TextLeft(-0.72f, 0.51f, buf);
+    sprintf(buf, "%+d", (int)(-pz));
+    display->TextLeft(-0.72f, 0.40f, buf);
+
+    // zoom, as a multiple of the widest field of view (6 degrees)
+    const float fov = laserPod->CurFOV();
+
+    if (fov > 0.0f)
+    {
+        sprintf(buf, "%.1fX", (6.0f * DTR) / fov);
+        display->TextCenter(0.02f, 0.51f, buf);
+    }
+
+    // north pointer: the view is ground-stabilised with screen-up along the pod's heading, so
+    // north lies at -heading, clockwise from up
+    float yaw, pitch, roll;
+    laserPod->GetYPR(&yaw, &pitch, &roll);
+    const float cx = 0.46f, cy = 0.5f, r = 0.07f;
+    const float nx = (float)sin(-yaw), ny = (float)cos(-yaw);
+    display->Line(cx, cy, cx + nx * r, cy + ny * r);
+    display->TextCenter(cx + nx * (r + 0.05f), cy + ny * (r + 0.05f), "N");
+
+    // laser: mode, status, code
+    display->TextCenter(0.0f, -0.80f, "CMBT");
+
+    if (pFCC and pFCC->LaserArm)
+        display->TextCenter(0.0f, -0.88f, pFCC->LaserFire ? "LASE" : "RDY");
+
+    if (OTWDriver.pCockpitManager and OTWDriver.pCockpitManager->mpIcp)
+    {
+        sprintf(buf, "%d", OTWDriver.pCockpitManager->mpIcp->LaserCode);
+        display->TextCenter(0.30f, -0.80f, buf);
+    }
+}
+
 void TgpMfdDrawable::LaserIndicator(VirtualDisplay* display)
 {
     float x, y = 0;
