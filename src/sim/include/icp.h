@@ -392,6 +392,9 @@ public:
 
     //EWS page
     bool EWSMain, PGMChaff, PGMFlare, EWS_JAMMER_ON, EWS_BINGO_ON;
+    // FDBK: the "CHAFF FLARE" call when a program starts. REQCTR: the "COUNTER" request-for-consent
+    // call (TO 1F-16CMAM-34-1-1 2.7.2.3). Both default on, as before they were only drawn.
+    bool EWS_FDBK_ON, EWS_REQCTR_ON;
     void EWSOnOff(void);
     void EWSEnter(void);
     void EnterBurst(void);
@@ -511,6 +514,8 @@ public:
         EDIT_VHF = 0x40000,
         EDIT_UHF = 0x80000,
         EDIT_STPT = 0x100000,
+        EDIT_FDBK = 0x200000, // Artscout - 2026: EWS page FDBK / REQCTR toggles
+        EDIT_REQCTR = 0x400000,
     };
 
     //Functions for our Flags

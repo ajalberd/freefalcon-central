@@ -1243,7 +1243,8 @@ void PlayerRwrClass::CheckEWS(void)
     if (LaunchIndication() and not LaunchDetected)
     {
         //F4SoundFXSetDist(SFX_BB_COUNTER, TRUE, 0.0f, 1.0f );
-        PlayRWRSoundFX(SFX_BB_COUNTER, TRUE, 0.0f, 1.0f);
+        if (OTWDriver.pCockpitManager->mpIcp->EWS_REQCTR_ON) // REQCTR gates the "COUNTER" request
+            PlayRWRSoundFX(SFX_BB_COUNTER, TRUE, 0.0f, 1.0f);
 
         if (SimDriver.GetPlayerAircraft()->EWSPGM() == AircraftClass::Auto)
         {

@@ -659,16 +659,27 @@ void ICPClass::ExecEWSMode(void)
         FillDEDMatrix(2, (10 - strlen(tempstr)), tempstr);
     }
 
-    FillDEDMatrix(
-        2, 13,
-        "FDBK"); //JPG 12 Jun 04 - Ideally, it would be nice to turn this bitand REQCTR on/off to coincide w/
-    FillDEDMatrix(
-        2, 21, " ON"); //the Betty words, but it's more trouble than it's worth.
+    FillDEDMatrix(2, 13, "FDBK");
+
+    if (IsICPSet(ICPClass::EDIT_FDBK))
+    {
+        FillDEDMatrix(2, 20, "\x02", 2);
+        FillDEDMatrix(2, 24, "\x02", 2);
+    }
+
+    FillDEDMatrix(2, 21, EWS_FDBK_ON ? " ON" : "OFF");
     //Line4
     FillDEDMatrix(3, 2, "O1");
     FillDEDMatrix(3, 9, "0");
     FillDEDMatrix(3, 12, "REQCTR");
-    FillDEDMatrix(3, 21, " ON");
+
+    if (IsICPSet(ICPClass::EDIT_REQCTR))
+    {
+        FillDEDMatrix(3, 20, "\x02", 2);
+        FillDEDMatrix(3, 24, "\x02", 2);
+    }
+
+    FillDEDMatrix(3, 21, EWS_REQCTR_ON ? " ON" : "OFF");
     //Line5
     FillDEDMatrix(4, 2, "O2");
     FillDEDMatrix(4, 9, "0");

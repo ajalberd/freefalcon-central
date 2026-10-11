@@ -258,7 +258,8 @@ void AircraftClass::DropChaff(void)
     {
         if (counterMeasureStation[CHAFF_STATION].weaponCount == 0)
         {
-            SoundPos.Sfx(af->auxaeroData->sndBBChaffFlareOut);
+            if (OTWDriver.pCockpitManager->mpIcp->EWS_BINGO_ON) // BINGO enables LOW and OUT alike
+                SoundPos.Sfx(af->auxaeroData->sndBBChaffFlareOut);
             //make sure we don't get here again, no sounds from now on
             counterMeasureStation[CHAFF_STATION].weaponCount--;
         }
@@ -390,7 +391,8 @@ void AircraftClass::DropFlare(void)
         if (counterMeasureStation[FLARE_STATION].weaponCount == 0)
         {
             //F4SoundFXSetDist(af->auxaeroData->sndBBChaffFlareOut, TRUE, 0.0f, 1.0f);
-            SoundPos.Sfx(af->auxaeroData->sndBBChaffFlareOut);
+            if (OTWDriver.pCockpitManager->mpIcp->EWS_BINGO_ON)
+                SoundPos.Sfx(af->auxaeroData->sndBBChaffFlareOut);
             //make sure we don't get here again, no sounds from now on
             counterMeasureStation[FLARE_STATION].weaponCount--;
         }
@@ -442,7 +444,11 @@ void AircraftClass::DropEWS()
         (EWSPGM() == Man or EWSPGM() == Semi or EWSPGM() == Auto))
     {
         //F4SoundFXSetDist(af->auxaeroData->sndBBChaffFlare, FALSE, 0.0f, 1.0f);
-        if (not SoundPos.IsPlaying(af->auxaeroData->sndBBChaffFlare))
+        // FDBK off silences the "CHAFF FLARE" call for the player; everyone else keeps it
+        const bool fdbk = not(g_bRealisticAvionics and this == FalconLocalSession->GetPlayerEntity() and
+                              not OTWDriver.pCockpitManager->mpIcp->EWS_FDBK_ON);
+
+        if (fdbk and not SoundPos.IsPlaying(af->auxaeroData->sndBBChaffFlare))
         {
             SoundPos.Sfx(af->auxaeroData->sndBBChaffFlare); // MLR 5/16/2004 -
         }

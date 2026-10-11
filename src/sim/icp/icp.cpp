@@ -553,7 +553,9 @@ void ICPClass::HandleInput(int mode, CPButtonObject *pbutton)
             else if (ManualInput())
                 HandleManualInput(mode);
             else if (IsICPSet(ICPClass::EDIT_JAMMER) or
-                     IsICPSet(ICPClass::EWS_EDIT_BINGO))
+                     IsICPSet(ICPClass::EWS_EDIT_BINGO) or
+                     IsICPSet(ICPClass::EDIT_FDBK) or
+                     IsICPSet(ICPClass::EDIT_REQCTR))
                 EWSOnOff();
             else
                 OneButton(mode);
@@ -566,7 +568,9 @@ void ICPClass::HandleInput(int mode, CPButtonObject *pbutton)
             else if (ManualInput())
                 HandleManualInput(mode);
             else if (IsICPSet(ICPClass::EDIT_JAMMER) or
-                     IsICPSet(ICPClass::EWS_EDIT_BINGO))
+                     IsICPSet(ICPClass::EWS_EDIT_BINGO) or
+                     IsICPSet(ICPClass::EDIT_FDBK) or
+                     IsICPSet(ICPClass::EDIT_REQCTR))
                 EWSOnOff();
             else
                 TwoButton(mode);
@@ -579,7 +583,9 @@ void ICPClass::HandleInput(int mode, CPButtonObject *pbutton)
             else if (ManualInput())
                 HandleManualInput(mode);
             else if (IsICPSet(ICPClass::EDIT_JAMMER) or
-                     IsICPSet(ICPClass::EWS_EDIT_BINGO))
+                     IsICPSet(ICPClass::EWS_EDIT_BINGO) or
+                     IsICPSet(ICPClass::EDIT_FDBK) or
+                     IsICPSet(ICPClass::EDIT_REQCTR))
                 EWSOnOff();
             else
                 ThreeButton(mode);
@@ -592,7 +598,9 @@ void ICPClass::HandleInput(int mode, CPButtonObject *pbutton)
             else if (ManualInput())
                 HandleManualInput(mode);
             else if (IsICPSet(ICPClass::EDIT_JAMMER) or
-                     IsICPSet(ICPClass::EWS_EDIT_BINGO))
+                     IsICPSet(ICPClass::EWS_EDIT_BINGO) or
+                     IsICPSet(ICPClass::EDIT_FDBK) or
+                     IsICPSet(ICPClass::EDIT_REQCTR))
                 EWSOnOff();
             else
                 FourButton(mode);
@@ -605,7 +613,9 @@ void ICPClass::HandleInput(int mode, CPButtonObject *pbutton)
             else if (ManualInput())
                 HandleManualInput(mode);
             else if (IsICPSet(ICPClass::EDIT_JAMMER) or
-                     IsICPSet(ICPClass::EWS_EDIT_BINGO))
+                     IsICPSet(ICPClass::EWS_EDIT_BINGO) or
+                     IsICPSet(ICPClass::EDIT_FDBK) or
+                     IsICPSet(ICPClass::EDIT_REQCTR))
                 EWSOnOff();
             else
                 FifeButton(mode);
@@ -618,7 +628,9 @@ void ICPClass::HandleInput(int mode, CPButtonObject *pbutton)
             else if (ManualInput())
                 HandleManualInput(mode);
             else if (IsICPSet(ICPClass::EDIT_JAMMER) or
-                     IsICPSet(ICPClass::EWS_EDIT_BINGO))
+                     IsICPSet(ICPClass::EWS_EDIT_BINGO) or
+                     IsICPSet(ICPClass::EDIT_FDBK) or
+                     IsICPSet(ICPClass::EDIT_REQCTR))
                 EWSOnOff();
             else
                 SixButton(mode);
@@ -631,7 +643,9 @@ void ICPClass::HandleInput(int mode, CPButtonObject *pbutton)
             else if (ManualInput())
                 HandleManualInput(mode);
             else if (IsICPSet(ICPClass::EDIT_JAMMER) or
-                     IsICPSet(ICPClass::EWS_EDIT_BINGO))
+                     IsICPSet(ICPClass::EWS_EDIT_BINGO) or
+                     IsICPSet(ICPClass::EDIT_FDBK) or
+                     IsICPSet(ICPClass::EDIT_REQCTR))
                 EWSOnOff();
             else
                 SevenButton(mode);
@@ -644,7 +658,9 @@ void ICPClass::HandleInput(int mode, CPButtonObject *pbutton)
             else if (ManualInput())
                 HandleManualInput(mode);
             else if (IsICPSet(ICPClass::EDIT_JAMMER) or
-                     IsICPSet(ICPClass::EWS_EDIT_BINGO))
+                     IsICPSet(ICPClass::EWS_EDIT_BINGO) or
+                     IsICPSet(ICPClass::EDIT_FDBK) or
+                     IsICPSet(ICPClass::EDIT_REQCTR))
                 EWSOnOff();
             else
                 EightButton(mode);
@@ -657,7 +673,9 @@ void ICPClass::HandleInput(int mode, CPButtonObject *pbutton)
             else if (ManualInput())
                 HandleManualInput(mode);
             else if (IsICPSet(ICPClass::EDIT_JAMMER) or
-                     IsICPSet(ICPClass::EWS_EDIT_BINGO))
+                     IsICPSet(ICPClass::EWS_EDIT_BINGO) or
+                     IsICPSet(ICPClass::EDIT_FDBK) or
+                     IsICPSet(ICPClass::EDIT_REQCTR))
                 EWSOnOff();
             else
                 NineButton(mode);
@@ -714,7 +732,9 @@ void ICPClass::HandleInput(int mode, CPButtonObject *pbutton)
             if (CheckMode())
                 return;
             else if (IsICPSet(ICPClass::EDIT_JAMMER) or
-                     IsICPSet(ICPClass::EWS_EDIT_BINGO))
+                     IsICPSet(ICPClass::EWS_EDIT_BINGO) or
+                     IsICPSet(ICPClass::EDIT_FDBK) or
+                     IsICPSet(ICPClass::EDIT_REQCTR))
                 return;
             else if (ManualInput())
                 HandleManualInput(mode);

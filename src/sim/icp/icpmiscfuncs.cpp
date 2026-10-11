@@ -614,6 +614,14 @@ void ICPClass::EWSOnOff(void)
         else
             EWS_BINGO_ON = TRUE;
     }
+    else if (IsICPSet(ICPClass::EDIT_FDBK))
+    {
+        EWS_FDBK_ON = not EWS_FDBK_ON;
+    }
+    else if (IsICPSet(ICPClass::EDIT_REQCTR))
+    {
+        EWS_REQCTR_ON = not EWS_REQCTR_ON;
+    }
 }
 void ICPClass::CheckDigits(void)
 {
@@ -763,6 +771,8 @@ void ICPClass::InitStuff(void)
     FlareBingo = 10;
     EWS_JAMMER_ON = TRUE;
     EWS_BINGO_ON = TRUE;
+    EWS_FDBK_ON = TRUE;
+    EWS_REQCTR_ON = TRUE;
     BQ = FALSE;
     BI = FALSE;
     SQ = FALSE;

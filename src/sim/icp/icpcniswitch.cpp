@@ -208,11 +208,23 @@ void ICPClass::CNISwitch(int mode)
                     ClearICPFlag(ICPClass::EDIT_JAMMER);
                     SetICPFlag(ICPClass::FLARE_BINGO);
                 }
+                else if (IsICPSet(ICPClass::EDIT_FDBK))
+                {
+                    ClearStrings();
+                    ClearICPFlag(ICPClass::EDIT_FDBK);
+                    SetICPFlag(ICPClass::EDIT_JAMMER);
+                }
+                else if (IsICPSet(ICPClass::EDIT_REQCTR))
+                {
+                    ClearStrings();
+                    ClearICPFlag(ICPClass::EDIT_REQCTR);
+                    SetICPFlag(ICPClass::EDIT_FDBK);
+                }
                 else
                 {
                     ClearStrings();
                     ClearICPFlag(ICPClass::EWS_EDIT_BINGO);
-                    SetICPFlag(ICPClass::EDIT_JAMMER);
+                    SetICPFlag(ICPClass::EDIT_REQCTR);
                 }
             }
             else if (PGMChaff or PGMFlare)
@@ -464,6 +476,16 @@ void ICPClass::CNISwitch(int mode)
                 else if (IsICPSet(ICPClass::EDIT_JAMMER))
                 {
                     ClearICPFlag(ICPClass::EDIT_JAMMER);
+                    SetICPFlag(ICPClass::EDIT_FDBK);
+                }
+                else if (IsICPSet(ICPClass::EDIT_FDBK))
+                {
+                    ClearICPFlag(ICPClass::EDIT_FDBK);
+                    SetICPFlag(ICPClass::EDIT_REQCTR);
+                }
+                else if (IsICPSet(ICPClass::EDIT_REQCTR))
+                {
+                    ClearICPFlag(ICPClass::EDIT_REQCTR);
                     SetICPFlag(ICPClass::EWS_EDIT_BINGO);
                 }
                 else
@@ -620,6 +642,8 @@ void ICPClass::CNISwitch(int mode)
                 ClearICPFlag(ICPClass::FLARE_BINGO);
                 ClearICPFlag(ICPClass::EDIT_JAMMER);
                 ClearICPFlag(ICPClass::EWS_EDIT_BINGO);
+                ClearICPFlag(ICPClass::EDIT_FDBK);
+                ClearICPFlag(ICPClass::EDIT_REQCTR);
             }
             else if (PGMChaff)
             {
