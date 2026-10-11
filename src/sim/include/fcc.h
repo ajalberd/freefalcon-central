@@ -284,6 +284,7 @@ private:
     void DrawBuggedTarget();
     void DrawWingmen();
     void DrawFriendlyFlights(); // Artscout - 2026: Link 16 "lite", other friendly flights on the HSD
+    void DrawLink16Hostiles(); // Artscout - 2026: hostile air tracks the team has spotted, while an AWACS is up
     void Draw1Wingman(AircraftClass* wing);
     void DrawAIFF(void);//Cobra 11/27/04
     void Draw1WingmanGnd(AircraftClass* wing);

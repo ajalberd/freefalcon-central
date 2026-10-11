@@ -2278,7 +2278,101 @@ void FireControlComputer::DrawWingmen()
     }
 
     if (not IsHsdState(HSDNOADLNK))
+    {
         DrawFriendlyFlights();
+        DrawLink16Hostiles();
+    }
+}
+
+// Artscout - 2026: the hostile half of the Link 16 picture. While one of our AWACS flights is airborne, hostile
+// flights our team has spotted (campaign detection: radars, AWACS, ground observers) are drawn on the HSD of a
+// Link 16 aircraft: a hollow triangle in the hostile colour with its heading line and altitude. This is
+// knowledge the pilot did not get from his own sensors, so it is gated by cfg Link16Hostile (default on) and by
+// an AWACS being up on his side.
+void FireControlComputer::DrawLink16Hostiles()
+{
+    extern bool g_bLink16Hostile;
+    AircraftClass* playerAC = SimDriver.GetPlayerAircraft();
+
+    if (not g_bLink16Hostile or not platform or not playerAC)
+        return;
+
+    VehicleClassDataType* myVc =
+        (VehicleClassDataType*)Falcon4ClassTable[platform->Type() - VU_LAST_ENTITY_TYPE].dataPtr;
+
+    if (not myVc or not(myVc->Flags bitand VEH_HAS_LINK16))
+        return;
+
+    if (g_bRealisticAvionics and g_bINS and not playerAC->INSState(AircraftClass::INS_HSD_STUFF))
+        return;
+
+    const int myTeam = platform->GetTeam();
+    bool awacsUp = false;
+
+    {
+        VuListIterator it(AllAirList);
+
+        for (Unit u = (Unit)it.GetFirst(); u and not awacsUp; u = (Unit)it.GetNext())
+        {
+            if (u->IsFlight() and not u->IsDead() and u->GetTeam() == myTeam and
+                u->GetUnitMission() == AMIS_AWACS and u->GetUnitAltitude() > 5000)
+                awacsUp = true;
+        }
+    }
+
+    if (not awacsUp)
+        return;
+
+    mlTrig trig;
+    mlSinCos(&trig, platform->Yaw());
+    VuListIterator it(AllAirList);
+
+    for (Unit u = (Unit)it.GetFirst(); u; u = (Unit)it.GetNext())
+    {
+        if (not u->IsFlight() or u->IsDead() or u->GetTeam() == myTeam or
+            GetRoE(myTeam, u->GetTeam(), ROE_AIR_FIRE) not_eq ROE_ALLOWED or not u->GetSpotted(myTeam))
+            continue;
+
+        SimBaseClass* lead = u->GetComponentNumber(0);
+        const float fx = lead ? lead->XPos() : u->XPos();
+        const float fy = lead ? lead->YPos() : u->YPos();
+        const float fz = lead ? lead->ZPos() : u->ZPos();
+
+        if (OTWDriver.GetGroundLevel(fx, fy) - fz < 300.0f)
+            continue;
+
+        float y = (fx - platform->XPos()) * FT_TO_NM / HSDRange;
+        float x = (fy - platform->YPos()) * FT_TO_NM / HSDRange;
+
+        if (g_bRealisticAvionics and HSDZoom not_eq 0)
+        {
+            y *= HSDZoom;
+            x *= HSDZoom;
+        }
+
+        const float displayX = trig.cos * x - trig.sin * y;
+        const float displayY = trig.sin * x + trig.cos * y;
+
+        if (displayX * displayX + displayY * displayY > 1.0f)
+            continue;
+
+        display->SetColor(GetMfdColor(MFD_HOSTILE));
+        display->AdjustOriginInViewport(displayX, displayY);
+        display->Line(0.0f, 0.04f, 0.035f, -0.025f);
+        display->Line(0.035f, -0.025f, -0.035f, -0.025f);
+        display->Line(-0.035f, -0.025f, 0.0f, 0.04f);
+
+        if (lead)
+        {
+            const float dir = lead->Yaw() - platform->Yaw();
+            display->Line(0.0f, 0.04f, 0.09f * (float)sin(dir), 0.04f + 0.09f * (float)cos(dir));
+        }
+
+        char alt[12];
+        sprintf(alt, "%d", (int)((-fz + 500.0f) / 1000.0f));
+        display->TextCenterVertical(0.0f, -0.09f, alt);
+        display->AdjustOriginInViewport(-displayX, -displayY);
+    }
 }
 
 // Artscout - 2026: Link 16 "lite". An aircraft with a Link 16 terminal (VEH_HAS_LINK16 on its vehicle

@@ -641,6 +641,7 @@ int g_nFarLodExtra = 1;
 float g_fCloudMinHeight = -1.0f; // JPO
 float g_fRadarScale = 1.0f; // JPO
 float g_fCursorSpeed = 1.0f; // JPO
+bool g_bLink16Hostile = true; // Artscout - 2026: Link 16 aircraft see hostile air tracks the team has spotted on the HSD while an AWACS is up (0 = friendly flights only). "Link16Hostile".
 float g_fEcmXmitDegrade = 0.20f; // Artscout - 2026: own radar detection range lost while the jammer transmits in XMIT 2 / 3 (0 = no penalty, 0.2 = 20 percent). "EcmXmitDegrade".
 float g_fMinCloudWeather = 1500; // JPO
 float g_fCloudThicknessFactor = 4000; //JPO
@@ -2084,6 +2085,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"HudTextTrace", &g_bHudTextTrace}, // Artscout - 2026: DIAGNOSTIC, logs who draws the HUD string "50" (see display.cpp)
     {"HudTextTrace", &g_bHudTextTrace}, // Artscout - 2026: DIAGNOSTIC, logs who draws the HUD string "50" (see display.cpp)
     {"Sync2D3DPit", &g_bSync2D3DPit}, // Wombat778 11-17-2004
+    {"Link16Hostile", &g_bLink16Hostile}, // Artscout - 2026: hostile air tracks on the HSD for Link 16 aircraft while an AWACS is up (default 1)
     {"LowBwVoice", &g_bLowBwVoice},
     {"AGTargetWPFix", &g_bAGTargetWPFix}, // 2002-04-06 MN
     {"BombNumLoopOnly",
