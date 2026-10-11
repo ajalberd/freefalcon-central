@@ -5608,10 +5608,13 @@ void OTWDriverClass::VCock_Exec(void)
                 // HudGainNight no longer do anything: they asked for gains above 1, which only garbled the colour.)
                 float modeScale = 1.0f;
 
+                // NIGHT 0.3: the composite shader boosts the HUD x1.5 and DAY clips at full, so 0.5 came out only
+                // ~25% dimmer than DAY -- the log showed the gain arriving (0.99 / 0.55 / 0.49) and it still read as
+                // "the switch does nothing" at night (flight 5).
                 if (TheHud->GetBrightnessSwitch() == HudClass::NIGHT)
-                    modeScale = 0.5f;
+                    modeScale = 0.3f;
                 else if (TheHud->GetBrightnessSwitch() == HudClass::BRIGHT_AUTO)
-                    modeScale = 0.5f + 0.5f * env;
+                    modeScale = 0.3f + 0.7f * env;
 
                 g_rttHudGain *= modeScale;
 

@@ -92,7 +92,10 @@ static void R12Log(const char* fmt, ...)
 // forcing a GPU stall to grow. Tune if a giant terrain frame ever overflows.
 enum
 {
-    CB_RING_BYTES = 4 * 1024 * 1024,
+    // Artscout - 2026: 4 -> 16 MB. The ring resets per eye in VR; an eye that also draws a sensor world (the HUD
+    // FLIR, ~600 terrain dispatches) overflowed 4 MB on its first frame and every draw after it was dropped --
+    // HUD, FPS counter, cursor (flight 5, 2026-10-11).
+    CB_RING_BYTES = 16 * 1024 * 1024,
     VB_RING_BYTES = 24 * 1024 * 1024,
     IB_RING_BYTES = 8 * 1024 * 1024
 };
