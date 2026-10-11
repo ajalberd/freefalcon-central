@@ -430,6 +430,12 @@ public:
     char waypointValid;
 
     int dedRepeat;
+    // Artscout - 2026: landing declutter (TO 1F-16CMAM-34-1-1 2.1.7.6.25). Uncage with the gear down in NAV
+    // or ILS removes the roll indicator, ILS bars, flight director and DED data; it clears itself on
+    // leaving NAV/landing, gear up, weight on wheels, or the next uncage.
+    bool landingDeclutter;
+    void ToggleLandingDeclutter(void);
+    bool LandingDeclutterAvailable(void);
     float lowAltWarning;
     enum
     {

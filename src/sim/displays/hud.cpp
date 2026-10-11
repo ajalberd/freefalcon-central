@@ -219,6 +219,7 @@ HudClass::HudClass(void) : DrawableClass()
     SetVelocitySwitch(CAS);
 
     dedSwitch = DED_OFF;
+    landingDeclutter = false;
     radarSwitch = RADAR_AUTO;
     brightnessSwitch = DAY;
     display = NULL;
@@ -617,6 +618,9 @@ void HudClass::Display(VirtualDisplay* newDisplay, bool gTranslucent)
         break;
 
     case FireControlComputer::ILS:
+        if (landingDeclutter) // ILS bars and the flight director are among what the declutter removes
+            break;
+
         DrawILS();
 
         //MI
@@ -1093,8 +1097,28 @@ void HudClass::CycleBrightnessSwitchDown(void)
 }
 
 
+bool HudClass::LandingDeclutterAvailable(void)
+{
+    extern bool g_bRealisticAvionics;
+
+    if (not g_bRealisticAvionics or not ownship or not ownship->af or not FCC)
+        return false;
+
+    return ownship->af->gearPos > 0.5F and not ownship->OnGround() and
+           (FCC->GetMasterMode() == FireControlComputer::Nav or
+            FCC->GetMasterMode() == FireControlComputer::ILS);
+}
+
+void HudClass::ToggleLandingDeclutter(void)
+{
+    landingDeclutter = not landingDeclutter;
+}
+
 void HudClass::DrawAlphaNumeric(void)
 {
+    if (landingDeclutter and not LandingDeclutterAvailable())
+        landingDeclutter = false;
+
     //MI not here in BUP reticle mode
     if (g_bRealisticAvionics and WhichMode == 2 and
         FCC->GetSubMode() == FireControlComputer::MAN)
@@ -1379,9 +1403,10 @@ void HudClass::DrawAlphaNumeric(void)
 
     //MI they wanted DED data, so here it is.....
     //if (dedSwitch == DED_DATA and OTWDriver.GetOTWDisplayMode() == OTWDriverClass::ModeHud)
-    if (dedSwitch == DED_DATA or
-        dedSwitch ==
-            PFL_DATA) // and OTWDriver.GetOTWDisplayMode() == OTWDriverClass::ModeHud)
+    if (not landingDeclutter and
+        (dedSwitch == DED_DATA or
+         dedSwitch ==
+             PFL_DATA)) // and OTWDriver.GetOTWDisplayMode() == OTWDriverClass::ModeHud)
     {
         if (OTWDriver.pCockpitManager)
         {

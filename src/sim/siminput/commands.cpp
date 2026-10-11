@@ -1835,6 +1835,13 @@ void SimToggleMissileCage(unsigned long, int state, void*)
 
     if (pac and pac->IsSetFlag(MOTION_OWNSHIP) and (state bitand KEY_DOWN))
     {
+        // Artscout - 2026: with the gear down in NAV / ILS the uncage switch is the HUD landing declutter
+        if (TheHud and TheHud->LandingDeclutterAvailable())
+        {
+            TheHud->ToggleLandingDeclutter();
+            return;
+        }
+
         //MI check for MAV Displays
         if (pac->Sms->curWeaponType == wtAgm65 and pac->Sms->curWeapon.get() and
             pac->Sms->Powered)

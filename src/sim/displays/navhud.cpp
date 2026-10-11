@@ -1351,7 +1351,11 @@ void HudClass::DrawHeading(void)
     DrawWaypoint();
 
     //MI
-    if (not g_bRealisticAvionics)
+    if (landingDeclutter)
+    {
+        // landing declutter: no flight director / steering symbol, no roll indicator
+    }
+    else if (not g_bRealisticAvionics)
         DrawTadpole();
     else
     {
@@ -1364,7 +1368,10 @@ void HudClass::DrawHeading(void)
     }
 
     //MI
-    if (not g_bRealisticAvionics)
+    if (landingDeclutter)
+    {
+    }
+    else if (not g_bRealisticAvionics)
         DrawRollCue();
     else
     {
