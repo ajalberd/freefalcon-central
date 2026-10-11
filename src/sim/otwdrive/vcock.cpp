@@ -5603,6 +5603,18 @@ void OTWDriverClass::VCock_Exec(void)
                 // and AUTO alpha curves in SetLightLevel top out at 0.4 / 0.3, which read dim at full wheel)
                 const float nightGain = 1.0f + (g_fHudGainNight - 1.0f) * w;
                 g_rttHudGain = nightGain + (wheelGain - nightGain) * env;
+
+                // The DAY / AUTO BRT / NIGHT switch. Its alpha (SetLightLevel) is in the HUD colour but the pit's
+                // composite does not show it, so the switch looked dead: apply it here, to the gain, the way the
+                // SYM wheel is. DAY full; NIGHT half; AUTO BRT follows the sky between the two.
+                float modeScale = 1.0f;
+
+                if (TheHud->GetBrightnessSwitch() == HudClass::NIGHT)
+                    modeScale = 0.5f;
+                else if (TheHud->GetBrightnessSwitch() == HudClass::BRIGHT_AUTO)
+                    modeScale = 0.5f + 0.5f * env;
+
+                g_rttHudGain *= modeScale;
             }
 
             vHUDrenderer->DrawRttQuad();
