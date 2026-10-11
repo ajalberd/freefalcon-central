@@ -30,7 +30,7 @@ extern bool g_bOldFontTexelFix; //Wombat777 4-01-04
 // g_fHudFontScale multiplies the glyph quad AND the advance; the atlas cell is 12x19, bigger than any
 // stock size, so the default brings it back near the 8x6 ladder step the HUD layout was tuned for.
 bool g_bHudStrokeFont = true;
-float g_fHudFontScale = 0.8f;
+float g_fHudFontScale = 0.7f;
 
 int FindBestResolution(); //Wombat778 4-03-04
 

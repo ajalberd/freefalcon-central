@@ -2509,7 +2509,7 @@ static ConfigOption<float> FloatOpts[] = {
     {"HmcsHudBottom", &g_fHmcsHudBottom},
     {"HmcsScale", &g_fHmcsScale},         // Artscout - 2026: JHMCS symbology size
     {"HmcsTextScale", &g_fHmcsTextScale}, // Artscout - 2026: JHMCS glyph size
-    {"HudFontScale", &g_fHudFontScale}, // Artscout - 2026: HUD stroke font glyph size (default 0.8 of its 12x19 cell)
+    {"HudFontScale", &g_fHudFontScale}, // Artscout - 2026: HUD stroke font glyph size (default 0.7 of its 12x19 cell)
     {"MipLodBias", &g_fMipLodBias},
     {"BubbleScale", &g_fBubbleScale}, // Artscout - 2026: local-only multiplier on every non-objective sim bubble (default 1; 0.25..8). Costs CPU, not GPU. [BUBBLE] lines in FFDebug.log show the resulting ranges.
     {"FarPlaneKm", &g_fFarPlaneKm}, // Artscout - 2026: world far clip in km (default 85.34 = the old 280000 ft). Also sets the terrain-ring limit, the haze end and the Setup slider reach.

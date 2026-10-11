@@ -187,5 +187,7 @@ both the 2D and 3D sets loaded it; missing files = old behaviour. Slot 4 sits pa
 
 The atlas cell is 12x19, larger than the 10x7 step, so each font now has a `fontScale[]`
 multiplier applied in `ScreenText`, `ScreenTextWidth` and `ScreenTextHeight`. Cfg:
-`HudStrokeFont` (default 1) and `HudFontScale` (default 0.8; 0.6 read small next to BMS, whose HUD digits come out ~1.25x the old font).
+`HudStrokeFont` (default 1) and `HudFontScale` (default 0.7: 0.8 stacked the fixed-position multi-line text blocks until the lines touched, 0.6 read small next to BMS).
 `NUM_FONT_RESOLUTIONS` went 4 -> 5 and `FontSet` gained members: **Rebuild All**.
+
+The atlas is rebuilt at 3x (768x768) by `tools/hudfont/make_hud_font.py` from the BMS `Hud_Font_d` files; the `.rct` keeps the 256 layout because UVs are fractions. Flown 2026-10-10: crisp, no blur. Open: HUD brightness vs BMS, symbology line weight, a stray "50" overlapping the right-hand text block.
