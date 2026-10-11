@@ -246,6 +246,15 @@ float RadarClass::ReturnStrength(SimObjectType* target)
     // Factor in relative RCS of target
     S *= target->BaseData()->GetRCSFactor();
 
+    // Artscout - 2026: our own jammer in XMIT 2 / 3 degrades our own radar while it transmits
+    {
+        extern float g_fEcmXmitDegrade;
+
+        if (platform and platform->IsAirplane() and platform->IsSetFlag(ECM_ON) and
+            ((AircraftClass*)platform)->EcmXmit >= 2)
+            S *= 1.0f - g_fEcmXmitDegrade;
+    }
+
     // 2001-09-08 ADDED BY S.G. CHECK IF SHOULD USE RP5 DATA OR NOT
     if (0) // me123 agreed with jjb to test this g_bRP5Comp)
     {
@@ -271,8 +280,12 @@ float RadarClass::ReturnStrength(SimObjectType* target)
         iAz = (int)fabs(target->localData->azFrom * RTD);
         iEl = (int)(target->localData->elFrom * RTD);
 
+        // Artscout - 2026: XMIT 1 transmits from the aft antenna only: no cover for radars ahead of the jet
+        const bool rearOnly = target->BaseData()->IsAirplane() and
+                              ((AircraftClass*)target->BaseData())->EcmXmit == 1;
+
         // If we don't go inside this if body, we do not have ECM protection at all so 'S' isn't reduced
-        if ((iAz < 60 or iAz > 120) and iEl > -30 and iEl < 15)
+        if (((iAz < 60 and not rearOnly) or iAz > 120) and iEl > -30 and iEl < 15)
         {
             if (iAz < 60 and iAz >= 30)
                 ecmAngleFactor = (float)sqrt(

@@ -641,6 +641,7 @@ int g_nFarLodExtra = 1;
 float g_fCloudMinHeight = -1.0f; // JPO
 float g_fRadarScale = 1.0f; // JPO
 float g_fCursorSpeed = 1.0f; // JPO
+float g_fEcmXmitDegrade = 0.20f; // Artscout - 2026: own radar detection range lost while the jammer transmits in XMIT 2 / 3 (0 = no penalty, 0.2 = 20 percent). "EcmXmitDegrade".
 float g_fMinCloudWeather = 1500; // JPO
 float g_fCloudThicknessFactor = 4000; //JPO
 
@@ -2591,6 +2592,7 @@ static ConfigOption<float> FloatOpts[] = {
     {"CloudMinHeight", &g_fCloudMinHeight}, // JPO
     {"RadarScale", &g_fRadarScale}, // JPO
     {"CursorSpeed", &g_fCursorSpeed}, // JPO
+    {"EcmXmitDegrade", &g_fEcmXmitDegrade}, // Artscout - 2026: fraction of own radar range lost while the ECM pod transmits in XMIT 2 / 3 (default 0.20)
     {"HudCollimateScale",
      &g_fHudCollimateScale}, // Artscout - 2026: tune HUD collimation strength (1.0 = original)
     {"Hud3DGlassTint",

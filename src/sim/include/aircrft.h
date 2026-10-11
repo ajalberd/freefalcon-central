@@ -608,6 +608,10 @@ public:
     void EWSFlareBurst(void);
     void ReleaseManualProgram(void);
     bool ManualECM;
+    // Artscout - 2026: ECM pod XMIT switch (TO 1F-16CMAM-34-1-1 2.7.4.1). 1 = avionics priority, only the aft
+    // antenna transmits (jamming covers the rear cone only); 2 = ECM priority and 3 = active jam, both cover
+    // front and rear but degrade the aircraft's own radar while jamming (cfg EcmXmitDegrade). Default 2.
+    int EcmXmit;
     int FlareCount, ChaffCount, ChaffSalvoCount, FlareSalvoCount;
     VU_TIME ChaffBurstInterval, FlareBurstInterval, ChaffSalvoInterval,
         FlareSalvoInterval;

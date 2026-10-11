@@ -553,6 +553,10 @@ void SimWheelBrakes(unsigned long val, int state, void *);
 void SimNWSToggle(unsigned long val, int state,
                   void *); // Artscout - 2026: NWS/AR DISC select
 void SimECMOn(unsigned long val, int state, void *);
+void SimEcmXmitStep(unsigned long val, int state, void *); // Artscout - 2026: XMIT 1 -> 2 -> 3 -> 1
+void SimEcmXmit1(unsigned long val, int state, void *);
+void SimEcmXmit2(unsigned long val, int state, void *);
+void SimEcmXmit3(unsigned long val, int state, void *);
 void SimECMStandby(unsigned long val, int state,
                    void *); //Wombat778 11-3-2003 + MD 20031128
 void SimECMConsent(unsigned long val, int state,

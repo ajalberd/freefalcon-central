@@ -163,6 +163,7 @@ static struct UserFunctionListEntry UserFunctionList[] =
              USER_FUNCTION(SimECMOn) USER_FUNCTION(
                  SimECMStandby) //Wombat778 11-3-2003 + MD 20031128
      USER_FUNCTION(SimECMConsent) //Wombat778 11-3-2003 + MD 20031128
+     USER_FUNCTION(SimEcmXmitStep) USER_FUNCTION(SimEcmXmit1) USER_FUNCTION(SimEcmXmit2) USER_FUNCTION(SimEcmXmit3)
      USER_FUNCTION(SimCMSUp) // CMS Fwd: reset the selected program (1-4)
      USER_FUNCTION(SimCMSDown) // CMS Aft: AUTO + ECM on/consent
      USER_FUNCTION(SimCMSLeft) // CMS Left: bypass — 1 chaff + 1 flare

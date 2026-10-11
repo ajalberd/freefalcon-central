@@ -333,6 +333,7 @@ void AircraftClass::InitLocalData(int flag)
 
     //MI EWS
     ManualECM = FALSE;
+    EcmXmit = 2;
     EWSProgNum = 0;
     APFlag = 0;
 

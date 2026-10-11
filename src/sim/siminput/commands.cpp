@@ -4531,6 +4531,38 @@ void SimECMStandby(unsigned long, int state,
 //Wombat778 11-3-2003 Added for the pitbuilders.  Really SimECMOn should be named SimECMToggle, but I don't want to break any keystrokes files.
 // MD -- 20031128: minor changes following up on conversation with the originator of the request for this feature.
 
+static void SetEcmXmit(int position)
+{
+    AircraftClass* pac = SimDriver.GetPlayerAircraft();
+
+    if (pac and pac->IsSetFlag(MOTION_OWNSHIP))
+        pac->EcmXmit = position ? position : (pac->EcmXmit % 3) + 1;
+}
+
+void SimEcmXmitStep(unsigned long, int state, void*)
+{
+    if (state bitand KEY_DOWN)
+        SetEcmXmit(0);
+}
+
+void SimEcmXmit1(unsigned long, int state, void*)
+{
+    if (state bitand KEY_DOWN)
+        SetEcmXmit(1);
+}
+
+void SimEcmXmit2(unsigned long, int state, void*)
+{
+    if (state bitand KEY_DOWN)
+        SetEcmXmit(2);
+}
+
+void SimEcmXmit3(unsigned long, int state, void*)
+{
+    if (state bitand KEY_DOWN)
+        SetEcmXmit(3);
+}
+
 void SimECMConsent(unsigned long, int state,
                    void*) //Switches ECM on.  Map to HOTAS CMS hat "down"
 {
