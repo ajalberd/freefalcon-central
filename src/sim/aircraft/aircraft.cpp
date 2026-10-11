@@ -364,6 +364,10 @@ void AircraftClass::InitLocalData(int flag)
 
     //MI VMS stuff
     playBetty = TRUE;
+    dwatTime = 0.0f;
+    dwatRunwayAlt = 0.0f;
+    dwatMaxAgl = 0.0f;
+    dwatFired = false;
     //MI RF Switch
     RFState = 0;
 
@@ -2522,6 +2526,8 @@ int AircraftClass::Exec(void)
             mFaults->ClearFault(alt_low);
         }
 
+        CheckDWAT();
+
         // check for collision with feature
         if (af->vt > 0.0f and not isDigital and PlayerOptions.CollisionsOn())
             GroundFeatureCheck(af->groundZ);
@@ -3767,6 +3773,56 @@ void AircraftClass::DecEWSProg()
     if (EWSProgNum > 0)
         EWSProgNum--;
 }
+// Artscout - 2026: Descent Warning After Takeoff. The VMU says "ALTITUDE - ALTITUDE" once per
+// takeoff when, within three minutes of liftoff with the gear up, the aircraft has climbed at
+// least 300 ft (and never more than 10,000 ft) above the runway and its descent rate would put it
+// back at runway height inside 30 s.
+void AircraftClass::CheckDWAT(void)
+{
+    if (isDigital or not playBetty)
+        return;
+
+    const float altMsl = -ZPos();
+
+    if (OnGround())
+    {
+        dwatTime = 0.0f;
+        dwatMaxAgl = 0.0f;
+        dwatFired = false;
+        dwatRunwayAlt = altMsl;
+        return;
+    }
+
+    if (dwatFired or dwatTime < 0.0f or af->gearPos > 0.0f)
+        return;
+
+    dwatTime += SimLibMajorFrameTime;
+
+    if (dwatTime > 180.0f)
+    {
+        dwatTime = -1.0f;
+        return;
+    }
+
+    const float agl = altMsl - dwatRunwayAlt;
+
+    if (agl > dwatMaxAgl)
+        dwatMaxAgl = agl;
+
+    if (dwatMaxAgl >= 10000.0f)
+    {
+        dwatTime = -1.0f;
+        return;
+    }
+
+    // zdot is positive down, ft/s
+    if (dwatMaxAgl >= 300.0f and af->zdot > 1.0f and agl / af->zdot <= 30.0f)
+    {
+        SoundPos.Sfx(af->GetAltitudeSnd());
+        dwatFired = true;
+    }
+}
+
 void AircraftClass::ToggleBetty()
 {
     playBetty = not playBetty;

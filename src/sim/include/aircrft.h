@@ -797,6 +797,12 @@ public:
     void SetExternalData(void);
     //MI Inhibit VMS Switch
     bool playBetty;
+    // Artscout - 2026: Descent Warning After Takeoff (TO 1F-16CMAM-34-1-1 2.1.9.1.3)
+    float dwatTime; // s airborne with the gear up since liftoff; < 0 = disarmed
+    float dwatRunwayAlt; // ft MSL of the runway we left
+    float dwatMaxAgl; // highest height above that runway reached since liftoff
+    bool dwatFired;
+    void CheckDWAT(void);
     void ToggleBetty(void);
     //MI RF switch
     int RFState; //0 = NORM; 1 = QUIET; 2 = SILENT
