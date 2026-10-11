@@ -257,12 +257,16 @@ private:
 class DteMfdDrawable : public MfdDrawable
 {
 public:
-    DteMfdDrawable() {};
+    DteMfdDrawable() : loadStart(0), loadApplied(false) {};
     ~DteMfdDrawable(void) {};
     virtual void Display(VirtualDisplay*);
     void PushButton(int, int);
 
 private:
+    // Artscout - 2026: LOAD runs the BMS highlight sequence over the subsystems and then puts the UFC back to
+    // its mission defaults (the same InitStuff the ICP runs at start-up). There is no real cartridge.
+    unsigned long loadStart; // vuxRealTime of the LOAD press; 0 = idle
+    bool loadApplied;
 };
 
 class FlcsMfdDrawable : public MfdDrawable
