@@ -364,7 +364,7 @@ void AircraftClass::InitLocalData(int flag)
 
     //MI VMS stuff
     playBetty = TRUE;
-    dwatTime = 0.0f;
+    dwatTime = -1.0f; // disarmed until the aircraft has stood on a runway, so an airborne start never fires it
     dwatRunwayAlt = 0.0f;
     dwatMaxAgl = 0.0f;
     dwatFired = false;
