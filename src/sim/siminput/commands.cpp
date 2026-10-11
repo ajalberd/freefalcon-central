@@ -7055,6 +7055,7 @@ void SimHUDBrightness(unsigned long, int state, void*)
         SimDriver.GetPlayerAircraft()->IsSetFlag(
             MOTION_OWNSHIP)) // 2002-02-15 MODIFIED BY S.G. Any cockpit stuff is valid only if the player hasn't ejected...
     {
+        FFDebugLog("[HUDBRT] SimHUDBrightness (cycle) fired\n");
         TheHud->CycleBrightnessSwitch();
 
         if (OTWDriver.GetVirtualCockpit())
@@ -7076,6 +7077,7 @@ void SimHUDBrtDay(unsigned long, int state, void*)
         SimDriver.GetPlayerAircraft()->IsSetFlag(
             MOTION_OWNSHIP)) // 2002-02-15 MODIFIED BY S.G. Any cockpit stuff is valid only if the player hasn't ejected...
     {
+        FFDebugLog("[HUDBRT] SimHUDBrtDay fired\n");
         TheHud->SetBrightnessSwitch(HudClass::DAY);
 
         if (OTWDriver.GetVirtualCockpit())
@@ -7093,6 +7095,7 @@ void SimHUDBrtAuto(unsigned long, int state, void*)
         SimDriver.GetPlayerAircraft()->IsSetFlag(
             MOTION_OWNSHIP)) // 2002-02-15 MODIFIED BY S.G. Any cockpit stuff is valid only if the player hasn't ejected...
     {
+        FFDebugLog("[HUDBRT] SimHUDBrtAuto fired\n");
         TheHud->SetBrightnessSwitch(HudClass::BRIGHT_AUTO);
 
         if (OTWDriver.GetVirtualCockpit())
@@ -7110,6 +7113,7 @@ void SimHUDBrtNight(unsigned long, int state, void*)
         SimDriver.GetPlayerAircraft()->IsSetFlag(
             MOTION_OWNSHIP)) // 2002-02-15 MODIFIED BY S.G. Any cockpit stuff is valid only if the player hasn't ejected...
     {
+        FFDebugLog("[HUDBRT] SimHUDBrtNight fired\n");
         TheHud->SetBrightnessSwitch(HudClass::NIGHT);
 
         if (OTWDriver.GetVirtualCockpit())

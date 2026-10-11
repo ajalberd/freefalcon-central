@@ -5173,8 +5173,15 @@ void OTWDriverClass::VCock_Exec(void)
                 {
                     theLantirn->RenderHudFlir(renderer, TheHud->GetHalfAngleDeg(),
                                               TheHud->HudUnitsToRadians(vBoresightY));
+                    // The IR scene changed the renderer's shared draw state (IR grey, object-pass flags) behind the
+                    // main context's back: it still thought its text state was current and skipped re-sending it,
+                    // so this eye's HUD text came out grey-white while the other eye's stayed green -- a "double"
+                    // HUD in the headset (flight 6). Make it re-send everything, colour included.
+                    renderer->context.InvalidateState();
+                    vHUDrenderer->context.InvalidateState();
                     vHUDrenderer->ReBindRttTarget();
                     vHUDrenderer->AdjustRttViewport();
+                    vHUDrenderer->SetColor(TheHud->GetHudColor());
                 }
             }
 
