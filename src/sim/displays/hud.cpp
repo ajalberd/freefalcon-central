@@ -41,6 +41,7 @@
 #include "icp.h"
 extern bool g_bRealisticAvionics;
 extern bool g_bNoRPMOnHud;
+extern bool g_bTFRFixes; // Artscout - 2026: LO TF reads LantirnClass::gAlt, which only the fixed Exec updates
 extern bool g_bINS;
 extern bool g_bNewPitchLadder;
 extern float g_fReconCameraHalfFOV;
@@ -1528,6 +1529,13 @@ void HudClass::DrawAlphaNumeric(void)
             sprintf(tempstr, "SLOW");
 
         display->TextCenter(0, 0.25, tempstr, 0);
+
+        // Artscout - 2026: LO TF vertical clearance warning (TO 1F-16CMAM-34-1-1 2.6.3.6.2.3): below
+        // 75 percent of the set clearance while the TF is flying us. Flashes, below the FPM.
+        if (g_bTFRFixes and flash and theLantirn->GetTFRMode() not_eq LantirnClass::TFR_STBY and
+            ownship->AutopilotType() == AircraftClass::LantirnAP and theLantirn->gAlt > 0.0f and
+            theLantirn->gAlt < 0.75f * (float)theLantirn->GetTFRAlt())
+            display->TextCenter(0, -0.12, "LO TF", 0);
     }
 
 } //End function
