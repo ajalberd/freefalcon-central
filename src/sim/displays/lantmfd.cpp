@@ -416,6 +416,10 @@ void LantirnDrawable::DrawTerrain()
             OTWDriver.renderer->context.FlushPolyLists();
         FF_SetIRGrey(false);
         FF_SetTerrainRadiusCap(0);
+        // Artscout - 2026: re-bind the atlas after the scene, as the TGP page does. Without it the scene's screen
+        // metric stayed in force and the page's symbology (and the picture) came out shrunk into a corner of the
+        // MFD -- seen on the FLIR page, 2026-10-11.
+        ((VirtualDisplay*)display)->ReBindRttTarget();
     }
 
     // ((RenderIR*)display)->PostSceneCloudOcclusion();

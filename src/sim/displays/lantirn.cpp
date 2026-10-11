@@ -57,6 +57,9 @@ LantirnClass::LantirnClass() : DrawableClass()
     min_safe_dist = 0.0F;
     SpeedUp = FALSE;
     m_hudIr = NULL;
+    m_hudTex = NULL;
+    m_hudTexSize = 0;
+    m_hudTexValid = false;
     flirCool = 0.0F;
     flirGain = 50.0F;
     flirLevel = 100.0F;
@@ -91,6 +94,12 @@ LantirnClass::~LantirnClass()
         m_hudIr->Cleanup();
         delete m_hudIr;
         m_hudIr = NULL;
+    }
+
+    if (m_hudTex)
+    {
+        delete m_hudTex;
+        m_hudTex = NULL;
     }
 
     // Artscout - 2026: free the off-screen FLIR/TGP RTT.
@@ -266,75 +275,87 @@ void LantirnClass::DrawTerrain()
     }
 }
 
-// Artscout - 2026: HUD FLIR raster. The pit's HUD is an atlas zone (vHUDrenderer's RTT rect) that the symbology
-// is drawn into; this draws the nav pod's IR view into the SAME zone first, so the symbology lands on top and
-// the whole zone is composited at the collimated HUD plane. Everything after the setup mirrors
-// LaserPodClass::DrawTerrain (the sequence that is confirmed on the MFD sensor pages): ReBindRttTarget, confine
-// the object viewport to the zone, grey the scene, cap the terrain radius, DrawScene, confine again, flush the
-// 2D spans and the object lists INSIDE the RTT bracket, restore.
+// Artscout - 2026: HUD FLIR raster, in two halves.
 //
-// Conformal: the camera looks along the aircraft's x axis (pitched down by the HUD's own boresight offset, so
-// the nose lands where the boresight cross is drawn), with the HUD's field of view. HudFlirTrim (degrees, up
-// positive) is the boresight adjustment (BMS "BSGT"); HudFlirScale scales the field of view.
-// Called from the 3D-pit draw BEFORE renderer->StartRtt: builds the HUD raster's RenderIR while no atlas pass is open.
-void LantirnClass::EnsureHudRenderer(ImageBuffer *atlas)
+// RenderHudFlir draws the nav pod's IR view into a render target of its OWN (m_hudTex, square, HudFlirRes px) --
+// not into the HUD's patch of the shared display atlas. That first attempt never showed (the IR scene drawn into
+// the zone did not survive to the composite) and it upset the other displays sharing the atlas. vcock.cpp calls it
+// once per frame (first eye only; the second eye reuses the texture), BEFORE the pit's atlas pass opens. It swaps
+// m_hudTex in as the RTT target so the proven sensor sequence (TGP / Maverick pages: StartDraw, rebind, confine,
+// DrawScene, confine, flush 2D + objects inside the bracket, rebind, EndDraw) runs on it unchanged.
+//
+// DrawHudFlirQuad composites that texture on the HUD glass with the HUD's own canvas, so it gets the same
+// collimation, combiner stencil and canopy occlusion as the symbology; it is drawn just before the symbology quad,
+// additively (black = nothing), green, scaled by the BRT wheel and the gain/level.
+//
+// Conformal: the camera looks along the aircraft's x axis, pitched down by the HUD's own boresight offset (so the
+// nose lands under the boresight cross), with the HUD's field of view. HudFlirTrim (degrees, up positive) and the
+// FLIR page's BSGT trim the aim; HudFlirScale scales the field of view.
+bool LantirnClass::HudFlirWanted(void)
 {
     extern bool g_bUseD3D12, g_bUseVulkan, g_bSensorSceneD3D12, g_bSensorSceneVulkan;
 
-    if (not g_bHudFlir or not atlas or not IsFLIR())
-        return;
+    if (not g_bHudFlir or not IsFLIR() or hudBright < 0.02F or not SimDriver.GetPlayerAircraft())
+        return false;
 
+    // the same gate as every other sensor scene: off where the backend has no working sensor-scene path
     if ((g_bUseD3D12 or g_bUseVulkan) and not(g_bSensorSceneD3D12 or (g_bUseVulkan and g_bSensorSceneVulkan)))
+        return false;
+
+    return true;
+}
+
+void LantirnClass::RenderHudFlir(Render3D *mainRenderer, float halfAngleDeg, float boresightRad)
+{
+    extern bool g_bUseD3D12, g_bUseVulkan;
+    extern int g_nHudFlirRes;
+    AircraftClass *playerAC = SimDriver.GetPlayerAircraft();
+
+    if (not mainRenderer or not playerAC or halfAngleDeg <= 0.0F or not HudFlirWanted())
         return;
 
-    if (m_hudIr and m_hudIr->GetImageBuffer() == atlas)
+    ImageBuffer *image = mainRenderer->GetImageBuffer();
+
+    if (not image)
         return;
 
-    if (m_hudIr)
+    // the renderer and the target are made here, outside any RTT pass
+    if (m_hudIr and m_hudIr->GetImageBuffer() not_eq image)
     {
         m_hudIr->Cleanup();
         delete m_hudIr;
         m_hudIr = NULL;
     }
 
-    m_hudIr = new RenderIR;
-    m_hudIr->Setup(atlas, OTWDriver.GetViewpoint());
-    m_hudIr->SetColor(0xff00ff00);
-    FFDebugLog("HUD FLIR: raster renderer created (outside the atlas pass)\n");
-}
-
-void LantirnClass::DrawHudRaster(VirtualDisplay *hudCanvas, ImageBuffer *atlas, float halfAngleDeg, float boresightRad)
-{
-    extern bool g_bUseD3D12, g_bUseVulkan, g_bSensorSceneD3D12, g_bSensorSceneVulkan;
-    AircraftClass *playerAC = SimDriver.GetPlayerAircraft();
-
-    // g_bHudFlir is only a kill switch now (default on); the FLIR page, the BRT wheel and the pod's power and
-    // cool-down decide whether there is an image. hudBright 0 = BRT wheel all the way down = no image on the HUD.
-    if (not g_bHudFlir or not IsFLIR() or hudBright < 0.02F or not hudCanvas or not atlas or not playerAC or
-        halfAngleDeg <= 0.0F)
-        return;
-
-    // the same gate as every other sensor scene: off where the backend has no working sensor-scene path
-    if ((g_bUseD3D12 or g_bUseVulkan) and not(g_bSensorSceneD3D12 or (g_bUseVulkan and g_bSensorSceneVulkan)))
-        return;
-
-    // the renderer is made by EnsureHudRenderer BEFORE the atlas pass opens (Setup inside the pass blanked every
-    // display in the atlas -- the MFD code closes the pass around its DisplayInit for the same reason)
-    if (not m_hudIr or m_hudIr->GetImageBuffer() not_eq atlas)
-        return;
-
-    // the HUD's raster is green, in proportion to the BRT wheel and the gain/level
+    if (not m_hudIr)
     {
-        float v = hudBright * FlirIntensity();
-        v = v < 0.0F ? 0.0F : (v > 1.0F ? 1.0F : v);
-        m_hudIr->SetColor(0xff000000 | ((unsigned int)(255.0F * v) << 8));
+        m_hudIr = new RenderIR;
+        m_hudIr->Setup(image, OTWDriver.GetViewpoint());
+        m_hudIr->SetColor(0xffffffff);
     }
 
-    int zl, zt, zr, zb;
-    hudCanvas->GetRttRect(&zl, &zt, &zr, &zb);
-    m_hudIr->SetRttRect(zl, zt, zr, zb);
-    m_hudIr->AdjustRttViewport();
-    m_hudIr->SetFOV(2.0F * halfAngleDeg * DTR * g_fHudFlirScale);
+    const int size = g_nHudFlirRes < 128 ? 128 : (g_nHudFlirRes > 2048 ? 2048 : g_nHudFlirRes);
+
+    if (m_hudTex and m_hudTexSize not_eq size)
+    {
+        delete m_hudTex;
+        m_hudTex = NULL;
+        m_hudTexValid = false;
+    }
+
+    if (not m_hudTex)
+    {
+        m_hudTex = VirtualDisplay::CreateExtraRtt(size, size);
+        m_hudTexSize = size;
+        m_hudTexValid = false;
+
+        char buf[96];
+        sprintf(buf, "HUD FLIR: own render target %dx%d %s\n", size, size, m_hudTex ? "created" : "FAILED");
+        FFDebugLog(buf);
+
+        if (not m_hudTex)
+            return;
+    }
 
     Tpoint cameraPos;
     GetCameraPos(&cameraPos);
@@ -365,6 +386,20 @@ void LantirnClass::DrawHudRaster(VirtualDisplay *hudCanvas, ImageBuffer *atlas, 
     extern void FF_SetIRGrey(bool);
     extern void FF_SetTerrainRadiusCap(int);
 
+    // open a pass on OUR target: swap it in, bind (StartRtt), clear it
+    TextureHandle *atlas = VirtualDisplay::SwapRttTexture(m_hudTex);
+
+    mainRenderer->EndDraw();
+    mainRenderer->StartRtt(mainRenderer);
+    mainRenderer->StartDraw();
+    mainRenderer->SetBackground(0x00000000);
+    mainRenderer->ClearDraw();
+
+    m_hudIr->SetRttRect(0, 0, size, size);
+    m_hudIr->SetViewport(-1.0F, 1.0F, 1.0F, -1.0F); // pixel bounds from the new rect, as StartRtt does
+    m_hudIr->AdjustRttViewport();
+    m_hudIr->SetFOV(2.0F * halfAngleDeg * DTR * g_fHudFlirScale);
+
     m_hudIr->StartDraw();
     ((VirtualDisplay *)m_hudIr)->ReBindRttTarget();
     ((VirtualDisplay *)m_hudIr)->ConfineObjectViewportToZone();
@@ -377,13 +412,51 @@ void LantirnClass::DrawHudRaster(VirtualDisplay *hudCanvas, ImageBuffer *atlas, 
     if (DisplayOptions.bZBuffering or g_bUseD3D12 or g_bUseVulkan)
         m_hudIr->context.FlushPolyLists();
 
-    if (g_bUseVulkan and OTWDriver.renderer)
-        OTWDriver.renderer->context.FlushPolyLists();
+    // the sensor's objects queue into the MAIN renderer's lists -- flush them while our target is bound
+    mainRenderer->context.FlushPolyLists();
 
     FF_SetIRGrey(false);
     FF_SetTerrainRadiusCap(0);
     ((VirtualDisplay *)m_hudIr)->ReBindRttTarget();
     m_hudIr->EndDraw();
+
+    // close the pass (the texture goes back to shader-readable) and put the atlas back
+    mainRenderer->FinishRtt();
+    VirtualDisplay::SwapRttTexture(atlas);
+    mainRenderer->StartDraw();
+
+    if (not m_hudTexValid)
+        FFDebugLog("HUD FLIR: first frame rendered into the own target\n");
+
+    m_hudTexValid = true;
+}
+
+void LantirnClass::DrawHudFlirQuad(VirtualDisplay *hudCanvas)
+{
+    extern float g_rttHudGain, g_rttHudTint[3];
+
+    if (not hudCanvas or not m_hudTex or not m_hudTexValid or not HudFlirWanted())
+        return;
+
+    int zl, zt, zr, zb;
+    hudCanvas->GetRttRect(&zl, &zt, &zr, &zb);
+
+    const float savedGain = g_rttHudGain;
+    float v = hudBright * FlirIntensity();
+    v = v < 0.0F ? 0.0F : (v > 1.0F ? 1.0F : v);
+    g_rttHudGain = v;
+    g_rttHudTint[0] = 0.25F;
+    g_rttHudTint[1] = 1.0F;
+    g_rttHudTint[2] = 0.25F;
+
+    TextureHandle *atlas = VirtualDisplay::SwapRttTexture(m_hudTex);
+    hudCanvas->SetRttRect(0, 0, m_hudTexSize, m_hudTexSize);
+    hudCanvas->DrawRttQuad();
+    VirtualDisplay::SwapRttTexture(atlas);
+    hudCanvas->SetRttRect(zl, zt, zr, zb);
+
+    g_rttHudTint[0] = g_rttHudTint[1] = g_rttHudTint[2] = 1.0F;
+    g_rttHudGain = savedGain;
 }
 
 void LantirnClass::SetFOV(float fov)

@@ -1617,6 +1617,29 @@ bool VirtualDisplay::SetupRttTarget(int tXres_, int tYres_, int tBpp_)
     return false;
 }
 
+TextureHandle* VirtualDisplay::CreateExtraRtt(int w, int h)
+{
+    TextureHandle* t = new TextureHandle;
+
+    if (not t->Create("RttExtra", MPR_TI_ARGB32, 0, w, h,
+                      TextureHandle::FLAG_RENDERTARGET bitor
+                          TextureHandle::FLAG_HINT_DYNAMIC) or
+        not t->m_pDDS)
+    {
+        delete t;
+        return NULL;
+    }
+
+    return t;
+}
+
+TextureHandle* VirtualDisplay::SwapRttTexture(TextureHandle* t)
+{
+    TextureHandle* old = renderTexture;
+    renderTexture = t;
+    return old;
+}
+
 bool VirtualDisplay::CleanupRttTarget()
 {
     if (renderTexture)
@@ -1956,6 +1979,7 @@ bool g_bRttLightExempt = false;
 // the HUD draw from the SYM wheel and the daylight level -- see g_fHudGainMin/Max.
 bool g_bHudWheelStartMax = true; // see CockpitManager (cpmanager.cpp): SYM wheel starts at full each flight
 float g_rttHudGain = 1.0f;
+float g_rttHudTint[3] = {1.0f, 1.0f, 1.0f}; // Artscout - 2026: per-channel multiplier on g_rttHudGain (the HUD FLIR raster is drawn green)
 float g_fHudGainMin = 0.4f; // gain with the SYM wheel at 0 (full daylight)
 float g_fHudGainMax = 2.0f; // gain with the SYM wheel at 1 (full daylight); 1.0 = the old fixed brightness
 // Artscout - 2026: MFD sun glare -- armed by VCock_Exec around the MFD composites (see DrawRttQuad).
@@ -2107,7 +2131,9 @@ void VirtualDisplay::DrawRttQuad()
 
     if (g_bRttLightExempt)
     {
-        lr = lg = lb = g_rttHudGain;
+        lr = g_rttHudGain * g_rttHudTint[0];
+        lg = g_rttHudGain * g_rttHudTint[1];
+        lb = g_rttHudGain * g_rttHudTint[2];
     }
     else
     {

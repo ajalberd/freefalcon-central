@@ -7080,7 +7080,7 @@ void SimHUDBrtDay(unsigned long, int state, void*)
 
         if (OTWDriver.GetVirtualCockpit())
             OTWDriver.GetVirtualCockpit()->SetSwitchMask(
-                COMP_3DPIT_HUD_DAY_NITE, 2);
+                COMP_3DPIT_HUD_DAY_NITE, TheHud->BrightnessSwitchMask());
     }
 }
 
@@ -7097,7 +7097,7 @@ void SimHUDBrtAuto(unsigned long, int state, void*)
 
         if (OTWDriver.GetVirtualCockpit())
             OTWDriver.GetVirtualCockpit()->SetSwitchMask(
-                COMP_3DPIT_HUD_DAY_NITE, 1);
+                COMP_3DPIT_HUD_DAY_NITE, TheHud->BrightnessSwitchMask());
     }
 }
 
@@ -7114,7 +7114,7 @@ void SimHUDBrtNight(unsigned long, int state, void*)
 
         if (OTWDriver.GetVirtualCockpit())
             OTWDriver.GetVirtualCockpit()->SetSwitchMask(
-                COMP_3DPIT_HUD_DAY_NITE, 4);
+                COMP_3DPIT_HUD_DAY_NITE, TheHud->BrightnessSwitchMask());
     }
 }
 

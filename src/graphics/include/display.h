@@ -286,6 +286,12 @@ public:
 
     static bool SetupRttTarget(int tXres_, int tYres_, int tBpp_);
     static bool CleanupRttTarget();
+    // Artscout - 2026: a render target of the same kind as the shared atlas (the HUD FLIR draws its IR scene into
+    // one of its own), and a swap of the shared renderTexture pointer: while another target is swapped in,
+    // StartRtt / FinishRtt / ReBindRttTarget / AdjustRttViewport / ConfineObjectViewportToZone / DrawRttQuad all
+    // work on it unchanged. Swap back before anything else touches the atlas.
+    static TextureHandle *CreateExtraRtt(int w, int h);
+    static TextureHandle *SwapRttTexture(TextureHandle *t);
     void StartRtt(Render3D *r3d_);
     void FinishRtt();
     // Artscout - 2026: re-bind the shared RTT atlas as the active D3D11 target WITHOUT the StartRtt

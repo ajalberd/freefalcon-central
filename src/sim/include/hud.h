@@ -427,12 +427,13 @@ public:
     void CycleRadarSwitch(void);
 
     int GetBrightnessSwitch(void);
-    // Artscout - 2026: the pit switch's mesh mask for the current position (DAY 2, AUTO BRT 1, NIGHT 4 -- what the
-    // SimHUDBrt* hotspots set). The cycle commands and the per-frame pit update each used their own formula, so the
-    // switch showed a different position from the one it was in.
+    // Artscout - 2026: the pit switch's mesh mask for the current position: DAY 4, AUTO BRT 1, NIGHT 2. The cycle
+    // commands, the SimHUDBrt* hotspots and the per-frame pit update each used their own formula, so the switch showed
+    // a different position from the one it was in; flown 2026-10-11 with DAY 2 / NIGHT 4 the lever sat at NIGHT while
+    // the HUD was in DAY, hence the swap.
     int BrightnessSwitchMask(void)
     {
-        return brightnessSwitch == DAY ? 2 : (brightnessSwitch == BRIGHT_AUTO ? 1 : 4);
+        return brightnessSwitch == DAY ? 4 : (brightnessSwitch == BRIGHT_AUTO ? 1 : 2);
     };
     void SetBrightnessSwitch(BrightnessSwitch);
     void CycleBrightnessSwitch(void);

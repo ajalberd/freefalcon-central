@@ -164,12 +164,17 @@ public:
     void UpdateCooldown(AircraftClass* self);
     void UpdateAdvisories(AircraftClass* self);
 
-    // Artscout - 2026: the nav FLIR raster on the 3D-pit HUD (TO 1F-16CMAM-34-1-1 2.6.2.1). Renders the IR scene
-    // into the HUD's own atlas zone, behind the symbology, with the same sequence the TGP and Maverick pages use for
-    // theirs. Experimental: cfg HudFlir, default off. See AVIONICS-PORT.md.
-    void EnsureHudRenderer(class ImageBuffer* atlas);
-    void DrawHudRaster(VirtualDisplay* hudCanvas, class ImageBuffer* atlas, float halfAngleDeg, float boresightRad);
+    // Artscout - 2026: the nav FLIR raster on the 3D-pit HUD (TO 1F-16CMAM-34-1-1 2.6.2.1). The IR scene is drawn
+    // into a render target of its own (RenderHudFlir, once per frame, before the pit's display atlas pass), then
+    // composited on the HUD glass under the symbology (DrawHudFlirQuad, per eye, with the HUD's own canvas, collimation
+    // and stencil). Drawing it into the HUD's patch of the shared atlas did not show and disturbed the other displays.
+    bool HudFlirWanted(void);
+    void RenderHudFlir(class Render3D* mainRenderer, float halfAngleDeg, float boresightRad);
+    void DrawHudFlirQuad(VirtualDisplay* hudCanvas);
     class RenderIR* m_hudIr;
+    class TextureHandle* m_hudTex;
+    int m_hudTexSize;
+    bool m_hudTexValid;
 
     //new variables
     float PID_MX, PID_lastErr, PID_error, PID_Output;

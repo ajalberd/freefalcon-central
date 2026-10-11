@@ -76,6 +76,7 @@ float resScale = 0.66667f;
 // in ScreenText/ScreenTextWidth/Height ONLY during the RTT pass (g_rttBatchActive).
 // 1.0 = no scale (atlas 512/high resolution). Set in the 1024 blocks below.
 float g_rttFontScale = 1.0f;
+int g_nHudFlirRes = 512; // Artscout - 2026: HUD FLIR render target edge in pixels ("HudFlirRes", 128..2048)
 float g_fHudGainNight = 2.0f; // Artscout - 2026: HUD gain at the top of the SYM wheel in the dark ("HudGainNight"); 1.0 = no night boost
 
 // #7 display SSAA (variant 2, VR goal): a SINGLE supersampling multiplier for the RTT atlas.
@@ -5061,12 +5062,15 @@ void OTWDriverClass::VCock_Exec(void)
     // ASSO: BEGIN
     if (renderer->HasRttTarget())
     {
-        // Artscout - 2026: the HUD FLIR raster's renderer must be set up while no atlas pass is open
+        // Artscout - 2026: the HUD FLIR raster renders into its own target here, before the atlas pass opens, once
+        // per frame (first eye only -- the other eye composites the same texture). See LantirnClass::RenderHudFlir.
+        if (TheHud and theLantirn and theLantirn->HudFlirWanted())
         {
-            extern bool g_bHudFlir;
+            extern bool g_bVrFrameActive;
+            const int flirEye = (g_bVrFrameActive and g_pOpenXRBackend) ? g_pOpenXRBackend->CurrentEye() : -1;
 
-            if (g_bHudFlir and theLantirn and theLantirn->IsFLIR())
-                theLantirn->EnsureHudRenderer(renderer->GetImageBuffer());
+            if (flirEye <= 0)
+                theLantirn->RenderHudFlir(renderer, TheHud->GetHalfAngleDeg(), TheHud->HudUnitsToRadians(vBoresightY));
         }
 
         renderer->EndDraw(); //588
@@ -5162,22 +5166,6 @@ void OTWDriverClass::VCock_Exec(void)
             }
 
             vHUDrenderer->AdjustOriginInViewport(XOffset, YOffset);
-
-            // Artscout - 2026: the nav FLIR raster goes into the HUD zone first, so the symbology draws over it
-            // (cfg HudFlir, default off). The IR scene has its own renderer (LantirnClass::m_hudIr) and its own
-            // StartDraw/EndDraw, like the MFD sensor pages; the main renderer's atlas bracket stays open around it.
-            // Its EndDraw unbinds the atlas, so bind it again and re-establish this zone before the symbology.
-            {
-                extern bool g_bHudFlir;
-
-                if (g_bHudFlir and theLantirn and theLantirn->IsFLIR())
-                {
-                    theLantirn->DrawHudRaster(vHUDrenderer, renderer->GetImageBuffer(), TheHud->GetHalfAngleDeg(),
-                                              TheHud->HudUnitsToRadians(vBoresightY));
-                    vHUDrenderer->ReBindRttTarget();
-                    vHUDrenderer->AdjustRttViewport();
-                }
-            }
 
             TheHud->Display(vHUDrenderer, true);
 
@@ -5616,6 +5604,10 @@ void OTWDriverClass::VCock_Exec(void)
 
                 g_rttHudGain *= modeScale;
             }
+
+            // the nav FLIR picture goes on the glass first, so the symbology composites over it
+            if (theLantirn)
+                theLantirn->DrawHudFlirQuad(vHUDrenderer);
 
             vHUDrenderer->DrawRttQuad();
             g_rttHudGain = 1.0f;

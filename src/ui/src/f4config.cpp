@@ -394,6 +394,7 @@ extern bool g_bHmcsSlaveSeeker, g_bHmcsSlaveRadar, g_bHmcsHudBlank, g_bHmcsLog;
 extern float g_fHmcsHudHalfWidth, g_fHmcsHudTop, g_fHmcsHudBottom, g_fHmcsScale, g_fHmcsTextScale;
 extern bool g_bHudStrokeFont; // Artscout - 2026: render2d.cpp
 extern float g_fHudFontScale;
+extern int g_nHudFlirRes; // Artscout - 2026: vcock.cpp, HUD FLIR render target size
 extern float g_fHudGainNight; // Artscout - 2026: vcock.cpp, HUD gain at the top of the SYM wheel at night
 extern float g_fHudGainMin, g_fHudGainMax; // Artscout - 2026: display.cpp, HUD SYM-wheel gain
 extern bool g_bHudWheelStartMax; // Artscout - 2026: cpmanager.cpp
@@ -2422,6 +2423,7 @@ static ConfigOption<int> IntOpts[] = {
     {"BWMaxDeltaTime", &g_nBWMaxDeltaTime}, // 2002-04-12 MN
     {"BWCheckDeltaTime", &g_nBWCheckDeltaTime}, // 2002-04-12 MN
     {"VUMaxDeltaTime", &g_nVUMaxDeltaTime}, // 2002-04-12 MN
+    {"HudFlirRes", &g_nHudFlirRes}, // Artscout - 2026: HUD FLIR render target edge, px (default 512, 128..2048)
     {"HitchMs",
      &g_nHitchMs}, // Artscout - 2026: [HITCH] sampler trigger: sample the sim thread's stack while a VR frame has run this many ms (default 40 = spikes only). Set ~14 to profile slow-but-steady frames (samples every 8 ms, up to 6000 lines; 6 samples the whole frame, 14 only its tail). Restart to apply.
     {"VrEyeOverlap",
