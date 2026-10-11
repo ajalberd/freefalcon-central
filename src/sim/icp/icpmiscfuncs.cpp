@@ -80,6 +80,7 @@ int ICPClass::ManualInput(void)
          ILSPageSel == 0) or
         (IsICPSet(ICPClass::MODE_CNI) and mICPSecondaryMode == TWO_BUTTON) or
         (IsICPSet(ICPClass::MODE_CNI) and mICPSecondaryMode == FOUR_BUTTON) or
+        (IsICPSet(ICPClass::MODE_CNI) and mICPSecondaryMode == SIX_BUTTON) or // TIME: DELTA TOS digits
         (IsICPSet(ICPClass::MODE_LIST) and mICPSecondaryMode == ONE_BUTTON) or
         (IsICPSet(ICPClass::EDIT_LAT)) or (IsICPSet(ICPClass::EDIT_LONG)) or
         (IsICPSet(ICPClass::FLARE_BINGO)) or
@@ -202,6 +203,7 @@ void ICPClass::HandleManualInput(int button)
     }
     else if (IsICPSet(ICPClass::MODE_CNI) and mICPSecondaryMode == ONE_BUTTON or
              IsICPSet(ICPClass::MODE_CNI) and mICPSecondaryMode == TWO_BUTTON or
+             IsICPSet(ICPClass::MODE_CNI) and mICPSecondaryMode == SIX_BUTTON or
              (BQ or BI or SQ or SI or OA1 or OA2 or EDITMSLFLOOR) or
              IsICPSet(ICPClass::MODE_LIST) and
                  mICPSecondaryMode == ONE_BUTTON or
@@ -747,6 +749,7 @@ void ICPClass::InitStuff(void)
     Difference = 0;
     running = FALSE;
     stopped = FALSE;
+    DeltaTOS = 0;
     //Comm page
     WhichRadio = 0;
     CurrChannel = 0;

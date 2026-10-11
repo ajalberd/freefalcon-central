@@ -19,6 +19,8 @@ void ICPClass::ICPEnter(void)
     if (IsICPSet(ICPClass::MODE_CNI) and mICPSecondaryMode == ONE_BUTTON and
         Manual_Input)
         EnterTCN();
+    else if (IsICPSet(ICPClass::MODE_CNI) and mICPSecondaryMode == SIX_BUTTON and Manual_Input)
+        EnterDeltaTOS();
     else if (IsICPSet(ICPClass::MODE_LIST) and
              mICPSecondaryMode == TWO_BUTTON and Manual_Input)
         EnterBingo();
@@ -910,6 +912,22 @@ void ICPClass::EnterINSStuff(void)
         ClearStrings();
         ResetInput();
     }
+}
+// TIME page: the six digits are HHMMSS and replace the delta (positive; the dobber flips the sign).
+void ICPClass::EnterDeltaTOS(void)
+{
+    const int v = AddUp();
+    const int hh = v / 10000;
+    const int mm = (v / 100) % 100;
+    const int ss = v % 100;
+
+    if (hh < 24 and mm < 60 and ss < 60)
+    {
+        DeltaTOS = hh * 3600 + mm * 60 + ss;
+        ResetInput();
+    }
+    else
+        WrongInput();
 }
 void ICPClass::EnterLaser(void)
 {

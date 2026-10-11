@@ -50,6 +50,7 @@ ICPClass::~ICPClass()
 
 ICPClass::ICPClass()
 {
+    DeltaTOS = 0;
 
     if (not g_bRealisticAvionics)
     {

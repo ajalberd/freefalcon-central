@@ -644,7 +644,7 @@ void ICPClass::CruiseTOS(void)
     float ttg = 0.0F;
 
     if (playerAC->curWaypoint)
-        ttg = (float)playerAC->curWaypoint->GetWPArrivalTime() / SEC_TO_MSEC;
+        ttg = (float)(playerAC->curWaypoint->GetWPArrivalTime() + DeltaTOSMs()) / SEC_TO_MSEC;
 
     // burn any days in the number
     hr = FloatToInt32(ttg / (3600.0F * 24.0F));

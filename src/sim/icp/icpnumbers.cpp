@@ -389,7 +389,21 @@ void ICPClass::ExecTimeMode(void)
     FillDEDMatrix(3, 23, "\x01");
     //Line5
     FillDEDMatrix(4, 2, "DELTA TOS");
-    FillDEDMatrix(4, 14, "00:00:00");
+
+    if (Manual_Input)
+    {
+        PossibleInputs = 6;
+        ScratchPad(4, 13, 22);
+    }
+    else
+    {
+        const long d = DeltaTOS < 0 ? -DeltaTOS : DeltaTOS;
+        sprintf(tempstr, "%02ld:%02ld:%02ld", d / 3600, (d / 60) % 60, d % 60);
+        FillDEDMatrix(4, 14, tempstr);
+
+        if (DeltaTOS < 0)
+            FillDEDMatrix(4, 13, "-");
+    }
 }
 void ICPClass::ExecFIXMode(void)
 {

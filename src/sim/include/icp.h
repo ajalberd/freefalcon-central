@@ -563,6 +563,15 @@ public:
     };
     void FillIFFString(char *string);
 
+    // Artscout - 2026: TIME page DELTA TOS (TO 1F-16CMAM-34-1-1 2.2.1.2.6.1.11). Seconds, signed; added to every
+    // steerpoint's time on station wherever the avionics read it (CRUS TOS, STPT page, HUD time to go). The
+    // campaign flight plan is not touched, so the flight lead and the rest of the package keep their times.
+    long DeltaTOS;
+    long DeltaTOSMs(void)
+    {
+        return DeltaTOS * 1000;
+    };
+    void EnterDeltaTOS(void);
     void EnterINTG(void);
     int Mode1Code, Mode2Code, Mode3Code;
     float GetNumScans(void);

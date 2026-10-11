@@ -202,7 +202,10 @@ void FireControlComputer::NavMode(void)
                 }
                 else
                     ttg = ((float)curWaypoint->GetWPArrivalTime() -
-                           SimLibElapsedTime) /
+                           SimLibElapsedTime +
+                           ((OTWDriver.pCockpitManager and OTWDriver.pCockpitManager->mpIcp)
+                                ? OTWDriver.pCockpitManager->mpIcp->DeltaTOSMs()
+                                : 0)) /
                           SEC_TO_MSEC;
             }
             else

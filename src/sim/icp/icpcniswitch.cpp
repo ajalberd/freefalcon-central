@@ -257,6 +257,11 @@ void ICPClass::CNISwitch(int mode)
                 }
             }
         }
+        //TIME page: the dobber flips the sign of DELTA TOS
+        else if (IsICPSet(ICPClass::MODE_CNI) and mICPSecondaryMode == SIX_BUTTON)
+        {
+            DeltaTOS = -DeltaTOS;
+        }
         //INS
         else if (IsICPSet(ICPClass::MODE_LIST) and
                  mICPSecondaryMode == SIX_BUTTON)
@@ -523,6 +528,11 @@ void ICPClass::CNISwitch(int mode)
                     BQ = TRUE;
                 }
             }
+        }
+        //TIME page: the dobber flips the sign of DELTA TOS
+        else if (IsICPSet(ICPClass::MODE_CNI) and mICPSecondaryMode == SIX_BUTTON)
+        {
+            DeltaTOS = -DeltaTOS;
         }
         //INS
         else if (IsICPSet(ICPClass::MODE_LIST) and

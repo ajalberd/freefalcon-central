@@ -42,6 +42,26 @@ void ICPClass::ScratchPad(int Line, int Start, int End)
             InputString[3] = '\0';
         }
     }
+    //TIME page: DELTA TOS, six digits right-aligned
+    else if (IsICPSet(ICPClass::MODE_CNI) and mICPSecondaryMode == SIX_BUTTON)
+    {
+        if (Manual_Input)
+        {
+            for (int i = 0; i < 6; i++)
+            {
+                const int d = (i == 5) ? Input_Digit7 : (i == 4) ? Input_Digit6 : (i == 3) ? Input_Digit5
+                              : (i == 2) ? Input_Digit4 : (i == 1) ? Input_Digit3 : Input_Digit2;
+                InputString[i] = d < 10 ? '0' + d : ' ';
+            }
+
+            InputString[6] = '\0';
+        }
+        else
+        {
+            ClearString();
+            InputString[6] = '\0';
+        }
+    }
     //Bingo Page
     else if (IsICPSet(ICPClass::MODE_LIST) and mICPSecondaryMode == TWO_BUTTON)
     {

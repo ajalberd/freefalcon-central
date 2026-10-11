@@ -134,7 +134,7 @@ void ICPClass::ExecSTPTMode()
             vtOwn = playerAC->af->vt;
             previous = playerAC->curWaypoint->GetPrevWP();
             altitude = playerAC->curWaypoint->GetWPAltitude();
-            arrive = playerAC->curWaypoint->GetWPArrivalTime() / SEC_TO_MSEC;
+            arrive = (playerAC->curWaypoint->GetWPArrivalTime() + DeltaTOSMs()) / SEC_TO_MSEC;
             action = playerAC->curWaypoint->GetWPAction();
             wpflags = playerAC->curWaypoint->GetWPFlags();
             playerAC->curWaypoint->GetLocation(&xCurr, &yCurr, &zCurr);
