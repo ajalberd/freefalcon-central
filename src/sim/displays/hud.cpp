@@ -1007,6 +1007,10 @@ void HudClass::SetBrightnessSwitch(BrightnessSwitch state)
 {
 
     brightnessSwitch = state;
+
+    // Artscout - 2026: the pit hotspots (SimHUDBrtDay/Auto/Night) come through here and never refreshed the level,
+    // so the switch did nothing until the SYM wheel was touched
+    SetLightLevel();
 }
 
 // MD -- 20040108: changed cycling order to fix bug where cockpit and internal state were

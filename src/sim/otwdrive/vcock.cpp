@@ -4536,6 +4536,13 @@ void OTWDriverClass::VCock_Exec(void)
         vrCockpit->SetSwitchMask(COMP_3DPIT_HUD_DAY_NITE,
                                  TheHud->BrightnessSwitchMask());
 
+        // keep the VR click-cycle on the switch's real position (it started at DAY whatever the saved state was)
+        for (int g = 0; g < s_numSwitchGroups; g++)
+            if (strcmp(s_switchGroupDefs[g].name, "HUDBrt") == 0)
+                g_vrSwitchGroupCur[g] = TheHud->GetBrightnessSwitch() == HudClass::DAY
+                    ? 0
+                    : (TheHud->GetBrightnessSwitch() == HudClass::BRIGHT_AUTO ? 1 : 2);
+
         // Chaff Remaining units digit
         if (((AircraftClass*)(SimDriver.GetPlayerEntity()))
                 ->HasPower(AircraftClass::ChaffFlareCount))
