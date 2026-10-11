@@ -51,6 +51,10 @@ TgpMfdDrawable::TgpMfdDrawable()
     StbyMode = TRUE;
     MenuMode = FALSE;
     SP = FALSE;
+    CntlMode = FALSE;
+    NorthPtr = TRUE;
+    IrPointer = FALSE;
+    LstMode = FALSE;
 }
 
 void TgpMfdDrawable::Display(VirtualDisplay* newDisplay)
@@ -106,6 +110,9 @@ void TgpMfdDrawable::Display(VirtualDisplay* newDisplay)
         pFCC->preDesignate = FALSE;
 
     laserPod->MenuMode = MenuMode;
+
+    if (LstMode and not StbyMode)
+        LstSearch();
 
     //pod image
     // Artscout - 2026: in STBY the pod is not imaging -- skip the 3D scene. It
@@ -209,6 +216,15 @@ void TgpMfdDrawable::PushButton(int whichButton, int whichMFD)
         MenuMode = not MenuMode;
         break;
 
+    case 1: // PTR: IR pointer
+        IrPointer = not IrPointer;
+        break;
+
+    case 4: // CNTL: control page
+        CntlMode = not CntlMode;
+        MenuMode = FALSE;
+        break;
+
     case 2:
         if (laserPod)
             laserPod->ToggleFOV();
@@ -249,10 +265,26 @@ void TgpMfdDrawable::PushButton(int whichButton, int whichMFD)
         break;
 
     case 19:
-        if ((g_bGreyMFD) or (not g_bGreyScaleMFD))
-            g_bGreyMFD = false;
-        else
-            g_bGreyMFD = true;
+        if (CntlMode)
+            break;
+
+        LstMode = not LstMode; // LST: laser spot tracker
+        break;
+
+    case 18: // control page: GRAY
+        if (CntlMode)
+        {
+            if ((g_bGreyMFD) or (not g_bGreyScaleMFD))
+                g_bGreyMFD = false;
+            else
+                g_bGreyMFD = true;
+        }
+
+        break;
+
+    case 17: // control page: north pointer / meterstick
+        if (CntlMode)
+            NorthPtr = not NorthPtr;
 
         break;
 
@@ -394,6 +426,44 @@ char TgpMfdDrawable::HdptStationSym(int n, SMSClass* Sms) // JPO new routine
 
     return ' ';
 }
+// Artscout - 2026: laser spot tracker. With LST selected and the pod not on a point of its own, look for a
+// target another aircraft is lasing (IS_LASED, set by FalconLaserDesignateMsg) within 40 nm and move the pod's
+// point of interest onto it. Only matters when someone else lases (multiplayer, or a human wingman).
+void TgpMfdDrawable::LstSearch(void)
+{
+    if (not laserPod or not self or laserPod->IsLocked() or not SimDriver.combinedList)
+        return;
+
+    VuListIterator it(SimDriver.combinedList);
+    SimBaseClass* best = NULL;
+    float bestRange = 40.0f * NM_TO_FT;
+
+    for (SimBaseClass* e = (SimBaseClass*)it.GetFirst(); e; e = (SimBaseClass*)it.GetNext())
+    {
+        if (not e->IsSetFlag(IS_LASED) or e == self)
+            continue;
+
+        const float dx = e->XPos() - self->XPos();
+        const float dy = e->YPos() - self->YPos();
+        const float r = (float)sqrt(dx * dx + dy * dy);
+
+        if (r < bestRange)
+        {
+            bestRange = r;
+            best = e;
+        }
+    }
+
+    if (best and pFCC)
+    {
+        pFCC->groundDesignateX = best->XPos();
+        pFCC->groundDesignateY = best->YPos();
+        pFCC->groundDesignateZ = best->ZPos();
+        pFCC->preDesignate = FALSE;
+        laserPod->SetTargetPosition(best->XPos(), best->YPos(), best->ZPos());
+    }
+}
+
 // Artscout - 2026: the readouts of the Sniper XR base page that this pod page lacked
 // (TO 1F-16CMAM-34-1-1 2.6.1.2, figure on p.316): the sensor point of interest's latitude,
 // longitude and elevation top left, the zoom setting, the north pointer, and the laser mode,
@@ -434,14 +504,39 @@ void TgpMfdDrawable::DrawSniperReadouts(VirtualDisplay* display)
         display->TextCenter(0.02f, 0.51f, buf);
     }
 
-    // north pointer: the view is ground-stabilised with screen-up along the pod's heading, so
-    // north lies at -heading, clockwise from up
     float yaw, pitch, roll;
     laserPod->GetYPR(&yaw, &pitch, &roll);
-    const float cx = 0.46f, cy = 0.5f, r = 0.07f;
-    const float nx = (float)sin(-yaw), ny = (float)cos(-yaw);
-    display->Line(cx, cy, cx + nx * r, cy + ny * r);
-    display->TextCenter(cx + nx * (r + 0.05f), cy + ny * (r + 0.05f), "N");
+
+    if (NorthPtr)
+    {
+        // north pointer: the view is ground-stabilised with screen-up along the pod's heading, so north lies at
+        // -heading, clockwise from up
+        const float cx = 0.46f, cy = 0.5f, r = 0.07f;
+        const float nx = (float)sin(-yaw), ny = (float)cos(-yaw);
+        display->Line(cx, cy, cx + nx * r, cy + ny * r);
+        display->TextCenter(cx + nx * (r + 0.05f), cy + ny * (r + 0.05f), "N");
+    }
+    else
+    {
+        // meterstick: ground distance from the cross to the end of its right arm (x = 0.55 of the half width)
+        float ax, ay, az;
+        AircraftClass* me = SimDriver.GetPlayerAircraft();
+
+        if (me)
+        {
+            ax = px - me->XPos();
+            ay = py - me->YPos();
+            az = pz - me->ZPos();
+            const float slant = (float)sqrt(ax * ax + ay * ay + az * az);
+            const float feet = 0.55f * slant * (float)tan(0.5f * fov);
+            sprintf(buf, "%d", (int)(feet + 0.5f));
+            display->Line(0.30f, 0.0f, 0.55f, 0.0f);
+            display->TextLeft(0.57f, 0.04f, buf);
+        }
+    }
+
+    if (IrPointer)
+        display->TextCenter(0.64f, -0.80f, "IR PTR");
 
     // laser: mode, status, code
     display->TextCenter(0.0f, -0.80f, "CMBT");
@@ -635,10 +730,6 @@ void TgpMfdDrawable::OSBLabels(VirtualDisplay* display)
         LabelButton(8, "C", "Z");
         LabelButton(9, "T", "G");
 
-        if (g_bGreyMFD)
-            LabelButton(19, "GRAY", "OFF");
-        else
-            LabelButton(19, "GRAY", "ON");
     }
     else
     {
@@ -668,14 +759,25 @@ void TgpMfdDrawable::OSBLabels(VirtualDisplay* display)
         LabelButton(8, "C", "Z");
         LabelButton(9, "T", "G");
 
-        if (g_bGreyMFD)
-            LabelButton(19, "GRAY", "OFF");
-        else
-            LabelButton(19, "GRAY", "ON");
 
         //BHOT/WHOT
         sprintf(Str, "%s", laserPod->BHOT ? "BHOT" : "WHOT");
         LabelButton(5, Str);
+    }
+    // Artscout - 2026: Sniper base page extras (TO 1F-16CMAM-34-1-1 2.6.1.2): PTR on OSB 2, LST on OSB 20; the
+    // control page puts GRAY on OSB 19 and the north pointer / meterstick select on OSB 18.
+    if (not MenuMode)
+    {
+        LabelButton(1, "PTR", NULL, IrPointer);
+
+        if (CntlMode)
+        {
+            LabelButton(4, "CNTL", NULL, 2);
+            LabelButton(18, "GRAY", g_bGreyMFD ? "OFF" : "ON");
+            LabelButton(17, NorthPtr ? "N" : "M", NorthPtr ? "(M)" : "(N)");
+        }
+        else
+            LabelButton(19, "L", "ST", LstMode);
     }
 }
 void TgpMfdDrawable::DrawRange(VirtualDisplay* display)

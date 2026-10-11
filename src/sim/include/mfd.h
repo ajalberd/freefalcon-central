@@ -346,6 +346,9 @@ private:
     SMSClass* Sms;
     RadarDopplerClass* theRadar;
     bool StbyMode, MenuMode, SP;
+    // Artscout - 2026: Sniper control page and the extras of its base page
+    bool CntlMode, NorthPtr, IrPointer, LstMode;
+    void LstSearch(void);
     static int flash;
     char Str[50];
     void PushButton(int, int);
