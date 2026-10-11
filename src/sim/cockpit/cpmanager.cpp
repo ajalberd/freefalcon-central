@@ -5625,7 +5625,15 @@ void CockpitManager::LoadCockpitDefaults(void)
 
     //MI
     //ATARIBABY/WOMBAT Hud sym wheel ramp start fix
-    if (TheHud->SymWheelPos > 0.5F)
+    // Artscout - 2026: g_bHudWheelStartMax (default on) skips the saved per-pilot value so every flight
+    // starts with the SYM wheel at full; the wheel still moves in flight and the value is still saved.
+    extern bool g_bHudWheelStartMax;
+    if (g_bHudWheelStartMax)
+    {
+        TheHud->SymWheelPos = 1.0F;
+        TheHud->SetLightLevel();
+    }
+    else if (TheHud->SymWheelPos > 0.5F)
     {
         TheHud->SymWheelPos = (float)GetPrivateProfileInt("Hud", "SymWheelPos",
                                                           1000, dataFileName);

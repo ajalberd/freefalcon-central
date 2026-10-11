@@ -1954,6 +1954,7 @@ bool g_bRttLightExempt = false;
 // Artscout - 2026: HUD symbology gain. The HUD composite is additive and exempt from the pit light (it dims itself
 // in HudClass::SetLightLevel), so on a bright sky it only ever adds up to (0,1,0). VCock_Exec sets this around
 // the HUD draw from the SYM wheel and the daylight level -- see g_fHudGainMin/Max.
+bool g_bHudWheelStartMax = true; // see CockpitManager (cpmanager.cpp): SYM wheel starts at full each flight
 float g_rttHudGain = 1.0f;
 float g_fHudGainMin = 0.4f; // gain with the SYM wheel at 0 (full daylight)
 float g_fHudGainMax = 2.0f; // gain with the SYM wheel at 1 (full daylight); 1.0 = the old fixed brightness
