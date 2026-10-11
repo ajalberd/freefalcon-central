@@ -5614,6 +5614,22 @@ void OTWDriverClass::VCock_Exec(void)
                     modeScale = 0.5f + 0.5f * env;
 
                 g_rttHudGain *= modeScale;
+
+                // [HUDGAIN] the inputs, logged when the switch or the result changes
+                {
+                    static int s_sw = -1;
+                    static float s_gain = -1.0f;
+
+                    if (s_sw != TheHud->GetBrightnessSwitch() or fabsf(s_gain - g_rttHudGain) > 0.01f)
+                    {
+                        char buf[160];
+                        sprintf(buf, "[HUDGAIN] pit: switch %d wheel %.2f daylight %.2f mode x%.2f -> gain %.2f\n",
+                                TheHud->GetBrightnessSwitch(), w, env, modeScale, g_rttHudGain);
+                        FFDebugLog(buf);
+                        s_sw = TheHud->GetBrightnessSwitch();
+                        s_gain = g_rttHudGain;
+                    }
+                }
             }
 
             // the nav FLIR picture goes on the glass first, so the symbology composites over it

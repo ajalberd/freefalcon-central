@@ -2157,6 +2157,24 @@ void VirtualDisplay::DrawRttQuad()
         lr = g * g_rttHudTint[0];
         lg = g * g_rttHudTint[1];
         lb = g * g_rttHudTint[2];
+
+        // [HUDGAIN] what the composite really used, logged when it changes (the HUD brightness switch hunt)
+        {
+            static float s_lastG = -1.0f, s_lastR = -1.0f;
+            static int s_lastState = -1;
+
+            if (g_rttHudTint[0] == 1.0f and // the HUD symbology, not the (tinted) FLIR picture
+                (fabsf(g - s_lastG) > 0.01f or fabsf(lr - s_lastR) > 0.01f or s_lastState != rttBlendMode))
+            {
+                char buf[160];
+                sprintf(buf, "[HUDGAIN] composite: gain %.2f (asked %.2f) rgb %.2f %.2f %.2f blend %d alpha %.2f\n", g,
+                        g_rttHudGain, lr, lg, lb, rttBlendMode, rttAlpha);
+                FFDebugLog(buf);
+                s_lastG = g;
+                s_lastR = lr;
+                s_lastState = rttBlendMode;
+            }
+        }
     }
     else
     {

@@ -372,28 +372,31 @@ void LantirnClass::RenderHudFlir(Render3D *mainRenderer, float halfAngleDeg, flo
     Tpoint cameraPos;
     GetCameraPos(&cameraPos);
 
+    // The camera is the aircraft's own rotation matrix (OTWDriver.ownshipRot -- the one the world view uses,
+    // cameraRot = ownshipRot * headMatrix) times a small body-frame offset: down by the HUD's boresight, plus the
+    // HudFlirTrim / BSGT trim. Rebuilding it from Yaw()/Pitch()/Roll() looked right in level flight but did not roll
+    // with the jet (flight 4, 2026-10-11).
+    mlTrig tha, psi;
+    mlSinCos(&tha, -boresightRad + g_fHudFlirTrim * DTR + hudTrimPitch);
+    mlSinCos(&psi, hudTrimYaw);
+
+    Trotation offset;
+    offset.M11 = psi.cos * tha.cos;
+    offset.M21 = psi.sin * tha.cos;
+    offset.M31 = -tha.sin;
+    offset.M12 = -psi.sin;
+    offset.M22 = psi.cos;
+    offset.M32 = 0.0F;
+    offset.M13 = psi.cos * tha.sin;
+    offset.M23 = psi.sin * tha.sin;
+    offset.M33 = tha.cos;
+
     Trotation viewRotation;
-    mlTrig tha, psi, phi;
-    mlSinCos(&tha, playerAC->Pitch() - boresightRad + g_fHudFlirTrim * DTR + hudTrimPitch);
-    mlSinCos(&psi, playerAC->Yaw() + hudTrimYaw);
-    mlSinCos(&phi, playerAC->Roll());
+    MatrixMult(&OTWDriver.ownshipRot, &offset, &viewRotation);
 
-    viewRotation.M11 = psi.cos * tha.cos;
-    viewRotation.M21 = psi.sin * tha.cos;
-    viewRotation.M31 = -tha.sin;
-
-    viewRotation.M12 = -psi.sin * phi.cos + psi.cos * tha.sin * phi.sin;
-    viewRotation.M22 = psi.cos * phi.cos + psi.sin * tha.sin * phi.sin;
-    viewRotation.M32 = tha.cos * phi.sin;
-
-    viewRotation.M13 = psi.sin * phi.sin + psi.cos * tha.sin * phi.cos;
-    viewRotation.M23 = -psi.cos * phi.sin + psi.sin * tha.sin * phi.cos;
-    viewRotation.M33 = tha.cos * phi.cos;
-
+    // the pod's body-frame offset, into the world frame like the main view's eye offset
     Tpoint p = cameraPos;
-    cameraPos.x = p.x * viewRotation.M11 + p.y * viewRotation.M12 + p.z * viewRotation.M13;
-    cameraPos.y = p.x * viewRotation.M21 + p.y * viewRotation.M22 + p.z * viewRotation.M23;
-    cameraPos.z = p.x * viewRotation.M31 + p.y * viewRotation.M32 + p.z * viewRotation.M33;
+    MatrixMult(&OTWDriver.ownshipRot, &p, &cameraPos);
 
     extern void FF_SetIRGrey(bool);
     extern void FF_SetTerrainRadiusCap(int);
