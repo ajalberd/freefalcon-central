@@ -721,9 +721,39 @@ void VirtualDisplay::OvalArc(float x, float y, float xRadius, float yRadius,
  Put a mono-colored string of text on the display.
  (The location given is used as the lower left corner of the text)
 \***************************************************************************/
+// Artscout - 2026: DIAGNOSTIC (cfg HudTextTrace 1). Logs who draws a watched HUD string, as "[HITCH]"-format
+// lines so tools/profiling/hitchsym.exe resolves the call stack: "[HITCH] t=.. HUDTXT x=.. y=.. 'str' ms: FFViper.exe+0x..".
+// Rate-limited to one hit per second. Remove once the stray HUD "50" is explained.
+bool g_bHudTextTrace = false;
+static void HudTextTrace(const char* kind, float x, float y, const char* string)
+{
+    static DWORD s_last = 0;
+    const DWORD now = GetTickCount();
+
+    if (not string or strcmp(string, "50") != 0 or now - s_last < 1000)
+        return;
+
+    s_last = now;
+    void* fr[6];
+    const USHORT n = CaptureStackBackTrace(1, 6, fr, NULL);
+    char ln[600];
+    int o = _snprintf(ln, sizeof(ln) - 1, "[HITCH] t=%lu HUDTXT %s x=%.3f y=%.3f '%s' ms:", now, kind, x, y, string);
+    const DWORD64 base = (DWORD64)GetModuleHandleA(NULL);
+
+    for (USHORT i = 0; i < n and o < (int)sizeof(ln) - 40; ++i)
+        o += _snprintf(ln + o, sizeof(ln) - 1 - o, " FFViper.exe+0x%llx", (unsigned long long)((DWORD64)fr[i] - base));
+
+    o += _snprintf(ln + o, sizeof(ln) - 1 - o, "\n");
+    ln[sizeof(ln) - 1] = 0;
+    FFDebugLog(ln);
+}
+
 void VirtualDisplay::TextLeft(float x1, float y1, const char* string, int boxed)
 {
     float x, y;
+
+    if (g_bHudTextTrace)
+        HudTextTrace("L", x1, y1, string);
 
     // Rotation and translate this point based on the current settings
     x = x1 * dmatrix.rotation00 + y1 * dmatrix.rotation01 +
@@ -761,6 +791,9 @@ void VirtualDisplay::TextRight(float x1, float y1, const char* string,
                                int boxed)
 {
     float xPixel, yPixel;
+
+    if (g_bHudTextTrace)
+        HudTextTrace("R", x1, y1, string);
 
     // Rotation and translate this point based on the current settings
     // Convert from viewport coordiants to screen space
@@ -806,6 +839,9 @@ void VirtualDisplay::TextCenter(float x1, float y1, const char* string,
                                 int boxed)
 {
     float xPixel, yPixel;
+
+    if (g_bHudTextTrace)
+        HudTextTrace("C", x1, y1, string);
 
     // Rotation and translate this point based on the current settings
     // Convert from viewport coordiants to screen space
@@ -1915,6 +1951,12 @@ bool g_bRttHudClip = false;
 float g_rttEmissiveLight = 1.0f;
 float g_rttSurfaceLight[3] = {1.0f, 1.0f, 1.0f};
 bool g_bRttLightExempt = false;
+// Artscout - 2026: HUD symbology gain. The HUD composite is additive and exempt from the pit light (it dims itself
+// in HudClass::SetLightLevel), so on a bright sky it only ever adds up to (0,1,0). VCock_Exec sets this around
+// the HUD draw from the SYM wheel and the daylight level -- see g_fHudGainMin/Max.
+float g_rttHudGain = 1.0f;
+float g_fHudGainMin = 0.4f; // gain with the SYM wheel at 0 (full daylight)
+float g_fHudGainMax = 2.0f; // gain with the SYM wheel at 1 (full daylight); 1.0 = the old fixed brightness
 // Artscout - 2026: MFD sun glare -- armed by VCock_Exec around the MFD composites (see DrawRttQuad).
 // g_rttGlareScale maps canvas units to the pit model frame (1 / RTT_POSITION_SCALING); g_rttGlareRot
 // is the pit's body->world rotation (ownshipRot).
@@ -2062,7 +2104,11 @@ void VirtualDisplay::DrawRttQuad()
     extern bool g_bRttLightExempt;
     float lr = 1.0f, lg = 1.0f, lb = 1.0f;
 
-    if (not g_bRttLightExempt)
+    if (g_bRttLightExempt)
+    {
+        lr = lg = lb = g_rttHudGain;
+    }
+    else
     {
         if (rttBlendMode == STATE_CHROMA_TEXTURE_GOURAUD2)
             lr = lg = lb = g_rttEmissiveLight;

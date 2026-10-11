@@ -394,6 +394,8 @@ extern bool g_bHmcsSlaveSeeker, g_bHmcsSlaveRadar, g_bHmcsHudBlank, g_bHmcsLog;
 extern float g_fHmcsHudHalfWidth, g_fHmcsHudTop, g_fHmcsHudBottom, g_fHmcsScale, g_fHmcsTextScale;
 extern bool g_bHudStrokeFont; // Artscout - 2026: render2d.cpp
 extern float g_fHudFontScale;
+extern float g_fHudGainMin, g_fHudGainMax; // Artscout - 2026: display.cpp, HUD SYM-wheel gain
+extern bool g_bHudTextTrace; // Artscout - 2026: display.cpp, diagnostic
 extern "C" int g_nBWCheckDeltaTime;
 
 // #define OPENEYES //; disabled until futher
@@ -2076,6 +2078,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"CheckFeatureIndex", &g_bCheckFeatureIndex}, // Wombat778 5-15-2004
     {"MachAsiDial", &g_bMachAsiDial}, // Wombat778 7-9-2004
     {"New2DTrackIR", &g_bNew2DTrackIR}, // Wombat778 11-15-2004
+    {"HudTextTrace", &g_bHudTextTrace}, // Artscout - 2026: DIAGNOSTIC, logs who draws the HUD string "50" (see display.cpp)
     {"Sync2D3DPit", &g_bSync2D3DPit}, // Wombat778 11-17-2004
     {"LowBwVoice", &g_bLowBwVoice},
     {"AGTargetWPFix", &g_bAGTargetWPFix}, // 2002-04-06 MN
@@ -2519,6 +2522,8 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fSubtitleY}, // Artscout - 2026: radio subtitle first line, viewport NDC (+ = up)
     {"SubtitleLineSpacing",
      &g_fSubtitleLineSpacing}, // Artscout - 2026: line pitch, multiples of the font height
+    {"HudGainMin", &g_fHudGainMin}, // Artscout - 2026: HUD gain at SYM wheel 0, in daylight (default 0.4)
+    {"HudGainMax", &g_fHudGainMax}, // Artscout - 2026: HUD gain at SYM wheel 1, in daylight (default 2.0; 1.0 = old fixed brightness)
     {"SubtitleScale",
      &g_fSubtitleScale}, // Artscout - 2026: subtitle glyph scale, 1.0 = the font's native size
     {"VrFpsQuadX", &g_fVrFpsQuadX}, // Artscout - 2026: VR fps quad, m right

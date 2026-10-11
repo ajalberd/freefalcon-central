@@ -5547,8 +5547,24 @@ void OTWDriverClass::VCock_Exec(void)
         if (vHUDrenderer)
         {
             extern bool g_bRttLightExempt;
+            extern float g_rttHudGain, g_fHudGainMin, g_fHudGainMax;
             g_bRttLightExempt = true; // the HUD dims itself (HudClass::SetLightLevel)
+
+            // Artscout - 2026: the SYM wheel scales the HUD's gain, fading out toward night (where
+            // SetLightLevel's own alpha curve takes over). Wheel 0..1 -> Min..Max, blended with the
+            // daylight level so a dark sky keeps the stock brightness.
+            if (TheHud)
+            {
+                float w = TheHud->SymWheelPos;
+                w = (w < 0.0f) ? 0.0f : (w > 1.0f) ? 1.0f : w;
+                float env = TheTimeOfDay.GetLightLevel();
+                env = (env < 0.0f) ? 0.0f : (env > 1.0f) ? 1.0f : env;
+                const float wheelGain = g_fHudGainMin + (g_fHudGainMax - g_fHudGainMin) * w;
+                g_rttHudGain = 1.0f + (wheelGain - 1.0f) * env;
+            }
+
             vHUDrenderer->DrawRttQuad();
+            g_rttHudGain = 1.0f;
             g_bRttLightExempt = false;
         }
 
