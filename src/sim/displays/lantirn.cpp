@@ -16,6 +16,8 @@
 #include "falclib/include/dispopts.h"
 
 extern bool g_bTFRFixes;
+extern bool g_bHudFlir;
+extern float g_fHudFlirTrim, g_fHudFlirScale;
 
 LantirnClass *theLantirn;
 
@@ -53,6 +55,7 @@ LantirnClass::LantirnClass() : DrawableClass()
     min_Radius = 0.0F;
     min_safe_dist = 0.0F;
     SpeedUp = FALSE;
+    m_hudIr = NULL;
     coolTime = 0.0F;
     powerInit = false;
     powerSeen = true;
@@ -74,6 +77,13 @@ LantirnClass::LantirnClass() : DrawableClass()
 LantirnClass::~LantirnClass()
 {
     DisplayExit();
+
+    if (m_hudIr)
+    {
+        m_hudIr->Cleanup();
+        delete m_hudIr;
+        m_hudIr = NULL;
+    }
 
     // Artscout - 2026: free the off-screen FLIR/TGP RTT.
     if (m_pRTT)
@@ -246,6 +256,93 @@ void LantirnClass::DrawTerrain()
             }
         }
     }
+}
+
+// Artscout - 2026: HUD FLIR raster. The pit's HUD is an atlas zone (vHUDrenderer's RTT rect) that the symbology
+// is drawn into; this draws the nav pod's IR view into the SAME zone first, so the symbology lands on top and
+// the whole zone is composited at the collimated HUD plane. Everything after the setup mirrors
+// LaserPodClass::DrawTerrain (the sequence that is confirmed on the MFD sensor pages): ReBindRttTarget, confine
+// the object viewport to the zone, grey the scene, cap the terrain radius, DrawScene, confine again, flush the
+// 2D spans and the object lists INSIDE the RTT bracket, restore.
+//
+// Conformal: the camera looks along the aircraft's x axis (pitched down by the HUD's own boresight offset, so
+// the nose lands where the boresight cross is drawn), with the HUD's field of view. HudFlirTrim (degrees, up
+// positive) is the boresight adjustment (BMS "BSGT"); HudFlirScale scales the field of view.
+void LantirnClass::DrawHudRaster(VirtualDisplay *hudCanvas, ImageBuffer *atlas, float halfAngleDeg, float boresightRad)
+{
+    extern bool g_bUseD3D12, g_bUseVulkan, g_bSensorSceneD3D12, g_bSensorSceneVulkan;
+    AircraftClass *playerAC = SimDriver.GetPlayerAircraft();
+
+    if (not g_bHudFlir or not IsFLIR() or not hudCanvas or not atlas or not playerAC or halfAngleDeg <= 0.0F)
+        return;
+
+    // the same gate as every other sensor scene: off where the backend has no working sensor-scene path
+    if ((g_bUseD3D12 or g_bUseVulkan) and not(g_bSensorSceneD3D12 or (g_bUseVulkan and g_bSensorSceneVulkan)))
+        return;
+
+    if (not m_hudIr)
+    {
+        m_hudIr = new RenderIR;
+        m_hudIr->Setup(atlas, OTWDriver.GetViewpoint());
+        m_hudIr->SetColor(0xffffffff);
+    }
+    else if (m_hudIr->GetImageBuffer() not_eq atlas)
+        m_hudIr->SetImageBuffer(atlas);
+
+    int zl, zt, zr, zb;
+    hudCanvas->GetRttRect(&zl, &zt, &zr, &zb);
+    m_hudIr->SetRttRect(zl, zt, zr, zb);
+    m_hudIr->AdjustRttViewport();
+    m_hudIr->SetFOV(2.0F * halfAngleDeg * DTR * g_fHudFlirScale);
+
+    Tpoint cameraPos;
+    GetCameraPos(&cameraPos);
+
+    Trotation viewRotation;
+    mlTrig tha, psi, phi;
+    mlSinCos(&tha, playerAC->Pitch() - boresightRad + g_fHudFlirTrim * DTR);
+    mlSinCos(&psi, playerAC->Yaw());
+    mlSinCos(&phi, playerAC->Roll());
+
+    viewRotation.M11 = psi.cos * tha.cos;
+    viewRotation.M21 = psi.sin * tha.cos;
+    viewRotation.M31 = -tha.sin;
+
+    viewRotation.M12 = -psi.sin * phi.cos + psi.cos * tha.sin * phi.sin;
+    viewRotation.M22 = psi.cos * phi.cos + psi.sin * tha.sin * phi.sin;
+    viewRotation.M32 = tha.cos * phi.sin;
+
+    viewRotation.M13 = psi.sin * phi.sin + psi.cos * tha.sin * phi.cos;
+    viewRotation.M23 = -psi.cos * phi.sin + psi.sin * tha.sin * phi.cos;
+    viewRotation.M33 = tha.cos * phi.cos;
+
+    Tpoint p = cameraPos;
+    cameraPos.x = p.x * viewRotation.M11 + p.y * viewRotation.M12 + p.z * viewRotation.M13;
+    cameraPos.y = p.x * viewRotation.M21 + p.y * viewRotation.M22 + p.z * viewRotation.M23;
+    cameraPos.z = p.x * viewRotation.M31 + p.y * viewRotation.M32 + p.z * viewRotation.M33;
+
+    extern void FF_SetIRGrey(bool);
+    extern void FF_SetTerrainRadiusCap(int);
+
+    m_hudIr->StartDraw();
+    ((VirtualDisplay *)m_hudIr)->ReBindRttTarget();
+    ((VirtualDisplay *)m_hudIr)->ConfineObjectViewportToZone();
+    FF_SetIRGrey(true);
+    FF_SetTerrainRadiusCap(32);
+    m_hudIr->DrawScene(&cameraPos, &viewRotation);
+    ((VirtualDisplay *)m_hudIr)->ConfineObjectViewportToZone();
+    m_hudIr->context.FlushPending();
+
+    if (DisplayOptions.bZBuffering or g_bUseD3D12 or g_bUseVulkan)
+        m_hudIr->context.FlushPolyLists();
+
+    if (g_bUseVulkan and OTWDriver.renderer)
+        OTWDriver.renderer->context.FlushPolyLists();
+
+    FF_SetIRGrey(false);
+    FF_SetTerrainRadiusCap(0);
+    ((VirtualDisplay *)m_hudIr)->ReBindRttTarget();
+    m_hudIr->EndDraw();
 }
 
 void LantirnClass::SetFOV(float fov)

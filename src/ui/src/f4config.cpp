@@ -641,6 +641,9 @@ int g_nFarLodExtra = 1;
 float g_fCloudMinHeight = -1.0f; // JPO
 float g_fRadarScale = 1.0f; // JPO
 float g_fCursorSpeed = 1.0f; // JPO
+bool g_bHudFlir = false; // Artscout - 2026: EXPERIMENTAL -- render the nav FLIR (LANTIRN) scene into the 3D-pit HUD zone behind the symbology while the FLIR is on. Default OFF; the first cut has not been flown. "HudFlir".
+float g_fHudFlirTrim = 0.0f; // Artscout - 2026: HUD FLIR boresight trim in degrees (up positive), BMS "BSGT". "HudFlirTrim".
+float g_fHudFlirScale = 1.0f; // Artscout - 2026: HUD FLIR field-of-view multiplier (1 = the HUD's own field of view). "HudFlirScale".
 bool g_bLink16Hostile = true; // Artscout - 2026: Link 16 aircraft see hostile air tracks the team has spotted on the HSD while an AWACS is up (0 = friendly flights only). "Link16Hostile".
 float g_fEcmXmitDegrade = 0.20f; // Artscout - 2026: own radar detection range lost while the jammer transmits in XMIT 2 / 3 (0 = no penalty, 0.2 = 20 percent). "EcmXmitDegrade".
 float g_fMinCloudWeather = 1500; // JPO
@@ -2085,6 +2088,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"HudTextTrace", &g_bHudTextTrace}, // Artscout - 2026: DIAGNOSTIC, logs who draws the HUD string "50" (see display.cpp)
     {"HudTextTrace", &g_bHudTextTrace}, // Artscout - 2026: DIAGNOSTIC, logs who draws the HUD string "50" (see display.cpp)
     {"Sync2D3DPit", &g_bSync2D3DPit}, // Wombat778 11-17-2004
+    {"HudFlir", &g_bHudFlir}, // Artscout - 2026: EXPERIMENTAL nav FLIR raster in the 3D-pit HUD zone (default 0)
     {"Link16Hostile", &g_bLink16Hostile}, // Artscout - 2026: hostile air tracks on the HSD for Link 16 aircraft while an AWACS is up (default 1)
     {"LowBwVoice", &g_bLowBwVoice},
     {"AGTargetWPFix", &g_bAGTargetWPFix}, // 2002-04-06 MN
@@ -2594,6 +2598,8 @@ static ConfigOption<float> FloatOpts[] = {
     {"CloudMinHeight", &g_fCloudMinHeight}, // JPO
     {"RadarScale", &g_fRadarScale}, // JPO
     {"CursorSpeed", &g_fCursorSpeed}, // JPO
+    {"HudFlirTrim", &g_fHudFlirTrim}, // Artscout - 2026: HUD FLIR boresight trim, degrees (default 0)
+    {"HudFlirScale", &g_fHudFlirScale}, // Artscout - 2026: HUD FLIR field-of-view multiplier (default 1)
     {"EcmXmitDegrade", &g_fEcmXmitDegrade}, // Artscout - 2026: fraction of own radar range lost while the ECM pod transmits in XMIT 2 / 3 (default 0.20)
     {"HudCollimateScale",
      &g_fHudCollimateScale}, // Artscout - 2026: tune HUD collimation strength (1.0 = original)

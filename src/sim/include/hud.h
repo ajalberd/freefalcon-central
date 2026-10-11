@@ -364,6 +364,15 @@ public:
 
 
     void GetBoresightPos(float*, float*);
+    // Artscout - 2026: for the HUD FLIR raster (vcock.cpp -> LantirnClass::DrawHudRaster)
+    float GetHalfAngleDeg(void)
+    {
+        return halfAngle;
+    };
+    float HudUnitsToRadians(float units)
+    {
+        return HudUnitsToRad(units);
+    };
     void SetHalfAngle(float, float HScale = 1.0f, float VScale = 1.0f);
     VirtualDisplay* GetDisplay(void)
     {

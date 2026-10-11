@@ -56,6 +56,7 @@ extern int curColorIdx;
 extern bool g_bRealisticAvionics;
 #include "navsystem.h"
 #include "hmcs.h" // Artscout - 2026: JHMCS symbology
+#include "lantirn.h" // Artscout - 2026: HUD FLIR raster (theLantirn)
 
 //Wombat778 3D Cockpit variables
 //extern bool g_b3DClickableCockpit;
@@ -5140,6 +5141,22 @@ void OTWDriverClass::VCock_Exec(void)
             }
 
             vHUDrenderer->AdjustOriginInViewport(XOffset, YOffset);
+
+            // Artscout - 2026: the nav FLIR raster goes into the HUD zone first, so the symbology draws over it
+            // (cfg HudFlir, default off). The IR scene has its own renderer (LantirnClass::m_hudIr) and its own
+            // StartDraw/EndDraw, like the MFD sensor pages; the main renderer's atlas bracket stays open around it.
+            // Its EndDraw unbinds the atlas, so bind it again and re-establish this zone before the symbology.
+            {
+                extern bool g_bHudFlir;
+
+                if (g_bHudFlir and theLantirn and theLantirn->IsFLIR())
+                {
+                    theLantirn->DrawHudRaster(vHUDrenderer, renderer->GetImageBuffer(), TheHud->GetHalfAngleDeg(),
+                                              TheHud->HudUnitsToRadians(vBoresightY));
+                    vHUDrenderer->ReBindRttTarget();
+                    vHUDrenderer->AdjustRttViewport();
+                }
+            }
 
             TheHud->Display(vHUDrenderer, true);
 
