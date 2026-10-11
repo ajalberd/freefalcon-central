@@ -98,7 +98,18 @@ public:
     };
     virtual void ToggleAutoDrop(void) {};
 
+    // Artscout - 2026: SYS TEST button -- the ALR-56M self-test, two screens
+    // (TO 1F-16CMAM-34-1-1 2.7.3.2.2). Needs the RWR powered.
+    void StartSysTest(void);
+    int InSysTest(void)
+    {
+        return sysTestStart not_eq 0;
+    };
+
 protected:
+    unsigned long sysTestStart; // vuxRealTime the self-test began; 0 = not running
+    void DrawSysTest(void);
+
     int flipFactor; // -1 when AC is upside down, 1 when normal
     int mGridVisible;
 

@@ -923,6 +923,20 @@ void SimRWRSetTargetSep(unsigned long, int state, void*)
     }
 }
 
+void SimRWRSysTest(unsigned long, int state, void*)
+{
+    if (SimDriver.GetPlayerAircraft() and
+        SimDriver.GetPlayerAircraft()->IsSetFlag(MOTION_OWNSHIP) and
+        (state bitand KEY_DOWN))
+    {
+        PlayerRwrClass* theRwr = (PlayerRwrClass*)FindSensor(
+            SimDriver.GetPlayerAircraft(), SensorClass::RWR);
+
+        if (theRwr)
+            theRwr->StartSysTest();
+    }
+}
+
 void SimRWRSetUnknowns(unsigned long, int state, void*)
 {
     if (SimDriver.GetPlayerAircraft() and

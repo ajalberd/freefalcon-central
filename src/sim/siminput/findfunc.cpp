@@ -37,7 +37,7 @@ static struct UserFunctionListEntry UserFunctionList[] =
                                                      USER_FUNCTION(
                                                          SimRWRSetPriority)
     //USER_FUNCTION(SimRWRSetSound)
-     USER_FUNCTION(SimRWRSetTargetSep) USER_FUNCTION(SimRWRSetUnknowns)
+     USER_FUNCTION(SimRWRSetTargetSep) USER_FUNCTION(SimRWRSetUnknowns) USER_FUNCTION(SimRWRSysTest)
          USER_FUNCTION(SimRWRSetNaval) USER_FUNCTION(SimRWRSetGroundPriority)
              USER_FUNCTION(SimRWRSetSearch) USER_FUNCTION(
                  SimRWRHandoff) USER_FUNCTION(SimNextWaypoint)

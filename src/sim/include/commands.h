@@ -359,6 +359,7 @@ void SimRWRSetPriority(unsigned long val, int state, void *);
 //void SimRWRSetSound (unsigned long val, int state, void *);
 void SimRWRSetTargetSep(unsigned long val, int state, void *);
 void SimRWRSetUnknowns(unsigned long val, int state, void *);
+void SimRWRSysTest(unsigned long val, int state, void *);
 void SimRWRSetNaval(unsigned long val, int state, void *);
 void SimRWRSetGroundPriority(unsigned long val, int state, void *);
 void SimRWRSetSearch(unsigned long val, int state, void *);

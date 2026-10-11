@@ -73,6 +73,7 @@ PlayerRwrClass::PlayerRwrClass(int idx, SimMoverClass* self)
     : VehRwrClass(idx, self)
 {
     flipFactor = 1;
+    sysTestStart = 0;
     mGridVisible = TRUE;
 
     priorityMode = TRUE;
@@ -484,6 +485,14 @@ void PlayerRwrClass::Display(VirtualDisplay* activeDisplay)
 
     // Do we draw flashing things this frame?
     flash = vuxRealTime bitand 0x200;
+
+    // Self-test replaces the scope contents while it runs
+    if (sysTestStart)
+    {
+        DrawSysTest();
+        display->CenterOriginInViewport();
+        return;
+    }
 
     // See if we need to switch between rightsideup and upsidedown presentations
     if (flipFactor > 0)
@@ -1381,6 +1390,43 @@ void PlayerRwrClass::CheckEWS(void)
             if (SaidJammer)
                 SaidJammer = FALSE;
         }
+    }
+}
+
+// Artscout - 2026: the ALR-56M self-test. Screen 1 "RWR / SYSTEM GO", screen 2 the unit's
+// software part numbers, then back to the normal scope. No faults are modelled, so the
+// fault-list screen and the "F" in the middle never appear.
+void PlayerRwrClass::StartSysTest(void)
+{
+    if (IsOn() and not sysTestStart)
+        sysTestStart = vuxRealTime ? vuxRealTime : 1;
+}
+
+void PlayerRwrClass::DrawSysTest(void)
+{
+    const unsigned long kScreenMs = 2500;
+    const unsigned long elapsed = vuxRealTime - sysTestStart;
+
+    if (not IsOn() or elapsed >= 2 * kScreenMs)
+    {
+        sysTestStart = 0;
+        return;
+    }
+
+    const float h = display->TextHeight();
+
+    if (elapsed < kScreenMs)
+    {
+        display->TextCenter(0.0f, h * 0.5f, "RWR");
+        display->TextCenter(0.0f, -h * 0.5f, "SYSTEM GO");
+    }
+    else
+    {
+        display->TextCenter(0.0f, h * 2.0f, "F16C");
+        display->TextCenter(0.0f, h * 1.0f, "1 OFP 0020");
+        display->TextCenter(0.0f, 0.0f, "2 WO 0040");
+        display->TextCenter(0.0f, -h * 1.0f, "PA 0050");
+        display->TextCenter(0.0f, -h * 2.0f, "US 0060");
     }
 }
 
