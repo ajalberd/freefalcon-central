@@ -1,68 +1,72 @@
 # Avionics port: BMS 4.38 manuals vs FF6
 
-Audit of `TO 1F-16CMAM-1 BMS.pdf` and `TO 1F-16CMAM-34-1-1 BMS.pdf` (BMS 4.38, 1 July 2025) against the
-FF6 source, and the features ported from it. Branch `rail-tracks`, commits tagged `avionics:`.
+Audit of `TO 1F-16CMAM-1 BMS.pdf` and `TO 1F-16CMAM-34-1-1 BMS.pdf` (BMS 4.38, 1 July 2025) against the FF6 source,
+and the features ported from it. Branch `rail-tracks`, commits tagged `avionics:` (and `tools:` for the data tools).
 
 **Nothing here has been flown.** Every item compiles in the per-project sandbox (all sim, campaign, UI and
-`Falcon4.vcxproj` projects were compiled after the last change) but none has been seen in the game. The
-"To check in game" lines are the checklist.
+`Falcon4.vcxproj` projects were compiled after the last code change) but none has been seen in the game. The
+"To check in game" column is the checklist. **Rebuild All**: `mfd.h`, `aircrft.h`, `icp.h`, `hud.h`, `lantirn.h`,
+`playerrwr.h`, `fcc.h`, `commands.h`, `vehicle.h` changed.
 
 ## How the audit was done, and what it got wrong
 
-1. Text only (`pdftotext`), plus code greps, plus a callback diff (FF6 757 names vs BMS 1,509, 608 shared;
-   `Docs/01 Input Devices/02 Key File Editor/Complete Callback List.txt`). **The figures were not looked at.**
-   The user pointed that out; from then on each feature was built from the rendered page image
-   (Ghostscript, see the `freefalcon-pdf-figures` memory). The first TCN page was written from prose and had to
-   be redone: the figure put the keypad digits on the left column and ENTR/RTN/RCL on the top row.
-2. **Over-calls, found by reading the manual / headers properly:**
-   - RESET menu, RCCE, FIX, ACAL, CORR, OFP, INSM are non-functional in BMS too (the manual says so). Not gaps.
-   - The ECM system in FF6 is further along than assumed (consent, standby, auto/semi, ICP REQJAM, jammer power).
-   - The TFR page already has NORM/LP1/STBY/WX/ECCM, HARD/MED/SOFT ride, 1000/500/300/200/VLC clearance. The first
-     audit only saw part of the header. What was missing were HUD advisories.
-   - HSD already has CNTL, CPL/DCPL, DEP/CEN, EXP1/2, FRZ, and the flight-member air/ground datalink (ADLNK/GDLNK).
-     So "Link 16 lite" for flight members is mostly there; what Link 16 would add is other flights and AWACS tracks.
-   - The UHF/IFF backup panels are cockpit hardware (the F-16 block 50 pit), FF6's pit has the older AUX COMM panel.
-     There is nothing to click; the backup TACAN control BMS moved to an MFD page is now the TCN page.
-   - The BMS manual, FCR chapter: FF6 parity is high (all modes, control page, NO RAD, NOT SOI).
+1. First pass was text only (`pdftotext`), code greps and a callback diff (FF6 757 names vs BMS 1,509, 608 shared;
+   `Docs/01 Input Devices/02 Key File Editor/Complete Callback List.txt`). **The figures were not looked at.** From
+   then on each feature was built from the rendered page image (Ghostscript; see the `freefalcon-pdf-figures` memory).
+   The first TCN page was written from prose and had to be redone.
+2. **Over-calls, found by reading the manual / headers / data properly:**
+   - RESET menu, RCCE, FIX, ACAL, CORR, OFP, INSM are non-functional in BMS too (the manual says so).
+   - ECM in FF6 already had consent, standby, auto/semi, ICP REQJAM and jammer power; the TFR page already had
+     NORM/LP1/STBY/WX/ECCM, ride and clearance; the HSD already had CNTL, CPL/DCPL, DEP/CEN, EXP1/2, FRZ and the
+     flight-member datalink (ADLNK/GDLNK); the FCR matches the manual (control page, NO RAD, NOT SOI).
+   - The UHF/IFF backup panels are block-50 pit hardware FF6's pit lacks; the backup TACAN control BMS moved to an
+     MFD page is the TCN page.
+   - **CBU-103 / CBU-105 are in the data** as "CBU-87/103 CEM" and "CBU-97/105 SFW"; the first search looked for the
+     wrong strings. Only GBU-39 and AGM-158 were really missing.
+   - The vehicle table also already had F-16C+/CJ/DJ, KF-16C/D, F-15K etc.; Link 16 is gated by a new flag, below.
 
-## Done (this branch)
+## Done
 
 | Commit | Feature | Where | To check in game |
 |---|---|---|---|
-| `03d3b759` | **TCN MFD format**: backup TACAN mode (AA T/R / T/R), INC/DEC triangles, CH + channel keypad, band X/Y. Replaces the dead RCCE slot, OSB 4 of the MFD menu. | `displays/TcnMfd.cpp`, `mfd.h` (`TCNMode` after `HADMode`, own `TcnDrawable`), `menumfd.cpp` | MFD menu, OSB 4. INC/DEC/band change the channel on the ILS/TCN DED page. Keypad: digits left column 1-5 (OSB 20 down to 16), right column 6 7 8 9 0, ENTR/RTN/RCL top row. Acts on the live source (UFC, or AUX COMM when its master switch has it). |
-| `69f7dd05` | **DWAT**: "ALTITUDE - ALTITUDE" once per takeoff when within 3 min of liftoff, gear up, climbed >= 300 ft (never > 10,000), and the descent rate puts you at runway height in <= 30 s. | `AircraftClass::CheckDWAT` (aircraft.cpp), members in `aircrft.h` | Take off, climb 500 ft, push over hard: one call. Honours the Betty switch. |
-| `df078726` | **RWR SYS TEST**: callback `SimRWRSysTest`; screen 1 "RWR / SYSTEM GO", screen 2 the ALR-56M part numbers, 2.5 s each, then the normal scope. | `PlayerRwrClass::StartSysTest/DrawSysTest`, `commands.cpp`, `findfunc.cpp` | Bind `SimRWRSysTest` in the keyfile. No pit hotspot yet. |
-| `408e7eb0` | **TGP page readouts** (Sniper base page): SPI lat/long/elevation top left, zoom as multiple of the wide FOV, north pointer, laser mode / status / code along the bottom. Display only. | `TgpMfdDrawable::DrawSniperReadouts` | Positions were read off the figure, so check for overlap with RALT, the station row and the OSB labels. The north arrow assumes screen-up is the pod heading. |
-| `091aad84` | **HUD "LO TF"** (TFR vertical-clearance warning, flashes below 75 % of the set clearance while the TF autopilot flies). | `hud.cpp`; needs `g_bTFRFixes` | LANTIRN F-16, TF engaged, pick 1000 ft, be at 600. |
-| `f01af9a5` | **HSD cursor zero (CZ)** on OSB 9; zeroes the radar's slews, works whoever is SOI. | `navfcc.cpp`, `fccmain.cpp` | Slew in FCR A-G, switch to HSD, press CZ. OSB 9 vs 10 is a guess from the figure; the text says OSB 10. |
-| `5225bc58` | **EWS page FDBK / REQCTR / BINGO** are real toggles: dobber to the line, any digit toggles. FDBK gates "CHAFF FLARE", REQCTR gates "COUNTER", BINGO gates "LOW" *and* "OUT" (was LOW only). Defaults ON = old behaviour. | `icp.h` (`EDIT_FDBK/EDIT_REQCTR`, `EWS_FDBK_ON/EWS_REQCTR_ON`), `icplist.cpp`, `icpcniswitch.cpp`, `icp.cpp`, `chafflare.cpp`, `playerrwr.cpp` | LIST 7, dobber down through CH, FL, REQJAM, FDBK, REQCTR, BINGO. |
-| (this batch) | **Link 16 "lite" on the HSD**: other friendly flights, airborne and on screen, drawn as the same ring + altitude + heading line the wingman datalink uses. Only for an aircraft whose vehicle class has `VEH_HAS_LINK16` (0x10000000), and only flights whose aircraft have it too. Rides the ADLNK toggle on the HSD CNTL page; same DL power / fault / INS gates as the wingman layer. No hostile tracks. | `FireControlComputer::DrawFriendlyFlights` (navfcc.cpp), `vehicle.h`, `tools/avionics/set_link16.py` | Needs the flag in the data: applied 2026-10-11 to `terrdata/objects` and the four `campaign/*/CampaignDB` `FALCON4.VCD` (backups `*.bak-pre-link16`). Flagged: F-16CJ, F-16DJ, F-16C+, KF-16C/D. Not flagged (use `--add`): F-16A/B/C/CG/DG/XL, MLU AM-B/AM-D, HAF C/D, AGSR, and every non-F-16. Fly an F-16CJ with another F-16CJ/KF-16 flight airborne nearby: it should appear on the HSD. |
-| `f5732b64` | **HUD Attitude Awareness Arc** in Dogfight mode: 99.5 mR arc, shrinks nose-up (smallest at +87), closes nose-down, roll-stabilised, 5.2 mR end ticks, gone with the gear down. | `HudClass::DrawAttitudeAwarenessArc` (mislhud.cpp) | Dogfight override. Level = half circle under the centre, ground-side always down. Centre assumed at HUD (0,0). |
-
-Build: `mfd.h`, `aircrft.h`, `icp.h`, `hud.h`, `playerrwr.h`, `commands.h` changed, so **Rebuild All**.
+| `03d3b759` | **TCN MFD format**: backup TACAN mode, INC/DEC triangles, CH + channel keypad, band. On the dead RCCE slot, menu OSB 4. | `displays/TcnMfd.cpp`, `mfd.h` (`TCNMode`, own `TcnDrawable`) | MFD menu OSB 4. Keypad digits: left column 1-5 (OSB 20 down to 16), right column 6 7 8 9 0, ENTR/RTN/RCL top row. |
+| `69f7dd05` `e74d84a9` | **DWAT** "ALTITUDE - ALTITUDE", once per takeoff; disarmed until the jet has stood on a runway. | `AircraftClass::CheckDWAT` | Take off, climb 500 ft, push over hard. Honours Betty. |
+| `df078726` | **RWR SYS TEST** (`SimRWRSysTest`): "RWR SYSTEM GO", then the part-number screen. | `PlayerRwrClass` | Bind the callback; no pit hotspot. |
+| `408e7eb0` | **TGP Sniper readouts**: SPI lat/long/elev, zoom, north pointer, laser mode/status/code. | `TgpMfdDrawable::DrawSniperReadouts` | Check overlap with RALT, station row, OSB labels. |
+| `76326ea7` | **TGP control page + extras**: CNTL (OSB 5) opens GRAY (OSB 19, moved from OSB 20) and north-pointer/meterstick select (OSB 18); PTR (OSB 2) IR-pointer status toggle (no beam in the world); LST (OSB 20) moves the pod's SPI onto a target another aircraft is lasing (`IS_LASED`); meterstick. | `tgpmfd.cpp` | LST only matters with a second laser (multiplayer / human wingman); the FCC may overwrite the point each frame, unknown until flown. |
+| `091aad84` `ecc8cd8d` | **TFR**: HUD `LO TF`; `LIMIT` (bank > 60 or dive > 20, my interpretation); `TERRAIN ->` / `<- TERRAIN` (ground within 1.5 turn radii at +/-20 deg, every 4th frame); MFD flashing `TFR LIMITS`; **NOT TIMED OUT** 180 s warm-up when LEFT HDPT power comes on during the flight (a spawn already powered counts as warm; TFR stays STBY, only ride/clearance/power work); **TF FAIL** (WARN, light, PULL UP, autopilot dropped) when the pod loses power under TF. | `lantirn.h/.cpp`, `lantmfd.cpp`, `hud.cpp`, `cautions.cpp` | Needs `g_bTFRFixes`. NO TER deliberately not done (FF6's ground-ray model would show it constantly). |
+| `f01af9a5` | **HSD cursor zero (CZ)** on OSB 9. | `navfcc.cpp`, `fccmain.cpp` | OSB 9 vs 10 is a guess from the figure; the text says OSB 10. |
+| `5225bc58` | **EWS FDBK / REQCTR / BINGO** are real toggles: FDBK gates "CHAFF FLARE", REQCTR gates "COUNTER", BINGO gates "LOW" and "OUT". | `icp.h`, `icplist.cpp`, `icpcniswitch.cpp`, `icp.cpp`, `chafflare.cpp`, `playerrwr.cpp` | LIST 7, dobber down through CH, FL, REQJAM, FDBK, REQCTR, BINGO; any digit toggles. |
+| `f5732b64` | **HUD Attitude Awareness Arc** in Dogfight mode (99.5 mR, shrinks nose-up, closes nose-down, roll-stabilised, gone with the gear down). | `HudClass::DrawAttitudeAwarenessArc` | Centre assumed at HUD (0,0). |
+| `f8746094` | **HUD landing declutter** on the uncage key (gear down, NAV/ILS): roll indicator, ILS bars, flight director, DED data off; clears on leaving NAV/landing, gear up, WOW or the next uncage. | `hud.cpp`, `navhud.cpp`, `SimToggleMissileCage` | On final in NAV, press the uncage key. |
+| `c71ac09e` | **TIME page DELTA TOS**: type HHMMSS + ENTR; the dobber flips the sign. Applied to CRUS TOS, STPT page time and the HUD time to go. Avionics-side only: the campaign flight plan is untouched. | `icp*.cpp`, `scratchpad.cpp`, `navfcc.cpp` | LIST not needed: ICP 6 (TIME). Digits go to DELTA TOS, so use CLR/another page key to leave. |
+| `c6afa2f9` | **ECM XMIT** switch (`SimEcmXmitStep`, `SimEcmXmit1/2/3`): 1 = aft antenna only (jam cover only for radars behind you); 2 and 3 = front and rear cover but your own radar loses `EcmXmitDegrade` (default 20 %) of its detection range while the jammer transmits. Default XMIT 2 keeps the old cones. The T lamp is the existing ECM lamp. No warm-up (you chose not to). | `radar.cpp`, `aircrft.h`, `commands.cpp`; knob in `f4config.cpp` | Keyfile only, no pit hotspot. |
+| `7ce8a5b8` `f2757d15` | **Link 16 lite on the HSD**: other friendly flights (airborne, on screen) as ring + altitude + heading; **hostile tracks** the team has spotted while one of our AWACS is up above 5000 ft (cfg `Link16Hostile`, default 1). Both gated by `VEH_HAS_LINK16` (0x10000000) in the vehicle class, on the viewer and on the flights shown; both ride the ADLNK toggle. | `FireControlComputer::DrawFriendlyFlights/DrawLink16Hostiles`, `vehicle.h`, `tools/avionics/set_link16.py` | Flag applied 2026-10-11 to `terrdata/objects` and the four `campaign/*/CampaignDB` `FALCON4.VCD` (backups `*.bak-pre-link16`): F-16CJ, DJ, C+, KF-16C/D, MLU AM-B/AM-D, F-15K, F/A-18E/F, E-3, E-2C. Not flagged: F-16A/B/C/CG/DG/XL, HAF, AGSR. |
+| `8f999bbd` | **DTE LOAD**: highlight sequence over MPD, COMM, INV, PROF, MSMD, GPS, DLNK, FCR, then the UFC goes back to its mission defaults (`ICPClass::InitStuff`); DTC id from the flight. | `dtemfd.cpp` | It wipes pilot-entered ICP data, like a real load. |
+| `78393258` | **Avionics New Weapons JSGME mod** (built, **not enabled**): GBU-39 SDB (clone of GBU-38, lighter) and AGM-158 JASSM (clone of Storm Shadow, JASSM range/weight) in the F-16 hardpoint lists that carry their source. | `tools/avionics/add_weapons.py`; mod in `C:\FreeFalcon6\MODS\Avionics New Weapons` | Enable AFTER Korea Rail War (both replace `FALCON4.ct`), disable BEFORE it. SDB falls like a JDAM; models are the sources'. Untested in the game. |
 
 ## Not done, and why
 
-- **ECM pod (BMS 2.7.4):** warm-up (5-6 min, "S" lamps), XMIT 1/2/3 (avionics-priority / ECM-priority / active jam,
-  the last two degrade own FCR/TFR/HARM), 5 programs, T lamp. The consent/standby layer already exists. Needs a
-  decision on how harsh warm-up and own-sensor degradation should be (it changes the ramp-start routine).
-- **TIME page DELTA TOS** (static "00:00:00" today): needs the numeric-entry path and a pass over every steerpoint's TOS.
-- **TGP:** CNTL page (gain/level, GRAY, N/M, MGC), IR pointer, LST, INR/AREA/POINT as BMS names them (FF6 has
-  POINT/AREA already), variable zoom beyond the three FOV steps. The pod's own 3D render path is fragile (see
-  `laserpod.cpp` notes), so these were left alone unattended.
-- **HUD landing declutter** (uncage with gear down in NAV: heading scale up, roll indicator / ILS bars / FD / DED data removed).
-- **TFR:** "NOT TIMED OUT" 3-minute cooldown, NO TER, LIMIT, TERRAIN arrows, WARN / TF-FAIL, LANTIRN AAF.
-- **Link 16 / MIDS / IDM:** full Link 16 (net entry, STN, donors, MIDS DED pages, FCR/HUD/HMCS symbology, PDLT) is not in
-  the code. The friendly-flights layer on the HSD is done (above); hostile/AWACS tracks and the FCR/HUD layers are not.
-- **Weapons:** SDB GBU-39, JASSM AGM-158, WCMD CBU-103/105 are not in `FALCON4.WCD`; each needs a model, WCD rows,
-  loadouts and SMS pages.
-- **Pit hotspots** for the new callbacks (SYS TEST etc.) and the IFF/UHF backup panels: pit art, not code.
-- **DTE page** still prints a fixed DTC id; with no DTC from the planner there is nothing real to load.
+- **FLIR/LANTIRN raster on the HUD (3D pit).** The old path (`LantirnClass::Display`, `cockpit.cpp`) only runs in 2D
+  HUD / 2D cockpit modes and renders the world straight to the screen. The 3D pit's HUD is a `Canvas3D` composited
+  by `DrawRttQuad`, so a raster needs either (a) an IR scene render into the HUD's atlas zone behind the symbology,
+  or (b) an image-space pseudo-FLIR filter over the HUD aperture. Both touch the sensor-scene path that has hung the
+  GPU before, and the HUD was only just tuned (stroke font, SYM wheel gain), so it was not attempted unattended.
+  Do it with test rounds, behind a default-off knob. MFD FLIR/TGP/Maverick video is unaffected and works.
+- **Pit hotspots** for SYS TEST and ECM XMIT: the pit's RWR/ECM panels would have to be matched to a texture legend
+  first (the technique is in the 2026-09-26 WIP note: texture trace through the UVs, x -569). Key-only for now.
+- **IR pointer** has no in-world beam; **LST** and the **TGP gain/level** have no image effect (the MFD intensity is a
+  packed colour, so scaling it is not a simple multiply).
+- **ECM warm-up (5-6 min)** was declined; **NO TER**, **HUD FLIR brightness / BSGT / look-into-turn** not done.
+- **Full Link 16** (net entry, STN, donors, MIDS DED pages, FCR/HUD/HMCS symbology, PDLT, flight-member numbers on the
+  HUD) is not in the code.
+- **IFF/UHF backup panels** are pit hardware FF6's pit lacks.
 
 ## Notes for whoever continues
 
-- Compile one project without touching the install: `cc.ps1`-style, see `freefalcon-build-workflow` memory.
-  `/p:` switches must come from PowerShell, not Git Bash.
-- Line endings: the working tree is CRLF (autocrlf), a Python edit that inserts LF text leaves mixed endings.
-- Work was done on `rail-tracks` in the shared worktree; only `avionics:` files were staged. Another session's
-  uncommitted graphics edits (`src/graphics/**`, `f4config.cpp`, notes) were left alone.
+- Compile one project without touching the install: `cc.ps1`-style sandbox, see the `freefalcon-build-workflow`
+  memory. `/p:` switches must come from PowerShell, not Git Bash.
+- The working tree is CRLF (autocrlf): a Python edit that inserts LF text leaves mixed endings.
+- `src/ui/src/f4config.cpp` is edited by another session; my two knobs (`EcmXmitDegrade`, `Link16Hostile`) were
+  committed by staging a HEAD-plus-my-hunk blob (`git update-index --cacheinfo`) so their edits were not swept in.
+- All of this sits on `rail-tracks`, which also carries the rail work: do not merge it into main wholesale.
