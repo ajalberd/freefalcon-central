@@ -17,7 +17,7 @@
 
 extern bool g_bTFRFixes;
 extern bool g_bHudFlir;
-extern float g_fHudFlirTrim, g_fHudFlirScale;
+extern float g_fHudFlirTrim, g_fHudFlirScale, g_fFlirCooldown;
 
 LantirnClass *theLantirn;
 
@@ -56,6 +56,13 @@ LantirnClass::LantirnClass() : DrawableClass()
     min_safe_dist = 0.0F;
     SpeedUp = FALSE;
     m_hudIr = NULL;
+    flirCool = 0.0F;
+    flirGain = 50.0F;
+    flirLevel = 100.0F;
+    flirManual = false;
+    hudBright = 0.6F;
+    bsgt = false;
+    hudTrimPitch = hudTrimYaw = 0.0F;
     coolTime = 0.0F;
     powerInit = false;
     powerSeen = true;
@@ -273,7 +280,10 @@ void LantirnClass::DrawHudRaster(VirtualDisplay *hudCanvas, ImageBuffer *atlas, 
     extern bool g_bUseD3D12, g_bUseVulkan, g_bSensorSceneD3D12, g_bSensorSceneVulkan;
     AircraftClass *playerAC = SimDriver.GetPlayerAircraft();
 
-    if (not g_bHudFlir or not IsFLIR() or not hudCanvas or not atlas or not playerAC or halfAngleDeg <= 0.0F)
+    // g_bHudFlir is only a kill switch now (default on); the FLIR page, the BRT wheel and the pod's power and
+    // cool-down decide whether there is an image. hudBright 0 = BRT wheel all the way down = no image on the HUD.
+    if (not g_bHudFlir or not IsFLIR() or hudBright < 0.02F or not hudCanvas or not atlas or not playerAC or
+        halfAngleDeg <= 0.0F)
         return;
 
     // the same gate as every other sensor scene: off where the backend has no working sensor-scene path
@@ -284,10 +294,16 @@ void LantirnClass::DrawHudRaster(VirtualDisplay *hudCanvas, ImageBuffer *atlas, 
     {
         m_hudIr = new RenderIR;
         m_hudIr->Setup(atlas, OTWDriver.GetViewpoint());
-        m_hudIr->SetColor(0xffffffff);
     }
     else if (m_hudIr->GetImageBuffer() not_eq atlas)
         m_hudIr->SetImageBuffer(atlas);
+
+    // the HUD's raster is green, in proportion to the BRT wheel and the gain/level
+    {
+        float v = hudBright * FlirIntensity();
+        v = v < 0.0F ? 0.0F : (v > 1.0F ? 1.0F : v);
+        m_hudIr->SetColor(0xff000000 | ((unsigned int)(255.0F * v) << 8));
+    }
 
     int zl, zt, zr, zb;
     hudCanvas->GetRttRect(&zl, &zt, &zr, &zb);
@@ -300,8 +316,8 @@ void LantirnClass::DrawHudRaster(VirtualDisplay *hudCanvas, ImageBuffer *atlas, 
 
     Trotation viewRotation;
     mlTrig tha, psi, phi;
-    mlSinCos(&tha, playerAC->Pitch() - boresightRad + g_fHudFlirTrim * DTR);
-    mlSinCos(&psi, playerAC->Yaw());
+    mlSinCos(&tha, playerAC->Pitch() - boresightRad + g_fHudFlirTrim * DTR + hudTrimPitch);
+    mlSinCos(&psi, playerAC->Yaw() + hudTrimYaw);
     mlSinCos(&phi, playerAC->Roll());
 
     viewRotation.M11 = psi.cos * tha.cos;
@@ -359,15 +375,75 @@ float LantirnClass::GetFov()
     return 0;
 }
 
-void LantirnClass::ToggleFLIR()
+bool LantirnClass::FlirPowered(AircraftClass* self)
 {
-    if (m_flags bitand FLIR_ON)
+    extern bool g_bRealisticAvionics;
+    return not g_bRealisticAvionics or (self and self->HasPower(AircraftClass::LeftHptPower));
+}
+
+void LantirnClass::SetFlirOper(bool on)
+{
+    AircraftClass* ac = SimDriver.GetPlayerAircraft();
+
+    if (on == IsFLIR())
+        return;
+
+    if (on)
+    {
+        if (not FlirPowered(ac) or not IsFlirTimedOut())
+            return; // not powered, or NOT TIMED OUT
+
+        m_flags or_eq FLIR_ON;
+    }
+    else
     {
         DisplayExit();
         display = NULL;
+        m_flags and_eq compl FLIR_ON;
     }
+}
 
-    m_flags xor_eq FLIR_ON;
+void LantirnClass::ToggleFLIR()
+{
+    SetFlirOper(not IsFLIR());
+}
+
+// How bright the picture is, 0..1: the fixed auto values unless GRAY has the manual gain and level on. Gain 50 and
+// level 100 (the defaults) give 1.0.
+float LantirnClass::FlirIntensity(void)
+{
+    if (not flirManual)
+        return 1.0F;
+
+    float v = (0.5F + flirGain / 100.0F) * (flirLevel / 100.0F);
+    return v < 0.05F ? 0.05F : (v > 1.0F ? 1.0F : v);
+}
+
+void LantirnClass::AdjustFlirGain(int steps)
+{
+    flirGain += 5.0F * steps;
+    flirGain = flirGain < 0.0F ? 0.0F : (flirGain > 100.0F ? 100.0F : flirGain);
+}
+
+void LantirnClass::AdjustFlirLevel(int steps)
+{
+    flirLevel += 5.0F * steps;
+    flirLevel = flirLevel < 0.0F ? 0.0F : (flirLevel > 100.0F ? 100.0F : flirLevel);
+}
+
+void LantirnClass::AdjustHudBright(int steps)
+{
+    hudBright += 0.1F * steps;
+    hudBright = hudBright < 0.0F ? 0.0F : (hudBright > 1.0F ? 1.0F : hudBright);
+}
+
+void LantirnClass::BsgtSlew(float dPitchRad, float dYawRad)
+{
+    const float limit = 10.0F * DTR;
+    hudTrimPitch += dPitchRad;
+    hudTrimYaw += dYawRad;
+    hudTrimPitch = hudTrimPitch < -limit ? -limit : (hudTrimPitch > limit ? limit : hudTrimPitch);
+    hudTrimYaw = hudTrimYaw < -limit ? -limit : (hudTrimYaw > limit ? limit : hudTrimYaw);
 }
 
 void LantirnClass::StepTFRRide()
@@ -463,6 +539,7 @@ void LantirnClass::UpdateCooldown(AircraftClass *self)
     if (not g_bRealisticAvionics or self not_eq SimDriver.GetPlayerAircraft())
     {
         coolTime = 0.0F;
+        flirCool = 0.0F;
         return;
     }
 
@@ -473,12 +550,28 @@ void LantirnClass::UpdateCooldown(AircraftClass *self)
         powerInit = true;
         powerSeen = powered;
         coolTime = 0.0F;
+        flirCool = 0.0F;
     }
 
     if (powered and not powerSeen)
+    {
         coolTime = kTfrWarmupSeconds;
+        flirCool = g_fFlirCooldown;
+    }
 
     powerSeen = powered;
+
+    // the FLIR cools down while the pod is powered, and drops out of OPER if the pod loses power or has not cooled
+    if (powered and flirCool > 0.0F)
+    {
+        flirCool -= SimLibMajorFrameTime;
+
+        if (flirCool < 0.0F)
+            flirCool = 0.0F;
+    }
+
+    if (m_flags bitand FLIR_ON and (not powered or flirCool > 0.0F))
+        m_flags and_eq compl FLIR_ON;
 
     if (powered and coolTime > 0.0F)
     {

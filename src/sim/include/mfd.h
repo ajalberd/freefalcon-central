@@ -220,7 +220,7 @@ public:
     virtual void Display(VirtualDisplay*);
     void PushButton(int, int);
 
-private:
+protected:
     void DrawRadarArrows();
     void DrawAzimuthScan();
     void DrawRangeScale();
@@ -280,7 +280,9 @@ public:
 private:
 };
 
-class FlirMfdDrawable : public MfdDrawable
+// Artscout - 2026: the FLIR page, now with the picture. It is the TFR page's sensor display (same RenderIR, same
+// zone sequence) with the BMS FLIR layout on top: OPER / STBY, GRAY, BSGT, gain and level, NOT TIMED OUT.
+class FlirMfdDrawable : public LantirnDrawable
 {
 public:
     FlirMfdDrawable() {};

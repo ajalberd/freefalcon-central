@@ -8180,6 +8180,31 @@ void SimRALTSTDBY(unsigned long, int state, void* pButton)
     }
 }
 
+// Artscout - 2026: ICP BRT wheel (HUD FLIR raster brightness) and FLIR arrows (FLIR level)
+void SimBrtWheelUp(unsigned long, int state, void*)
+{
+    if (theLantirn and (state bitand KEY_DOWN))
+        theLantirn->AdjustHudBright(1);
+}
+
+void SimBrtWheelDn(unsigned long, int state, void*)
+{
+    if (theLantirn and (state bitand KEY_DOWN))
+        theLantirn->AdjustHudBright(-1);
+}
+
+void SimFlirLevelUp(unsigned long, int state, void*)
+{
+    if (theLantirn and (state bitand KEY_DOWN))
+        theLantirn->AdjustFlirLevel(1);
+}
+
+void SimFlirLevelDown(unsigned long, int state, void*)
+{
+    if (theLantirn and (state bitand KEY_DOWN))
+        theLantirn->AdjustFlirLevel(-1);
+}
+
 void SimRALTON(unsigned long, int state, void* pButton)
 {
     if (SimDriver.GetPlayerAircraft() and

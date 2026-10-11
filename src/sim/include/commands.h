@@ -32,6 +32,10 @@ void AFResetTrim(unsigned long, int state, void *); // JPO
 void AFAlternateGear(unsigned long, int state, void *); // JPO
 void AFAlternateGearReset(unsigned long, int state, void *); // JPO
 void SimFLIRToggle(unsigned long, int state, void *); // JPO
+void SimBrtWheelUp(unsigned long, int state, void *); // Artscout - 2026: ICP BRT wheel = HUD FLIR raster brightness
+void SimBrtWheelDn(unsigned long, int state, void *);
+void SimFlirLevelUp(unsigned long, int state, void *); // Artscout - 2026: ICP FLIR arrows = FLIR level
+void SimFlirLevelDown(unsigned long, int state, void *);
 void SimToggleRealisticAvionics(unsigned long, int state, void *); // JPO
 void SimIncFuelSwitch(unsigned long, int state, void *); // JPO
 void SimDecFuelSwitch(unsigned long, int state, void *); // JPO

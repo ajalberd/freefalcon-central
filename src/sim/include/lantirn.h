@@ -43,6 +43,28 @@ public:
     {
         m_flags xor_eq CONH;
     };
+    // Artscout - 2026: FINS FLIR as the BMS manual has it (TO 1F-16CMAM-34-1-1 2.6.2.1). OSB 20 on the FLIR page
+    // puts it in OPER, OSB 18 in STBY; it needs the nav pod powered (LEFT HDPT) and cooled down ("NOT TIMED OUT",
+    // cfg FlirCooldown seconds, default 600) before it will go to OPER. GAIN / LEVEL are adjusted on the page or
+    // with the ICP FLIR arrows (SimFlirLevelUp/Down); the HUD raster brightness is the ICP BRT wheel
+    // (SimBrtWheelUp/Down); GRAY switches the manual gain/level on; BSGT slews the HUD image onto the real world.
+    float flirCool; // s of cool-down left after the pod was powered; 0 = ready
+    float flirGain, flirLevel; // 0..100, as on the page ("50G", "100L")
+    bool flirManual; // GRAY: use gain and level; off = fixed auto values
+    float hudBright; // HUD raster brightness 0..1 (the BRT wheel); 0 = no image on the HUD
+    bool bsgt; // BSGT mode: the page's OSBs slew the HUD image
+    float hudTrimPitch, hudTrimYaw; // radians, BSGT result (pitch up positive, yaw right positive)
+    bool IsFlirTimedOut(void)
+    {
+        return flirCool <= 0.0f;
+    };
+    bool FlirPowered(AircraftClass* self);
+    void SetFlirOper(bool on);
+    float FlirIntensity(void);
+    void AdjustFlirGain(int steps);
+    void AdjustFlirLevel(int steps);
+    void AdjustHudBright(int steps);
+    void BsgtSlew(float dPitchRad, float dYawRad);
     void ToggleFLIR();
     void SetFovScale(float fscale)
     {

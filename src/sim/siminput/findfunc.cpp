@@ -393,6 +393,8 @@ static struct UserFunctionListEntry UserFunctionList[] =
      USER_FUNCTION(AFAlternateGear) // JPO
      USER_FUNCTION(AFAlternateGearReset) // JPO
      USER_FUNCTION(SimFLIRToggle) // JPO
+     USER_FUNCTION(SimBrtWheelUp) USER_FUNCTION(SimBrtWheelDn) USER_FUNCTION(SimFlirLevelUp)
+     USER_FUNCTION(SimFlirLevelDown)
      USER_FUNCTION(SimToggleTFR) // JPO
      USER_FUNCTION(SimMainPowerInc) // JPO
      USER_FUNCTION(SimMainPowerDec) // JPO
