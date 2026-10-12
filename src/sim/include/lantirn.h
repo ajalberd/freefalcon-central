@@ -164,6 +164,29 @@ public:
     void UpdateCooldown(AircraftClass* self);
     void UpdateAdvisories(AircraftClass* self);
 
+    // Artscout - 2026: TF command cue and fly-ups (TO 1F-16CMAM-34-1-1 2.6.3.5 / 2.6.3.6 / 2.6.3.7). The cue is the
+    // commanded flight path: a box in MANUAL TF (TFR operating, ADV MODE off), a line in AUTO TF; the pilot flies the
+    // FPM onto it. Fly-ups: always in AUTO TF; in MANUAL TF only for g-limit / obstacle and only with the MANUAL TF
+    // FLYUP switch at ENABLE. 4 g obstacle, 3 g g-limit or vertical clearance, 2 g limits exceeded too long; none past
+    // 75 deg bank, at 45 deg nose up or below 300 KCAS, or with the paddle held.
+    float cmdGammaDeg; // commanded flight path angle (what the TF autopilot steers to)
+    float cueGammaDeg; // the same, smoothed for the HUD cue
+    float limitTime; // s the TFR limits have been exceeded
+    bool tfOperating; // TFR in an operating mode, timed out, and either MANUAL or AUTO TF
+    bool tfAuto; // AUTO TF (ADV MODE / LantirnAP)
+    bool lowSpeedWarn; // below 300 KCAS: TF symbology blanks
+    bool limitTooLong; // limits exceeded > 2 s: the TF box blanks (and AUTO TF flies up)
+    bool pullupWarn; // g-limit / obstacle warning: HUD PULLUP
+    int flyupG; // incremental g of the fly-up in progress, 0 = none
+    bool flyupFlying; // the fly-up has the stick this frame (manual TF)
+    bool flyupOnset; // a fly-up started this frame (AircraftClass plays the aural PULL UP)
+    bool manualFlyupEnabled; // MANUAL TF FLYUP switch (BMS checklist: ENABLE)
+    bool TfCueVisible(void)
+    {
+        return tfOperating and not lowSpeedWarn and not limitTooLong;
+    };
+    void UpdateFlyup(AircraftClass* self);
+
     // Artscout - 2026: the nav FLIR raster on the 3D-pit HUD (TO 1F-16CMAM-34-1-1 2.6.2.1). The IR scene is drawn
     // into a render target of its own (PrepareHudFlir before the pit's atlas pass; RenderHudFlir inside it at the HUD, once per frame), then
     // composited on the HUD glass under the symbology (DrawHudFlirQuad, per eye, with the HUD's own canvas, collimation

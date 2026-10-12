@@ -6940,6 +6940,17 @@ void OTWDriverClass::VCock_Exec(void)
             }
         }
 
+        // [PITCLICK] which command a pit click really fired (a click on an unmapped control snaps to a neighbour)
+        if (firebutton not_eq 9999 and Button3DList.buttons[firebutton].function)
+        {
+            const char* fn = FindStringFromFunction(Button3DList.buttons[firebutton].function);
+            const Tpoint& at = Button3DList.buttons[firebutton].loc;
+            char buf[200];
+            sprintf(buf, "[PITCLICK] %s (mouse %d, hotspot %.0f %.0f %.0f)\n", fn ? fn : "?", Button3DList.clicked,
+                    at.x, at.y, at.z);
+            FFDebugLog(buf);
+        }
+
         if (firebutton not_eq 9999)
             if (Button3DList.buttons[firebutton].function)
             {

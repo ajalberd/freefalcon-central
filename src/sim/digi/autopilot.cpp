@@ -86,6 +86,33 @@ void DigitalBrain::WaypointAP(void)
         }
     }
 }
+// Artscout - 2026: a TFR fly-up (TO 1F-16CMAM-34-1-1 2.6.3.7): roll to wings level - 20 deg/s up to 45 deg of
+// bank, rising to 35 deg/s at 75 - while pulling the incremental g LantirnClass::UpdateFlyup asked for. Used by
+// AUTO TF (LantirnAP) and, over the pilot's stick, by MANUAL TF with the MANUAL TF FLYUP switch at ENABLE.
+void DigitalBrain::TfrFlyup(void)
+{
+    const float bankDeg = (float)fabs(self->Roll()) * RTD;
+    const float rate = bankDeg <= 45.0F ? 20.0F : 20.0F + 15.0F * (bankDeg - 45.0F) / 30.0F;
+
+    // SetRstick is a P loop on the bank still to go; capping the error at about half a second of roll keeps the
+    // roll-out near the manual's rate instead of the full-stick snap the raw error would give
+    float err = bankDeg;
+
+    if (err > rate * 0.5F)
+        err = rate * 0.5F;
+
+    if (self->Roll() > 0.0F)
+        err = -err;
+
+    SetYpedal(0.0F);
+    SetMaxRoll(190.0F); // 0 would make SetRstick put the whole bank back into the error
+    SetRstick(err);
+    SetMaxRollDelta(err);
+
+    // incremental g on top of the 1 g of level flight
+    SetPstick(1.0F + (float)theLantirn->flyupG, af->MaxGs(), AirframeClass::GCommand);
+}
+
 // JPO - Lantirn mode auto pilot
 void DigitalBrain::LantirnAP(void)
 {
@@ -118,6 +145,13 @@ void DigitalBrain::LantirnAP(void)
 
     if (g_bTFRFixes)
     {
+        // AUTO TF always flies the fly-ups (vertical clearance, g-limit, obstacle, limits too long)
+        if (theLantirn->flyupG > 0)
+        {
+            TfrFlyup();
+            return;
+        }
+
         //disabled for now...
         //SetYpedal( headingErr * 0.05F * RTD * self->GetVt()/cornerSpeed);
         SetYpedal(0.0F);

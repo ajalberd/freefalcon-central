@@ -10,6 +10,8 @@
 #include "aircrft.h"
 #include "airframe.h"
 #include "sms.h"
+#include "soundfx.h"
+#include "fsound.h"
 
 #include "campbase.h"
 #include "camplist.h"
@@ -73,6 +75,11 @@ LantirnClass::LantirnClass() : DrawableClass()
     limitExceeded = false;
     turnAdvisory = 0;
     sideFrame = 0;
+    cmdGammaDeg = cueGammaDeg = 0.0F;
+    limitTime = 0.0F;
+    tfOperating = tfAuto = lowSpeedWarn = limitTooLong = pullupWarn = flyupFlying = flyupOnset = false;
+    flyupG = 0;
+    manualFlyupEnabled = true;
     roll = 0.0F;
     featureDistance = 0.0F;
     featureDistance2 = 0.0F;
@@ -535,10 +542,10 @@ void LantirnClass::ToggleFLIR()
 // level 100 (the defaults) give 1.0.
 float LantirnClass::FlirIntensity(void)
 {
-    if (not flirManual)
-        return 1.0F;
-
-    float v = (0.5F + flirGain / 100.0F) * (flirLevel / 100.0F);
+    // The ICP FLIR arrows change the level in either case (manual 2.6.2.1: "The FLIR level can be changed with the
+    // ICP up and down FLIR arrows"); GRAY adds the page's gain on top. Level used to count only under GRAY, so the
+    // arrows looked dead on the default page.
+    float v = flirManual ? (0.5F + flirGain / 100.0F) * (flirLevel / 100.0F) : flirLevel / 100.0F;
     return v < 0.05F ? 0.05F : (v > 1.0F ? 1.0F : v);
 }
 
@@ -552,12 +559,21 @@ void LantirnClass::AdjustFlirLevel(int steps)
 {
     flirLevel += 5.0F * steps;
     flirLevel = flirLevel < 0.0F ? 0.0F : (flirLevel > 100.0F ? 100.0F : flirLevel);
+
+    char buf[120];
+    sprintf(buf, "[FLIR] level %d gain %d gray %d -> intensity %.2f (HUD bright %.1f)\n", (int)flirLevel,
+            (int)flirGain, flirManual ? 1 : 0, FlirIntensity(), hudBright);
+    FFDebugLog(buf);
 }
 
 void LantirnClass::AdjustHudBright(int steps)
 {
     hudBright += 0.1F * steps;
     hudBright = hudBright < 0.0F ? 0.0F : (hudBright > 1.0F ? 1.0F : hudBright);
+
+    char buf[100];
+    sprintf(buf, "[FLIR] HUD bright %.1f (BRT wheel)\n", hudBright);
+    FFDebugLog(buf);
 }
 
 void LantirnClass::BsgtSlew(float dPitchRad, float dYawRad)
@@ -715,14 +731,22 @@ void LantirnClass::UpdateCooldown(AircraftClass *self)
 // side, every fourth frame, for ground inside 1.5 turn radii.
 void LantirnClass::UpdateAdvisories(AircraftClass *self)
 {
-    if (self->AutopilotType() not_eq AircraftClass::LantirnAP)
+    // MANUAL TF too: the in-flight check expects the flashing LIMIT with the TFR in NORM before AUTO TF is engaged
+    if (not tfOperating)
     {
         limitExceeded = false;
+        limitTime = 0.0F;
+        limitTooLong = false;
         turnAdvisory = 0;
         return;
     }
 
-    limitExceeded = ((float)fabs(self->Roll()) > 60.0F * DTR) or (self->Pitch() < -20.0F * DTR);
+    const bool attitude = ((float)fabs(self->Roll()) > 60.0F * DTR) or (self->Pitch() < -20.0F * DTR);
+    limitTime = attitude ? limitTime + SimLibMajorFrameTime : 0.0F;
+    limitTooLong = limitTime > 2.0F; // the in-flight check: the box goes "when turn held for more than 2 seconds"
+
+    // LIMIT also flashes below 360 KCAS (low speed advisory, 2.6.3.6.2.7), which blanks nothing and flies no fly-up
+    limitExceeded = attitude or self->GetKias() < 360.0F;
 
     if (++sideFrame >= 4)
     {
@@ -735,6 +759,56 @@ void LantirnClass::UpdateAdvisories(AircraftClass *self)
         const bool left = dl > 0.0F and dl < reach;
         const bool right = dr > 0.0F and dr < reach;
         turnAdvisory = (left and right) ? 2 : (left ? 1 : (right ? -1 : 0));
+    }
+}
+
+// Artscout - 2026: which fly-up the TFR asks for this frame (2.6.3.6 chart, 2.6.3.7). The pull itself is flown by
+// DigitalBrain::TfrFlyup, from LantirnAP in AUTO TF and from GatherInputs over the pilot's stick in MANUAL TF.
+void LantirnClass::UpdateFlyup(AircraftClass *self)
+{
+    const int was = flyupG;
+    flyupG = 0;
+    pullupWarn = false;
+
+    if (not tfOperating)
+        return;
+
+    // g-limit / obstacle warning: the TFR needs more than its normal 2 g to clear what is ahead
+    pullupWarn = evasize >= 2;
+
+    int g = 0;
+
+    if (evasize >= 3)
+        g = 4; // obstacle warning
+    else if (evasize == 2)
+        g = 3; // g-limit warning
+    else if (tfAuto and gAlt > 0.0F and gAlt < 0.75F * (float)m_tfr_alt)
+        g = 3; // vertical clearance warning (LO TF) - AUTO TF only
+    else if (tfAuto and limitTooLong)
+        g = 2; // limits exceeded too long - AUTO TF only
+
+    // MANUAL TF flies up only with the MANUAL TF FLYUP switch at ENABLE
+    if (not tfAuto and not manualFlyupEnabled)
+        g = 0;
+
+    // none past 75 deg bank, at 45 deg nose up or below 300 KCAS (stall protection), with the paddle held, or on the ground
+    if ((float)fabs(self->Roll()) > 75.0F * DTR or self->Pitch() >= 45.0F * DTR or self->GetKias() < 300.0F or
+        self->IsOn(AircraftClass::Override) or self->OnGround())
+        g = 0;
+
+    flyupG = g;
+
+    // aural PULL UP in every fly-up case (played by AircraftClass after Exec: the sound id is airframe-private)
+    flyupOnset = flyupG and not was;
+
+    if (flyupG not_eq was)
+    {
+        char buf[200];
+        sprintf(buf, "[TFR] fly-up %d g -> %d g (%s TF, eva %d, AGL %.0f / SCP %d, bank %.0f, pitch %.0f, %.0f KCAS, "
+                     "limit %.1f s, man flyup %d)\n",
+                was, flyupG, tfAuto ? "AUTO" : "MAN", evasize, gAlt, m_tfr_alt, self->Roll() * RTD,
+                self->Pitch() * RTD, self->GetKias(), limitTime, manualFlyupEnabled ? 1 : 0);
+        FFDebugLog(buf);
     }
 }
 
@@ -751,6 +825,9 @@ void LantirnClass::Exec(AircraftClass *self)
         if (m_tfrmode == TFR_STBY)
         {
             evasize = 0; //MI
+            tfOperating = tfAuto = false;
+            UpdateAdvisories(self);
+            UpdateFlyup(self);
             return;
         }
 
@@ -897,7 +974,28 @@ void LantirnClass::Exec(AircraftClass *self)
         else if (-self->ZPos() - groundAlt < 0.5 * m_tfr_alt)
             evasize = 1;
 
+        // the TF command, the same flight path angle DigitalBrain::LantirnAP steers to, so MANUAL TF gets a cue too
+        {
+            const float kias = self->GetKias() > 1.0F ? self->GetKias() : 1.0F;
+            float desGamma = (holdheight + self->ZPos()) * self->af->GetTFR_Gain() * self->af->GetTFR_Corner() / kias;
+            desGamma += gammaCorr * self->af->GetTFR_GammaCorrMult();
+            desGamma = max(min(desGamma, GetGLimit() * 5.0F), -GetGLimit() * 4.0F);
+
+            if (evasize > 0)
+                desGamma += self->af->GetEVA_Gain() * evasize * evasize;
+
+            cmdGammaDeg = desGamma;
+            const float k = SimLibMajorFrameTime * 4.0F;
+            cueGammaDeg += (cmdGammaDeg - cueGammaDeg) * (k > 1.0F ? 1.0F : k);
+        }
+
+        tfAuto = self->AutopilotType() == AircraftClass::LantirnAP;
+        tfOperating = IsTimedOut() and (tfAuto or self->AutopilotType() == AircraftClass::APOff) and
+                      self->RFState not_eq 2;
+        lowSpeedWarn = self->GetKias() < 300.0F;
+
         UpdateAdvisories(self);
+        UpdateFlyup(self);
     }
     else
     {

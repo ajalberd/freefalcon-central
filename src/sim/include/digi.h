@@ -765,6 +765,7 @@ public:
     void ThreeAxisAP(void);
     void WaypointAP(void);
     void LantirnAP(void);
+    void TfrFlyup(void); // Artscout - 2026: TFR fly-up (wings level + incremental g), AUTO and MANUAL TF
     void RealisticAP(void);
     void HDGSel(void);
     void PitchRollHold(void);

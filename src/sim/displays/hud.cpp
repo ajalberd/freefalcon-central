@@ -1550,26 +1550,37 @@ void HudClass::DrawAlphaNumeric(void)
     {
         char tempstr[20] = "";
 
-        if (theLantirn->evasize == 1 and flash)
-            sprintf(tempstr, "FLY UP");
-        else if (theLantirn->evasize == 2 and flash)
-            sprintf(tempstr, "OBSTACLE");
+        if (g_bTFRFixes)
+        {
+            // Artscout - 2026: the manual's HUD set (2.6.3.6.2): PULLUP flashes on a g-limit / obstacle warning, in
+            // MANUAL and AUTO TF alike. (FF6's own FLY UP / OBSTACLE / SLOW are not in the manual.)
+            if (theLantirn->pullupWarn and flash)
+                sprintf(tempstr, "PULLUP");
 
-        if (theLantirn->SpeedUp and not flash)
-            sprintf(tempstr, "SLOW");
+            DrawTFRCue();
+        }
+        else
+        {
+            if (theLantirn->evasize == 1 and flash)
+                sprintf(tempstr, "FLY UP");
+            else if (theLantirn->evasize == 2 and flash)
+                sprintf(tempstr, "OBSTACLE");
+
+            if (theLantirn->SpeedUp and not flash)
+                sprintf(tempstr, "SLOW");
+        }
 
         display->TextCenter(0, 0.25, tempstr, 0);
 
         // Artscout - 2026: LO TF vertical clearance warning (TO 1F-16CMAM-34-1-1 2.6.3.6.2.3): below
-        // 75 percent of the set clearance while the TF is flying us. Flashes, below the FPM.
-        if (g_bTFRFixes and flash and theLantirn->GetTFRMode() not_eq LantirnClass::TFR_STBY and
-            ownship->AutopilotType() == AircraftClass::LantirnAP and theLantirn->gAlt > 0.0f and
+        // 75 percent of the set clearance with the TFR operating (MANUAL or AUTO TF; only AUTO flies up).
+        if (g_bTFRFixes and flash and theLantirn->tfOperating and theLantirn->gAlt > 0.0f and
             theLantirn->gAlt < 0.75f * (float)theLantirn->GetTFRAlt())
             display->TextCenter(0, -0.12, "LO TF", 0);
 
         // Artscout - 2026: LIMIT and TERRAIN advisories (TO 1F-16CMAM-34-1-1 2.6.3.6.2.1 / .5). TERRAIN
         // names the side to turn away from: terrain on the left asks for "TERRAIN ->".
-        if (g_bTFRFixes and flash and ownship->AutopilotType() == AircraftClass::LantirnAP)
+        if (g_bTFRFixes and flash and theLantirn->tfOperating)
         {
             if (theLantirn->limitExceeded)
                 display->TextCenter(-0.4, -0.12, "LIMIT", 0);
@@ -1605,6 +1616,41 @@ void HudClass::DrawWindowString(int window, char* str, int boxed)
 }
 const static float Tadpolesize = 0.029F;
 const static float Linelenght = 0.07F;
+
+// Artscout - 2026: the TF command cue (TO 1F-16CMAM-34-1-1 2.6.3.5, figure p. 344). It sits on the commanded flight
+// path relative to the FPM: on it at the set clearance, below it when above the SCP, above it when below. MANUAL TF
+// draws a box to fly the FPM into, AUTO TF a horizontal line. It blanks when the limits have been exceeded too long
+// or below 300 KCAS.
+void HudClass::DrawTFRCue(void)
+{
+    if (not theLantirn or not theLantirn->TfCueVisible())
+        return;
+
+    if (g_bINS and g_bRealisticAvionics and not ownship->INSState(AircraftClass::INS_HUD_FPM))
+        return;
+
+    const float fpmX = betaHudUnits;
+    const float fpmY = hudWinY[BORESIGHT_CROSS_WINDOW] + hudWinHeight[BORESIGHT_CROSS_WINDOW] * 0.5F - alphaHudUnits;
+    float y = fpmY + RadToHudUnitsX(theLantirn->cueGammaDeg * DTR - theLantirn->gamma);
+
+    // pinned to the glass rather than lost off it when the command is far from where the jet is going
+    y = y < -0.9F ? -0.9F : (y > 0.9F ? 0.9F : y);
+
+    const float hw = Tadpolesize + Linelenght * 0.9F; // about the FPM's wingspan, as drawn in the manual
+    const float hh = Tadpolesize;
+
+    if (theLantirn->tfAuto)
+    {
+        display->Line(fpmX - hw, y, fpmX + hw, y);
+    }
+    else
+    {
+        display->Line(fpmX - hw, y - hh, fpmX + hw, y - hh);
+        display->Line(fpmX + hw, y - hh, fpmX + hw, y + hh);
+        display->Line(fpmX + hw, y + hh, fpmX - hw, y + hh);
+        display->Line(fpmX - hw, y + hh, fpmX - hw, y - hh);
+    }
+}
 void HudClass::DrawFPM(void)
 {
     //MI not here in BUP reticle mode

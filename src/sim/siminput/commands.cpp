@@ -12811,8 +12811,17 @@ void SimAltFlapsExtend(unsigned long val, int state, void*)
     }
 }
 
+// Artscout - 2026: MANUAL TF FLYUP switch, ENABLE <-> DISABLE (TO 1F-16CMAM-34-1-1 2.6.3.6.2.6). It starts at ENABLE,
+// where the BMS before-takeoff checklist puts it; AUTO TF flies its fly-ups either way.
 void SimManualFlyup(unsigned long val, int state, void*)
 {
+    if (theLantirn and SimDriver.GetPlayerAircraft() and SimDriver.GetPlayerAircraft()->IsSetFlag(MOTION_OWNSHIP) and
+        (state bitand KEY_DOWN))
+    {
+        theLantirn->manualFlyupEnabled = not theLantirn->manualFlyupEnabled;
+        FFDebugLog(theLantirn->manualFlyupEnabled ? "[TFR] MANUAL TF FLYUP switch: ENABLE\n"
+                                                  : "[TFR] MANUAL TF FLYUP switch: DISABLE\n");
+    }
 }
 void SimFLCSReset(unsigned long val, int state, void*)
 {

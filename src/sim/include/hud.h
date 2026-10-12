@@ -174,6 +174,7 @@ private:
     static int Warnflash;
 
     void DrawFPM(void);
+    void DrawTFRCue(void); // Artscout - 2026: TF command cue - box (MANUAL TF) or line (AUTO TF)
     void DrawHorizonLine(void);
     void DrawPitchLadder(void);
     void DrawAirspeed(void);
@@ -433,7 +434,9 @@ public:
     // flight was the HUD gain overflowing above 1 -- see DrawRttQuad -- not this mask.)
     int BrightnessSwitchMask(void)
     {
-        return brightnessSwitch == DAY ? 2 : (brightnessSwitch == BRIGHT_AUTO ? 1 : 4);
+        // the pit model shows mask 1 = lever up (DAY), 2 = middle (AUTO BRT), 4 = down (NIGHT). DAY 2 / AUTO 1 put the
+        // lever one detent off: at night the lever read "AUTO BRT" at full DAY brightness (gains logged 0.99/0.38/0.29).
+        return brightnessSwitch == DAY ? 1 : (brightnessSwitch == BRIGHT_AUTO ? 2 : 4);
     };
     void SetBrightnessSwitch(BrightnessSwitch);
     void CycleBrightnessSwitch(void);

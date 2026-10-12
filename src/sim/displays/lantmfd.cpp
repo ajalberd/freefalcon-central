@@ -439,10 +439,16 @@ void LantirnDrawable::DrawWarnings()
     // flashing TFR LIMITS: limits exceeded, vertical clearance warning or low speed advisory
     if (flash and theLantirn->IsEnabled() and
         (theLantirn->limitExceeded or theLantirn->SpeedUp or
-         (theLantirn->gAlt > 0.0f and theLantirn->gAlt < 0.75f * (float)theLantirn->GetTFRAlt() and
-          SimDriver.GetPlayerAircraft() and
-          SimDriver.GetPlayerAircraft()->AutopilotType() == AircraftClass::LantirnAP)))
+         (theLantirn->tfOperating and theLantirn->gAlt > 0.0f and
+          theLantirn->gAlt < 0.75f * (float)theLantirn->GetTFRAlt())))
         display->TextCenter(0.0f, 0.15f, "TFR LIMITS");
+
+    // flashing break X: g-limit / obstacle warning (2.6.3.6.4.2)
+    if (flash and theLantirn->pullupWarn)
+    {
+        display->Line(-0.5f, -0.5f, 0.5f, 0.5f);
+        display->Line(-0.5f, 0.5f, 0.5f, -0.5f);
+    }
 }
 
 void LantirnDrawable::DrawFlightInfo()

@@ -415,6 +415,25 @@ void AircraftClass::GatherInputs(void)
                 af->pstick = UserStickInputs.pstick;
                 af->ypedal = UserStickInputs.rudder;
                 af->rstick = UserStickInputs.rstick;
+
+                // Artscout - 2026: MANUAL TF fly-up (MANUAL TF FLYUP switch at ENABLE): the FLCS takes the stick for
+                // the roll-out and pull (TO 1F-16CMAM-34-1-1 2.6.3.7); the paddle switch (Override) releases it
+                if (g_bTFRFixes and theLantirn and theLantirn->flyupG > 0)
+                {
+                    DBrain()->TfrFlyup();
+                    af->pstick = theBrain->pStick;
+                    af->rstick = theBrain->rStick;
+                    theLantirn->flyupFlying = true;
+                }
+                else if (theLantirn and theLantirn->flyupFlying)
+                {
+                    // hand the stick back in the pilot's own command mode (what SetAutopilot(APOff) sets)
+                    af->SetMaxRoll(190.0F);
+                    af->SetFlag(AirframeClass::AutoCommand);
+                    af->ClearFlag(AirframeClass::GCommand);
+                    af->ClearFlag(AirframeClass::AlphaCommand);
+                    theLantirn->flyupFlying = false;
+                }
             }
 
             af->ptrmcmd = UserStickInputs.ptrim;
