@@ -73,6 +73,9 @@ and the features ported from it. Branch `rail-tracks`, commits tagged `avionics:
   - Below 300 KCAS with TF operating (airborne): the airframe's `sndLowSpeed` tone, re-armed every frame like the stall horn. AUTO TF lets go (ATF NOT ENGAGED), the TF cue blanks, and TFR LIMITS flashes.
   - Logs: `[TFR] TF FAIL ...`, `[TFR] low speed warning ...`.
 - **FLIR terrain still short (2026-10-12):** the ring cap was no longer the limit (sensor chunks 2,347 = the main view). The ground ended in a hard, bank-tilted line ~8 deg down at 10,500 ft, about 75,000 ft out. The objects, which the IR pass does not haze, carried on past it. Suspect: the terrain haze, which is black in the IR pass. It is now off for a thermal scene (`g_bThermalScene`, terrainclipmap.cpp), and the sensor pass logs `[terr-mesh]  sensor fog=… applied=… (start..end) far plane d=…` to confirm or rule it out.
+  - **Ruled out by the next flight:** `applied=0`, and the edge stayed. (The logged "far plane d=0" is the reversed-Z far plane, too thin to extract, so it is left uncut: not a cause.)
+  - **The real cause:** the edge sat 6.9 deg below the horizon (NVG screenshot, 8,960 ft). That is the 3D sky dome's skirt (`elLo = -0.12` rad in otwsky.cpp). The dome goes through the object path, so it flushes after the mesh terrain. The FLIR target has no depth buffer, so the black IR dome painted over the ground; the main view's depth buffer hides that.
+  - Fix: `DrawSky` skips the dome and the horizon filler in a thermal scene (the target is cleared black anyway).
 - **FLIR:** WHOT/BHOT polarity, look-into-turn / snaplook, and the throttle cursor as the BSGT slew.
 - **Pit hotspots** for SYS TEST and ECM XMIT: the pit's RWR/ECM panels would have to be matched to a texture legend
   first (the technique is in the 2026-09-26 WIP note: texture trace through the UVs, x -569). Key-only for now.

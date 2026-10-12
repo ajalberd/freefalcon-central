@@ -149,6 +149,14 @@ BOOL RenderOTW::DrawSky(void)
         if (g_bTerrainCrackDebug)
             return (skyRoof and viewpoint->Z() < -SKY_ROOF_HEIGHT) ? FALSE : TRUE;
 
+        // Artscout - 2026: nor in a thermal picture (HUD FLIR / FLIR page). Its target is cleared black and has no
+        // depth buffer, and the dome goes through the object path, which flushes AFTER the mesh terrain: the black
+        // dome's skirt (elLo, 6.9 deg below the horizon) painted over the ground, so the FLIR ground stopped at a
+        // line 6.9 deg down while the objects drawn after it showed on. The main view's depth buffer hides that.
+        extern bool g_bThermalScene;
+        if (g_bThermalScene)
+            return (skyRoof and viewpoint->Z() < -SKY_ROOF_HEIGHT) ? FALSE : TRUE;
+
         DrawSkyDome();
 
         if (skyRoof and viewpoint->Z() < -SKY_ROOF_HEIGHT)
