@@ -12847,8 +12847,11 @@ void SimManualFlyup(unsigned long val, int state, void*)
                                                   : "[TFR] MANUAL TF FLYUP switch: DISABLE\n");
     }
 }
+// Artscout - 2026: FLCS RESET clears a latched TF FAIL fly-up (TO 1F-16CMAM-34-1-1 2.6.3.7); the switch did nothing
 void SimFLCSReset(unsigned long val, int state, void*)
 {
+    if (theLantirn and (state bitand KEY_DOWN))
+        theLantirn->ResetTfFail("FLCS reset");
 }
 void SimFLTBIT(unsigned long val, int state, void*)
 {

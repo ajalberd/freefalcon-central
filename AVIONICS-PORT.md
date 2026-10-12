@@ -67,7 +67,12 @@ and the features ported from it. Branch `rail-tracks`, commits tagged `avionics:
   - ICP WX = `SimTFRWeather` (pit WX hotspot left-click, was the 3D-pit help toggle; backup `.bak-tfrwx`).
   - TFR LIMITS, break X and CHECK ATTITUDE (AAF: below the ALOW TF ADV altitude, bank > 75 nose-low or pitch < -20) are on both MFDs over any page (`DrawTfrMfdAdvisories`). The aural PULL UP comes on every g-limit / obstacle warning, fly-up or not.
   - Logs: `[TFR] power`, `[TFR] RF switch`, `[TFR] ICP WX`, `[TFR] ADV MODE`.
-  - Not done: OSB 5 channel menu (N/I in BMS too), TF-fail fly-up, the low speed tone, the ATF NOT ENGAGED light.
+  - Not done: OSB 5 channel menu (N/I in BMS too), the ATF NOT ENGAGED light.
+- **TF FAIL fly-up + low speed tone (2026-10-12):**
+  - A TF FAIL (cautions.cpp: RF SILENT, or the nav pod losing power under TF) latches a 2 g wings-level fly-up. It latches from AUTO TF (engaged within 1.5 s, since the failure itself drops the autopilot), or from MANUAL TF that was operating with MANUAL TF FLYUP at ENABLE. RF SILENT counts only from AUTO TF (2.6.3.4.2). The paddle switch or FLCS RESET clears it (`SimFLCSReset` was empty). It also ends at 45 deg nose up or 300 KCAS, and pauses past 75 deg bank.
+  - Below 300 KCAS with TF operating (airborne): the airframe's `sndLowSpeed` tone, re-armed every frame like the stall horn. AUTO TF lets go (ATF NOT ENGAGED), the TF cue blanks, and TFR LIMITS flashes.
+  - Logs: `[TFR] TF FAIL ...`, `[TFR] low speed warning ...`.
+- **FLIR terrain still short (2026-10-12):** the ring cap was no longer the limit (sensor chunks 2,347 = the main view). The ground ended in a hard, bank-tilted line ~8 deg down at 10,500 ft, about 75,000 ft out. The objects, which the IR pass does not haze, carried on past it. Suspect: the terrain haze, which is black in the IR pass. It is now off for a thermal scene (`g_bThermalScene`, terrainclipmap.cpp), and the sensor pass logs `[terr-mesh]  sensor fog=… applied=… (start..end) far plane d=…` to confirm or rule it out.
 - **FLIR:** WHOT/BHOT polarity, look-into-turn / snaplook, and the throttle cursor as the BSGT slew.
 - **Pit hotspots** for SYS TEST and ECM XMIT: the pit's RWR/ECM panels would have to be matched to a texture legend
   first (the technique is in the 2026-09-26 WIP note: texture trace through the UVs, x -569). Key-only for now.

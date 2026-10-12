@@ -123,6 +123,8 @@ unsigned int s_statSensorFlags = 0;
 int s_statSensorChunks = 0;
 bool s_statSensorSunOk = false;
 float s_statSensorSun[10] = {}; // dir3, color3, ambient3, dayNight
+float s_statSensorFog[4] = {}; // Artscout - 2026: start, end, renderer fog on, applied (0 = dropped for a thermal scene)
+float s_statSensorFar = 0.0f; // Artscout - 2026: the sensor pass's far frustum plane offset (|d| ~ distance, ft)
 
 inline int WrapTexel(int v)
 {
@@ -945,8 +947,22 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
     // far ground into the horizon and hides the residual LOD-seam shimmer.
     {
         float fs = 0.0f, fe = 0.0f, frgb[3] = {0.0f, 0.0f, 0.0f};
+        const bool fogOn = g_pRenderer->GetFogParams(fs, fe, frgb);
 
-        if (g_pRenderer->GetFogParams(fs, fe, frgb))
+        // Artscout - 2026: no haze in a thermal picture (HUD FLIR / FLIR page). The IR pass hazes to black, and the
+        // HUD FLIR's ground stopped dead at ~80,000 ft while its unhazed objects carried on past it.
+        extern bool g_bThermalScene;
+        const bool applyFog = fogOn and not g_bThermalScene;
+
+        if (g_terrainRadiusCap > 0)
+        {
+            s_statSensorFog[0] = fs;
+            s_statSensorFog[1] = fe;
+            s_statSensorFog[2] = fogOn ? 1.0f : 0.0f;
+            s_statSensorFog[3] = applyFog ? 1.0f : 0.0f;
+        }
+
+        if (applyFog)
         {
             s_cb.flags[0] |= TF_FOG;
             s_cb.fog[0] = fs;
@@ -1106,6 +1122,7 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
         s_statSensorFlags = s_cb.flags[0];
         s_statSensorChunks = s_chunkCount;
         s_statSensorSunOk = sunOk;
+        s_statSensorFar = s_cb.frustum[4][3];
         for (int k = 0; k < 3; ++k)
         {
             s_statSensorSun[k] = s_cb.sunDir[k];
@@ -1141,6 +1158,8 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
                      (int)((s_statSensorFlags & TF_LIGHTING) != 0),
                      (int)((s_statSensorFlags & TF_IRGREY) != 0),
                      (int)((s_statSensorFlags & TF_NVG) != 0));
+            TClipLog("[terr-mesh]  sensor fog=%d applied=%d (%.0f..%.0f) far plane d=%.0f\n", (int)s_statSensorFog[2],
+                     (int)s_statSensorFog[3], s_statSensorFog[0], s_statSensorFog[1], s_statSensorFar);
             TClipLog("[terr-mesh]  sensor sun src=%s dir=(%.3f %.3f %.3f) "
                      "diff=(%.2f %.2f %.2f) amb=(%.2f %.2f %.2f) "
                      "dayNight=%.2f\n",

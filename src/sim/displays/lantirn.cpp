@@ -13,6 +13,8 @@
 #include "soundfx.h"
 #include "fsound.h"
 #include "hud.h"
+#include "fack.h"
+#include "caution.h"
 
 #include "campbase.h"
 #include "camplist.h"
@@ -82,6 +84,8 @@ LantirnClass::LantirnClass() : DrawableClass()
     flyupG = 0;
     manualFlyupEnabled = true;
     flirPageTime = 0;
+    tfFailLatched = tfFailSeen = prevOperating = lowSpeedTone = false;
+    lastAutoTime = 0;
     tfrPower = true; // as FF6 always had it: on, in STBY
     rfSeen = -1;
     modeBeforeQuiet = TFR_STBY;
@@ -950,44 +954,85 @@ void LantirnClass::UpdateFlyup(AircraftClass *self)
     pullupWarn = false;
     flyupOnset = false; // (an early return must not leave last frame's onset standing: the sound would re-arm)
 
-    if (not tfOperating)
-        return;
+    // TF FAIL (cautions.cpp raises it: RF SILENT, or the nav pod losing power under TF). The failure itself drops the
+    // TF autopilot and the TFR to STBY in the same frame, so who was flying is taken from just before it: AUTO TF in
+    // the last 1.5 s, or MANUAL TF operating last frame with the MANUAL TF FLYUP switch at ENABLE. It latches.
+    if (self->AutopilotType() == AircraftClass::LantirnAP)
+        lastAutoTime = vuxRealTime;
 
-    // g-limit / obstacle warning: the TFR needs more than its normal 2 g to clear what is ahead (2.6.3.7). The floor is
-    // half the set clearance, from the in-flight check: SCP 1000, push over to ~500 ft AGL -> G-LIMIT fly-up. (FF6's
-    // evasize probe, used here first, fired whenever the ground along the flight path was within a turn radius -
-    // ~20,000 ft at 480 kt - at any height, so PULLUP came well above the set clearance.)
-    const float floorFt = max(0.5F * (float)m_tfr_alt, 50.0F);
-    const int need = RequiredPullG(self, floorFt);
-    pullupWarn = need >= 3;
+    const bool tfFail = self->mFaults and self->mFaults->GetFault(tf_fail);
 
-    if (pullupWarn not_eq warnWas)
+    if (tfFail and not tfFailSeen and not tfFailLatched)
     {
-        char buf[200];
-        sprintf(buf, "[TFR] PULLUP %s: needs %d g (5 = more than 4), AGL %.0f, floor %.0f (SCP %d), path %.1f deg, %.0f KCAS\n",
-                pullupWarn ? "on" : "off", need, gAlt, floorFt, m_tfr_alt, self->af->gmma * RTD, self->GetKias());
-        FFDebugLog(buf);
+        const bool wasAuto = vuxRealTime - lastAutoTime < 1500;
+
+        // (RF SILENT is a TF fail only from AUTO TF, 2.6.3.4.2: from MANUAL TF the TFR just goes to STBY)
+        if (wasAuto or (prevOperating and manualFlyupEnabled and self->RFState not_eq 2))
+        {
+            tfFailLatched = true;
+
+            char buf[120];
+            sprintf(buf, "[TFR] TF FAIL: latched 2 g fly-up (%s TF)\n", wasAuto ? "AUTO" : "MAN");
+            FFDebugLog(buf);
+        }
+    }
+
+    tfFailSeen = tfFail;
+    prevOperating = tfOperating;
+
+    // the paddle switch interrupts it, and releasing the paddle is the SWIM reset; it also ends where every fly-up ends
+    // (45 deg nose up, 300 KCAS), handing the jet back rather than pulling it up and down around 45 degrees
+    if (tfFailLatched)
+    {
+        if (self->IsOn(AircraftClass::Override))
+            ResetTfFail("paddle switch");
+        else if (self->Pitch() >= 45.0F * DTR or self->GetKias() < 300.0F or self->OnGround())
+            ResetTfFail("fly-up limit (45 deg / 300 KCAS)");
     }
 
     int g = 0;
 
-    if (need >= 4)
-        g = 4; // obstacle warning
-    else if (need == 3)
-        g = 3; // g-limit warning
-    else if (tfAuto and gAlt > 0.0F and gAlt < 0.75F * (float)m_tfr_alt)
-        g = 3; // vertical clearance warning (LO TF) - AUTO TF only
-    else if (tfAuto and limitTooLong)
-        g = 2; // limits exceeded too long - AUTO TF only
+    if (tfOperating)
+    {
+        // g-limit / obstacle warning: the TFR needs more than its normal 2 g to clear what is ahead (2.6.3.7). The
+        // floor is half the set clearance, from the in-flight check: SCP 1000, push over to ~500 ft AGL -> G-LIMIT
+        // fly-up. (FF6's evasize probe, used here first, fired whenever the ground along the flight path was within a
+        // turn radius - ~20,000 ft at 480 kt - at any height, so PULLUP came well above the set clearance.)
+        const float floorFt = max(0.5F * (float)m_tfr_alt, 50.0F);
+        const int need = RequiredPullG(self, floorFt);
+        pullupWarn = need >= 3;
 
-    // hold a started fly-up until the flight path is level or climbing: the prediction clears as soon as the pull
-    // begins, and dropping it then would let the jet settle back into the same descent (on/off chatter)
-    if (g == 0 and was > 0 and self->af->gmma < 0.0F)
-        g = was;
+        if (pullupWarn not_eq warnWas)
+        {
+            char buf[200];
+            sprintf(buf, "[TFR] PULLUP %s: needs %d g (5 = more than 4), AGL %.0f, floor %.0f (SCP %d), path %.1f deg, "
+                         "%.0f KCAS\n",
+                    pullupWarn ? "on" : "off", need, gAlt, floorFt, m_tfr_alt, self->af->gmma * RTD, self->GetKias());
+            FFDebugLog(buf);
+        }
 
-    // MANUAL TF flies up only with the MANUAL TF FLYUP switch at ENABLE
-    if (not tfAuto and not manualFlyupEnabled)
-        g = 0;
+        if (need >= 4)
+            g = 4; // obstacle warning
+        else if (need == 3)
+            g = 3; // g-limit warning
+        else if (tfAuto and gAlt > 0.0F and gAlt < 0.75F * (float)m_tfr_alt)
+            g = 3; // vertical clearance warning (LO TF) - AUTO TF only
+        else if (tfAuto and limitTooLong)
+            g = 2; // limits exceeded too long - AUTO TF only
+
+        // hold a started fly-up until the flight path is level or climbing: the prediction clears as soon as the pull
+        // begins, and dropping it then would let the jet settle back into the same descent (on/off chatter)
+        if (g == 0 and was > 0 and self->af->gmma < 0.0F)
+            g = was;
+
+        // MANUAL TF flies up only with the MANUAL TF FLYUP switch at ENABLE
+        if (not tfAuto and not manualFlyupEnabled)
+            g = 0;
+    }
+
+    // the latched TF FAIL fly-up (its AUTO / MANUAL rule was applied when it latched)
+    if (tfFailLatched and g < 2)
+        g = 2;
 
     // none past 75 deg bank, at 45 deg nose up or below 300 KCAS (stall protection), with the paddle held, or on the ground
     if ((float)fabs(self->Roll()) > 75.0F * DTR or self->Pitch() >= 45.0F * DTR or self->GetKias() < 300.0F or
@@ -1011,6 +1056,18 @@ void LantirnClass::UpdateFlyup(AircraftClass *self)
     }
 }
 
+void LantirnClass::ResetTfFail(const char *why)
+{
+    if (not tfFailLatched)
+        return;
+
+    tfFailLatched = false;
+
+    char buf[120];
+    sprintf(buf, "[TFR] TF FAIL fly-up reset: %s\n", why);
+    FFDebugLog(buf);
+}
+
 // JB 010325 Rewritten
 void LantirnClass::Exec(AircraftClass *self)
 {
@@ -1031,6 +1088,7 @@ void LantirnClass::Exec(AircraftClass *self)
         {
             evasize = 0; //MI
             tfOperating = tfAuto = false;
+            lowSpeedTone = false;
             UpdateAdvisories(self);
             UpdateFlyup(self);
             return;
@@ -1198,6 +1256,22 @@ void LantirnClass::Exec(AircraftClass *self)
         tfOperating = IsTimedOut() and (tfAuto or self->AutopilotType() == AircraftClass::APOff) and
                       self->RFState not_eq 2;
         lowSpeedWarn = self->GetKias() < 300.0F;
+
+        // 2.6.3.6.3.2: below 300 KCAS the low speed warning tone sounds (AircraftClass plays it, re-armed every frame
+        // like the stall horn) and, in AUTO TF, ATF NOT ENGAGED: the TF autopilot lets go and MANUAL TF remains
+        const bool lowWas = lowSpeedTone;
+        lowSpeedTone = tfOperating and lowSpeedWarn and not self->OnGround();
+
+        if (lowSpeedTone and not lowWas)
+            FFDebugLog(tfAuto ? "[TFR] low speed warning (< 300 KCAS): tone, ATF NOT ENGAGED - AUTO TF off\n"
+                              : "[TFR] low speed warning (< 300 KCAS): tone\n");
+
+        if (lowSpeedTone and tfAuto)
+        {
+            self->SetAutopilot(AircraftClass::APOff);
+            self->lastapType = AircraftClass::APOff;
+            tfAuto = false;
+        }
 
         UpdateAdvisories(self);
         UpdateFlyup(self);

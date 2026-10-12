@@ -180,6 +180,14 @@ public:
     int flyupG; // incremental g of the fly-up in progress, 0 = none
     bool flyupFlying; // the fly-up has the stick this frame (manual TF)
     bool flyupOnset; // a fly-up started this frame (AircraftClass plays the aural PULL UP)
+    // TF FAIL fly-up (2.6.3.6 chart, 2.6.3.7): 2 g, wings level, LATCHED until the paddle switch (or FLCS reset);
+    // always from AUTO TF, from MANUAL TF only with the MANUAL TF FLYUP switch at ENABLE
+    bool tfFailLatched;
+    bool tfFailSeen; // the TF FAIL warning as seen last frame
+    bool prevOperating; // tfOperating last frame (the failure itself drops the TFR to STBY / the TF autopilot)
+    unsigned long lastAutoTime; // vuxRealTime when AUTO TF was last engaged
+    bool lowSpeedTone; // the TF low speed warning tone (below 300 KCAS with TF operating), AircraftClass plays it
+    void ResetTfFail(const char* why);
     bool manualFlyupEnabled; // MANUAL TF FLYUP switch (BMS checklist: ENABLE)
 
     // Artscout - 2026: the TFR page to the manual (2.6.3.1-2.6.3.4). OSB 4 is TFR power (OFF lit = off; STBY powers it

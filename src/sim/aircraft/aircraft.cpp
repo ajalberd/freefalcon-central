@@ -2676,6 +2676,10 @@ int AircraftClass::Exec(void)
             // Artscout - 2026: the aural PULL UP that comes with every TFR fly-up (TO 1F-16CMAM-34-1-1 2.6.3.7)
             if (theLantirn->flyupOnset and not SoundPos.IsPlaying(af->auxaeroData->sndBBPullup))
                 SoundPos.Sfx(af->auxaeroData->sndBBPullup);
+
+            // the TF low speed warning tone (2.6.3.6.3.2), re-armed every frame like the stall horn
+            if (theLantirn->lowSpeedTone)
+                SoundPos.Sfx(af->auxaeroData->sndLowSpeed);
         }
 
         //TJL 02/28/04 Speedbrake specific coding
