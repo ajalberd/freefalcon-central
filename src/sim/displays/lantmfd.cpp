@@ -401,7 +401,10 @@ void LantirnDrawable::DrawTerrain()
         ((VirtualDisplay*)display)->ConfineObjectViewportToZone();
         FF_SetIRGrey(true);
         FF_SetTerrainRadiusCap(32);
+        extern bool g_bThermalScene; // thermal: the ground at full level, not the night's (terraingpu.cpp)
+        g_bThermalScene = true;
         ((RenderIR*)display)->DrawScene(&cameraPos, &viewRotation);
+        g_bThermalScene = false;
         // Confine BEFORE the 2D flush: arms the renderer's per-draw zone SCISSOR for the span flush
         // (strays clipped, not splatted over HUD/DED) and the zone viewport for the object flush.
         ((VirtualDisplay*)display)->ConfineObjectViewportToZone();

@@ -423,7 +423,10 @@ void LantirnClass::RenderHudFlir(Render3D *mainRenderer, float halfAngleDeg, flo
     ((VirtualDisplay *)m_hudIr)->ConfineObjectViewportToZone();
     FF_SetIRGrey(true);
     FF_SetTerrainRadiusCap(32);
+    extern bool g_bThermalScene; // thermal: the ground at full level, not the night's (terraingpu.cpp)
+    g_bThermalScene = true;
     m_hudIr->DrawScene(&cameraPos, &viewRotation);
+    g_bThermalScene = false;
     ((VirtualDisplay *)m_hudIr)->ConfineObjectViewportToZone();
     m_hudIr->context.FlushPending();
 

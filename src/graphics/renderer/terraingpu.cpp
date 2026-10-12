@@ -39,6 +39,7 @@ extern bool g_bGpuTerrain;
 // Artscout - 2026: day/night brightness for the GPU terrain (the vertex colours carry no lighting). 1 = full day,
 // floored so a moonlit night isn't pitch black. Set per-frame in TerrainGpu_Render from the sun's diffuse level.
 static float s_terrainDayNight = 1.0f;
+bool g_bThermalScene = false; // Artscout - 2026: set around a FLIR scene's DrawScene (lantirn.cpp, lantmfd.cpp)
 
 // Object-layout vertex: must match ObjV / D3D11VertexEx (40 bytes) exactly.
 struct TGpuVert
@@ -775,7 +776,11 @@ void TerrainGpu_Render(RViewPoint* vp)
             }
             const float cam[3] = {cp.x, cp.y, cp.z};
             const float eyeArr[3] = {eye.x, eye.y, eye.z};
-            if (TerrainClipmap_Update(vp, cam, eyeArr, s_terrainDayNight))
+            // Artscout - 2026: a thermal picture (nav FLIR on the HUD / FLIR page) sees the ground's heat, not the
+            // daylight. The sensor pass kept the main view's night level (0.012) for the TV image, which turned the
+            // FLIR's ground black at night while the objects (lit by the sensor's own lamp) still showed.
+            extern bool g_bThermalScene;
+            if (TerrainClipmap_Update(vp, cam, eyeArr, g_bThermalScene ? 1.0f : s_terrainDayNight))
             {
                 const TerrainClipConstants& cb = TerrainClipmap_Constants();
                 g_pRenderer->DrawTerrainMeshShader(
