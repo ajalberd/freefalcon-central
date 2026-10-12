@@ -422,7 +422,9 @@ void LantirnClass::RenderHudFlir(Render3D *mainRenderer, float halfAngleDeg, flo
     m_hudIr->ClearDraw(); // clears the bound target (we are inside the atlas pass, so the clear is armed)
     ((VirtualDisplay *)m_hudIr)->ConfineObjectViewportToZone();
     FF_SetIRGrey(true);
-    FF_SetTerrainRadiusCap(32);
+    // the main view's ring (96 posts = 78,700 ft at LOD 0): 32, the narrow TGP's cap, ended the textured ground at
+    // 105,000 ft, half way up a wide-angle HUD picture at altitude
+    FF_SetTerrainRadiusCap(96);
     extern bool g_bThermalScene; // thermal: the ground at full level, not the night's (terraingpu.cpp)
     g_bThermalScene = true;
     m_hudIr->DrawScene(&cameraPos, &viewRotation);
@@ -767,28 +769,93 @@ void LantirnClass::UpdateAdvisories(AircraftClass *self)
 
 // Artscout - 2026: which fly-up the TFR asks for this frame (2.6.3.6 chart, 2.6.3.7). The pull itself is flown by
 // DigitalBrain::TfrFlyup, from LantirnAP in AUTO TF and from GatherInputs over the pilot's stick in MANUAL TF.
+// The smallest incremental g (2, 3 or 4) whose pull, started now, keeps the jet above terrain + floorFt for the
+// next 10 s along its track; 5 when not even 4 g does. A short point-mass prediction: the flight path angle rises at
+// n*g/V (to the 45 degree fly-up limit) while the jet moves on at its speed, sampled every 0.2 s against the terrain.
+int LantirnClass::RequiredPullG(AircraftClass *self, float floorFt)
+{
+    const float vx = self->XDelta(), vy = self->YDelta(), vUp = -self->ZDelta();
+    const float vh = (float)sqrt(vx * vx + vy * vy);
+    const float v = (float)sqrt(vh * vh + vUp * vUp);
+
+    if (v < 100.0F or vh < 1.0F)
+        return 2;
+
+    const float ux = vx / vh, uy = vy / vh;
+    const float gam0 = (float)atan2(vUp, vh);
+    const float dt = 0.2F;
+
+    for (int n = 2; n <= 4; n++)
+    {
+        float x = self->XPos(), y = self->YPos(), alt = -self->ZPos(), gam = gam0;
+        bool clear = true;
+
+        for (float t = 0.0F; t < 10.0F; t += dt)
+        {
+            gam += (float)n * GRAVITY / v * dt;
+
+            if (gam > 45.0F * DTR)
+                gam = 45.0F * DTR;
+
+            x += ux * v * (float)cos(gam) * dt;
+            y += uy * v * (float)cos(gam) * dt;
+            alt += v * (float)sin(gam) * dt;
+
+            if (alt < -OTWDriver.GetGroundLevel(x, y) + floorFt)
+            {
+                clear = false;
+                break;
+            }
+        }
+
+        if (clear)
+            return n;
+    }
+
+    return 5;
+}
+
 void LantirnClass::UpdateFlyup(AircraftClass *self)
 {
     const int was = flyupG;
+    const bool warnWas = pullupWarn;
     flyupG = 0;
     pullupWarn = false;
 
     if (not tfOperating)
         return;
 
-    // g-limit / obstacle warning: the TFR needs more than its normal 2 g to clear what is ahead
-    pullupWarn = evasize >= 2;
+    // g-limit / obstacle warning: the TFR needs more than its normal 2 g to clear what is ahead (2.6.3.7). The floor is
+    // half the set clearance, from the in-flight check: SCP 1000, push over to ~500 ft AGL -> G-LIMIT fly-up. (FF6's
+    // evasize probe, used here first, fired whenever the ground along the flight path was within a turn radius -
+    // ~20,000 ft at 480 kt - at any height, so PULLUP came well above the set clearance.)
+    const float floorFt = max(0.5F * (float)m_tfr_alt, 50.0F);
+    const int need = RequiredPullG(self, floorFt);
+    pullupWarn = need >= 3;
+
+    if (pullupWarn not_eq warnWas)
+    {
+        char buf[200];
+        sprintf(buf, "[TFR] PULLUP %s: needs %d g (5 = more than 4), AGL %.0f, floor %.0f (SCP %d), path %.1f deg, %.0f KCAS\n",
+                pullupWarn ? "on" : "off", need, gAlt, floorFt, m_tfr_alt, self->af->gmma * RTD, self->GetKias());
+        FFDebugLog(buf);
+    }
 
     int g = 0;
 
-    if (evasize >= 3)
+    if (need >= 4)
         g = 4; // obstacle warning
-    else if (evasize == 2)
+    else if (need == 3)
         g = 3; // g-limit warning
     else if (tfAuto and gAlt > 0.0F and gAlt < 0.75F * (float)m_tfr_alt)
         g = 3; // vertical clearance warning (LO TF) - AUTO TF only
     else if (tfAuto and limitTooLong)
         g = 2; // limits exceeded too long - AUTO TF only
+
+    // hold a started fly-up until the flight path is level or climbing: the prediction clears as soon as the pull
+    // begins, and dropping it then would let the jet settle back into the same descent (on/off chatter)
+    if (g == 0 and was > 0 and self->af->gmma < 0.0F)
+        g = was;
 
     // MANUAL TF flies up only with the MANUAL TF FLYUP switch at ENABLE
     if (not tfAuto and not manualFlyupEnabled)

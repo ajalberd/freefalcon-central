@@ -186,6 +186,7 @@ public:
         return tfOperating and not lowSpeedWarn and not limitTooLong;
     };
     void UpdateFlyup(AircraftClass* self);
+    int RequiredPullG(AircraftClass* self, float floorFt);
 
     // Artscout - 2026: the nav FLIR raster on the 3D-pit HUD (TO 1F-16CMAM-34-1-1 2.6.2.1). The IR scene is drawn
     // into a render target of its own (PrepareHudFlir before the pit's atlas pass; RenderHudFlir inside it at the HUD, once per frame), then

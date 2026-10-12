@@ -400,7 +400,7 @@ void LantirnDrawable::DrawTerrain()
         // the zone scissor armed, else its above-horizon fill covers the whole atlas (see laserpod.cpp).
         ((VirtualDisplay*)display)->ConfineObjectViewportToZone();
         FF_SetIRGrey(true);
-        FF_SetTerrainRadiusCap(32);
+        FF_SetTerrainRadiusCap(96); // wide FOV: the main view's ring, not the narrow TGP's 32 (see lantirn.cpp)
         extern bool g_bThermalScene; // thermal: the ground at full level, not the night's (terraingpu.cpp)
         g_bThermalScene = true;
         ((RenderIR*)display)->DrawScene(&cameraPos, &viewRotation);
