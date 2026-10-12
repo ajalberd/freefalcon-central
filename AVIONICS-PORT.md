@@ -82,6 +82,15 @@ and the features ported from it. Branch `rail-tracks`, commits tagged `avionics:
   - **Ruled out by the next flight:** `applied=0`, and the edge stayed. (The logged "far plane d=0" is the reversed-Z far plane, too thin to extract, so it is left uncut: not a cause.)
   - **The real cause:** the edge sat 6.9 deg below the horizon (NVG screenshot, 8,960 ft). That is the 3D sky dome's skirt (`elLo = -0.12` rad in otwsky.cpp). The dome goes through the object path, so it flushes after the mesh terrain. The FLIR target has no depth buffer, so the black IR dome painted over the ground; the main view's depth buffer hides that.
   - Fix: `DrawSky` skips the dome and the horizon filler in a thermal scene (the target is cleared black anyway).
+- **CMS switch to the manual (2.7.1.1, 2.7.2.1, figure p. 358), 2026-10-12.** FF6's CMS (2003) turned the CMDS MODE knob: aft = knob to AUTO + ECM on, right = knob to STBY + ECM off. There was no consent state, and AUTO dispensed with no pilot consent. Now:
+  - One consent state (`PlayerRwrClass::CmsConsent`) for the ECM and the CMDS; the knob never moves.
+  - **Aft** (airborne only; the ground keeps the ECM standby, the BIT hold is not modelled, as in BMS) gives consent: the ECM transmits, AUTO may dispense, and SEMI runs the selected program once if the CMDS asked within 10 s.
+  - **Right** removes consent: ECM standby, an automatic program in progress stops.
+  - **Dropping consent:** the RF switch leaving NORM drops it (QUIET <-> SILENT and back to NORM change nothing), and so does touchdown.
+  - **AUTO dispensing** also needs the gear up. "COUNTER" sounds only when consent is needed: always in SEMI, or AUTO without consent. It used to sound even while AUTO was already dispensing.
+  - **ECM in AUTO:** the auto jammer-on needs consent; without it the CMDS says "JAMMER" in AUTO too (as SEMI did).
+  - **Fwd** runs the selected program 1-4, unchanged. **Left** stays the one-chaff-one-flare stand-in for program 6, because FF6's ICP data has only programs 1-4; no BYP position either. Depress is not in the manual's figure; FF6 keeps it as "run the program".
+  - Logs: `[CMS] ...`.
 - **FLIR:** WHOT/BHOT polarity, look-into-turn / snaplook, and the throttle cursor as the BSGT slew.
 - **Pit hotspots** for SYS TEST and ECM XMIT: the pit's RWR/ECM panels would have to be matched to a texture legend
   first (the technique is in the 2026-09-26 WIP note: texture trace through the UVs, x -569). Key-only for now.

@@ -45,6 +45,19 @@ public:
     bool ChaffCheck;
     bool FlareCheck;
 
+    // Artscout - 2026: CMS consent (TO 1F-16CMAM-34-1-1 2.7.1.1, 2.7.2.1). One state for every ECM system and the
+    // CMDS: CMS aft gives it (airborne), CMS right removes it; the MODE knob never moves. AUTO dispenses only with it,
+    // SEMI runs the program once on CMS aft when a dispense is warranted, the ECM transmits only with it. The RF switch
+    // leaving NORM, or landing, drops it; coming back to NORM does not restore it. Auto dispensing also stops with the
+    // gear down.
+    bool CmsConsent;
+    int CmsRfSeen; // RF switch position last frame, -1 = not yet seen
+    unsigned long CounterTime; // vuxRealTime of the last "COUNTER" request (a dispense was warranted)
+    bool DispenseWarranted(void);
+    void GiveCmsConsent(void);
+    void RemoveCmsConsent(const char* why);
+    void UpdateCmsConsent(void);
+
     int IsPriority(void)
     {
         return priorityMode;

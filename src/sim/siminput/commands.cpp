@@ -11719,19 +11719,39 @@ void SimCMSUp(unsigned long val, int state, void* cb)
     SimDropProgrammed(val, state, cb);
 }
 
-// CMS AFT: enable EWS AUTO mode + turn ECM on (and consent for SEMI).
-void SimCMSDown(unsigned long val, int state, void* cb)
+// Artscout - 2026: CMS aft / right as TO 1F-16CMAM-34-1-1 2.7.1.1 and 2.7.2.1 have them: one CONSENT state for the
+// ECM and the CMDS (PlayerRwrClass::CmsConsent). They used to turn the CMDS MODE knob to AUTO / STBY instead.
+static PlayerRwrClass* PlayerCmsRwr(void)
 {
-    SimEWSModeAuto(val, state, cb);
-    SimECMConsent(val, state,
-                  cb); // specifically Consent ("enable"), not SimECMOn (toggle)
+    AircraftClass* pac = SimDriver.GetPlayerAircraft();
+
+    if (not g_bRealisticAvionics or not pac or not pac->IsSetFlag(MOTION_OWNSHIP))
+        return NULL;
+
+    return (PlayerRwrClass*)FindSensor(pac, SensorClass::RWR);
 }
 
-// CMS RIGHT: disable AUTO (Stby) + ECM to standby (stop jamming).
+// CMS AFT: consent - the ECM transmits, AUTO may dispense, SEMI runs its program once if the CMDS asked
+void SimCMSDown(unsigned long val, int state, void* cb)
+{
+    PlayerRwrClass* rwr = PlayerCmsRwr();
+
+    if (not rwr or not(state bitand KEY_DOWN))
+        return;
+
+    rwr->GiveCmsConsent(); // (on the ground it only logs: the ECM stays standby there)
+
+    if (not SimDriver.GetPlayerAircraft()->OnGround())
+        SimECMConsent(val, state, cb); // the ECM on (needs a jammer and a working blanker)
+}
+
+// CMS RIGHT: consent off - the ECM to standby, AUTO dispensing stops; the MODE knob does not move
 void SimCMSRight(unsigned long val, int state, void* cb)
 {
-    SimEWSModeStby(val, state, cb);
-    SimECMStandby(val, state, cb);
+    PlayerRwrClass* rwr = PlayerCmsRwr();
+
+    if (rwr and (state bitand KEY_DOWN))
+        rwr->RemoveCmsConsent("CMS right");
 }
 
 // CMS LEFT: bypass analog of prog 6 -- exactly ONE chaff + ONE flare (flags directly,

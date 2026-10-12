@@ -32,6 +32,7 @@ static int flash = FALSE;
 #include "soundfx.h"
 #include "aircrft.h"
 #include "fack.h"
+#include "graphics/include/fflog.h"
 extern bool g_bRealisticAvionics;
 //MI
 
@@ -91,10 +92,96 @@ PlayerRwrClass::PlayerRwrClass(int idx, SimMoverClass* self)
     FlareCheck = FALSE;
     SaidJammer = FALSE;
     ReleaseManual = FALSE;
+    CmsConsent = false;
+    CmsRfSeen = -1;
+    CounterTime = 0;
 }
 
 PlayerRwrClass::~PlayerRwrClass(void)
 {
+}
+
+// Artscout - 2026: CMS consent (see playerrwr.h; TO 1F-16CMAM-34-1-1 2.7.1.1 and 2.7.2.1)
+
+// a dispense is warranted: a launch on the scope now, or a "COUNTER" request in the last 10 s
+bool PlayerRwrClass::DispenseWarranted(void)
+{
+    return LaunchIndication() or (CounterTime and vuxRealTime - CounterTime < 10000);
+}
+
+// CMS aft. On the ground the ECM state stays standby (the BIT hold is not modelled, as in BMS).
+void PlayerRwrClass::GiveCmsConsent(void)
+{
+    AircraftClass* ac = SimDriver.GetPlayerAircraft();
+
+    if (not ac)
+        return;
+
+    if (ac->OnGround())
+    {
+        FFDebugLog("[CMS] aft: on the ground - ECM stays standby, no consent\n");
+        return;
+    }
+
+    const bool was = CmsConsent;
+    CmsConsent = true;
+
+    // SEMI: consent runs the selected program once, when the CMDS has asked for it
+    if (ac->EWSPGM() == AircraftClass::Semi and DispenseWarranted() and
+        not(ac->mFaults and (ac->mFaults->GetFault(FaultClass::cmds_fault) bitand FaultClass::bus)))
+    {
+        ac->DropEWS();
+        ReleaseManual = TRUE;
+        CounterTime = 0; // answered
+        FFDebugLog("[CMS] aft: SEMI consent - selected program runs once\n");
+    }
+
+    if (not was)
+        FFDebugLog("[CMS] aft: consent given (ECM transmit, CMDS AUTO enabled)\n");
+}
+
+// CMS right, the RF switch leaving NORM, or touchdown: consent off, the ECM to standby, auto dispensing stopped.
+// The MODE knob stays where it is.
+void PlayerRwrClass::RemoveCmsConsent(const char* why)
+{
+    AircraftClass* ac = SimDriver.GetPlayerAircraft();
+
+    InEWSLoop = FALSE; // an automatic program in progress stops
+
+    if (ac and not ac->mFaults->GetFault(FaultClass::epod_fault)) // a failed pod cannot be switched off
+    {
+        ac->UnSetFlag(ECM_ON);
+        ac->ManualECM = FALSE;
+    }
+
+    if (CmsConsent)
+    {
+        char buf[120];
+        sprintf(buf, "[CMS] consent removed: %s (ECM standby, CMDS AUTO disabled)\n", why);
+        FFDebugLog(buf);
+    }
+
+    CmsConsent = false;
+}
+
+// per frame: the RF switch and the ground take the consent away
+void PlayerRwrClass::UpdateCmsConsent(void)
+{
+    AircraftClass* ac = SimDriver.GetPlayerAircraft();
+
+    if (not ac)
+        return;
+
+    const int rf = ac->RFState;
+
+    // NORM -> QUIET / SILENT drops it; QUIET <-> SILENT and back to NORM change nothing (2.7.1.1)
+    if (CmsRfSeen == 0 and rf not_eq 0 and CmsConsent)
+        RemoveCmsConsent("RF switch out of NORM");
+
+    CmsRfSeen = rf;
+
+    if (CmsConsent and ac->OnGround())
+        RemoveCmsConsent("on the ground");
 }
 
 
@@ -425,6 +512,8 @@ SimObjectType* PlayerRwrClass::Exec(SimObjectType* targetList)
     //MI EWS check, only do this if we have auto chaff/flare
     if (g_bRealisticAvionics)
     {
+        UpdateCmsConsent(); // Artscout - 2026: the RF switch / touchdown drop the CMS consent
+
         if (ReleaseManual)
         {
             if (SimDriver.GetPlayerAircraft())
@@ -1242,14 +1331,23 @@ void PlayerRwrClass::CheckEWS(void)
 
     if (LaunchIndication() and not LaunchDetected)
     {
+        // Artscout - 2026: AUTO dispenses only with CMS consent (CMS aft) and the gear up and locked; without
+        // consent, and always in SEMI, the CMDS asks for it with "COUNTER" (TO 1F-16CMAM-34-1-1 2.7.1.1 / 2.7.2.1).
+        // It used to dispense in AUTO with no consent at all, and said COUNTER even while doing so.
+        AircraftClass* ac = SimDriver.GetPlayerAircraft();
+        const bool gearUp = cockpitFlightData.gearPos < 0.01f; // the player's gear, 0 = up
+        const bool autoGo = ac->EWSPGM() == AircraftClass::Auto and CmsConsent and gearUp;
+
+        CounterTime = vuxRealTime ? vuxRealTime : 1;
+
         //F4SoundFXSetDist(SFX_BB_COUNTER, TRUE, 0.0f, 1.0f );
-        if (OTWDriver.pCockpitManager->mpIcp->EWS_REQCTR_ON) // REQCTR gates the "COUNTER" request
+        if (not autoGo and OTWDriver.pCockpitManager->mpIcp->EWS_REQCTR_ON) // REQCTR gates the "COUNTER" request
             PlayRWRSoundFX(SFX_BB_COUNTER, TRUE, 0.0f, 1.0f);
 
-        if (SimDriver.GetPlayerAircraft()->EWSPGM() == AircraftClass::Auto)
+        if (autoGo)
         {
             InEWSLoop = TRUE;
-            SimDriver.GetPlayerAircraft()->DropEWS();
+            ac->DropEWS();
         }
 
         if (OTWDriver.pCockpitManager->mpIcp
@@ -1356,15 +1454,16 @@ void PlayerRwrClass::CheckEWS(void)
                     if (not SimDriver.GetPlayerAircraft()->IsSetFlag(ECM_ON))
                     {
                         //Only if fully auto
+                        // (Artscout - 2026: and with CMS consent - the ECM transmits only with it, 2.7.1.1)
                         if (SimDriver.GetPlayerAircraft()->EWSPGM() ==
-                            AircraftClass::Auto)
+                            AircraftClass::Auto and CmsConsent)
                         {
                             SimDriver.GetPlayerAircraft()->SetFlag(ECM_ON);
                         }
 
-                        else if (SimDriver.GetPlayerAircraft()->EWSPGM() ==
-                                 AircraftClass::
-                                     Semi) //ask if we want turn it on
+                        else if (SimDriver.GetPlayerAircraft()->EWSPGM() == AircraftClass::Semi or
+                                 SimDriver.GetPlayerAircraft()->EWSPGM() ==
+                                     AircraftClass::Auto) //ask if we want turn it on (AUTO without consent too)
                         {
                             if (not SaidJammer)
                             {
