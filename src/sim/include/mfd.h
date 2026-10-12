@@ -227,7 +227,11 @@ protected:
     void DrawTerrain();
     void DrawWarnings();
     void DrawFlightInfo();
+    void DrawConfidenceDisplay(VirtualDisplay* d, class AircraftClass* ac); // Artscout - 2026: E-squared (2.6.3.3)
 };
+
+// Artscout - 2026: TFR LIMITS / break X / CHECK ATTITUDE on both MFDs, over whatever page they show (lantmfd.cpp)
+void DrawTfrMfdAdvisories(VirtualDisplay* d);
 
 class TestMfdDrawable : public MfdDrawable
 {

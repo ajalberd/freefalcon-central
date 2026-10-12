@@ -12,6 +12,7 @@
 #include "sms.h"
 #include "soundfx.h"
 #include "fsound.h"
+#include "hud.h"
 
 #include "campbase.h"
 #include "camplist.h"
@@ -80,6 +81,11 @@ LantirnClass::LantirnClass() : DrawableClass()
     tfOperating = tfAuto = lowSpeedWarn = limitTooLong = pullupWarn = flyupFlying = flyupOnset = false;
     flyupG = 0;
     manualFlyupEnabled = true;
+    flirPageTime = 0;
+    tfrPower = true; // as FF6 always had it: on, in STBY
+    rfSeen = -1;
+    modeBeforeQuiet = TFR_STBY;
+    choseInQuiet = false;
     roll = 0.0F;
     featureDistance = 0.0F;
     featureDistance2 = 0.0F;
@@ -300,16 +306,38 @@ void LantirnClass::DrawTerrain()
 // FLIR page's BSGT trim the aim; HudFlirScale scales the field of view.
 bool LantirnClass::HudFlirWanted(void)
 {
+    return hudBright >= 0.02F and FlirSceneWanted();
+}
+
+// the IR scene is needed by the HUD raster or by a FLIR page drawn in the last half second (the page reports itself
+// every time it draws; it does not draw the world any more, it shows this picture)
+bool LantirnClass::FlirSceneWanted(void)
+{
     extern bool g_bUseD3D12, g_bUseVulkan, g_bSensorSceneD3D12, g_bSensorSceneVulkan;
 
-    if (not g_bHudFlir or not IsFLIR() or hudBright < 0.02F or not SimDriver.GetPlayerAircraft())
+    if (not g_bHudFlir or not IsFLIR() or not SimDriver.GetPlayerAircraft())
         return false;
 
     // the same gate as every other sensor scene: off where the backend has no working sensor-scene path
     if ((g_bUseD3D12 or g_bUseVulkan) and not(g_bSensorSceneD3D12 or (g_bUseVulkan and g_bSensorSceneVulkan)))
         return false;
 
-    return true;
+    return hudBright >= 0.02F or vuxRealTime - flirPageTime < 500;
+}
+
+void LantirnClass::NoteFlirPageShown(void)
+{
+    flirPageTime = vuxRealTime;
+}
+
+// the FLIR page's picture: the frame's IR scene, filling the page (the previous frame's on the first eye when the
+// page draws before the HUD does - one frame late, never two renders)
+void LantirnClass::DrawFlirPicture(VirtualDisplay *page, float intensity)
+{
+    NoteFlirPageShown();
+
+    if (page and m_hudTex and m_hudTexValid)
+        page->DrawTextureRect(m_hudTex, -1.0F, -1.0F, 1.0F, 1.0F, intensity);
 }
 
 // Before the atlas pass opens (vcock.cpp): make the IR renderer and the target. Setting a renderer up or creating a
@@ -318,7 +346,7 @@ void LantirnClass::PrepareHudFlir(Render3D *mainRenderer)
 {
     extern int g_nHudFlirRes;
 
-    if (not mainRenderer or not HudFlirWanted())
+    if (not mainRenderer or not FlirSceneWanted())
         return;
 
     ImageBuffer *image = mainRenderer->GetImageBuffer();
@@ -371,7 +399,7 @@ void LantirnClass::RenderHudFlir(Render3D *mainRenderer, float halfAngleDeg, flo
     AircraftClass *playerAC = SimDriver.GetPlayerAircraft();
 
     if (not mainRenderer or not playerAC or halfAngleDeg <= 0.0F or not m_hudIr or not m_hudTex or
-        not HudFlirWanted() or m_hudIr->GetImageBuffer() not_eq mainRenderer->GetImageBuffer())
+        not FlirSceneWanted() or m_hudIr->GetImageBuffer() not_eq mainRenderer->GetImageBuffer())
         return;
 
     const int size = m_hudTexSize;
@@ -590,22 +618,121 @@ void LantirnClass::BsgtSlew(float dPitchRad, float dYawRad)
     hudTrimYaw = hudTrimYaw < -limit ? -limit : (hudTrimYaw > limit ? limit : hudTrimYaw);
 }
 
+// Artscout - 2026: the manual's rotary (OSB 2) is HARD -> SOFT -> SMTH; FF6's middle ride (TFR_MED) is shown as SMTH.
+// The g limits stay the airframe file's (TFR_SoftG / MedG / HardG).
 void LantirnClass::StepTFRRide()
 {
     switch (m_tfr_ride)
     {
+    case TFR_HARD:
+        m_tfr_ride = TFR_SOFT;
+        break;
+
     case TFR_SOFT:
         m_tfr_ride = TFR_MED;
         break;
 
     case TFR_MED:
+    default:
         m_tfr_ride = TFR_HARD;
         break;
-
-    case TFR_HARD:
-        m_tfr_ride = TFR_SOFT;
-        break;
     }
+}
+
+// OSB 4 (and OSB 18 STBY for on): power-on always lands in STBY with the NOT TIMED OUT warm-up; power-off drops AUTO TF
+void LantirnClass::SetTFRPower(bool on)
+{
+    if (on == tfrPower)
+        return;
+
+    tfrPower = on;
+    m_tfrmode = TFR_STBY;
+
+    AircraftClass *playerAC = SimDriver.GetPlayerAircraft();
+
+    if (on)
+        coolTime = 180.0F; // the same ~3 minutes as LEFT HDPT power-on (UpdateCooldown)
+    else if (playerAC and playerAC->AutopilotType() == AircraftClass::LantirnAP)
+        playerAC->SetAutopilot(AircraftClass::APOff);
+
+    FFDebugLog(on ? "[TFR] power ON (STBY, warming up)\n" : "[TFR] power OFF\n");
+}
+
+// a mode request from the page (OSB 17-20) or the ICP WX button; false when the TFR does not honour it now
+bool LantirnClass::RequestTFRMode(TfrMode mode)
+{
+    if (not tfrPower)
+    {
+        if (mode not_eq TFR_STBY)
+            return false;
+
+        SetTFRPower(true); // STBY also powers the TFR (2.6.3.1)
+        return true;
+    }
+
+    // NOT TIMED OUT: only ride, clearance and power
+    if (mode not_eq TFR_STBY and not IsTimedOut())
+        return false;
+
+    AircraftClass *playerAC = SimDriver.GetPlayerAircraft();
+    const int rf = playerAC ? playerAC->RFState : 0;
+
+    // RF QUIET: LPI, WX, STBY (and OFF); RF SILENT: STBY (and OFF)
+    if ((rf == 2 and mode not_eq TFR_STBY) or (rf == 1 and mode == TFR_NORM) or mode == TFR_ECCM)
+        return false;
+
+    if (rf not_eq 0)
+        choseInQuiet = true;
+
+    m_tfrmode = mode;
+    return true;
+}
+
+// 2.6.3.4.2: the RF switch moves the TFR mode when it changes
+void LantirnClass::UpdateRfSwitch(AircraftClass *self)
+{
+    const int rf = self->RFState;
+
+    if (rfSeen < 0)
+    {
+        rfSeen = rf;
+        return;
+    }
+
+    if (rf == rfSeen)
+        return;
+
+    if (rfSeen == 0)
+    {
+        modeBeforeQuiet = m_tfrmode;
+        choseInQuiet = false;
+    }
+
+    if (rf == 1 and (m_tfrmode == TFR_NORM or m_tfrmode == TFR_WX) and rfSeen == 0)
+        m_tfrmode = TFR_LP1; // NORM / VLC / WX -> LPI
+    else if (rf == 2)
+        m_tfrmode = TFR_STBY;
+    else if (rf == 0 and not choseInQuiet and tfrPower and IsTimedOut())
+        m_tfrmode = modeBeforeQuiet; // nothing chosen while QUIET / SILENT: back to the NORM-era mode
+
+    char buf[96];
+    sprintf(buf, "[TFR] RF switch %d -> %d: mode %d\n", rfSeen, rf, (int)m_tfrmode);
+    FFDebugLog(buf);
+    rfSeen = rf;
+}
+
+// 2.6.3.6.5 LANTIRN Attitude Advisory Function: TFR operating, below the ALOW page's TF ADV altitude (0 disables),
+// and either more than 75 deg of bank nose-low or more than 20 deg nose down
+bool LantirnClass::CheckAttitude(AircraftClass *self)
+{
+    if (not self or not TheHud or TheHud->TFAdv <= 0 or not tfrPower or m_tfrmode == TFR_STBY or not IsTimedOut())
+        return false;
+
+    if (-self->ZPos() >= (float)TheHud->TFAdv)
+        return false;
+
+    const float bank = (float)fabs(self->Roll());
+    return (bank > 75.0F * DTR and self->Pitch() < 0.0F) or self->Pitch() < -20.0F * DTR;
 }
 
 void LantirnClass::StepTFRMode()
@@ -821,6 +948,7 @@ void LantirnClass::UpdateFlyup(AircraftClass *self)
     const bool warnWas = pullupWarn;
     flyupG = 0;
     pullupWarn = false;
+    flyupOnset = false; // (an early return must not leave last frame's onset standing: the sound would re-arm)
 
     if (not tfOperating)
         return;
@@ -869,7 +997,8 @@ void LantirnClass::UpdateFlyup(AircraftClass *self)
     flyupG = g;
 
     // aural PULL UP in every fly-up case (played by AircraftClass after Exec: the sound id is airframe-private)
-    flyupOnset = flyupG and not was;
+    // (and on every g-limit / obstacle warning, fly-up or not: the chart's aural column is "always" for those)
+    flyupOnset = (flyupG and not was) or (pullupWarn and not warnWas);
 
     if (flyupG not_eq was)
     {
@@ -886,6 +1015,12 @@ void LantirnClass::UpdateFlyup(AircraftClass *self)
 void LantirnClass::Exec(AircraftClass *self)
 {
     UpdateCooldown(self);
+
+    if (self == SimDriver.GetPlayerAircraft())
+        UpdateRfSwitch(self);
+
+    if (not tfrPower)
+        m_tfrmode = TFR_STBY; // OFF behaves as STBY for everything downstream; the page shows OFF
 
     if (g_bTFRFixes)
     {

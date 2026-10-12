@@ -181,6 +181,19 @@ public:
     bool flyupFlying; // the fly-up has the stick this frame (manual TF)
     bool flyupOnset; // a fly-up started this frame (AircraftClass plays the aural PULL UP)
     bool manualFlyupEnabled; // MANUAL TF FLYUP switch (BMS checklist: ENABLE)
+
+    // Artscout - 2026: the TFR page to the manual (2.6.3.1-2.6.3.4). OSB 4 is TFR power (OFF lit = off; STBY powers it
+    // too; power-on lands in STBY and restarts the NOT TIMED OUT warm-up). The RF switch limits the modes: QUIET
+    // turns NORM / VLC / WX into LPI and honours only LPI, WX, STBY; SILENT honours only STBY; back to NORM restores
+    // the last mode chosen in QUIET, else the one from before.
+    bool tfrPower;
+    int rfSeen; // RF switch position last frame (0 NORM, 1 QUIET, 2 SILENT), -1 = not yet seen
+    TfrMode modeBeforeQuiet;
+    bool choseInQuiet;
+    void SetTFRPower(bool on);
+    bool RequestTFRMode(TfrMode mode); // a page / ICP request, filtered by the warm-up and the RF switch
+    void UpdateRfSwitch(AircraftClass* self);
+    bool CheckAttitude(AircraftClass* self); // AAF CHECK ATTITUDE (2.6.3.6.5)
     bool TfCueVisible(void)
     {
         return tfOperating and not lowSpeedWarn and not limitTooLong;
@@ -193,6 +206,12 @@ public:
     // composited on the HUD glass under the symbology (DrawHudFlirQuad, per eye, with the HUD's own canvas, collimation
     // and stencil). Drawing it into the HUD's patch of the shared atlas did not show and disturbed the other displays.
     bool HudFlirWanted(void);
+    // the IR scene is rendered (once a frame) when the HUD shows it OR the FLIR page is up; the page paints the same
+    // picture (DrawFlirPicture) instead of drawing the world again, twice per frame (one per eye)
+    bool FlirSceneWanted(void);
+    void NoteFlirPageShown(void);
+    void DrawFlirPicture(VirtualDisplay* page, float intensity);
+    unsigned long flirPageTime;
     void PrepareHudFlir(class Render3D* mainRenderer);
     void RenderHudFlir(class Render3D* mainRenderer, float halfAngleDeg, float boresightRad);
     void DrawHudFlirDebug(VirtualDisplay* anyDisplay);

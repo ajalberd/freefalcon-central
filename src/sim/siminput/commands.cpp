@@ -9990,7 +9990,19 @@ void SimToggleTFR(unsigned long val, int state, void*)
         SimDriver.GetPlayerAircraft()->IsSetFlag(MOTION_OWNSHIP) and
         (state bitand KEY_DOWN))
     {
-        if (SimDriver.GetPlayerAircraft()->AutopilotType() ==
+        // Artscout - 2026: ADV MODE (TO 1F-16CMAM-34-1-1 2.6.3.4.1 / 2.6.3.6.6): AUTO TF engages only from MANUAL TF,
+        // i.e. with the TFR already in an operating mode; pressed with the TFR in STBY / OFF / NOT TIMED OUT it does
+        // nothing (ATF NOT ENGAGED). It used to switch the TFR to NORM itself. Disengaging returns to MANUAL TF -
+        // the TFR stays in its mode (it used to drop to STBY).
+        extern bool g_bTFRFixes;
+        const bool operating = theLantirn->tfrPower and theLantirn->IsTimedOut() and
+                               theLantirn->GetTFRMode() not_eq LantirnClass::TFR_STBY;
+
+        if (g_bTFRFixes and SimDriver.GetPlayerAircraft()->AutopilotType() == AircraftClass::APOff and not operating)
+        {
+            FFDebugLog("[TFR] ADV MODE: ATF NOT ENGAGED (TFR not in an operating mode)\n");
+        }
+        else if (SimDriver.GetPlayerAircraft()->AutopilotType() ==
             AircraftClass::APOff)
         {
             if (theLantirn->GetTFRMode() == LantirnClass::TFR_STBY)
@@ -10008,7 +10020,8 @@ void SimToggleTFR(unsigned long val, int state, void*)
         else
         {
             // MD -- 2003127: adding a check to put the TFR state back into standby
-            if (theLantirn->GetTFRMode() not_eq LantirnClass::TFR_STBY)
+            // (Artscout - 2026: not with the TFR fixes - the manual's AUTO TF off is MANUAL TF, the TFR keeps its mode)
+            if (not g_bTFRFixes and theLantirn->GetTFRMode() not_eq LantirnClass::TFR_STBY)
                 theLantirn->SetTFRMode(LantirnClass::TFR_STBY);
 
             SimDriver.GetPlayerAircraft()->SetAutopilot(AircraftClass::APOff);
@@ -10016,6 +10029,17 @@ void SimToggleTFR(unsigned long val, int state, void*)
         }
     }
 }
+// Artscout - 2026: ICP WX button = TFR WX mode (TO 1F-16CMAM-34-1-1 2.6.3.2), filtered like the page's OSB 17
+void SimTFRWeather(unsigned long val, int state, void*)
+{
+    if (theLantirn and SimDriver.GetPlayerAircraft() and SimDriver.GetPlayerAircraft()->IsSetFlag(MOTION_OWNSHIP) and
+        (state bitand KEY_DOWN))
+    {
+        const bool ok = theLantirn->RequestTFRMode(LantirnClass::TFR_WX);
+        FFDebugLog(ok ? "[TFR] ICP WX: TFR WX\n" : "[TFR] ICP WX: not honoured (power / warm-up / RF switch)\n");
+    }
+}
+
 void SimWarnReset(unsigned long val, int state, void*)
 {
     if (SimDriver.GetPlayerAircraft() and

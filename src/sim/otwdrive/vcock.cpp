@@ -5164,7 +5164,8 @@ void OTWDriverClass::VCock_Exec(void)
 
             // Artscout - 2026: the nav FLIR picture, into its own target (not this zone), first eye only -- the other
             // eye composites the same texture. Re-bind the atlas and this zone afterwards, as the MFD sensor pages do.
-            if (theLantirn and theLantirn->HudFlirWanted())
+            // (also when only the FLIR page wants it: the page paints this picture rather than drawing its own)
+            if (theLantirn and theLantirn->FlirSceneWanted())
             {
                 extern bool g_bVrFrameActive;
                 const int flirEye = (g_bVrFrameActive and g_pOpenXRBackend) ? g_pOpenXRBackend->CurrentEye() : -1;

@@ -867,6 +867,10 @@ void MFDClass::Exec(int clearFrame, int virtualCockpit)
 
                 drawable->Display(drawable->GetDisplay());
 
+                // Artscout - 2026: the TFR's advisories go on both MFDs over any page (TO 1F-16CMAM-34-1-1 2.6.3.6.4)
+                if (mode not_eq MfdOff)
+                    DrawTfrMfdAdvisories(drawable->GetDisplay());
+
                 drawable->GetDisplay()->EndDraw();
 
                 ((Render2D*)(drawable->GetDisplay()))
@@ -982,6 +986,10 @@ void MFDClass::Exec(int clearFrame, int virtualCockpit)
                 }
 
                 drawable->Display(drawable->GetDisplay());
+
+                if (mode not_eq MfdOff)
+                    DrawTfrMfdAdvisories(drawable->GetDisplay());
+
                 drawable->GetDisplay()->EndDraw();
                 ((Render2D*)(drawable->GetDisplay()))
                     ->SetViewport(vpLeft, vpTop, vpRight, vpBottom);

@@ -36,6 +36,7 @@ void SimBrtWheelUp(unsigned long, int state, void *); // Artscout - 2026: ICP BR
 void SimBrtWheelDn(unsigned long, int state, void *);
 void SimFlirLevelUp(unsigned long, int state, void *); // Artscout - 2026: ICP FLIR arrows = FLIR level
 void SimFlirLevelDown(unsigned long, int state, void *);
+void SimTFRWeather(unsigned long, int state, void *); // Artscout - 2026: ICP WX button = TFR WX
 void SimToggleRealisticAvionics(unsigned long, int state, void *); // JPO
 void SimIncFuelSwitch(unsigned long, int state, void *); // JPO
 void SimDecFuelSwitch(unsigned long, int state, void *); // JPO

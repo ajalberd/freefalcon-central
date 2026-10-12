@@ -1659,6 +1659,39 @@ void VirtualDisplay::ReleaseExtraRtt(TextureHandle* t)
     }
 }
 
+// Artscout - 2026: see the header. Two triangles in pixel space, as the font path draws its glyphs; the pixel shader
+// always multiplies by the vertex colour, so the intensity rides on it (STATE_TEXTURE_SMOOTH: textured, opaque, linear).
+void VirtualDisplay::DrawTextureRect(TextureHandle* t, float x0, float y0, float x1, float y1, float intensity)
+{
+    if (not t)
+        return;
+
+    const float k = intensity < 0.0f ? 0.0f : (intensity > 1.0f ? 1.0f : intensity);
+    const float l = viewportXtoPixel(x0), r = viewportXtoPixel(x1);
+    const float top = viewportYtoPixel(-y1), bot = viewportYtoPixel(-y0);
+    const float px[6] = {l, r, l, l, r, r};
+    const float py[6] = {top, top, bot, bot, top, bot};
+    const float tu[6] = {0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f};
+    const float tv[6] = {0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f};
+    MPRVtxTexClr_t v[6];
+
+    for (int i = 0; i < 6; i++)
+    {
+        v[i].x = px[i];
+        v[i].y = py[i];
+        v[i].r = v[i].g = v[i].b = k;
+        v[i].a = 1.0f;
+        v[i].u = tu[i];
+        v[i].v = tv[i];
+        v[i].q = 1.0f;
+    }
+
+    context.RestoreState(STATE_TEXTURE_SMOOTH);
+    context.SelectTexture1((DWORD_PTR)t);
+    context.DrawPrimitive(MPR_PRM_TRIANGLES, MPR_VI_COLOR bitor MPR_VI_TEXTURE, 6, v, sizeof(v[0]));
+    context.RestoreState(STATE_SOLID);
+}
+
 bool VirtualDisplay::CleanupRttTarget()
 {
     if (renderTexture)

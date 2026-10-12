@@ -27,7 +27,7 @@ void DrawBullseyeCircle(VirtualDisplay* display, float cursorX, float cursorY);
 //   centre     NOT TIMED OUT while the pod is cooling down
 //
 // The ICP does the same without the page: BRT wheel = SimBrtWheelUp/Dn, FLIR arrows = SimFlirLevelUp/Down.
-// The picture is the TFR page's sensor display (LantirnDrawable::DrawTerrain), grey.
+// The picture is the HUD FLIR's IR scene (LantirnClass::DrawFlirPicture), grey, rendered once a frame.
 
 void FlirMfdDrawable::Display(VirtualDisplay* newDisplay)
 {
@@ -48,17 +48,10 @@ void FlirMfdDrawable::Display(VirtualDisplay* newDisplay)
     const bool oper = theLantirn->IsFLIR();
     const bool cooling = powered and not theLantirn->IsFlirTimedOut();
 
-    // the picture: same gate as the TFR page, and only in OPER
-    extern bool g_bUseD3D12, g_bUseVulkan, g_bSensorSceneD3D12, g_bSensorSceneVulkan;
-
-    if (oper and
-        (!(g_bUseD3D12 or g_bUseVulkan) || g_bSensorSceneD3D12 or (g_bUseVulkan and g_bSensorSceneVulkan)) and
-        display->type == VirtualDisplay::DISPLAY_GENERAL)
-    {
-        const unsigned int v = (unsigned int)(255.0f * theLantirn->FlirIntensity());
-        display->SetColor(0xff000000 | (v << 16) | (v << 8) | v);
-        DrawTerrain();
-    }
+    // the picture, only in OPER: the frame's one IR scene (the HUD FLIR's target), not a world render of its own -
+    // drawing it here per eye, with the TFR page doing the same, took the frame from 16.7 to ~30 ms (2026-10-12)
+    if (oper and display->type == VirtualDisplay::DISPLAY_GENERAL)
+        theLantirn->DrawFlirPicture(display, theLantirn->FlirIntensity());
 
     display->SetColor(GetMfdColor(MFD_DEFAULT));
 

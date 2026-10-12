@@ -295,6 +295,9 @@ public:
     // make an extra target sampleable (render-target -> shader-resource) after drawing into it INSIDE the atlas pass;
     // the backend then binds the scene target, so the caller re-binds the atlas (ReBindRttTarget) to carry on
     static void ReleaseExtraRtt(TextureHandle *t);
+    // a texture (an extra render target, say) filling the normalized rect (x0,y0)-(x1,y1) of this display, opaque,
+    // dimmed to `intensity` (0..1) by a black veil. The FLIR page shows the HUD FLIR's picture this way.
+    void DrawTextureRect(TextureHandle *t, float x0, float y0, float x1, float y1, float intensity);
     void StartRtt(Render3D *r3d_);
     void FinishRtt();
     // Artscout - 2026: re-bind the shared RTT atlas as the active D3D11 target WITHOUT the StartRtt
