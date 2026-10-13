@@ -554,6 +554,22 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                    ->GetReplacementsAvail(); // aggregate replacements available
         lambda = a_v_nratio * sqnbonus;
 
+        // Artscout - 2026 (g_bReplSplitFix, off = stock): lambda is the squadrons' share of the replacement pool and ground
+        // units get 1 - lambda. Capped at 1, any team whose aircraft are 1/RelSquadBonus (a quarter at the stock 4.0) of its
+        // total shortfall gave its ground units exactly nothing: DPRK, whose airframes Blue shoots down by the thousand,
+        // got 3 ground replacements in five days (ROK 4,446). Weighting the need instead keeps the squadron priority
+        // (RelSquadBonus times more per vehicle) and never takes the ground share to zero; with little air need it is the
+        // same number as before.
+        {
+            extern bool g_bReplSplitFix;
+
+            if (g_bReplSplitFix)
+            {
+                float wa = sqnbonus * (float)rneeded_a;
+                lambda = (wa + (float)rneeded_v) > 0.0F ? wa / (wa + (float)rneeded_v) : 1.0F;
+            }
+        }
+
         if (lambda > 1)
             lambda = 1;
     }

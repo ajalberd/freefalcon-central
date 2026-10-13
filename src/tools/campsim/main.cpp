@@ -2292,6 +2292,56 @@ static void HoldTestLog(int hour)
     }
 }
 
+// relsquad=F -- set RelSquadBonus (Falcon4.AII, stock 4.0) for this run: SupplyUnits gives squadrons lambda = min(1, airNeedShare * F)
+// of the replacement pool and ground units the rest. REPLSPLIT lines (every 6 hours) show each team's air and ground vehicle
+// shortfall and the lambda that results, so a team whose air losses dominate (lambda 1) can be seen starving its ground units.
+extern float RelSquadBonus;
+static float gRelSquad = -1.0f;
+
+static void ReplSplitLog(int hour)
+{
+    int air[NUM_TEAMS] = {0}, gnd[NUM_TEAMS] = {0}, nAir[NUM_TEAMS] = {0}, nGnd[NUM_TEAMS] = {0};
+    VuListIterator uit(AllUnitList);
+
+    for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+    {
+        int t = u->GetTeam();
+
+        if (t < 0 || t >= NUM_TEAMS || !(u->IsBattalion() || u->IsSquadron()))
+            continue;
+
+        int need = u->GetFullstrengthVehicles() - u->GetTotalVehicles();
+
+        if (u->IsSquadron())
+            air[t] += need, nAir[t]++;
+        else
+            gnd[t] += need, nGnd[t]++;
+    }
+
+    for (int t = 0; t < NUM_TEAMS; t++)
+    {
+        if (!air[t] && !gnd[t])
+            continue;
+
+        extern bool g_bReplSplitFix;
+        float share = (air[t] + gnd[t]) > 0 ? (float)air[t] / (air[t] + gnd[t]) : 1.0f;
+        float lambda = share * RelSquadBonus;                          // stock: capped at 1, ground then gets nothing
+
+        if (g_bReplSplitFix)                                           // the fix: weight the need, never reach 1
+        {
+            float wa = RelSquadBonus * air[t];
+            lambda = (wa + gnd[t]) > 0.0f ? wa / (wa + gnd[t]) : 1.0f;
+        }
+
+        if (lambda > 1.0f)
+            lambda = 1.0f;
+
+        printf("REPLSPLIT h%d team %d %-6s airNeed %d (%d sqn) groundNeed %d (%d bn) airShare %.2f RelSquadBonus %.2f lambda %.2f -> ground gets %.0f%% of its ratio\n",
+               hour, t, TeamInfo[t] ? TeamInfo[t]->name : "?", air[t], nAir[t], gnd[t], nGnd[t], share, RelSquadBonus, lambda,
+               100.0f * (1.0f - lambda));
+    }
+}
+
 // blow=<type>:<team>[:hold] -- destroy every feature of the team's objectives of that type at the start (hold: every tick, a
 // bombing campaign that is never repaired). type: factory refinery power depot port armybase bridge road railroad producers all.
 // team: a number, or "red" for teams 4, 5 and 6 (China and Russia fold into DPRK). Measures how much the supply chain depends on it.
@@ -2567,6 +2617,18 @@ static void ApplyKnobs(int argc, char **argv)
                 gAbHeal[team] = 1;
 
             printf("KNOB abheal team %d: airbases and airstrips repaired every 10 ticks\n", team);
+        }
+        else if (!strcmp(key, "replfix"))
+        {
+            extern bool g_bReplSplitFix;
+            g_bReplSplitFix = atoi(val) != 0;
+            printf("KNOB g_bReplSplitFix = %d\n", (int)g_bReplSplitFix);
+        }
+        else if (!strcmp(key, "relsquad"))
+        {
+            RelSquadBonus = (float)atof(val);
+            gRelSquad = RelSquadBonus;
+            printf("KNOB RelSquadBonus = %.2f (stock 4.0 in Falcon4.AII)\n", RelSquadBonus);
         }
         else if (!strcmp(key, "blow"))
         {
@@ -3020,7 +3082,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "relsquad") and strcmp(key, "replfix"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';
@@ -3493,6 +3555,11 @@ int main(int argc, char **argv)
             vuxGameTime = TheCampaign.CurrentTime;
             ApplyAirTempo();
             ApplyBlow();
+            if (gRelSquad >= 0.0f)
+                RelSquadBonus = gRelSquad;           // the AI data file is read at campaign load; keep the knob's value
+
+            if (iter > 0 && (iter % 360) == 0)
+                ReplSplitLog(iter / 60);
 
             if ((iter % 10) == 0)
                 ApplyAbHeal();

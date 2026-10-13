@@ -39,6 +39,8 @@ python make_backdrop.py                                         # terrain image 
 | `crashtest=N` | fault on purpose at tick N, to check the crash logger |
 | `tri=NAME` | read triggers from `campaign/SAVE/NAME.tri`. **Needed for trigger variants**: the engine picks the .tri by the scenario name stored *inside* the .cam, so a renamed save (`both.cam`) still reads `save0.tri`. Example: `both.tri` = save0 with the win needing Pyongyang AND Wonsan (`#IF_CONTROLLED 2 A 680 260 404`) |
 | `theater=<tdf>` / `simroot=<dir>` | run another theater; see "Other theaters" below |
+| `replfix=0/1` | `g_bReplSplitFix` (default 1, see "Replacements" below); `0` = stock split |
+| `relsquad=F` | override `RelSquadBonus` (Falcon4.AII, stock 4.0) for the run; `REPLSPLIT` log lines every 6 hours show each team's air and ground vehicle shortfall and the lambda used |
 | `blow=TYPE:TEAM[:hold]` | destroy every feature of the team's objectives of that type at the start (`hold`: re-destroyed every tick, a bombing campaign that is never repaired). TYPE: `factory refinery power depot port armybase bridge road railroad producers all`; TEAM: a number or `red` (teams 4, 5, 6: China and Russia fold into DPRK). See "Supply what-ifs" |
 | `pak=ID:VALUE[:TEAM]` | the player's PAK slider for objective ID's PAK (`player_priority`; team defaults to 2). Air planning only. Pyongyang is one PAK, 260 (680 belongs to it) |
 
@@ -176,6 +178,18 @@ progress. Stop them first.
 - Repair is slow: power plants blown once were back to about 68% of baseline production after five days.
 - A finding on the side: DPRK ground units received 3 replacement vehicles in five days (ROK ground: 4,446) in every scenario,
   although DPRK's replacement pool grew to about 4,800 unused.
+
+### Replacements: why DPRK ground units got none (fixed, `g_bReplSplitFix`)
+
+`SupplyUnits` (`supply.cpp`) splits the replacement pool between squadrons and ground units: squadrons get `lambda`, ground units
+`1 - lambda`, and stock `lambda = min(1, airNeedShare * RelSquadBonus)` with `RelSquadBonus = 4.0`. So as soon as aircraft are 25% of
+a team's total vehicle shortfall, ground units get exactly zero. Blue air shoots down thousands of DPRK airframes, so DPRK sat at
+lambda 1.00 from hour 6 and its ground units received 3 replacement vehicles in five days (ROK, whose air share hovers around
+25%, got 4,446) although the pool grew to about 4,800 unused. The fix weights the need instead, `lambda = w*air / (w*air + ground)`:
+squadrons still get four times more per missing vehicle, ground never drops to zero, and with little air need it equals the old
+number. Five days, Korea Rolling Fire, 2 seeds: DPRK ground replacements 0-3 to 3,400-3,600, DPRK ground vehicles at hour 119 about
+1,000 to about 2,500, aircraft unchanged, and the stock Blue win no longer fires within five days. `relsquad=1.0` or `0.5` shows
+the same effect from the data side (DPRK ground replacements about 4,200-4,950).
 
 ## Timeline format (`runs/*.jsonl`, one JSON object per line)
 

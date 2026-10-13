@@ -737,6 +737,7 @@ bool g_bGtmCaptureFront = true; // campaign: non-secondary enemy objectives on t
 bool g_bSupplyNeedFix = true; // campaign: resupply counts only positive needs, and a squadron's need only its own table's weapon types (stock: off-table stores in reinforcement squadrons stop all battalion resupply)
 bool g_bGridPathPartial = true; // campaign: a ground unit follows the partial route when its grid path search hits its length/node limit (stock: discarded, the unit retries the same far waypoint forever)
 bool g_bReserveHold = true; // campaign: a reserve battalion on one of our objectives away from the front keeps it (stock: kicked off any non-secondary objective, it fell back 3 links again and again, burning supply)
+bool g_bReplSplitFix = true; // campaign: replacements are split between squadrons and ground units as w*air / (w*air + ground) with w = RelSquadBonus (stock: min(1, w*air share), so once aircraft are a quarter of a team's shortfall its ground units get no replacements at all: DPRK ground got 3 vehicles in 5 days, ROK thousands)
 bool g_bSupplySplitShares = true; // campaign: the supply pool is shared between ground units and squadrons by what each actually uses, each with its own ratio (stock: one ratio over everyone's need, which squadrons' unused stores gap dominates)
 bool g_bReserveNoPullback = true; // campaign: idle healthy battalions within 25 km of the front hold instead of taking a reserve order 20-60 km back (stock: the front-most idle units were the ones sent back)
 bool g_bAlertScramble = false; // campaign: an alert flight may scramble against an intercept with the 2 planes it has (stock: requests want 4, so alert flights never launched)
@@ -1967,6 +1968,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"SupplyNeedFix", &g_bSupplyNeedFix}, // 1 = a unit's surplus can no longer zero everyone's resupply
     {"GridPathPartial", &g_bGridPathPartial}, // 1 = units heading for a far waypoint move on along the partial route
     {"ReserveHold", &g_bReserveHold}, // 1 = reserves stop shuttling back and forth
+    {"ReplSplitFix", &g_bReplSplitFix}, // 1 = ground units always keep a share of the replacement pool
     {"SupplySplitShares", &g_bSupplySplitShares}, // 1 = ground and air get separate shares of the supply pool
     {"AlertScramble", &g_bAlertScramble}, // 1 = alert flights scramble against intercepts
     {"InitTrueLosses", &g_bInitTrueLosses}, // 1 = initiative counts real losses
