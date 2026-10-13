@@ -150,6 +150,18 @@ These cost a day each and apply to any theater with scripted endings (found on t
 - The campaign cover grid (`<theater>.THR`, a hand-drawn 1 km raster) calls 45,538 cells water that 3D shows as land;
   `g_bNavalSeaMask` is built but off (ships then mostly park on 3D land at anchorages). Open.
 
+### 10. Supply: airlift credit from nothing, and consumption that is too small to bind
+
+- Every landed airlift flight adds `3 x elements / 3` supply, fuel and replacements to the national pools (`update.cpp`), regardless of
+  aircraft, need, runway state or any stock at the departure base; flights are base-to-base shuttles at least 40 km apart (`atm.cpp`).
+  About 600 landings in five days: a quarter of DPRK supply and ~80% of its replacements. Destroying production does nothing at the
+  front while it runs.
+- Battalion supply is a percentage; moving costs 2% per ~20 km, an idle timer costs 2%, firing costs `supply x shots / ammunition`.
+  Measured per 6 hours across ~400 DPRK battalions: moving ~250 points, firing at aircraft ~110, **firing at ground ~5**: ground
+  combat costs almost no supply. Resupply gives `need x min(0.5, pool/need) x typeBonus` (attack role x6) every 20 min / 3 h, so any
+  non-trivial pool refills a unit a few percent down. Supply does not constrain the ground war.
+- `RelSquadBonus` replacement split: see section 7 / `g_bReplSplitFix`.
+
 ## Open items (not solved)
 
 - China/Russia ground troops barely move even with the fixes (the war ends before 300 km of travel).

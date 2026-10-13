@@ -48,6 +48,12 @@
 #define AIRLIFT_FUEL 3
 #define AIRLIFT_REPLACEMENTS 3
 
+// Artscout - 2026, campsim diagnostics: per team, landed airlift flights and what they added to the team pools
+// ([0] landings, [1] supply, [2] fuel, [3] replacements). gAirliftOff (campsim noairlift=1) skips the supplies.
+int gAirliftDiag[8][4];
+int gAirliftOff;
+void (*gAirliftHook)(Unit, WayPoint); // campsim: called for every credited airlift landing
+
 extern void AircraftLaunch(Flight f);
 extern void GoHome(Flight flight);
 
@@ -523,16 +529,26 @@ int DoWPAction(Flight u)
         if (u->GetUnitMission() == AMIS_AIRLIFT)
         {
             int team = u->GetTeam();
-            // RV - Biker - Make airlift supply dependent on package strength
-            TeamInfo[team]->SetSupplyAvail(TeamInfo[team]->GetSupplyAvail() +
-                                           AIRLIFT_SUPPLIES *
-                                               u->CountUnitElements() / 3);
-            TeamInfo[team]->SetFuelAvail(TeamInfo[team]->GetFuelAvail() +
-                                         AIRLIFT_FUEL * u->CountUnitElements() /
-                                             3);
-            TeamInfo[team]->SetReplacementsAvail(
-                TeamInfo[team]->GetReplacementsAvail() +
-                AIRLIFT_REPLACEMENTS * u->CountUnitElements() / 3);
+            int el = u->CountUnitElements();
+            gAirliftDiag[team & 7][0]++;
+
+            if (gAirliftHook)
+                gAirliftHook(u, w);
+
+            if (!gAirliftOff)
+            {
+                gAirliftDiag[team & 7][1] += AIRLIFT_SUPPLIES * el / 3;
+                gAirliftDiag[team & 7][2] += AIRLIFT_FUEL * el / 3;
+                gAirliftDiag[team & 7][3] += AIRLIFT_REPLACEMENTS * el / 3;
+                // RV - Biker - Make airlift supply dependent on package strength
+                TeamInfo[team]->SetSupplyAvail(TeamInfo[team]->GetSupplyAvail() +
+                                               AIRLIFT_SUPPLIES * el / 3);
+                TeamInfo[team]->SetFuelAvail(TeamInfo[team]->GetFuelAvail() +
+                                             AIRLIFT_FUEL * el / 3);
+                TeamInfo[team]->SetReplacementsAvail(
+                    TeamInfo[team]->GetReplacementsAvail() +
+                    AIRLIFT_REPLACEMENTS * el / 3);
+            }
 #ifdef DEBUG
             gSupplyFromAirlift[team] += AIRLIFT_SUPPLIES;
             gFuelFromAirlift[team] += AIRLIFT_FUEL;

@@ -41,6 +41,8 @@ python make_backdrop.py                                         # terrain image 
 | `theater=<tdf>` / `simroot=<dir>` | run another theater; see "Other theaters" below |
 | `replfix=0/1` | `g_bReplSplitFix` (default 1, see "Replacements" below); `0` = stock split |
 | `relsquad=F` | override `RelSquadBonus` (Falcon4.AII, stock 4.0) for the run; `REPLSPLIT` log lines every 6 hours show each team's air and ground vehicle shortfall and the lambda used |
+| `noairlift=1` | airlift landings add no supply, fuel or replacements (the flights still happen); `AIRLIFT` lines every 6 hours count landings and what they added |
+| `airliftlog=1` | one `AIRLIFTLAND` line per credited landing: squadron, home airbase, landing airbase, distance, flight size, runway status |
 | `blow=TYPE:TEAM[:hold]` | destroy every feature of the team's objectives of that type at the start (`hold`: re-destroyed every tick, a bombing campaign that is never repaired). TYPE: `factory refinery power depot port armybase bridge road railroad producers all`; TEAM: a number or `red` (teams 4, 5, 6: China and Russia fold into DPRK). See "Supply what-ifs" |
 | `pak=ID:VALUE[:TEAM]` | the player's PAK slider for objective ID's PAK (`player_priority`; team defaults to 2). Air planning only. Pyongyang is one PAK, 260 (680 belongs to it) |
 
@@ -178,6 +180,14 @@ progress. Stop them first.
 - Repair is slow: power plants blown once were back to about 68% of baseline production after five days.
 - A finding on the side: DPRK ground units received 3 replacement vehicles in five days (ROK ground: 4,446) in every scenario,
   although DPRK's replacement pool grew to about 4,800 unused.
+
+### Airlift is a hidden income
+
+About 600 airlift landings in five days add 3 x elements / 3 (= 12) of supply, fuel and replacements each to the team pools, from
+nothing: the flights are base-to-base shuttles between two friendly airbases at least 40 km apart and the credit ignores aircraft,
+need and runway state. It is about a quarter of DPRK supply and four fifths of its replacements, and the reason destroying
+production never reached the front. Details and numbers: `CAMPAIGN-SUPPLY-ENGINE.md` ("Airlift: the hidden income"). With power
+plants held down and `noairlift=1` DPRK battalion supply slid from 96% to 74% in five days and ground replacements fell to about 30.
 
 ### Replacements: why DPRK ground units got none (fixed, `g_bReplSplitFix`)
 

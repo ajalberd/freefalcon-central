@@ -337,6 +337,32 @@ at all — stock 5 hides almost everything, default here 0), `LogCampProducers`
 
 ---
 
+## Airlift: the hidden income (found 2026-10-13, campsim)
+
+Every airlift flight that lands credits its team's national pools with `3 x CountUnitElements() / 3` supply, fuel **and**
+replacements (`update.cpp`, `WP_LAND` case, `AIRLIFT_SUPPLIES/FUEL/REPLACEMENTS` = 3). Nothing is taken from anywhere: the
+departure base's stock is not touched, there is no cargo, and the credit does not depend on the aircraft type or count (a pair of
+transports is credited 12 points for DPRK, 8 or 12 for ROK, a number from the squadron class), on the destination's need or on
+its runway state (36 of 392 DPRK landings were at damaged airbases and were credited anyway).
+
+How the flights come about: the ATM cycles through each team's airbases and requests one airlift into one friendly airbase per
+cycle (`atm.cpp` ~913, time on target 90 minutes out); the squadron has to be at another airbase at least 40 km away (`atm.cpp`
+~1773); the flight size is randomised downward (`package.cpp` ~846). campsim `airliftlog=1` prints one `AIRLIFTLAND` line per
+credited landing. Korea, 3 days, 898 landings: DPRK 392 (5.6 an hour, three squadrons, 20 distinct home-landing pairs, median 117 km
+apart, all between its own airbases), ROK 506 (7.2 an hour, three squadrons, 12 pairs, median 208 km, about a quarter of them to or
+from Tsuiki in Japan).
+
+What it is worth (5 days, DPRK, fix on): about 600 landings = 7,000 each of supply, fuel and replacements. Production at baseline
+makes about 20,800 supply and 1,800 replacements, so airlift is ~25% of supply and ~80% of replacements; with the power plants
+held down (production 630) it is nearly the whole economy. That is why destroying production never showed at the front. Switching
+only the airlift credit off (`noairlift=1`) cut baseline ground replacements from 3,516 to 1,468 and changed little else; with
+power plants held down **and** no airlift, battalion supply slid from 96% to 74% (front 66%), 23 battalions fell under 25% supply,
+ground replacements fell to ~30 and DPRK had ~25% fewer ground vehicles by hour 72-119. The landings happen either way (608 vs 598).
+
+Consequences: shooting down airlift flights or cratering their destination runways is the only way to hit this income today; the
+flights themselves are base-to-base shuttles. Candidate changes (none made): cap the credit per team per day, scale it by aircraft
+type and count, require a supply deficit at the destination, require a usable runway, or remove it.
+
 ## Open questions
 
 - Ground **movement** — whether destroyed bridges block or slow unit movement is a

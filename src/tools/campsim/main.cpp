@@ -2298,6 +2298,36 @@ static void HoldTestLog(int hour)
 extern float RelSquadBonus;
 static float gRelSquad = -1.0f;
 
+// airliftlog=1 -- one AIRLIFTLAND line per credited airlift landing: squadron, its home airbase, where it landed, the distance
+static int gAirliftLog;
+extern void (*gAirliftHook)(Unit, WayPoint);
+
+static void AirliftLandLog(Unit u, WayPoint w)
+{
+    GridIndex lx = 0, ly = 0, hx = 0, hy = 0;
+    char sq[64] = "?", hn[64] = "?", dn[64] = "?";
+    w->GetWPLocation(&lx, &ly);
+    Objective dest = FindNearestAirbase(lx, ly);
+    Unit s = u->GetUnitSquadron();
+    CampEntity home = u->GetUnitAirbase();
+
+    if (s)
+        s->GetName(sq, 60, 0);
+
+    if (home)
+        home->GetLocation(&hx, &hy), home->GetName(hn, 60, 0);
+
+    GridIndex dx = 0, dy = 0;
+
+    if (dest)
+        dest->GetLocation(&dx, &dy), dest->GetName(dn, 60, 0);
+
+    printf("AIRLIFTLAND h%d team %d | %s | home %s (%d,%d) -> landed %s (%d,%d) at wp (%d,%d) | %.0f km home-to-landing, %.0f km wp-to-airbase | elements %d vehicles %d | dest status %d%% team %d\n",
+           (int)(Camp_GetCurrentTime() / CampaignHours), (int)u->GetTeam(), sq, hn, (int)hx, (int)hy, dn, (int)dx, (int)dy, (int)lx, (int)ly,
+           home && dest ? Distance(hx, hy, dx, dy) : -1.0f, dest ? Distance(lx, ly, dx, dy) : -1.0f, (int)u->CountUnitElements(),
+           (int)u->GetTotalVehicles(), dest ? (int)dest->GetObjectiveStatus() : -1, dest ? (int)dest->GetTeam() : -1);
+}
+
 static void ReplSplitLog(int hour)
 {
     int air[NUM_TEAMS] = {0}, gnd[NUM_TEAMS] = {0}, nAir[NUM_TEAMS] = {0}, nGnd[NUM_TEAMS] = {0};
@@ -2318,8 +2348,14 @@ static void ReplSplitLog(int hour)
             gnd[t] += need, nGnd[t]++;
     }
 
+    extern int gAirliftDiag[8][4];
+
     for (int t = 0; t < NUM_TEAMS; t++)
     {
+        if (t < 8 && gAirliftDiag[t][0])
+            printf("AIRLIFT h%d team %d %-6s landings %d, added supply %d fuel %d replacements %d (cumulative)\n", hour, t,
+                   TeamInfo[t] ? TeamInfo[t]->name : "?", gAirliftDiag[t][0], gAirliftDiag[t][1], gAirliftDiag[t][2], gAirliftDiag[t][3]);
+
         if (!air[t] && !gnd[t])
             continue;
 
@@ -2623,6 +2659,18 @@ static void ApplyKnobs(int argc, char **argv)
             extern bool g_bReplSplitFix;
             g_bReplSplitFix = atoi(val) != 0;
             printf("KNOB g_bReplSplitFix = %d\n", (int)g_bReplSplitFix);
+        }
+        else if (!strcmp(key, "airliftlog"))
+        {
+            gAirliftLog = atoi(val) != 0;
+            gAirliftHook = gAirliftLog ? AirliftLandLog : NULL;
+            printf("KNOB airliftlog = %d\n", gAirliftLog);
+        }
+        else if (!strcmp(key, "noairlift"))
+        {
+            extern int gAirliftOff;
+            gAirliftOff = atoi(val) != 0;
+            printf("KNOB noairlift = %d (airlift landings add no supply, fuel or replacements)\n", gAirliftOff);
         }
         else if (!strcmp(key, "relsquad"))
         {
@@ -3082,7 +3130,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "relsquad") and strcmp(key, "replfix"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';
