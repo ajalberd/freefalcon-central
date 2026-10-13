@@ -190,6 +190,10 @@ need and runway state. It is about a quarter of DPRK supply and four fifths of i
 production never reached the front. Details and numbers: `CAMPAIGN-SUPPLY-ENGINE.md` ("Airlift: the hidden income"). With power
 plants held down and `noairlift=1` DPRK battalion supply slid from 96% to 74% in five days and ground replacements fell to about 30.
 
+### Supply hubs: FF6 vs Falcon 4.0 vs BMS 4.37
+
+`python supply_hubs.py` counts the objectives that make or distribute supply per side, with their DataRate, for the three games (BMS objectives are decoded by anchoring, its records are longer than ffcamp knows). BMS 4.37's Korea has 825 objectives against 2,700 and no army bases: fewer hubs, not more. Bombing army bases, ports or depots each takes about 12% of DPRK production, the factories 50%; details in `CAMPAIGN-SUPPLY-ENGINE.md` ("Hubs, bombing and the network").
+
 ### Replacements: why DPRK ground units got none (fixed, `g_bReplSplitFix`)
 
 `SupplyUnits` (`supply.cpp`) splits the replacement pool between squadrons and ground units: squadrons get `lambda`, ground units

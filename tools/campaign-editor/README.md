@@ -58,6 +58,20 @@ instead of queueing behind one another.
 And on top of either, the airbase **TACAN** overlay: the station name and its
 channel, drawn the way the game draws it.
 
+Three **economy layers** show how the campaign's supply chain is laid out and how much of it is damaged
+(`web/econ.js`; the server sends every objective's class DataRate and its damage status):
+
+- **Power**: a line from each producer to the power plant that scales its output (the nearest plant of the same owner), plants sized by
+  how many producers they feed and coloured by condition. A damaged plant lights its whole fan.
+- **Production**: what each factory, army base, depot and port (supply and replacements, amber) and refinery (fuel, green) makes: a
+  dashed ring at the full rate, a disc after damage and power.
+- **Supply**: delivery sources (cities, ports, depots, army bases) ringed in cyan, bridges as diamonds coloured by damage.
+
+A panel totals each team's production per day against its full rate (click its heading to fold it), the hover tip and the objective pane
+show the arithmetic (rate x damage x power) and which plant feeds it. The engine's "friendly plant" also admits neutral and allied teams, which
+the file cannot name, so a team with no plant of its own (PRC and CIS in Korea) is shown at full power and flagged. See
+`CAMPAIGN-SUPPLY-ENGINE.md`.
+
 The campaign's own `Kneemap.gif` with everything on it, drawn with **the
 game's own icons** — the NATO symbols the in-game campaign map uses, in the
 right team colour, read straight out of the UI art. All ~2600 objectives are

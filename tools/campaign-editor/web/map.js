@@ -96,6 +96,9 @@ const M = {
   gameIcons: true,       // the campaign map's symbols, or plain markers
   base: 'terrain',       // 'terrain' (ground imagery) or 'kneemap'
   showTacan: true,
+  showPower: false,
+  showProd: false,
+  showSupply: false,
   showRail: true,
   showRailFit: false,
   view: {scale: 1, ox: 0, oy: 0},
@@ -570,6 +573,8 @@ async function mapPanel(file) {
         if (scriptVisible(t)) drawScriptRing(g, t, sx, sy, os);
       }
     }
+
+    if (M.showPower || M.showProd || M.showSupply) drawEcon(g, r, toScreen, M.view.scale, M, data);
 
     const size = markSize();
     for (const u of data.units) {
@@ -1105,6 +1110,8 @@ async function mapPanel(file) {
         const bits = [item.name || item.type, item.type, who];
         const t = scriptTarget(item);
         if (t) bits.push(scriptLabel(t));
+        const et = econTip(item, M);
+        if (et) bits.push(et);
         tip.textContent = bits.join('  \u00b7  ');
       }
       tip.style.display = '';
@@ -1312,6 +1319,33 @@ async function mapPanel(file) {
   }
   refreshRailButtons();
 
+  // Economy layers (econ.js): power links, production, supply sources. Needs the server's per-objective rate and status.
+  const econBox = el('div', {class: 'econ-panel', style: 'display:none'});
+  box.appendChild(econBox);
+  function refreshEcon() {
+    const any = M.showPower || M.showProd || M.showSupply;
+    econBox.style.display = any ? '' : 'none';
+    econBox.textContent = '';
+    if (any) econBox.appendChild(econPanel(data, M, teamColour));
+  }
+  const econTips = {
+    showPower: 'Power: a line from each producer to the power plant that scales its output (nearest plant of the same owner); '
+             + 'plants are sized by how many producers they feed and coloured by their condition',
+    showProd: 'Production: what each factory, army base, depot, port (supply and replacements, amber) and refinery (fuel, green) makes: '
+            + 'dashed ring = full rate, disc = after damage and power',
+    showSupply: 'Supply: delivery sources (cities, ports, depots, army bases) ringed in cyan, bridges as diamonds coloured by damage',
+  };
+  const econButtons = data.objectives.some(o => o.rate !== undefined)
+    ? [['showPower', 'Power'], ['showProd', 'Production'], ['showSupply', 'Supply']].map(([k, label]) =>
+        el('button', {class: 'btn btn-sm' + (M[k] ? ' on' : ''), title: econTips[k],
+          onclick: e => {
+            M[k] = !M[k];
+            e.target.classList.toggle('on', M[k]);
+            refreshEcon();
+            draw();
+          }}, label))
+    : [];
+
   const toolbar = el('div', {class: 'toolbar'}, [
     el('span', {class: 'stat', text:
       data.units.length.toLocaleString() + ' units  ·  ' +
@@ -1349,6 +1383,7 @@ async function mapPanel(file) {
             draw();
           }}, 'TACAN')
       : null,
+    ...econButtons,
     railButtons,
     el('button', {class: 'btn btn-sm', onclick: () => { fit(); draw(); }}, 'Fit'),
     el('button', {class: 'btn btn-sm', onclick: () => zoomAt(0.5, 0.5, 1.4)}, '+'),
@@ -1962,6 +1997,8 @@ function objectiveDetail(info, o, file, redraw, reload, openUnit) {
       num('losses', 'losses %', 0, 100),
     ]),
   ]));
+
+  if (info.econ && typeof econDetail === 'function') wrap.appendChild(econDetail(info.econ));
 
   if (info.tacan) {
     const t = info.tacan;

@@ -1107,8 +1107,13 @@ def api_map(q, _body):
 
     stations = ws.tacan()
     objs = []
+    ftbl_econ = ws.db.table("featureentry")
     for o in cam.objectives:
+        ptr = rows[o["classIndex"]]["dataPtr"] if 0 <= o["classIndex"] < len(rows) else -1
+        orow = otbl.rows[ptr] if otbl and 0 <= ptr < len(otbl.rows) else None
         objs.append({
+            "rate": orow["DataRate"] if orow else 0,
+            "status": objective_status_fast(ftbl_econ, o, orow),
             "n": o["_n"],
             "x": o["x"], "y": o["y"],
             "owner": o["owner"],
@@ -1842,6 +1847,45 @@ def objective_features(ws, o, drow):
     return features, slots
 
 
+# The economy, as ProduceSupplies / IsSupplySource see it (see CAMPAIGN-SUPPLY-ENGINE.md). Objective type codes from classtbl.h.
+EC_SUPPLY = {3, 10, 11, 19}      # army base, depot, factory, port: supply and replacements
+EC_FUEL = {25}                   # refinery: fuel only
+EC_POWER = {17, 20}              # nuclear plant, power plant: scale every producer
+EC_SOURCE = {3, 8, 10, 19}       # city, port, depot, army base: where a delivery starts (when not on the front line)
+
+
+def objective_status_fast(ftbl, o, drow):
+    """ObjectiveClass::CalcStatus for a non-airbase: 100 minus each damaged feature's value / 2 and each destroyed one's value."""
+    if not drow or ftbl is None:
+        return 100
+    first, count = drow["FirstFeature"], drow["Features"]
+    block = o.get("featureStatus") or b""
+    s = 100
+    for slot in range(min(count, len(block) * 4)):
+        i = first + slot
+        if i >= len(ftbl.rows):
+            break
+        st = objectives.feature_status(o, slot)
+        v = ftbl.rows[i]["Value"]
+        if st == 2:
+            s -= v // 2
+        elif st == 3:
+            s -= v
+    return max(0, min(100, s))
+
+
+def nearest_power_plant(objs, o, status_of):
+    """The nearest power plant of the same owner (the engine's FindNearestFriendlyPowerStation also admits neutral teams and
+    ignores anything farther than 999 km); returns (plant, km) or (None, 0)."""
+    best, bd = None, 1e18
+    for p in objs:
+        if p["objType"] in EC_POWER and p["owner"] == o["owner"]:
+            d = (p["x"] - o["x"]) ** 2 + (p["y"] - o["y"]) ** 2
+            if d < bd:
+                best, bd = p, d
+    return best, (bd ** 0.5 if best else 0)
+
+
 def _fed_flags(ftbl, first, feature):
     if ftbl is None:
         return 0
@@ -1903,7 +1947,31 @@ def api_objective(q, _body):
         "links": [{"id": l["id"], "costs": l["costs"]} for l in o["links"]],
         "objRow": drow,
         "squadrons": based_squadrons(ws, name, o, names),
+        "econ": objective_econ(ws, cam, o, drow, nametab, names),
     }
+
+
+def objective_econ(ws, cam, o, drow, nametab, names):
+    """What this objective does for the economy: production after damage and power, whether it is a delivery source."""
+    t = o["objType"]
+    if t not in EC_SUPPLY | EC_FUEL | EC_POWER | EC_SOURCE:
+        return None
+    ftbl = ws.db.table("featureentry")
+    rate = drow["DataRate"] if drow else 0
+    status = objective_status_fast(ftbl, o, drow)
+    out = {"type": o["typeName"], "rate": rate, "status": status, "source": t in EC_SOURCE, "power": t in EC_POWER,
+           "kind": ("supply and replacements" if t in EC_SUPPLY else "fuel" if t in EC_FUEL else "")}
+    if t in EC_SUPPLY | EC_FUEL:
+        plant, km = nearest_power_plant(cam.objectives, o, None)
+        pst = 100            # no plant of its own: the engine would use a neutral or allied team's, assume full power
+        if plant:
+            _t, prow = ws.db.data_row(plant["classIndex"])
+            pst = objective_status_fast(ftbl, plant, prow)
+            out["plant"] = {"n": plant["_n"], "name": place_name(nametab, names, plant), "km": round(km), "status": pst}
+        out["powerPct"] = pst
+        out["noPlant"] = plant is None
+        out["effective"] = round(rate * status / 100.0 * pst / 100.0, 1)
+    return out
 
 
 def based_squadrons(ws, name, o, names):

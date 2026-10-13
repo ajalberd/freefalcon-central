@@ -380,6 +380,35 @@ base always has far more than 12 points of missing aircraft and vehicles nearby,
 production (1,800). With every DPRK airbase destroyed the flights mostly cannot take off (offered fell from ~7,000 to 84), DPRK ground
 replacements fell from ~3,500 to ~1,400. Not yet done: a tighter replacement cap (ground shortfall only, or scaled by flight size).
 
+## Hubs, bombing and the network: measurements (2026-10-13)
+
+**What each producer type is worth** (Korea save0, campaign start, `python tools/campsim/supply_hubs.py`; "rate" = class DataRate, output is
+rate x damage% x nearest plant%; sources are what `IsSupplySource` accepts):
+
+| | FreeFalcon 6 north / south | Falcon 4.0 north / south | BMS 4.37 north / south |
+|---|---|---|---|
+| Factory | 55 (10,650) / 58 (13,300) | 56 (9,000) / 61 (11,500) | 12 (1,200) / 28 (2,800) |
+| Army base | 15 (1,900) / 44 (5,600) | 15 (30) / 45 (90) | none |
+| Depot | 13 (2,100) / 13 (1,700) | 13 (1,300) / 13 (1,300) | 1 (rate 1) / 1 (rate 1) |
+| Port | 20 (2,000) / 21 (2,400) | 20 (6,000) / 21 (6,300) | 0 / 18 (900) |
+| Refinery | 3 (2,000) / 5 (3,400) | 3 (1,800) / 5 (3,000) | 0 / 1 (100) |
+| Power / nuclear plants | 14 / 22 | 14 / 22 | 0 / 5 |
+| Cities (sources) | 167 / 194 | 167 / 194 | 45 / 34 (rate 1) |
+| All objectives | 2,700 | 2,659 | 825 |
+
+FF6 raised the army-base rate from 2 / 6 to 127 and cut ports from 300 to 100 relative to vanilla. **BMS 4.37 has fewer hubs, not more**:
+its Korea campaign file holds 825 objectives (no army bases, 40 factories at rate 100, 18 ports at 50, one refinery), so a BMS
+economy is far leaner; BMS's own supply code is not public, so whether it even runs `ProduceSupplies` is unknown.
+
+**Bombing a hub type** (DPRK, supply+replacement capacity at hour 2, baseline 15,350 a day): all 15 army bases -12%, all 20 ports -12%,
+all 13 depots -12%, all 55 factories **-50%** (1,200 fuel from the 2 refineries is untouched by all four). Production is linear in damage
+and each hub contributes only its own rate; a bombed army base, port or depot still counts as a delivery source (`IsSupplySource` ignores damage).
+
+**The delivery network** (5 days, DPRK, 2 seeds): destroying all 464 DPRK bridges (5,906 features; there are only 9 road objectives and no
+railroad objectives) cut delivered supply by about 60% and raised transit loss from 0.2% to 3.4%, but battalion supply stayed at 96%
+(front 92%): the bridges also stop units from moving, which is where most supply is spent, so need fell with delivery. Roads: nothing,
+they barely exist as objectives. Transit loss at baseline is 0.2%: nearly every unit is within one or two links of a source.
+
 ## Open questions
 
 - Ground **movement** — whether destroyed bridges block or slow unit movement is a

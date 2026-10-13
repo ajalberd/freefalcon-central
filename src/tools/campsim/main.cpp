@@ -2405,7 +2405,7 @@ static void ApplyBlow(void)
         if (r.done && !r.hold)
             continue;
 
-        int n = 0, rate = 0;
+        int n = 0, rate = 0, feats = 0;
         VuListIterator oit(AllObjList);
 
         for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
@@ -2414,8 +2414,12 @@ static void ApplyBlow(void)
                 continue;
 
             for (int f = 0; f < o->GetTotalFeatures(); f++)
+            {
+                feats++;
+
                 if (o->GetFeatureStatus(f) != VIS_DESTROYED)
                     o->SetFeatureStatus(f, VIS_DESTROYED);
+            }
 
             o->ResetObjectiveStatus();
             n++;
@@ -2423,7 +2427,7 @@ static void ApplyBlow(void)
         }
 
         if (!r.done)
-            printf("BLOW type %d team %d%s: %d objectives destroyed (data rate %d)\n", r.type, r.team, r.hold ? " (held down)" : "", n, rate);
+            printf("BLOW type %d team %d%s: %d objectives, %d features destroyed (data rate %d)\n", r.type, r.team, r.hold ? " (held down)" : "", n, feats, rate);
 
         r.done = 1;
     }
