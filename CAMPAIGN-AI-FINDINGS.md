@@ -1,0 +1,169 @@
+# Campaign AI findings (FreeFalcon 6 source) - a re-scan checklist for other Falcon code bases
+
+What we found wrong with the **ground war, supply, air tasking and campaign scripts** in the FF6 source, where in the
+code each problem lives, how it showed up, what fixed it, and how to check whether the same thing is true somewhere
+else (for example Falcon BMS, if you ever get to read or test its campaign code). Everything below was measured with
+`campsim` (headless campaign, `tools/campsim`), not read off the code alone; "Not verified" marks what was not.
+
+Every fix is an `FFViper.cfg` switch (`set g_x 0` restores stock), listed in `src/ui/src/f4config.cpp`.
+Stock behaviour = what the original game does. Detail and dates: `WIP-NOTES.md`, sections "ROOT CAUSE of the stalled
+ground war", "2026-10-03/04: campaign AI fixes" and "campsim". Supply chain internals: `CAMPAIGN-SUPPLY-ENGINE.md`.
+
+## How to use this on another code base
+
+For each item: (1) find the function named in "where"; (2) check the **stock behaviour** line against what that code
+does; (3) if it matches, run the **check**. Names differ in BMS; the shapes below (a rounding conversion, a "sum of
+needs", a "one order per unit" loop, a path length cap, a string compare in a script reader) are what to look for.
+BMS's campaign source is not public, so for BMS most checks have to be done by behaviour (timelines of unit
+positions, supply numbers, which scripted events fire), which is exactly what `campsim` records.
+
+## The test harness traps (read before trusting any number)
+
+| Trap | Effect | Rule |
+|---|---|---|
+| `g_nNoPlayerPlay` (`team.cpp` hourly update) | a team whose player has not flown for N hours (default 2) loses 2 initiative points and a reinforcement, repeatedly | headless runs need `usecfg=1` or `g_nNoPlayerPlay 400`; the default made the enemy "win in 2-5 days" |
+| `AdjustCampaignOptions` (new-game setup) | resupplies units to the start level, applies force ratios; a raw save skips it | campsim `newgame=` is on when no event has fired yet |
+| the player's team shares one 100-point initiative pool | it affects who may attack | read initiative, not just positions |
+| config hardlinks | a test dir linked to the install follows your in-game settings | pin `ratio=` / `exp=` in tests |
+| trigger scripts (`<scenario>.tri`) are re-read on **every** check | editing one changes runs in progress | never edit during a run |
+
+## Defects, by area
+
+### 1. Movement: the grid <-> sim conversion
+
+- **Symptom:** ground units "do not move / do not capture"; speed x3 or terrain cost x0.25 changed nothing.
+- **Where:** `SimToGrid` in `src/campaign/camplib/find.cpp`.
+- **Stock behaviour:** converts a sim position to a campaign cell with round-to-nearest, but unit positions sit
+  exactly half a cell from the boundary, so 553 of 1024 coordinates read back one cell too high. An aggregated unit
+  can never step onto such a cell when moving in the decreasing direction.
+- **Fix:** `floorf` (`g_nSimToGridFix`, default 1). `FloatToInt32` rounds (it is `fistp`/`cvtss2si`), it does not truncate.
+- **Check elsewhere:** any grid<->world conversion done with a rounding cast. Test: pick a unit, order it west and
+  south, log its cell each tick; it must be able to step in all four directions.
+
+### 2. Orders: which objectives can be captured
+
+- **Symptom:** the front froze for days with units idle (Pyongyang reached in 2 of 8 runs).
+- **Where:** `IsValidObjective` / `GetAddBits` in `src/campaign/camptask/gtm.cpp`; link marking in `camplist.cpp MarkObjectives`.
+- **Stock behaviour:** capture orders only go to **secondary** objectives flagged front / second / third line, a hop
+  count over the objective link network (not kilometres). Bridges, junctions and SAM sites are never targets, so a
+  chain of them behind the front leaves zero valid targets.
+- **Fix:** `g_bGtmCaptureFront` lets front-line non-secondaries be targets (Pyongyang 2/8 -> 8/8). A non-secondary can
+  have no primary: guard `GetObjectivePrimary()`.
+- **Also in `gtm.cpp`:** `AssignUnits` gives one objective per unit; `g_nGtmCaptureUnits` (stock 1, FF6 default 3)
+  and `g_bGtmKeepCapture` (stock re-plans every cycle) change how many units attack and how stable orders are.
+  `g_bGtmCaptureBestScore` / `g_bGtmCaptureNearest`: a unit sent 100+ km to capture something drops from 15% of trips
+  to 2% when it takes the best-scoring target within 60 km.
+- **Check elsewhere:** count valid capture targets each tasking cycle; if it is 0 while enemy objectives exist, this is it.
+
+### 3. Orders: reserves pulled back from the front
+
+- **Symptom:** healthy front-line battalions kept falling back as "Reserve <town>" (~300 a day for the player's allies).
+- **Where:** `BattalionClass::MoveUnit` in `battalio.cpp` (a capture target taken by a *neighbour* made the order
+  invalid, so the unit dropped back 3 links as RESERVE); the GTM reserve step in `gtm.cpp` (keeps the units
+  *closest* to the action objective, though the code comment says farthest; reserve objectives are always 20-60 km back).
+- **Fix:** `g_bReserveNoPullback` (hold instead of falling back; idle healthy units within 25 km of the front get no
+  reserve order), `g_bReserveHold`, `g_bGtmReserveFix` (stock: no reserves move up while on the offensive),
+  `g_nGtmReservesPerCycle` (stock 1), `g_bGtmReserveFarthest`.
+- **Check:** log orders per unit per hour; count "reserve" orders given to units within 25 km of the front.
+
+### 4. Pathing
+
+- **Symptom:** units retry a far waypoint forever; the last objective is 85-140 km behind them.
+- **Where:** grid and objective path search in `camplib/path.cpp` (cap `MAX_DISTANCE` = 96 steps), callers in
+  `battalio.cpp` and `gndunit.cpp`.
+- **Stock behaviour:** a search that hits the 96-step cap returns a partial route which is **discarded**; the unit
+  retries the same waypoint every cycle. Raising the ground path limit does not help (the cap is separate).
+- **Fix:** `g_bGridPathPartial` follows the partial route and replaces a stale `last_obj`. Path failures 9,765 -> 12.
+- **Related data setting:** `ObjGroundPathMaxCost` in `Falcon4.AII` (500) rejects every unit whose cost-to-arrive
+  is above it, so rear/allied units only ever get reserve slots at home. 2000 moved China's mean travel 31 -> 113 km.
+  It is a data value, not code: check the shipped AI file.
+- **Enemy territory surcharge:** `GetObjectiveMovementCost` multiplies cost x2 for an enemy objective and x4 for an
+  enemy town (`g_fEnemyTownPathCost`); 3% of capture orders then drive 30%+ further. Player drag-orders use the same
+  route builder (`tactical_set_orders` -> `BuildMission` -> `BuildGroundWP`).
+- **Water:** `g_bWaterObjectiveFix`: objectives on water cells (ports) were unreachable, units retried forever.
+
+### 5. Supply
+
+- **Symptom:** all battalion resupply stopped about 12 hours in; later, battalions at ~4% supply.
+- **Where:** `src/campaign/campupd/supply.cpp` (`SupplyUnits`), `camptask/squadron.cpp` (`GetUnitSupplyNeed`),
+  `camplib/unit.cpp`, `camptask/battalio.cpp`.
+- **Stock behaviour (three separate bugs):**
+  1. `SupplyUnits` only shares out when the team's *summed* need is above 0. Squadrons whose stores are off the
+     weapon table (old weapon numbering in saves; reinforcements are not cleaned by new-game setup) report about
+     -1,600 each, the sum goes negative, and **no battalion is resupplied**. Fix `g_bSupplyNeedFix`.
+  2. One ratio over everyone's need: squadrons' never-used stores (about 10x a battalion's need, about 98% of sortie
+     weapons come back unused) dilute battalions to ~4% a trip. Fix `g_bSupplySplitShares` (ROK battalions under 50%
+     supply: 34 -> 0).
+  3. Road losses are truncated per node, so small shipments vanish. Fix `g_bSupplyExactLoss`.
+- **Warning:** `SquadronClass::GetUnitSupplyNeed` has side effects (relocates, scrambles). Never call it from a diagnostic.
+- **Check elsewhere:** log team need and the amount actually delivered per hour; negative or zero need with units at
+  low supply is the signature. Production-limited supply (pool near 0 by day 3) is a separate issue, not investigated.
+
+### 6. Initiative and the offensive
+
+- **Symptom:** the enemy never attacked; China/Russia (folded into the enemy team) never got a capture order.
+- **Where:** `camplib/team.cpp` (initiative, `g_nNoPlayerPlay`), `falclib/msgsrc/objectivemsg.cpp` (capture award).
+- **Stock behaviour:** a defensive side stays defensive while *any* enemy is on the offensive; offensives need
+  initiative >= 50/55; initiative is one 100-point pool shared with the player's team; the loss term is pinned (the
+  start baseline rises with reinforcements, so losses read 0-13); every captured objective hands the captor 5 points.
+  A minor offensive never captures.
+- **Switches:** `g_bInitTrueLosses`, `g_nCounterAttackInitiative` (0 = stock), `g_nCaptureInitiative` (stock 5).
+- **Not a fix:** splitting allies into separate teams. Non-player teams' initiative drifts to about 40 and they idle.
+
+### 7. Air tasking
+
+- **Alert flights never scrambled.** `FindBestAir` sets counter-air requests to 4 aircraft, an alert flight holds 2,
+  `FindBestAirFlight` rejects any flight with fewer planes ("too few aircraft"): about 73,000 rejections a day, zero
+  scrambles. Fix `g_bAlertScramble` (`atm.cpp`).
+- **Strike shortage** on the weaker side is "no aircraft free", not range or loadouts (diagnostic NOFLIGHT in campsim).
+- **Crashes fixed on the way:** `SelectAirActions` with no front left; `atm.cpp`, `package.cpp`, `camplist.cpp`
+  (2026-09-30); `AllUnitList` filled with duplicates (airmobile infantry re-inserted per helicopter trip, up to 28
+  copies), which had inflated every earlier candidate count.
+
+### 8. Campaign scripts (`.tri`) and the engine's script reader
+
+These cost a day each and apply to any theater with scripted endings (found on the Israel / ITO data, 2026-10-12).
+
+- **Exact token compare:** `ReadScriptLine` (`src/campaign/campupd/cmpevent.cpp`) strips only `\n` and `\r`, so a line
+  such as `#ENDIF ` with a trailing space is **not** an ENDIF. The IF stack is never popped and every later block
+  silently nests inside it, so end conditions never fire. Check: trailing whitespace in every script
+  (`grep -n " $" *.tri`). Making the reader trim is a safe engine change (not made, it affects every theater).
+- **Structure bugs in the shipped Israel scripts:** end blocks without `#ELSE` never run; "falls / regained" blocks
+  never reset their own event, so their +-50 initiative shift repeats on every check; the offensive/defensive toggles
+  tested their own event and could never fire (Korea's stock pattern cross-references the other event); a block
+  placed after `#ENDSCRIPT` is never read; objective IDs from one theater pointed at other places in another (the
+  later saves were renumbered but kept the old scripts).
+- **Team merges:** `#CHANGE_RELATIONS a b 1` *merges* team a into team b (`SetTeam`). After Syria joins Egypt, write
+  every end condition against team 6, not Syria.
+- **Crash:** `#SET_PAK_PRIORITY` on an objective with no PO data wrote through NULL in release builds (the null check
+  was DEBUG-only). Fixed in `cmpevent.cpp`; **not yet in the main-branch game exe**.
+- **Scenario names:** the engine picks the script by the scenario name stored *inside* the `.cam`, not the file name.
+  Israel Classic's `save0.cam` names `save2` and the reverse; a renamed save keeps reading the old script.
+- **`IF_CAMPAIGN_DAY G N`** means `day >= N`; `CheckTriggers` returns early if the local session's team is 255.
+
+### 9. Naval (smaller, partly open)
+
+- Only battalions and squadrons are resupplied; a task force's supply only goes down, and at 0 it cannot shoot.
+- Sea tankers and cargo ships are cosmetic (nothing reads them but labels and icons). No waypoint UI for ships.
+- Plain waypoints never sailed because `ResetCurrentWP` skips flag-less ones; the planner uses `WPF_REPEAT`.
+- `g_bNavalMoveFix`: a ship steered from its start-of-tick position and overshot turns across coasts.
+- The campaign cover grid (`<theater>.THR`, a hand-drawn 1 km raster) calls 45,538 cells water that 3D shows as land;
+  `g_bNavalSeaMask` is built but off (ships then mostly park on 3D land at anchorages). Open.
+
+## Open items (not solved)
+
+- China/Russia ground troops barely move even with the fixes (the war ends before 300 km of travel).
+- DPRK (weaker side) supply is production-limited: pool near 0 by day 3.
+- About 30 battalions of the stronger side are still under 50% supply by day 6-8 with everything on.
+- 3 units with no land route; a reserve-order no-op (`SetUnitOrders(int)` hits an empty base overload).
+- Not verified in the live game: the ITO script fixes, the naval AI, anything described as "sim-verified only".
+
+## Where the tools are
+
+| Need | Tool |
+|---|---|
+| run the real campaign AI headless, any theater | `tools/campsim` (`README.md`) |
+| compare settings across seeds, watch a war | Campaign Lab (`python tools/campsim/serve.py`) and its map viewer |
+| see which `#IF` branch fired | the `.evt` CND1 trailer, shown in the campaign editor |
+| read / edit `.cam`, `.tri`, class tables | `tools/campaign-editor` (`ffcamp` library) |
+| decode `Falcon4.AII`, `FALCON4.TT` | struct layouts in `tactics.h`; `campsim` log lines |

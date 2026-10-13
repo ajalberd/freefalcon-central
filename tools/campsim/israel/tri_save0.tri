@@ -1,0 +1,79 @@
+// Israel 2012 theater: 2004 Fictional War
+// Built from the 2007 scenario with the aircraft of 2004 (one Sufa squadron, Apache A, MiG-29A Syria, no Rafale)
+// Egypt and Syria form a loose alliance and attack Israel; the US joins on day 2; Saudi Arabia, Jordan and Iraq stay out.
+
+#TOTAL_EVENTS 22
+#SET_EVENT 3
+#ENDINIT
+
+//EVENT#1 Syria joins Egypt (Syria is merged into team 6)
+#IF_EVENT_PLAYED 1
+#ELSE
+#CHANGE_RELATIONS 5 6 1
+#DO_EVENT 1
+#ENDIF
+
+// Israel on the offensive
+#IF_EVENT_PLAYED 3
+#IF_ON_OFFENSIVE 2
+#PLAY_MOVIE 105
+#DO_EVENT 2
+#RESET_EVENT 3
+#ENDIF
+#ENDIF
+
+// Israel on the defensive
+#IF_EVENT_PLAYED 2
+#IF_ON_OFFENSIVE 6
+#SHIFT_INITIATIVE 2 6 50
+#PLAY_MOVIE 109
+#DO_EVENT 3
+#RESET_EVENT 2
+#ENDIF
+#ENDIF
+
+//EVENT#4 The US joins the war to support Israel (day 2)
+#IF_EVENT_PLAYED 4
+#ELSE
+#IF_CAMPAIGN_DAY G 2
+#CHANGE_RELATIONS 1 2 1
+#DO_EVENT 4
+#ENDIF
+#ENDIF
+
+// Israel wins: it holds Damascus (city, intersection, airport) or Suez and Ismailia
+#IF_CONTROLLED 2 A 1471 1472 29
+#PLAY_MOVIE 101
+#DO_EVENT 6
+#END_GAME 6
+#ENDIF
+#IF_CONTROLLED 2 A 1008 1137
+#PLAY_MOVIE 101
+#DO_EVENT 6
+#END_GAME 6
+#ENDIF
+
+// The Arab alliance (Syria is team 6 now) wins if it holds Haifa: Bat Galim, Carmel, Hadar, Haifa Naval Base
+#IF_CONTROLLED 6 A 350 284 288 25
+#DO_EVENT 7
+#END_GAME 7
+#ENDIF
+// ... or Tel Aviv: Tel Aviv, Kiryat Ono, Ben Gurion Airbase
+#IF_CONTROLLED 6 A 183 208 27
+#DO_EVENT 7
+#END_GAME 7
+#ENDIF
+
+// Time limit: the Arab alliance has nine days to take Haifa or Tel Aviv; if it has not, Israel has held
+#IF_EVENT_PLAYED 7
+#ELSE
+#IF_EVENT_PLAYED 6
+#ELSE
+#IF_CAMPAIGN_DAY G 9
+#DO_EVENT 5
+#END_GAME 6
+#ENDIF
+#ENDIF
+#ENDIF
+
+#ENDSCRIPT

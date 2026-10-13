@@ -2941,7 +2941,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';
@@ -3072,6 +3072,62 @@ static LONG __stdcall CampsimCrashFilter(EXCEPTION_POINTERS *ep)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+// theater=<.tdf path relative to the game dir>: run another theater's campaign (Israel etc.). Mirrors the
+// directory half of TheaterList::SetNewTheater (theaterdef.cpp): campaign, terrain, object and misc-texture
+// dirs from the .tdf, the theater's zips (ziplist.lst names, in its zipsdir) attached over the Korea sim data.
+static char gTdfZips[_MAX_PATH], gTdfSimRoot[_MAX_PATH];
+
+static int ApplyTheater(int argc, char **argv, const char *slashdir)
+{
+    const char *tdf = NULL;
+
+    for (int a = 7; a < argc; a++)
+        if (!strncmp(argv[a], "theater=", 8))
+            tdf = argv[a] + 8;
+
+    if (!tdf)
+        return 1;
+
+    char path[_MAX_PATH], line[1024];
+    sprintf(path, "%s/%s", slashdir, tdf);
+    FILE *f = fopen(path, "r");
+
+    if (!f)
+    {
+        printf("ERR: theater: cannot open %s\n", path);
+        return 0;
+    }
+
+    while (fgets(line, sizeof line, f))
+    {
+        char key[64], val[_MAX_PATH];
+
+        if (line[0] == '#' || sscanf(line, "%63s %259[^\r\n]", key, val) != 2)
+            continue;
+
+        for (char *p = val; *p; p++)
+            if (*p == '\\')
+                *p = '/';
+
+        char *dst = !_stricmp(key, "campaigndir") ? FalconCampUserSaveDirectory
+                  : !_stricmp(key, "terraindir")  ? FalconTerrainDataDir
+                  : !_stricmp(key, "objectdir")   ? FalconObjectDataDir
+                  : !_stricmp(key, "3ddatadir")   ? Falcon3DDataDir
+                  : !_stricmp(key, "misctexdir")  ? FalconMiscTexDataDir
+                  : !_stricmp(key, "zipsdir")     ? gTdfZips
+                  : NULL;
+
+        if (dst)
+            sprintf(dst, "%s/%s", slashdir, val);
+    }
+
+    fclose(f);
+    strcpy(FalconCampaignSaveDirectory, FalconCampUserSaveDirectory);
+    printf("KNOB theater %s: campaign %s terrain %s objects %s zips %s\n", tdf, FalconCampUserSaveDirectory,
+           FalconTerrainDataDir, FalconObjectDataDir, gTdfZips);
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     InitializeCriticalSection(&gVuLock);
@@ -3111,6 +3167,9 @@ int main(int argc, char **argv)
     sprintf(FalconCampUserSaveDirectory, "%s/campaign/SAVE", slashdir);
     strcpy(FalconCampaignSaveDirectory, FalconCampUserSaveDirectory);
 
+    if (!ApplyTheater(argc, argv, slashdir))
+        return 1;
+
     SetCurrentDirectory(slashdir);
     STEP("dirs");
 
@@ -3126,8 +3185,36 @@ int main(int argc, char **argv)
         char tmp[_MAX_PATH];
         sprintf(tmp, "%s/sim", FalconDataDirectory);
         ResAddPath(tmp, TRUE);
+        // simroot=<dir>: a folder holding the theater's sim/ tree (its Simdata.zip unpacked) -- an attached
+        // zip is not found by the relative "sim/radar/..." opens here, the unpacked Zips/sim folder is
+        for (int a = 7; a < argc; a++)
+            if (!strncmp(argv[a], "simroot=", 8))
+                strcpy(gTdfSimRoot, argv[a] + 8);
+
         sprintf(tmp, "%s/Zips", FalconDataDirectory);
-        ResAddPath(tmp, FALSE);
+        ResAddPath(gTdfSimRoot[0] ? gTdfSimRoot : tmp, FALSE);
+
+        if (gTdfZips[0])
+        {
+            sprintf(tmp, "%s/ziplist.lst", FalconDataDirectory);
+            FILE *zl = fopen(tmp, "r");
+            int n = 0;
+
+            if (zl && !gTdfSimRoot[0] && fscanf(zl, "%d", &n) == 1)
+                for (int i = 0; i < n; i++)
+                {
+                    char name[256], zip[_MAX_PATH];
+
+                    if (fscanf(zl, "%*c%255s", name) != 1)
+                        break;
+
+                    sprintf(zip, "%s/%s", gTdfZips, name);
+                    printf("theater zip %s -> %d\n", zip, ResAttach(FalconDataDirectory, zip, TRUE));
+                }
+
+            if (zl)
+                fclose(zl);
+        }
     }
     STEP("res paths");
 

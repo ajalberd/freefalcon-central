@@ -1416,13 +1416,13 @@ int ReadScriptedTriggerFile(char* filename)
                 if (e and e->IsObjective())
                 {
                     pod = GetPOData((Objective)e);
-#ifdef DEBUG
                     ShiAssert(pod);
 
+                    // #SET_PAK_PRIORITY on an objective with no PO data (e.g. Israel 1973's 1138 Ismailia, a
+                    // secondary) wrote through NULL in release builds; the DEBUG-only guard now always applies
                     if (not pod)
                         continue;
 
-#endif
                     pod->ground_priority[team] = pod->air_priority[team] = i;
                     // KCK: player_priority only used now if >= 0
                     // if ( not (pod->flags bitand GTMOBJ_PLAYER_SET_PRIORITY))

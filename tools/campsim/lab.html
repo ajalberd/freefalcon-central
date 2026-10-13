@@ -33,6 +33,8 @@
   table { border-collapse:collapse; width:100%; }
   th, td { padding:5px 6px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; white-space:nowrap; }
   th { color:var(--dim); font-weight:500; font-size:12px; }
+  th.sortable { cursor:pointer; user-select:none; } th.sortable:hover { color:#fff; }
+  .tm { display:block; white-space:nowrap; } .tm i { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:4px; }
   td.num { text-align:right; font-variant-numeric: tabular-nums; }
   tr.sel { background:#1c2633; }
   .bar { height:6px; background:#2a313a; border-radius:3px; width:120px; overflow:hidden; display:inline-block; vertical-align:middle; }
@@ -95,7 +97,9 @@
   <div class="row" style="margin-bottom:6px"><input type="text" id="filter" placeholder="filter runs" style="max-width:260px">
     <span class="dim" id="selinfo">Tick runs to compare them below.</span></div>
   <div class="wrap"><table id="runs"><thead><tr>
-    <th></th><th>run</th><th>state</th><th class="num">days</th><th class="num">objectives Blue / DPRK</th>
+    <th></th><th class="sortable" data-k="name">run</th><th class="sortable" data-k="started">started</th>
+    <th class="sortable" data-k="state">state</th><th class="num sortable" data-k="days">days</th>
+    <th class="sortable" data-k="end">end</th><th class="num">objectives held (start→end)</th>
     <th class="num">ground left</th><th class="num">aircraft left</th><th>events fired</th><th></th>
   </tr></thead><tbody></tbody></table></div>
 
@@ -108,7 +112,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const PAL = ['#4aa3ff','#ff5a5a','#3ddc84','#ffc24a','#c77dff','#5ee6e6','#ff8fb1','#b0b8c4'];
-let runs = [], selected = new Set(JSON.parse(localStorageGet('lab.sel') || '[]')), sums = {}, titles = {};
+let saveNames = {}, runs = [], selected = new Set(JSON.parse(localStorageGet('lab.sel') || '[]')), sums = {}, titles = {};
 function localStorageGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function localStorageSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
@@ -126,9 +130,9 @@ const pct = (a, b) => b ? Math.round(100 * a / b) + '%' : '-';
 
 async function init() {
   const s = await fetch('api/saves').then(r => r.json());
-  titles = s.titles || {};
+  titles = s.titles || {}; saveNames = s.names || {};
   $('gameinfo').textContent = 'game dir ' + s.game;
-  $('save').innerHTML = s.saves.map(n => `<option ${n === 'save0.cam' ? 'selected' : ''}>${n}</option>`).join('');
+  $('save').innerHTML = s.saves.map(n => `<option value="${n}" ${n === 'save0.cam' ? 'selected' : ''}>${saveNames[n] ? saveNames[n] + ' (' + n + ')' : n}</option>`).join('');
   refresh(); setInterval(refresh, 3000);
 }
 
@@ -174,24 +178,39 @@ async function refresh() {
   render();
 }
 
+const TEAMCOL = {US:'#7fd6ff', Israel:'#4aa3ff', Egypt:'#ff4d4d', Syria:'#ff9f1c', Jordan:'#c9a0ff', Iraq:'#ffd23f',
+  'Saudi Arabia':'#3ddc84', Lebanon:'#9aa7b5', ROK:'#3ddc84', DPRK:'#ff4d4d', PRC:'#ff8a3d', CIS:'#c9a0ff', Japan:'#9be7ff'};
+let sort = (() => { try { return JSON.parse(localStorageGet('lab.sort')) || {k:'started', d:-1}; } catch (e) { return {k:'started', d:-1}; } })();
+const fmtDate = t => { if (!t) return ''; const d = new Date(t * 1000), p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+const sortKey = r => { const s = sums[r.name] || {};
+  return ({name: (r.label || r.name).toLowerCase(), started: r.started || 0, state: r.state, days: s.days ?? -1, end: s.endgame ?? -1})[sort.k]; };
+document.querySelectorAll('th.sortable').forEach(th => th.onclick = () => {
+  sort = {k: th.dataset.k, d: sort.k === th.dataset.k ? -sort.d : (th.dataset.k === 'name' ? 1 : -1)};
+  localStorageSet('lab.sort', JSON.stringify(sort)); render(); });
+const teamCells = (s, f) => (s.teams || []).map(t => f(t)).join('');
+
 function render() {
   const f = $('filter').value.toLowerCase();
   const tb = $('runs').querySelector('tbody');
-  tb.innerHTML = runs.filter(r => !f || r.name.toLowerCase().includes(f)).map(r => {
+  document.querySelectorAll('th.sortable').forEach(th => th.textContent = th.textContent.replace(/ [▲▼]$/, '') + (th.dataset.k === sort.k ? (sort.d > 0 ? ' ▲' : ' ▼') : ''));
+  tb.innerHTML = runs.filter(r => !f || (r.name + ' ' + (r.label || '')).toLowerCase().includes(f)).sort((a, b) => { const x = sortKey(a), y = sortKey(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.d; }).map(r => {
     const s = sums[r.name] || {};
     const st = r.state === 'running' && r.progress
       ? `<span class="bar"><i style="width:${r.progress.pct}%"></i></span> <span class="dim">${r.progress.clock}</span>`
       : s.crash && !s.done
         ? `<span class="state-failed" title="${[s.crash, ...(s.stack || [])].join('\n').replace(/"/g, '&quot;')}">crashed ⓘ</span>`
         : `<span class="state-${r.state}">${r.state === 'done' ? (s.done ? 'complete' : 'incomplete') : r.state}</span>`;
-    const ob = s.obj ? `<span class="b">${s.obj[0][0]}→${s.obj[1][0]}</span> / <span class="r">${s.obj[0][1]}→${s.obj[1][1]}</span>` : '';
-    const gd = s.gnd ? `<span class="b">${pct(s.gnd[1][0], s.gnd[0][0])}</span> / <span class="r">${pct(s.gnd[1][1], s.gnd[0][1])}</span>` : '';
-    const ai = s.air ? `<span class="b">${pct(s.air[1][0], s.air[0][0])}</span> / <span class="r">${pct(s.air[1][1], s.air[0][1])}</span>` : '';
+    const col = n => TEAMCOL[n] || '#8a93a0';
+    const cell = (s, g) => (s.teams || []).map(t => `<span class="tm"><i style="background:${col(t.n)}"></i>${g(t)}</span>`).join('');
+    const ob = cell(s, t => `${t.n} ${t.obj[0]}→${t.obj[1]}`);
+    const gd = cell(s, t => `${t.n} ${pct(t.gnd[1], t.gnd[0])}`);
+    const ai = cell(s, t => `${t.n} ${pct(t.air[1], t.air[0])}`);
     const ev = (s.events || []).map(e => `<span class="chip c${e.id}" title="${(e.title || '').replace(/"/g, '&quot;')} — ${fmtMin(e.min)}, DPRK supply ${e.supply}%">${e.id}@${fmtMin(e.min)}</span>`).join('');
     return `<tr class="${selected.has(r.name) ? 'sel' : ''}">
       <td><input type="checkbox" data-n="${r.name}" ${selected.has(r.name) ? 'checked' : ''}></td>
-      <td title="${(s.knobs || []).join('\n').replace(/"/g, '&quot;')}">${r.name}</td><td>${st}</td>
-      <td class="num">${s.days ?? ''}</td><td class="num">${ob}</td><td class="num">${gd}</td><td class="num">${ai}</td>
+      <td title="${(s.knobs || []).join('\n').replace(/"/g, '&quot;')}">${r.label ? `${r.label}<div class="dim" style="font-size:11px">${r.name}</div>` : r.name}</td><td class="dim">${fmtDate(r.started)}</td><td>${st}</td>
+      <td class="num">${s.days ?? ''}</td><td style="white-space:normal;min-width:130px;max-width:230px" title="${(s.endLabel || '').replace(/"/g, '&quot;')}">${s.endgame ? 'END ' + s.endgame + (s.endLabel ? `<div class="dim" style="font-size:11px">${s.endLabel}</div>` : '') : (s.done ? '-' : '')}</td><td class="num">${ob}</td><td class="num">${gd}</td><td class="num">${ai}</td>
       <td style="white-space:normal;min-width:240px;max-width:420px">${ev}</td>
       <td><a class="small" href="viewer.html?run=${encodeURIComponent(r.name)}.jsonl" style="color:var(--blue)">replay</a>
           ${r.state === 'queued' ? `<button class="small" data-cancel="${r.name}">cancel</button>` : ''}

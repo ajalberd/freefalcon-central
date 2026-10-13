@@ -4,7 +4,7 @@
 <style>
   :root { color-scheme: dark; }
   body { margin:0; background:#111; color:#ddd; font:13px system-ui,sans-serif; display:flex; height:100vh; }
-  #side { width:340px; padding:10px; overflow:auto; box-sizing:border-box; border-right:1px solid #333; }
+  #side { width:430px; padding:10px; overflow:auto; box-sizing:border-box; border-right:1px solid #333; flex:none; }
   #map { flex:1; position:relative; min-width:0; }
   canvas { width:100%; height:100%; display:block; }
   h3 { margin:12px 0 4px; font-size:13px; color:#9ab; }
@@ -16,185 +16,699 @@
   .sw { display:inline-block; width:10px; height:10px; margin-right:4px; border-radius:2px; }
   #clock { font-size:20px; font-weight:600; margin:6px 0; }
   #verdict { margin-top:8px; padding:6px; background:#1d242c; border-radius:4px; }
+  #layers label { display:inline-block; margin:0 10px 2px 0; white-space:nowrap; }
+  #log { max-height:170px; overflow:auto; font-size:12px; color:#ffc24a; }
+  #log div { cursor:pointer; padding:1px 0; } #log div:hover { color:#fff; }
+  #banner { position:absolute; left:50%; top:14px; transform:translateX(-50%); background:#000d; border:1px solid #ffc24a;
+            color:#ffc24a; padding:6px 14px; border-radius:6px; font-size:15px; font-weight:600; display:none; pointer-events:none; }
+  #legend { position:absolute; left:10px; bottom:10px; background:#000a; padding:6px 8px; border-radius:6px; font-size:12px; line-height:1.5; }
+  #stats td, #stats th { font-variant-numeric:tabular-nums; white-space:nowrap; }
+  #stats tr.grp td { color:#9ab; font-weight:600; text-align:left; border-bottom:1px solid #444; padding-top:8px; }
+  #stats td.lab { color:#bbb; text-align:left; }
+  #stats .up { color:#6ad1a3; } #stats .dn { color:#ff7a7a; } #stats small { color:#789; }
+  #grip { width:6px; flex:none; cursor:col-resize; background:#1b1f24; }
+  #grip:hover, #grip.on { background:#4aa3ff; }
+  .chartbox { margin-bottom:8px; } .chartbox select { max-width:100%; margin-bottom:2px; }
+  .chartbox canvas { width:100%; height:120px; display:block; cursor:pointer; }
+  #hint { position:absolute; right:10px; bottom:8px; color:#789; font-size:11px; }
 </style>
 <div id="side">
   <div><a href="lab.html" style="color:#4aa3ff">← Campaign Lab</a></div>
-  <div>Run: <select id="runs"></select> <button id="load">Load</button></div>
+  <div>Run: <select id="runs" style="max-width:230px"></select> <button id="load">Load</button></div>
   <div id="clock">-</div>
   <div>
-    <button id="play">Play</button>
+    <button id="step-" title="back one frame (←)">◀</button>
+    <button id="play" title="space">Play</button>
+    <button id="step+" title="forward one frame (→)">▶</button>
     <select id="speed"><option value="1">1 frame/s</option><option value="4">4</option><option value="12" selected>12</option><option value="30">30</option><option value="60">60</option></select>
-    <label><input type="checkbox" id="ovl" checked> show ground units</label>
-    <select id="colormode"><option value="team">colour: team</option><option value="orders">colour: orders</option></select>
   </div>
   <input type="range" id="seek" min="0" max="0" value="0">
-  <h3>Scripted events fired so far</h3>
-  <div id="evs" style="color:#ffc24a">-</div>
-  <h3>Ground action</h3>
-  <table id="acts"></table>
-  <h3>Objectives held</h3>
-  <table id="objs"></table>
-  <h3>Vehicles (ground / AD / aircraft / ships)</h3>
-  <table id="veh"></table>
-  <h3>Objectives held over time</h3>
-  <canvas id="chart" width="320" height="140" style="height:140px"></canvas>
+  <details id="exp" style="margin:6px 0"><summary style="cursor:pointer;color:#9ab">Save replay as animation</summary>
+    <div style="margin-top:6px;line-height:2">
+      <select id="x-fmt"><option value="webp">animated WebP (best quality)</option><option value="gif">animated GIF</option><option value="webm">WebM video</option></select>
+      <select id="x-w"><option value="1024">1024 px wide</option><option value="1440" selected>1440 px wide</option><option value="1920">1920 px wide</option><option value="2560">2560 px wide</option></select><br>
+      <select id="x-fps"><option value="5">5 fps</option><option value="8">8 fps</option><option value="10" selected>10 fps</option><option value="15">15 fps</option><option value="24">24 fps</option></select>
+      <select id="x-q"><option value="85">WebP quality 85</option><option value="92" selected>WebP quality 92</option><option value="100">WebP lossless (huge)</option></select><br>
+      frames <input id="x-from" type="number" min="1" value="1" style="width:56px"> to <input id="x-to" type="number" min="1" value="1" style="width:56px">
+      every <input id="x-step" type="number" min="1" value="1" style="width:44px">
+      <button id="x-go">Save</button> <span id="x-msg" style="color:#ffc24a"></span>
+      <div style="color:#789;font-size:11px">Renders the map as framed on screen (zoom, pan, layers) with a title, clock and scores overlay, scaled up to the width chosen. Every frame is rendered losslessly and encoded by the server (needs Pillow; WebM and the fallback GIF need nothing). The step defaults to about 120 frames.</div>
+    </div>
+  </details>
+  <div id="layers">
+    <label><input type="checkbox" id="l-terr" checked> territory</label>
+    <label><input type="checkbox" id="l-obj" checked> objectives</label>
+    <label><input type="checkbox" id="l-gnd" checked> ground units</label>
+    <label><input type="checkbox" id="l-air" checked> flights</label>
+    <label><input type="checkbox" id="l-trail" checked> movement trails</label>
+    <label><input type="checkbox" id="l-flip" checked> highlight captures</label>
+    <label>colour <select id="colormode"><option value="team">team</option><option value="orders">orders</option></select></label>
+  </div>
+  <h3>Scripted events (click to jump)</h3>
+  <div id="log">-</div>
+  <h3>Over time <small style="font-weight:400;color:#789">(click a chart to jump; pick what each one plots)</small></h3>
+  <div id="charts"></div>
+  <h3>Team stats at this frame <small style="font-weight:400;color:#789">(change since frame 1 in brackets)</small></h3>
+  <table id="stats"></table>
   <div id="verdict"></div>
 </div>
-<div id="map"><canvas id="c"></canvas><div id="tip" style="position:absolute;display:none;pointer-events:none;background:#000c;padding:4px 6px;border-radius:4px;font-size:12px;white-space:pre"></div></div>
+<div id="grip" title="drag to resize the sidebar"></div>
+<div id="map"><canvas id="c"></canvas><div id="banner"></div><div id="legend"></div>
+  <div id="hint">wheel zoom · drag pan · double-click fit · space play · ←/→ step</div>
+  <div id="tip" style="position:absolute;display:none;pointer-events:none;background:#000c;padding:4px 6px;border-radius:4px;font-size:12px;white-space:pre"></div></div>
 <script>
-const COL = {1:'#4aa3ff',2:'#3ddc84',3:'#9be7ff',4:'#c9a0ff',5:'#ffd23f',6:'#ff4d4d',7:'#999'};
-const BLUE = new Set([1,2,3]);
+// Team colours by name (any theater); unknown names fall back to a palette by team index.
+const NAMECOL = {US:'#7fd6ff', Israel:'#4aa3ff', Egypt:'#ff4d4d', Syria:'#ff9f1c', Jordan:'#c9a0ff', Iraq:'#ffd23f',
+  'Saudi Arabia':'#3ddc84', Lebanon:'#9aa7b5', ROK:'#3ddc84', DPRK:'#ff4d4d', PRC:'#ff8a3d', Japan:'#9be7ff', CIS:'#c9a0ff',
+  USSR:'#c9a0ff', Russia:'#c9a0ff', China:'#ff8a3d', Libya:'#e6c07b', Turkey:'#e07fb0', Sudan:'#d9b38c', Yemen:'#c4e0a0'};
+const KORCOL = {1:'#4aa3ff',2:'#3ddc84',3:'#9be7ff',4:'#c9a0ff',5:'#ffd23f',6:'#ff4d4d',7:'#999'};
 const ORD = ['reserve','CAPTURE','secure','assault','airborne','commando','defend','support','repair','air defense','recon','radar'];
 const ORD_COL = {0:'#8a93a0',1:'#ff9f1c',2:'#ffd23f',3:'#ff5d8f',4:'#c77dff',5:'#c77dff',6:'#5ec2ff',7:'#6ad1a3',8:'#6ad1a3',9:'#b0b8c4',10:'#6ad1a3',11:'#b0b8c4'};
-const TAC = {13:'defend',14:'delay hold',15:'delay fallback',16:'move airborne',17:'move marine',18:'brigade column',19:'repair',20:'support unit',21:'support',22:'column',23:'overwatch 1',24:'overwatch 2',25:'wedge',26:'echelon',27:'reserve',28:'hold',29:'WAIT TIL READY',30:'withdraw'};
+const TAC = {13:'defend',14:'delay hold',15:'delay fallback',16:'move airborne',17:'move marine',18:'brigade column',19:'repair',20:'support unit',21:'support',22:'column',23:'overwatch 1',24:'overwatch 2',25:'wedge'};
 const ACT = {0:'-',1:'defensive',2:'consolidate',3:'minor offensive',4:'OFFENSIVE'};
 const KIND = ['battalion','brigade','squadron','task force','flight'];
-let meta=null, frames=[], fin=null, idx=0, playing=false, last=0;
-let objOwner = new Map();          // campId -> team for the frame being shown
-let objState = [];                 // per-frame full owner map snapshots are rebuilt by replay
+// objective type -> [name, shape, size km-ish on screen in px, important]
+const OT = {1:['airbase','plane',9,1], 2:['airstrip','plane',6,1], 3:['army base','sq',7,1], 6:['bridge','bridge',5,0], 7:['chemical','sq',4,0],
+  8:['city','city',6,1], 9:['comm control','sq',4,0], 10:['depot','sq',5,0], 11:['factory','sq',5,0], 13:['fortification','sq',4,0],
+  14:['hill top','tri',4,0], 15:['intersection','dot',3,0], 17:['nuclear','sq',5,0], 18:['pass','tri',4,0], 19:['port','anchor',8,1],
+  20:['power plant','bolt',6,0], 21:['radar','dot',4,0], 22:['radio tower','dot',3,0], 23:['rail terminal','sq',5,0]};
+let objById = new Map(), meta=null, frames=[], fin=null, idx=0, playing=false, last=0, runName='', theater='';
+let teamCol = {}, view = {cx:512, cy:512, s:1}, prevPos = null;
 const $ = id => document.getElementById(id);
-const cv = $('c'), g = cv.getContext('2d');
-const bg = new Image(); bg.src = 'backdrop.png';
+const mainCv = $('c'), mainG = mainCv.getContext('2d');
+let cv = mainCv, g = mainG;
+let bg = new Image();
 bg.onload = draw;
+const EVN = {7:'Blue past DMZ',9:'Blue offensive (E5)',11:'China joins',12:'Russia joins',14:'DPRK wins',15:'stalemate',16:'timeout',17:'Blue wins'};
+
+function palette() {
+  teamCol = {};
+  const names = meta.teams || [];
+  const korea = names.includes('DPRK');
+  names.forEach((n, i) => { teamCol[i] = (korea ? KORCOL[i] : NAMECOL[n]) || KORCOL[i] || '#888'; });
+}
+const tcol = t => teamCol[t] || '#888';
+const tname = t => (meta.teams && meta.teams[t]) || ('team ' + t);
 
 async function listRuns() {
-  const r = await fetch('runs.json').then(x => x.json()).catch(() => []);
-  $('runs').innerHTML = r.map(n => `<option>${n}</option>`).join('');
+  const rows = await fetch('api/runs').then(x => x.json()).catch(() => []);
+  const r = rows.map(x => x.name + '.jsonl');
+  $('runs').innerHTML = rows.map(x => `<option value="${x.name}.jsonl">${x.label ? x.label + '  (' + x.name + ')' : x.name}</option>`).join('');
   const want = new URLSearchParams(location.search).get('run');   // lab.html "replay" links
   if (want && r.includes(want)) $('runs').value = want;
   if (r.length) load();
 }
+// run names are <save>[-<theater>][-<tag>]-s<seed>[.jsonl]; the theater stem picks the backdrop
+function theaterOf(name) {
+  const m = name.replace(/\.jsonl$/, '').match(/^save\d+-(Israel_Classic|Israel2007|Israeli|Israel|[A-Za-z0-9_]+?)(?:-|$)/);
+  return m && /^(Israel|Israeli|Israel2007|Israel_Classic|korea_2012|korea1980s|eurowar)$/i.test(m[1]) ? m[1] : '';
+}
+function setBackdrop() {
+  const th = theater;
+  const tryList = th ? ['backdrop-' + th + '.png', 'backdrop-' + th.replace(/(2007|_Classic|i)$/, '') + '.png'] : ['backdrop.png'];  // the three Israel theaters share terrdata
+  bg = new Image(); bg.onload = draw;
+  let i = 0;
+  bg.onerror = () => { if (++i < tryList.length) bg.src = tryList[i]; };
+  if (tryList.length) bg.src = tryList[0];
+}
 async function load() {
-  const name = $('runs').value; if (!name) return;
-  const txt = await fetch('runs/' + name).then(x => x.text());
+  runName = $('runs').value; if (!runName) return;
+  const txt = await fetch('runs/' + runName).then(x => x.text());
   frames = []; fin = null; meta = null;
   for (const ln of txt.split('\n')) {
     if (!ln) continue;
     const o = JSON.parse(ln);
     if (o.meta) meta = o; else if (o.final) fin = o; else frames.push(o);
   }
-  // Replay objective changes once so seeking is O(objectives).
+  if (!meta || !frames.length) return;
+  objById = new Map(meta.objs.map(o => [o[0], o]));
+  theater = theaterOf(runName); setBackdrop(); palette();
+  document.title = $('runs').selectedOptions[0].textContent.replace(/ +\(.*\)$/, '') + ' - Campaign Sim Viewer';
+  // owners per frame (so seeking is O(objectives)) and which objectives changed in each frame
   const cur = new Map(meta.objs.map(o => [o[0], o[4]]));
   for (const f of frames) {
+    f.flips = f.o.map(([id, team]) => [id, cur.get(id), team]);
     for (const [id, team] of f.o) cur.set(id, team);
     f.owners = new Map(cur);
   }
+  // fit the view to the objectives (and add margin)
+  // fit to the bulk of the objectives (2nd..98th percentile) so a few far-off ones do not shrink the map
+  const q = (arr, p) => { const v = arr.slice().sort((m, n) => m - n); return v[Math.floor(p * (v.length - 1))]; };
+  const xs = meta.objs.map(o => o[1]), ys = meta.objs.map(o => o[2]);
+  home = {x0: q(xs, .02) - 30, x1: q(xs, .98) + 30, y0: q(ys, .02) - 30, y1: q(ys, .98) + 30};
+  fit();
   $('seek').max = frames.length - 1;
-  idx = 0; $('seek').value = 0;
-  chart(); show(0);
-  verdict();
+  endLabel = '';
+  if (fin && fin.endgame) {
+    try { const s = await fetch('api/summary?name=' + encodeURIComponent(runName.replace(/[.]jsonl$/, ''))).then(r => r.json()); endLabel = (s[0] && s[0].endLabel) || ''; } catch (e) {}
+  }
+  syncExportRange();
+  buildLog(); chart(); verdict(); show(0);
+}
+let home = {x0:0,x1:1024,y0:0,y1:1024};
+function fit() {
+  const w = cv.width || 800, h = cv.height || 600;
+  view.s = Math.min(w / (home.x1 - home.x0), h / (home.y1 - home.y0));
+  view.cx = (home.x0 + home.x1) / 2; view.cy = (home.y0 + home.y1) / 2;
+}
+const X = x => cv.width / 2 + (x - view.cx) * view.s;
+const Y = y => cv.height / 2 - (y - view.cy) * view.s;
+
+
+// ---- per-frame, per-team statistics ----
+// derived from the unit list once per frame: counts, movement, morale, supply, orders
+function derived(f) {
+  if (f._d) return f._d;
+  const n = (meta.teams || []).length, d = [];
+  for (let t = 0; t < n; t++) d.push({bn:0, br:0, mv:0, cap:0, def:0, mor:0, sup:0, fl:0, low:0});
+  for (const u of f.u) {
+    const x = d[u[2]]; if (!x) continue;
+    if (u[1] === 0) { x.bn++; x.mor += u[8]; x.sup += u[11]; if (u[7]) x.mv++; if (u[9] === 1) x.cap++; if (u[9] === 6) x.def++; if (u[11] < 25) x.low++; }
+    else if (u[1] === 1) x.br++;
+    else if (u[1] === 4) x.fl++;
+  }
+  for (const x of d) { x.mor = x.bn ? Math.round(x.mor / x.bn) : 0; x.sup = x.bn ? Math.round(x.sup / x.bn) : 0; }
+  return f._d = d;
+}
+const sp = (f, t, i) => (f.sp && f.sp[t]) ? f.sp[t][i] : 0;
+const sumArr = (a, ks) => ks.reduce((s, k) => s + ((a && a[k]) || 0), 0);
+// [label, value(frame, team), options]; a one-element row is a group heading.
+// delta: show the change since frame 1; pct: a percentage; text: not plottable
+const ROWS = [
+  ['Forces'],
+  ['Objectives held', (f,t) => f.s[t][4], {delta:1}],
+  ['Ground vehicles', (f,t) => f.s[t][0], {delta:1}],
+  ['Air defence vehicles', (f,t) => f.s[t][1], {delta:1}],
+  ['Aircraft', (f,t) => f.s[t][2], {delta:1}],
+  ['Ships', (f,t) => f.s[t][3], {delta:1}],
+  ['Battalions', (f,t) => derived(f)[t].bn, {delta:1}],
+  ['Brigades', (f,t) => derived(f)[t].br, {delta:1}],
+  ['Posture'],
+  ['Ground action', (f,t) => f.a && f.a[t] ? (ACT[f.a[t][0]] || f.a[t][0]) : '', {text:1}],
+  ['Initiative', (f,t) => f.a && f.a[t] ? f.a[t][3] : 0, {delta:1}],
+  ['Action points', (f,t) => f.a && f.a[t] ? f.a[t][2] : 0],
+  ['Battalions moving', (f,t) => derived(f)[t].mv],
+  ['  on CAPTURE orders', (f,t) => derived(f)[t].cap],
+  ['  defending', (f,t) => derived(f)[t].def],
+  ['Morale and supply (battalions)'],
+  ['Average morale', (f,t) => derived(f)[t].mor, {pct:1}],
+  ['Average supply', (f,t) => derived(f)[t].sup, {pct:1}],
+  ['Supply near the front', (f,t) => sp(f,t,32), {pct:1}],
+  ['Battalions under 25% supply', (f,t) => derived(f)[t].low],
+  ['Logistics'],
+  ['Supply level', (f,t) => sp(f,t,3), {pct:1, skip255:1}],
+  ['Fuel level', (f,t) => sp(f,t,4), {pct:1, skip255:1}],
+  ['Supply pool', (f,t) => sp(f,t,0)],
+  ['Fuel pool', (f,t) => sp(f,t,1)],
+  ['Replacement pool', (f,t) => sp(f,t,2)],
+  ['Supply sites / capacity per day', (f,t) => sp(f,t,20) ? sp(f,t,20) + ' / ' + sp(f,t,21) : '-', {text:1}],
+  ['Power stations (status %)', (f,t) => sp(f,t,27) ? sp(f,t,27) + ' (' + sp(f,t,28) + ')' : '-', {text:1}],
+  ['Air war'],
+  ['Flights airborne', (f,t) => derived(f)[t].fl],
+  ['Packages in progress', (f,t) => f.ad && f.ad[t] ? f.ad[t][3] : 0],
+  ['Mission requests waiting', (f,t) => f.ad && f.ad[t] ? f.ad[t][0] : 0],
+  ['Airbases (low status)', (f,t) => f.ad && f.ad[t] && f.ad[t][4] ? f.ad[t][4] + ' (' + f.ad[t][5] + ')' : '-', {text:1}],
+  ['Airbase status', (f,t) => f.ad && f.ad[t] ? f.ad[t][6] : 0, {pct:1}],
+  ['Losses so far'],
+  ['Ground vehicles lost', (f,t) => sumArr(f.lo && f.lo[t], [0,1,2,3])],
+  ['  to aircraft', (f,t) => sumArr(f.lo && f.lo[t], [0])],
+  ['  to artillery', (f,t) => sumArr(f.lo && f.lo[t], [1])],
+  ['  to ground and naval fire', (f,t) => sumArr(f.lo && f.lo[t], [2,3])],
+  ['Aircraft lost', (f,t) => sumArr(f.lo && f.lo[t], [4,5])],
+  ['  to aircraft ', (f,t) => sumArr(f.lo && f.lo[t], [4])],
+  ['  to ground and ships', (f,t) => sumArr(f.lo && f.lo[t], [5])],
+  ['Ships lost', (f,t) => sumArr(f.lo && f.lo[t], [6,7])],
+];
+const PLOT = ROWS.filter(r => r.length > 1 && !(r[2] && r[2].text));
+const CHART_FN = {}; for (const r of PLOT) CHART_FN[r[0].trim()] = r[1];
+
+function statsTable(f, f0) {
+  const ts = activeTeams();
+  let h = '<tr><th></th>' + ts.map(t => `<th><span class="sw" style="background:${tcol(t)}"></span>${tname(t)}</th>`).join('') + '</tr>';
+  for (const r of ROWS) {
+    if (r.length === 1) { h += `<tr class="grp"><td colspan="${ts.length + 1}">${r[0]}</td></tr>`; continue; }
+    const [lab, fn, o = {}] = r;
+    h += `<tr><td class="lab">${lab.replace(/^ +/, '&nbsp;&nbsp;&nbsp;')}</td>` + ts.map(t => {
+      const val = fn(f, t);
+      if (o.text) return `<td>${val}</td>`;
+      if (o.skip255 && val === 255) return '<td><small>-</small></td>';
+      let s = String(val) + (o.pct ? '%' : '');
+      if (o.delta) {
+        const dv = val - fn(f0, t);
+        if (dv) s += ` <small class="${dv > 0 ? 'up' : 'dn'}">(${dv > 0 ? '+' : ''}${dv})</small>`;
+      }
+      return `<td>${s}</td>`;
+    }).join('') + '</tr>';
+  }
+  $('stats').innerHTML = h;
 }
 function sumSide(s, teams, k) { let t = 0; for (const i of teams) t += s[i][k]; return t; }
+// the two main opponents first (ROK, DPRK / Israel, Egypt), then the rest by size at the start
+const FIRST = ['ROK', 'DPRK', 'Israel', 'Egypt'];
+const activeTeams = () => (meta.teams || []).map((n, i) => i).filter(i => meta.teams[i] &&
+  frames.some(f => f.s[i][0] || f.s[i][2] || f.s[i][4])).sort((a, b) => {
+    const pa = FIRST.indexOf(meta.teams[a]), pb = FIRST.indexOf(meta.teams[b]);
+    if (pa >= 0 || pb >= 0) return (pa < 0 ? 99 : pa) - (pb < 0 ? 99 : pb);
+    const sz = i => frames[0].s[i][0] + frames[0].s[i][2] + frames[0].s[i][4];
+    return sz(b) - sz(a);
+  });
+let endLabel = '';
+function endText() {
+  if (!fin) return '';
+  return fin.endgame ? `END_GAME ${fin.endgame}` + (endLabel ? ' - ' + endLabel : '') : 'run ended';
+}
 function verdict() {
-  if (!frames.length) return;
-  const a = frames[0].s, b = frames[frames.length-1].s;
-  const B = [1,2,3], D = [5,6];
-  const ob = sumSide(b, B, 4), od = sumSide(b, D, 4);
-  const ob0 = sumSide(a, B, 4), od0 = sumSide(a, D, 4);
-  const gb = sumSide(b,B,0)/Math.max(1,sumSide(a,B,0)), gd = sumSide(b,D,0)/Math.max(1,sumSide(a,D,0));
-  const days = (frames[frames.length-1].t / 1440).toFixed(1);
-  let w = Math.abs(ob-ob0) + Math.abs(od-od0) < 15 ? 'Stalemate - the front barely moved' :
-          (ob - ob0 > od - od0 ? 'Blue is gaining ground' : 'DPRK is gaining ground');
-  $('verdict').innerHTML = `<b>After ${days} days:</b> ${w}.<br>Objectives Blue ${ob0}→${ob}, DPRK ${od0}→${od}.<br>` +
-    `Ground strength left: Blue ${(gb*100).toFixed(0)}%, DPRK ${(gd*100).toFixed(0)}%.<br>` +
-    `Engine endgame flag: ${fin ? fin.endgame : 'run incomplete'}`;
+  const a = frames[0], b = frames[frames.length-1];
+  const days = (b.t / 1440).toFixed(1);
+  const rows = activeTeams().map(t => `${tname(t)}: ground ${a.s[t][0]}→${b.s[t][0]}, air ${a.s[t][2]}→${b.s[t][2]}, objectives ${a.s[t][4]}→${b.s[t][4]}`);
+  $('verdict').innerHTML = `<b>After ${days} days:</b> ${fin && fin.endgame ? 'ended - <b>' + endText() + '</b>' : 'no end triggered'}<br>` + rows.join('<br>');
 }
-function chart() {
-  const c = $('chart').getContext('2d'), W = 320, H = 140;
-  c.clearRect(0,0,W,H);
+const CHART_DEFAULTS = ['Objectives held', 'Ground vehicles', 'Aircraft'];
+let chartSel = (() => { try { const j = JSON.parse(localStorage.getItem('viewer.charts')); if (Array.isArray(j) && j.length === 3) return j; } catch (e) {} return CHART_DEFAULTS.slice(); })();
+function drawChart(cvs, name) {
+  const dpr = window.devicePixelRatio || 1, W = cvs.clientWidth || 400, H = cvs.clientHeight || 120, L = 36, B = 4;
+  if (cvs.width !== Math.round(W * dpr) || cvs.height !== Math.round(H * dpr)) { cvs.width = Math.round(W * dpr); cvs.height = Math.round(H * dpr); }
+  const c = cvs.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W, H);
   if (!frames.length) return;
-  let mx = 1;
-  const series = [['Blue',[1,2,3],'#4aa3ff'],['DPRK+PRC',[5,6],'#ff4d4d']];
-  for (const f of frames) for (const [,t] of series) mx = Math.max(mx, sumSide(f.s,t,4));
-  for (const [,t,col] of series) {
-    c.beginPath(); c.strokeStyle = col;
-    frames.forEach((f,i) => { const x = i/(frames.length-1||1)*W, y = H - sumSide(f.s,t,4)/mx*H;
-      i ? c.lineTo(x,y) : c.moveTo(x,y); });
+  const fn = CHART_FN[name] || CHART_FN['Objectives held'];
+  const ts = activeTeams();
+  let mx = 1, mn = 0;
+  const vals = ts.map(t => frames.map(f => +fn(f, t) || 0));
+  for (const s of vals) for (const x of s) { mx = Math.max(mx, x); mn = Math.min(mn, x); }
+  c.fillStyle = '#789'; c.font = '10px system-ui';
+  c.fillText(mx, 2, 10); c.fillText(mn, 2, H - B);
+  ts.forEach((t, k) => {
+    c.beginPath(); c.strokeStyle = tcol(t); c.lineWidth = 1.5;
+    vals[k].forEach((x, i) => {
+      const px = L + i / (frames.length - 1 || 1) * (W - L), py = H - B - (x - mn) / (mx - mn || 1) * (H - B - 4);
+      i ? c.lineTo(px, py) : c.moveTo(px, py);
+    });
     c.stroke();
-  }
-  $('chart')._mx = mx;
+  });
+  c.fillStyle = '#fff8'; c.fillRect(L + idx / (frames.length - 1 || 1) * (W - L), 0, 1, H);
 }
+function chart() { document.querySelectorAll('#charts canvas').forEach(c => drawChart(c, chartSel[+c.dataset.i])); }
+function buildCharts() {
+  const opts = PLOT.map(r => r[0].trim());
+  $('charts').innerHTML = chartSel.map((m, i) => `<div class="chartbox"><select data-i="${i}">${opts.map(o => `<option${o === m ? ' selected' : ''}>${o}</option>`).join('')}</select><canvas data-i="${i}"></canvas></div>`).join('');
+  $('charts').querySelectorAll('select').forEach(s => s.onchange = () => {
+    chartSel[+s.dataset.i] = s.value; try { localStorage.setItem('viewer.charts', JSON.stringify(chartSel)); } catch (e) {} chart(); });
+  $('charts').querySelectorAll('canvas').forEach(c => c.onclick = e => {
+    const r = c.getBoundingClientRect(), L = 36;
+    show(Math.round(Math.max(0, Math.min(1, ((e.clientX - r.left) - L) / (r.width - L))) * (frames.length - 1)));
+  });
+}
+function buildLog() {
+  const items = [];
+  // frame.ev is every event fired so far: list each at the frame it first appears
+  const seen = new Map();
+  frames.forEach((f, i) => { for (const e of (f.ev || [])) {
+    if (seen.has(e)) { seen.get(e)[3]++; continue; }
+    const it = [i, f.t, `ev ${e}${EVN[e] && meta.teams.includes('DPRK') ? ' ' + EVN[e] : ''}`, 1];
+    seen.set(e, it); items.push(it);
+  } });
+  if (fin && fin.endgame) items.push([frames.length-1, frames[frames.length-1].t, endText()]);
+  $('log').innerHTML = items.length ? items.map(([i,t,s]) =>
+    `<div data-i="${i}">day ${Math.floor(t/1440)} ${String(Math.floor(t%1440/60)).padStart(2,'0')}h · ${s}</div>`).join('') : '-';
+}
+$('log').onclick = e => { const d = e.target.closest('[data-i]'); if (d) show(+d.dataset.i); };
+buildCharts();
+
 function show(i) {
-  idx = i; $('seek').value = i;
-  const f = frames[i]; if (!f) return;
+  idx = Math.max(0, Math.min(frames.length - 1, i)); $('seek').value = idx;
+  const f = frames[idx]; if (!f) return;
   const days = Math.floor(f.t/1440), h = Math.floor(f.t%1440/60);
-  $('clock').textContent = `Day ${days} +${String(h).padStart(2,'0')}h  (frame ${i+1}/${frames.length})`;
-  const EVN = {7:'Blue past DMZ',9:'Blue offensive (E5)',11:'China joins',12:'Russia joins',14:'DPRK wins',15:'stalemate',16:'timeout',17:'Blue wins'};
-  $('evs').textContent = f.ev ? (f.ev.map(e => EVN[e] ? `${e} ${EVN[e]}` : e).join(', ') || 'none') : 'not recorded in this run';
-  const row = (name, teams) => {
-    return `<tr><td><span class="sw" style="background:${COL[teams[teams.length-1]]}"></span>${name}</td>`;
-  };
-  const sides = [['Blue (US/ROK/JP)',[1,2,3]],['DPRK+PRC',[5,6]],['CIS',[4]]];
-  $('objs').innerHTML = sides.map(([n,t]) => row(n,t) + `<td>${sumSide(f.s,t,4)}</td></tr>`).join('');
-  $('veh').innerHTML = '<tr><th></th><th>gnd</th><th>AD</th><th>air</th><th>sea</th></tr>' +
-    sides.map(([n,t]) => row(n,t) + [0,1,2,3].map(k => `<td>${sumSide(f.s,t,k)}</td>`).join('') + '</tr>').join('');
-  if (f.a) {
-    const at = (name, ts) => { const a = f.a[ts[ts.length-1]] || [0,0,0,0,0];
-      return `<tr><td><span class="sw" style="background:${COL[ts[ts.length-1]]}"></span>${name}</td><td style="text-align:left">${ACT[a[0]]||a[0]}</td><td>pts ${a[2]}</td><td>init ${a[3]}</td></tr>`; };
-    $('acts').innerHTML = at('Blue (ROK)', [2]) + at('DPRK', [6]);
-  }
-  draw();
+  $('clock').textContent = `Day ${days} +${String(h).padStart(2,'0')}h  (frame ${idx+1}/${frames.length})`;
+  const ts = activeTeams();
+  statsTable(f, frames[0]);
+  const last = idx === frames.length - 1 && fin && fin.endgame;
+  $('banner').style.display = last ? 'block' : 'none';
+  if (last) $('banner').textContent = 'Campaign ended: ' + endText() + ' (day ' + (f.t/1440).toFixed(1) + ')';
+  $('legend').innerHTML = ts.map(t => `<span class="sw" style="background:${tcol(t)}"></span>${tname(t)}`).join('<br>');
+  chart(); draw();
 }
-function resize() { cv.width = cv.clientWidth; cv.height = cv.clientHeight; draw(); }
-function draw() {
-  g.fillStyle = '#0b1a2b'; g.fillRect(0,0,cv.width,cv.height);
-  if (!meta || !frames.length) return;
-  const S = Math.min(cv.width, cv.height), ox = (cv.width - S)/2, oy = (cv.height - S)/2, k = S/1024;
-  if (bg.complete && bg.naturalWidth) { g.globalAlpha = .75; g.drawImage(bg, ox, oy, S, S); g.globalAlpha = 1; }
-  const X = x => ox + x*k, Y = y => oy + (1024 - y)*k;
-  const f = frames[idx];
-  for (const o of meta.objs) {
-    const t = f.owners.get(o[0]); if (t === 0 || t === undefined) continue;
-    const big = o[3] === 1 || o[3] === 2;
-    g.fillStyle = COL[t] || '#888';
-    const r = big ? 3.2 : 1.1;
-    g.globalAlpha = big ? 1 : .55;
-    g.fillRect(X(o[1]) - r, Y(o[2]) - r, r*2, r*2);
+function resize() { cv.width = cv.clientWidth; cv.height = cv.clientHeight; if (meta) fit(); draw(); }
+
+// ---- drawing ----
+function shape(kind, x, y, r) {
+  g.beginPath();
+  switch (kind) {
+    case 'plane': g.moveTo(x, y - r); g.lineTo(x + r*.25, y - r*.2); g.lineTo(x + r, y + r*.25); g.lineTo(x + r*.25, y + r*.1);
+      g.lineTo(x + r*.25, y + r*.7); g.lineTo(x + r*.55, y + r); g.lineTo(x - r*.55, y + r); g.lineTo(x - r*.25, y + r*.7);
+      g.lineTo(x - r*.25, y + r*.1); g.lineTo(x - r, y + r*.25); g.lineTo(x - r*.25, y - r*.2); break;
+    case 'city': g.rect(x - r*.9, y - r*.9, r*1.8, r*1.8); break;
+    case 'anchor': g.moveTo(x, y - r); g.lineTo(x + r, y + r*.8); g.lineTo(x - r, y + r*.8); break;
+    case 'bridge': g.moveTo(x - r, y); g.lineTo(x + r, y); g.moveTo(x - r*.6, y - r*.5); g.lineTo(x - r*.6, y + r*.5);
+      g.moveTo(x + r*.6, y - r*.5); g.lineTo(x + r*.6, y + r*.5); break;
+    case 'bolt': g.moveTo(x + r*.3, y - r); g.lineTo(x - r*.5, y + r*.1); g.lineTo(x, y + r*.1); g.lineTo(x - r*.3, y + r); g.lineTo(x + r*.6, y - r*.2); g.lineTo(x + r*.05, y - r*.2); break;
+    case 'tri': g.moveTo(x, y - r); g.lineTo(x + r, y + r*.7); g.lineTo(x - r, y + r*.7); break;
+    case 'dot': g.arc(x, y, r*.6, 0, 7); break;
+    default: g.rect(x - r*.7, y - r*.7, r*1.4, r*1.4);
   }
-  g.globalAlpha = 1;
-  if ($('ovl').checked) for (const u of f.u) {
+  g.closePath();
+}
+function draw() {
+  g.fillStyle = '#0b1a2b'; g.fillRect(0, 0, cv.width, cv.height);
+  if (!meta || !frames.length) return;
+  const f = frames[idx];
+  if (bg.complete && bg.naturalWidth) {           // 2 px per km, north up, covers 0..1024 km
+    g.globalAlpha = .8;
+    g.drawImage(bg, X(0), Y(1024), 1024 * view.s, 1024 * view.s);
+    g.globalAlpha = 1;
+  }
+  if ($('l-terr').checked) {                       // territory: soft blobs in the owner's colour
+    g.globalCompositeOperation = 'lighter';
+    for (const o of meta.objs) {
+      const t = f.owners.get(o[0]); if (!t) continue;
+      const big = (OT[o[3]] || [])[3];
+      const R = (big ? 26 : 13) * view.s;
+      const gr = g.createRadialGradient(X(o[1]), Y(o[2]), 0, X(o[1]), Y(o[2]), R);
+      gr.addColorStop(0, tcol(t) + '30'); gr.addColorStop(1, tcol(t) + '00');
+      g.fillStyle = gr; g.fillRect(X(o[1]) - R, Y(o[2]) - R, R*2, R*2);
+    }
+    g.globalCompositeOperation = 'source-over';
+  }
+  if ($('l-obj').checked) {
+    const z = Math.max(.6, Math.min(2.2, view.s / 1.2));
+    for (const o of meta.objs) {
+      const t = f.owners.get(o[0]); if (!t) continue;
+      const [, shp, sz, big] = OT[o[3]] || ['?', 'dot', 3, 0];
+      if (!big && view.s < .9) continue;              // minor objectives only when zoomed in
+      const x = X(o[1]), y = Y(o[2]), r = sz * z * (big ? 1 : .8);
+      shape(shp, x, y, r);
+      g.fillStyle = tcol(t); g.strokeStyle = '#000'; g.lineWidth = 1;
+      if (shp === 'bridge') { g.strokeStyle = tcol(t); g.lineWidth = 2; g.stroke(); }
+      else { g.fill(); g.stroke(); }
+    }
+  }
+  if ($('l-flip').checked) {                        // objectives captured in this frame ring and fade over 4 frames
+    for (let k = 0; k < 4 && idx - k >= 0; k++) {
+      g.strokeStyle = `rgba(255,255,255,${.9 - k*.22})`; g.lineWidth = 2;
+      for (const [id, , nw] of frames[idx - k].flips) {
+        const o = objById.get(id); if (!o || !nw) continue;
+        g.beginPath(); g.arc(X(o[1]), Y(o[2]), (9 + k*3) * Math.max(.7, Math.min(2, view.s/1.2)), 0, 7); g.stroke();
+      }
+    }
+  }
+  const byOrders = $('colormode').value === 'orders';
+  if ($('l-trail').checked && idx > 0) {
+    const p = frames[idx - 1];
+    const pm = p._um || (p._um = new Map(p.u.map(u => [u[0], u])));
+    g.lineWidth = 1.2;
+    for (const u of f.u) {
+      if (u[1] > 1) continue;
+      const q = pm.get(u[0]); if (!q || (q[3] === u[3] && q[4] === u[4])) continue;
+      g.strokeStyle = (byOrders ? (ORD_COL[u[9]] || '#888') : tcol(u[2])) + 'aa';
+      g.beginPath(); g.moveTo(X(q[3]), Y(q[4])); g.lineTo(X(u[3]), Y(u[4])); g.stroke();
+    }
+  }
+  if ($('l-gnd').checked || $('l-air').checked) for (const u of f.u) {
     const [, kind, team, x, y, veh, full] = u;
     if (kind > 1 && kind !== 4) continue;
-    g.fillStyle = ($('colormode').value === 'orders' && kind <= 1) ? (ORD_COL[u[9]] || '#888') : (COL[team] || '#888');
-    if (kind === 4) { g.fillRect(X(x)-1, Y(y)-1, 3, 3); continue; }
-    const r = 2 + 3*Math.sqrt(veh/Math.max(1,full));
-    g.strokeStyle = '#000'; g.lineWidth = 1;
-    g.beginPath(); g.arc(X(x), Y(y), r, 0, 7); g.fill(); g.stroke();
+    if (kind === 4) {
+      if (!$('l-air').checked) continue;
+      g.fillStyle = tcol(team); g.strokeStyle = '#000'; g.lineWidth = .8;
+      shape('tri', X(x), Y(y), 3.2); g.fill(); g.stroke(); continue;
+    }
+    if (!$('l-gnd').checked) continue;
+    const col = byOrders ? (ORD_COL[u[9]] || '#888') : tcol(team);
+    const w = kind === 1 ? 15 : 10, h = kind === 1 ? 10 : 7;         // brigades are bigger frames than battalions
+    const px = X(x), py = Y(y);
+    g.fillStyle = col; g.strokeStyle = '#000'; g.lineWidth = 1;
+    g.fillRect(px - w/2, py - h/2, w, h); g.strokeRect(px - w/2, py - h/2, w, h);
+    g.strokeStyle = '#000b';                                           // NATO-style crossed frame = armour/infantry-ish marker
+    g.beginPath(); g.moveTo(px - w/2, py - h/2); g.lineTo(px + w/2, py + h/2); g.moveTo(px + w/2, py - h/2); g.lineTo(px - w/2, py + h/2); g.stroke();
+    const fr = Math.max(0, Math.min(1, veh / Math.max(1, full)));      // strength bar under the box
+    g.fillStyle = '#000'; g.fillRect(px - w/2, py + h/2 + 1, w, 2);
+    g.fillStyle = fr > .6 ? '#5f5' : fr > .3 ? '#fd4' : '#f55'; g.fillRect(px - w/2, py + h/2 + 1, w * fr, 2);
   }
+}
+
+
+// ---- replay export: GIF (own encoder, no libraries) or WebM (MediaRecorder) ----
+function medianCut(px, n) {            // px: flat [r,g,b,...]; returns n palette colours
+  let boxes = [Array.from({length: px.length / 3}, (_, i) => i)];
+  const ch = (b, c) => { let lo = 255, hi = 0; for (const i of b) { const x = px[i*3+c]; if (x < lo) lo = x; if (x > hi) hi = x; } return [lo, hi]; };
+  while (boxes.length < n) {
+    let bi = -1, bs = 0;
+    boxes.forEach((b, k) => { if (b.length < 2) return; for (let c = 0; c < 3; c++) { const [lo, hi] = ch(b, c); const s = (hi - lo) * Math.sqrt(b.length); if (s > bs) { bs = s; bi = k; } } });
+    if (bi < 0) break;
+    const b = boxes[bi]; let bc = 0, br = -1;
+    for (let c = 0; c < 3; c++) { const [lo, hi] = ch(b, c); if (hi - lo > br) { br = hi - lo; bc = c; } }
+    b.sort((p, q) => px[p*3+bc] - px[q*3+bc]);
+    const mid = b.length >> 1;
+    boxes.splice(bi, 1, b.slice(0, mid), b.slice(mid));
+  }
+  const pal = boxes.map(b => { let r = 0, g_ = 0, bl = 0; for (const i of b) { r += px[i*3]; g_ += px[i*3+1]; bl += px[i*3+2]; } const m = b.length || 1; return [Math.round(r/m), Math.round(g_/m), Math.round(bl/m)]; });
+  while (pal.length < n) pal.push([0, 0, 0]);
+  return pal;
+}
+function makePalette(samples) {
+  const pal = medianCut(samples, 256), cache = new Map();
+  const near = (r, g_, b) => {
+    const key = ((r >> 3) << 10) | ((g_ >> 3) << 5) | (b >> 3);
+    let hit = cache.get(key); if (hit !== undefined) return hit;
+    const rr = (r & 0xf8) + 4, gg = (g_ & 0xf8) + 4, bb = (b & 0xf8) + 4;
+    let best = 0, bd = 1e9;
+    for (let i = 0; i < 256; i++) { const p = pal[i], d = (p[0]-rr)**2 + (p[1]-gg)**2 + (p[2]-bb)**2; if (d < bd) { bd = d; best = i; } }
+    cache.set(key, best); return best;
+  };
+  return {pal, near};
+}
+function lzwEncode(idx) {              // GIF variable-width LZW, 8-bit pixels, mirrors the classic compress() bookkeeping
+  const out = []; let cur = 0, bits = 0, nBits = 9, maxcode = 511, free = 258;
+  const emit = code => { cur |= code << bits; bits += nBits; while (bits >= 8) { out.push(cur & 255); cur >>>= 8; bits -= 8; } };
+  const grow = () => { if (free > maxcode) { nBits++; maxcode = nBits >= 12 ? 4096 : (1 << nBits) - 1; } };
+  const dict = new Map();
+  emit(256); grow();
+  let ent = idx[0];
+  for (let i = 1; i < idx.length; i++) {
+    const k = idx[i], key = (ent << 8) | k, c = dict.get(key);
+    if (c !== undefined) { ent = c; continue; }
+    emit(ent); grow();
+    ent = k;
+    if (free < 4096) dict.set(key, free++);
+    else { dict.clear(); free = 258; emit(256); nBits = 9; maxcode = 511; }
+  }
+  emit(ent); grow(); emit(257);
+  if (bits > 0) out.push(cur & 255);
+  return out;
+}
+class GifWriter {
+  constructor(w, h, pal, delayCs) {
+    this.b = []; this.w = w; this.h = h; this.delay = delayCs;
+    const b = this.b, w16 = n => b.push(n & 255, (n >> 8) & 255);
+    for (const ch of 'GIF89a') b.push(ch.charCodeAt(0));
+    w16(w); w16(h); b.push(0xF7, 0, 0);
+    for (const p of pal) b.push(p[0], p[1], p[2]);
+    b.push(0x21, 0xFF, 0x0B); for (const ch of 'NETSCAPE2.0') b.push(ch.charCodeAt(0)); b.push(3, 1, 0, 0, 0);
+  }
+  add(idx) {
+    const b = this.b, w16 = n => b.push(n & 255, (n >> 8) & 255);
+    b.push(0x21, 0xF9, 4, 0x04); w16(this.delay); b.push(0, 0);
+    b.push(0x2C); w16(0); w16(0); w16(this.w); w16(this.h); b.push(0);
+    b.push(8);
+    const data = lzwEncode(idx);
+    for (let i = 0; i < data.length; i += 255) { const n = Math.min(255, data.length - i); b.push(n); for (let j = 0; j < n; j++) b.push(data[i + j]); }
+    b.push(0);
+  }
+  bytes() { return new Uint8Array(this.b.concat([0x3B])); }
+}
+function drawHud(gx, W, H, f) {
+  const sc = W / 800, ts = activeTeams();
+  gx.save();
+  gx.font = `600 ${Math.round(15 * sc)}px system-ui, sans-serif`; gx.textBaseline = 'top';
+  const title = document.title.replace(/ - Campaign Sim Viewer$/, '');
+  const days = Math.floor(f.t / 1440), h = Math.floor(f.t % 1440 / 60);
+  const clock = `Day ${days} +${String(h).padStart(2, '0')}h`;
+  const pad = 8 * sc, line = 19 * sc;
+  gx.fillStyle = '#000a'; gx.fillRect(0, 0, W, line + pad);
+  gx.fillStyle = '#fff'; gx.fillText(title, pad, pad / 2);
+  const cw = gx.measureText(clock).width; gx.fillText(clock, W - cw - pad, pad / 2);
+  const boxH = line * ts.length + pad;
+  gx.fillStyle = '#000a'; gx.fillRect(0, H - boxH, 215 * sc, boxH);
+  gx.font = `${Math.round(13 * sc)}px system-ui, sans-serif`;
+  ts.forEach((t, i) => {
+    const y = H - boxH + pad / 2 + i * line;
+    gx.fillStyle = tcol(t); gx.fillRect(pad, y + 3 * sc, 10 * sc, 10 * sc);
+    gx.fillStyle = '#fff'; gx.fillText(`${tname(t)}  ${f.s[t][4]} obj  ${f.s[t][0]} gnd  ${f.s[t][2]} air`, pad + 15 * sc, y);
+  });
+  if (frames.indexOf(f) === frames.length - 1 && fin && fin.endgame) {
+    gx.font = `600 ${Math.round(16 * sc)}px system-ui, sans-serif`;
+    const s = endText(); const tw = gx.measureText(s).width;
+    gx.fillStyle = '#000d'; gx.fillRect((W - tw) / 2 - pad, line + 2 * pad, tw + 2 * pad, line + pad);
+    gx.fillStyle = '#ffc24a'; gx.fillText(s, (W - tw) / 2, line + 2.5 * pad);
+  }
+  gx.restore();
+}
+function download(blob, name) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
+let exporting = false;
+async function exportReplay() {
+  if (exporting || !frames.length) return;
+  exporting = true; setPlay(false);
+  const msg = $('x-msg'), btn = $('x-go'); btn.disabled = true;
+  const fmt = $('x-fmt').value, W = +$('x-w').value, fps = +$('x-fps').value, quality = +$('x-q').value;
+  const from = Math.max(1, +$('x-from').value) - 1, to = Math.min(frames.length, +$('x-to').value) - 1, step = Math.max(1, +$('x-step').value);
+  // draw() works in "screen" pixels; the output is that picture scaled by k (a collapsed map pane falls back to 900x675)
+  const LW = mainCv.width || 900, LH = mainCv.height || 675;
+  const k = W / LW, H = Math.round(LH * k / 2) * 2;
+  const list = []; for (let i = from; i <= to; i += step) list.push(i); if (list[list.length - 1] !== to) list.push(to);
+  const savedView = {...view}, savedIdx = idx;
+  if (!mainCv.width) { view.s = Math.min(LW / (home.x1 - home.x0), LH / (home.y1 - home.y0)); view.cx = (home.x0 + home.x1) / 2; view.cy = (home.y0 + home.y1) / 2; }
+  const off = document.createElement('canvas'); off.width = W; off.height = H;
+  const og = off.getContext('2d', {willReadFrequently: fmt === 'gif'});
+  cv = {width: LW, height: LH}; g = og;
+  const title = document.title.replace(/ - Campaign Sim Viewer$/, '') || 'replay';
+  const name = title.replace(/[^A-Za-z0-9 _-]/g, '').replace(/ +/g, '_');
+  const shot = i => { og.setTransform(k, 0, 0, k, 0, 0); idx = i; draw(); og.setTransform(1, 0, 0, 1, 0, 0); drawHud(og, W, H, frames[i]); };
+  const toPng = () => new Promise(r => off.toBlob(r, 'image/png'));
+  try {
+    if (fmt === 'webm') {
+      const stream = off.captureStream(0), track = stream.getVideoTracks()[0];
+      const rec = new MediaRecorder(stream, {mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm', videoBitsPerSecond: Math.round(W * H * fps * 0.12)});
+      const chunks = []; rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+      const done = new Promise(r => rec.onstop = r);
+      rec.start();
+      for (let n = 0; n < list.length; n++) {
+        shot(list[n]); if (track.requestFrame) track.requestFrame();
+        msg.textContent = `recording ${n + 1}/${list.length}`;
+        await new Promise(r => setTimeout(r, 1000 / fps));
+      }
+      rec.stop(); await done;
+      download(new Blob(chunks, {type: 'video/webm'}), name + '.webm');
+      msg.textContent = 'saved';
+    } else {
+      const id = Date.now().toString(36);
+      let fell = false;
+      for (let n = 0; n < list.length; n++) {
+        shot(list[n]);
+        msg.textContent = `rendering ${n + 1}/${list.length}`;
+        await fetch(`api/anim/frame?id=${id}&n=${n}`, {method: 'POST', body: await toPng()});
+      }
+      msg.textContent = 'encoding ...';
+      const r = await fetch('api/anim/finish', {method: 'POST', body: JSON.stringify({id, fmt, fps, quality, name})}).then(x => x.json());
+      if (r.error === 'nopillow') {
+        if (fmt === 'gif') fell = true;
+        else throw new Error('the server needs Pillow for WebP (pip install pillow), or pick GIF / WebM');
+      } else if (r.error) throw new Error(r.error);
+      else {
+        const a = document.createElement('a'); a.href = r.url; a.download = name + '.' + fmt; document.body.appendChild(a); a.click(); a.remove();
+        msg.textContent = `saved ${(r.bytes / 1048576).toFixed(1)} MB, ${r.size[0]}x${r.size[1]}, ${r.frames} frames`;
+      }
+      if (fell) {   // GIF without Pillow: the in-page encoder, one shared palette
+        const samples = [];
+        for (const i of [list[0], list[list.length >> 1], list[list.length - 1]]) {
+          shot(i); const d = og.getImageData(0, 0, W, H).data;
+          for (let p = 0; p < d.length; p += 4 * 17) samples.push(d[p], d[p + 1], d[p + 2]);
+        }
+        const q = makePalette(samples), gif = new GifWriter(W, H, q.pal, Math.max(2, Math.round(100 / fps)));
+        for (let n = 0; n < list.length; n++) {
+          shot(list[n]);
+          const d = og.getImageData(0, 0, W, H).data, ix = new Uint8Array(W * H);
+          for (let p = 0, o = 0; p < d.length; p += 4, o++) ix[o] = q.near(d[p], d[p + 1], d[p + 2]);
+          gif.add(ix); msg.textContent = `encoding ${n + 1}/${list.length} (no Pillow)`;
+          if (n % 3 === 2) await new Promise(r => setTimeout(r, 0));
+        }
+        const bytes = gif.bytes();
+        download(new Blob([bytes], {type: 'image/gif'}), name + '.gif');
+        msg.textContent = `saved ${(bytes.length / 1048576).toFixed(1)} MB`;
+      }
+    }
+  } catch (e) {
+    msg.textContent = 'failed: ' + e.message;
+  } finally {
+    cv = mainCv; g = mainG; Object.assign(view, savedView); exporting = false; btn.disabled = false;
+    show(savedIdx);
+  }
+}
+$('x-go').onclick = exportReplay;
+function syncExportRange() {
+  $('x-from').value = 1; $('x-to').value = frames.length;
+  $('x-step').value = Math.max(1, Math.ceil(frames.length / 120));
 }
 function tick(ts) {
   if (playing && frames.length) {
     const step = 1000 / $('speed').value;
-    if (ts - last >= step) { last = ts; if (idx < frames.length - 1) show(idx + 1); else playing = false, $('play').textContent = 'Play'; }
+    if (ts - last >= step) { last = ts; if (idx < frames.length - 1) show(idx + 1); else setPlay(false); }
   }
   requestAnimationFrame(tick);
 }
-$('play').onclick = () => { playing = !playing; $('play').textContent = playing ? 'Pause' : 'Play'; };
+function setPlay(p) { playing = p; $('play').textContent = p ? 'Pause' : 'Play'; }
+$('play').onclick = () => setPlay(!playing);
+$('step-').onclick = () => show(idx - 1);
+$('step+').onclick = () => show(idx + 1);
 $('seek').oninput = e => show(+e.target.value);
-$('ovl').onchange = draw;
-$('colormode').onchange = draw;
+for (const id of ['l-terr','l-obj','l-gnd','l-air','l-trail','l-flip','colormode']) $(id).onchange = draw;
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT') return;
+  if (e.key === ' ') { setPlay(!playing); e.preventDefault(); }
+  else if (e.key === 'ArrowRight') show(idx + 1); else if (e.key === 'ArrowLeft') show(idx - 1);
+});
+// zoom about the cursor, drag to pan
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  const wx = view.cx + (mx - cv.width/2) / view.s, wy = view.cy - (my - cv.height/2) / view.s;
+  view.s = Math.max(.3, Math.min(14, view.s * (e.deltaY < 0 ? 1.18 : 1/1.18)));
+  view.cx = wx - (mx - cv.width/2) / view.s; view.cy = wy + (my - cv.height/2) / view.s;
+  draw();
+}, {passive:false});
+let drag = null;
+cv.addEventListener('mousedown', e => { drag = {x:e.clientX, y:e.clientY, cx:view.cx, cy:view.cy}; });
+addEventListener('mouseup', () => { drag = null; });
+cv.addEventListener('dblclick', () => { fit(); draw(); });
 cv.addEventListener('mousemove', e => {
   const tip = $('tip');
+  if (drag) { view.cx = drag.cx - (e.clientX - drag.x) / view.s; view.cy = drag.cy + (e.clientY - drag.y) / view.s; tip.style.display = 'none'; draw(); return; }
   if (!meta || !frames.length) { tip.style.display = 'none'; return; }
-  const r = cv.getBoundingClientRect(), S = Math.min(cv.width, cv.height), ox = (cv.width - S)/2, oy = (cv.height - S)/2, k = S/1024;
-  const mx = e.clientX - r.left, my = e.clientY - r.top;
-  let best = null, bd = 100;
-  for (const u of frames[idx].u) {
+  const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  let best = null, bd = 150, kindOf = 0;
+  const f = frames[idx];
+  for (const u of f.u) {
     if (u[1] > 1 && u[1] !== 4) continue;
-    const dx = ox + u[3]*k - mx, dy = oy + (1024 - u[4])*k - my, d = dx*dx + dy*dy;
+    const dx = X(u[3]) - mx, dy = Y(u[4]) - my, d = dx*dx + dy*dy;
     if (d < bd) { bd = d; best = u; }
+  }
+  if (!best) for (const o of meta.objs) {                      // objectives when no unit is near
+    const dx = X(o[1]) - mx, dy = Y(o[2]) - my, d = dx*dx + dy*dy;
+    if (d < 100 && d < bd + 1e9) { bd = d; best = o; kindOf = 1; }
   }
   if (!best) { tip.style.display = 'none'; return; }
   const u = best;
-  tip.textContent = `${KIND[u[1]]} #${u[0]}  team ${meta.teams[u[2]] || u[2]}
-@ ${u[3]},${u[4]}   vehicles ${u[5]}/${u[6]}` +
-    (u[1] <= 1 ? `
-morale ${u[8]}  supply ${u[11]}
-orders ${ORD[u[9]] || u[9]}   tactic ${TAC[u[10]] || u[10]}` : '');
+  if (kindOf) {
+    const own = f.owners.get(u[0]);
+    tip.textContent = `${(OT[u[3]] || ['objective type ' + u[3]])[0]} #${u[0]}\n${tname(own)}   @ ${u[1]},${u[2]}`;
+  } else {
+    tip.textContent = `${KIND[u[1]]} #${u[0]}  ${tname(u[2])}\n@ ${u[3]},${u[4]}   vehicles ${u[5]}/${u[6]}` +
+      (u[1] <= 1 ? `\nmorale ${u[8]}  supply ${u[11]}\norders ${ORD[u[9]] || u[9]}   tactic ${TAC[u[10]] || u[10]}` : '');
+  }
   tip.style.left = (mx + 14) + 'px'; tip.style.top = (my + 14) + 'px'; tip.style.display = 'block';
 });
 cv.addEventListener('mouseleave', () => { $('tip').style.display = 'none'; });
-$('load').onclick = load;
+$('load').onclick = () => load();
+
+// ---- resizable sidebar
+(() => {
+  const side = $('side'), grip = $('grip');
+  try { const w = +localStorage.getItem('viewer.sidew'); if (w >= 280) side.style.width = Math.min(w, innerWidth - 300) + 'px'; } catch (e) {}
+  let drag = false, pending = false;
+  const apply = () => { pending = false; resize(); chart(); };
+  grip.addEventListener('mousedown', e => { drag = true; grip.classList.add('on'); document.body.style.userSelect = 'none'; e.preventDefault(); });
+  addEventListener('mousemove', e => {
+    if (!drag) return;
+    side.style.width = Math.max(280, Math.min(innerWidth - 300, e.clientX)) + 'px';
+    if (!pending) { pending = true; requestAnimationFrame(apply); }
+  });
+  addEventListener('mouseup', () => {
+    if (!drag) return; drag = false; grip.classList.remove('on'); document.body.style.userSelect = '';
+    try { localStorage.setItem('viewer.sidew', parseInt(side.style.width)); } catch (e) {}
+    apply();
+  });
+  grip.addEventListener('dblclick', () => { side.style.width = '430px'; try { localStorage.removeItem('viewer.sidew'); } catch (e) {} apply(); });
+})();
 addEventListener('resize', resize);
 resize(); listRuns(); requestAnimationFrame(tick);
 </script>

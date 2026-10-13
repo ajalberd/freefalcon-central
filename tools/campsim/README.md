@@ -38,10 +38,105 @@ python make_backdrop.py                                         # terrain image 
 | `exp=A:G` | enemy air / ground experience, 0 green - 4 ace (default 0:0, the player-options default) |
 | `crashtest=N` | fault on purpose at tick N, to check the crash logger |
 | `tri=NAME` | read triggers from `campaign/SAVE/NAME.tri`. **Needed for trigger variants**: the engine picks the .tri by the scenario name stored *inside* the .cam, so a renamed save (`both.cam`) still reads `save0.tri`. Example: `both.tri` = save0 with the win needing Pyongyang AND Wonsan (`#IF_CONTROLLED 2 A 680 260 404`) |
+| `theater=<tdf>` / `simroot=<dir>` | run another theater; see "Other theaters" below |
 | `pak=ID:VALUE[:TEAM]` | the player's PAK slider for objective ID's PAK (`player_priority`; team defaults to 2). Air planning only. Pyongyang is one PAK, 260 (680 belongs to it) |
 
 A crash now writes `CRASH at campaign min ...` with the fault address and a symbolised stack
 (file:line) into the run's log; the Lab shows it as *crashed ⓘ* with the stack on hover.
+
+## Other theaters (Israel, Korea 2012, ...)
+
+Without a theater, campsim runs Korea from `<game>/campaign/SAVE`. Any theater in the game's `theater.lst`
+runs with `--theater` (run_batch) or the `theater=` knob (campsim.exe):
+
+```
+python run_batch.py --theater list                                      # what theater.lst offers
+python run_batch.py --theater israel_classic --save save1 --days 19 --set usecfg=1
+python run_batch.py --theater israel2007 --save save2 --days 32 --seeds 1 2 3 4 --jobs 4
+campsim.exe <game> save1 19 1 out.jsonl 60 theater=theaters/Israel_Classic/Israel_Classic.tdf simroot=<dir>
+```
+
+`--theater` takes the .tdf's file stem (`israel_classic`), its display name (`"Israel 2012"`) or a .tdf
+path, any case. Run files are named `<save>-<theater stem>[-tag]-s<seed>.*`, and the summary prints every
+team (Korea's Blue/DPRK totals do not apply elsewhere).
+
+What `theater=<tdf>` does (`ApplyTheater` in `main.cpp`, the directory half of `TheaterList::SetNewTheater`):
+the .tdf's `campaigndir` (saves, .tri, Falcon4.AII), `terraindir`, `objectdir` (class table: FALCON4.ct and
+friends), `3ddatadir` and `misctexdir` replace the Korea paths. `simroot=<dir>` is a folder holding a
+`sim/` tree (radar, aircraft data). ITO keeps its sim data only in `ZipsITO/Simdata.zip`, which campsim's
+relative `sim/radar/...` opens do not find; run_batch unpacks it once into `runs/_simroot/ZipsITO` and
+passes `simroot=` itself. Without it the log shows `radarDatFileTable ... entries=0` and
+`[SIMLIB-OPEN-FAIL] req='sim/radar/radtypes.lst'`, so check that line on a new theater. The Korea-family
+theaters (korea_2012, korea1980s, eurowar) share Korea's sim data and need only `theater=`.
+
+The Campaign Lab (`serve.py`) still starts Korea runs only, but the replay viewer (`viewer.html`) opens any run:
+team names and colours come from the run's own `meta.teams`, the backdrop from the theater in the run's file
+name (`python make_backdrop.py <terrdata dir> backdrop-<stem>.png`; `backdrop-Israel.png` serves all three
+Israel theaters). Viewer: wheel zoom, drag pan, double-click fit, space / arrows to play and step; layers for
+territory, objectives (by type), ground units (strength bar), flights, movement trails and capture rings; the
+event list jumps to the frame an event first fired; the banner shows the END_GAME code.
+
+**Saving a replay as an animation:** the viewer's "Save replay as animation" panel renders the map as framed on screen
+(zoom, pan, layers) plus a title / clock / scores overlay, scaled to 1024-2560 px wide, and saves an animated **WebP**
+(full colour, best quality per MB), a **GIF**, or a **WebM** video. WebP and GIF are encoded by `serve.py` with Pillow
+(`pip install pillow`; the file lands in `runs/_export/` and downloads); WebM is recorded in the page and GIF falls back to
+an in-page encoder if Pillow is missing. The frame step defaults to about 120 frames; use the from/to boxes to cut a clip.
+
+The `tri=` knob and the .tri / .cam lookups use the theater's campaign dir. `gamework/` links `Theaters`,
+`Zips` and `ZipsITO` to the install, so the Israel saves are the install's own files either way.
+
+### The Israel theaters (FF6 ITO 2)
+
+Three theaters with three campaigns each, nine campaigns in all. Only one of them is modern, despite
+the "ITO 2012: 2004, 2007, 2012" description:
+
+| theater (stem) | save0 | save1 | save2 |
+|---|---|---|---|
+| Israeli (`Israeli`) | 1967 Six Days (RAM22 update) | 1973 Yom Kippur | 1982 Lebanon |
+| Israel 2012 (`Israel2007`) | 1967, bigger OOB | 1973, bigger OOB, Egypt holds all of Sinai | **2007 fictional** (F-16I, AH-64D, US, Saudi) |
+| Israel Classic (`Israel_Classic`) | 1982 | 1973 | 1967 |
+
+Teams: 2 Israel, 6 Egypt; 3 Iraq, 4 Jordan, 5 Syria, 7 Saudi, 1 US (2007). `#CHANGE_RELATIONS a b 1`
+(allied) **merges** team a into team b (`SetTeam`), so once Syria or Jordan joins, their ground counts as
+team 6: write end conditions against team 6, not the joining country. Day limits: 1967 day 6-7,
+1973 day 18, 1982 and 2007 day 30. `#IF_CAMPAIGN_DAY G N` fires on the first trigger check after day N
+starts, so run `--days N+2`.
+
+**The objective numbering differs per theater.** Israel_Classic uses the original IDs that the ITO
+scripts and the win-conditions document (`Theaters/Israel/FF Israeli Docs/`) were written for. The
+Israeli and Israel 2012 saves use a later, larger objective set but shipped the same scripts, so their
+IDs pointed at other places: "Beirut" 617 was an Egyptian power station. Translate by map position (the
+three share `Theaters/Israel/terrdata`).
+
+**The shipped scripts were patched 2026-10-12** in the install (`Theaters/*/campaign/save?.tri`, each
+original kept as `save?.tri.bak-orig`):
+
+- end blocks missing `#ELSE` never ran;
+- missing `#ENDIF`s nested every 1973 end under four "not yet taken" checks;
+- offensive/defensive toggles tested their own event, so they never fired;
+- "falls/regained" blocks never reset themselves, so their ±50 initiative shift repeated on every check;
+- 1973/1982 IDs remapped in the newer theaters;
+- the 2007 Syria win sat below `#ENDSCRIPT` (now: Syria takes Haifa);
+- the Israel 2012 1973 Arab win was already true at the start (now: Hermon + Ramon AB + Ovda AB).
+
+**Retuned 2026-10-13 toward a 5-10 day war** (installed scripts and saves keep `*.bak-pre-retune`; the untouched originals `*.bak-orig`):
+Israel 2012's hidden `save0` / `save1` were rebuilt as the modern **2004** and **2012 Fictional War** campaigns (copies of the 2007 save with
+era aircraft, own scripts, Arab ground cut about 28-30%; the menu buttons in `art/campaign/select/cs_load.scf` are uncommented).
+The other seven campaigns got shorter day limits (1973 day 10, 1982 / 2007 day 9-10), win conditions limited to what the armies
+actually reach, a minimum campaign day before an ending can fire (`#IF_CAMPAIGN_DAY G n` wrapped around the end block) and
+some ground-vehicle cuts. Seeds 1-6 give: 2004 / 2012 two Arab wins to three Israeli holds; 2007 two holds, one Arab win;
+1967 Israeli: Israel wins on day 6.8 every run (historical); 1973 Israeli: Arabs win a third of the runs (day 4.4), Israel holds the rest;
+1982 Israeli: Israel wins about two in three (day 4); Classic 1967: Israel wins three of four (day 4.6-6.9) and the Arabs one;
+Classic 1973: one result each way (day 4.6, 7.0 and a day-10 hold); Classic 1982: one Israeli win (day 4.6), two day-9 holds.
+Two traps found on the way: `#IF_CONTROLLED ... A` counts an objective ID that does not exist in that save as held (a win list
+can be true at day 0 if its IDs belong to another theater's numbering), and campaign saves may borrow their objective list from
+another save, so read ownership from a run's own first frame, not the editor.
+
+The engine also crashed on `#SET_PAK_PRIORITY` for an objective without PO data (`cmpevent.cpp`, a
+DEBUG-only null check); that check now always runs.
+
+The engine **re-reads the .tri on every trigger check**, so editing a script changes runs already in
+progress. Stop them first.
 
 ## Timeline format (`runs/*.jsonl`, one JSON object per line)
 

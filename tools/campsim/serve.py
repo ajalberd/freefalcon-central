@@ -33,7 +33,7 @@ EVENT_RE = re.compile(r"EVENT (\d+) FIRED at min (\d+) \(day \d+\) \| DPRK suppl
 PROG_RE = re.compile(r"\[day (\d+) (\d\d):(\d\d)\] ([\d.]+)/([\d.]+) h \(\s*([\d.]+)%\)")
 RESULT_RE = re.compile(r"RESULT seed=\d+ endgame=(-?\d+).*wall_s=(\d+)")
 
-SUMMARY_VERSION = 2      # bump when summarise() output changes (invalidates .sum.json caches)
+SUMMARY_VERSION = 4      # bump when summarise() output changes (invalidates .sum.json caches)
 POOL = ThreadPoolExecutor(int(os.environ.get("CAMPSIM_JOBS", "4")))
 JOBS = {}            # name -> {"state", "rc", "started", "args"}
 LOCK = threading.Lock()
@@ -105,10 +105,16 @@ def summarise(name):
         out["obj"] = [[side(first, BLUE, 4), side(first, RED, 4)], [side(last, BLUE, 4), side(last, RED, 4)]]
         out["gnd"] = [[side(first, BLUE, 0), side(first, RED, 0)], [side(last, BLUE, 0), side(last, RED, 0)]]
         out["air"] = [[side(first, BLUE, 2), side(first, RED, 2)], [side(last, BLUE, 2), side(last, RED, 2)]]
+        # per team (any theater): name, objectives / ground / aircraft first -> last frame; teams with nothing are left out
+        names = (meta or {}).get("teams") or []
+        out["teams"] = [{"n": n, "obj": [first["s"][t][4], last["s"][t][4]], "gnd": [first["s"][t][0], last["s"][t][0]],
+                         "air": [first["s"][t][2], last["s"][t][2]]}
+                        for t, n in enumerate(names) if n and t < len(first["s"]) and any(first["s"][t][k] for k in (0, 2, 4))]
         step = max(1, len(curve) // 240)
         out["curve"] = curve[::step]
     out["done"] = bool(fin)
     out["endgame"] = fin.get("endgame") if fin else None
+    out["endLabel"] = (run_batch.end_labels(run_batch.GAME, name).get(out["endgame"], "") if out["endgame"] else "")
     events, knobs, crash, stack = [], [], None, []
     if os.path.exists(log):
         with open(log, errors="replace") as fh:
@@ -207,15 +213,44 @@ def list_runs():
         if n.startswith("_"):
             continue
         j = JOBS.get(n)
-        row = {"name": n, "state": j["state"] if j else "done"}
+        row = {"name": n, "state": j["state"] if j else "done", "label": run_batch.run_label(run_batch.GAME, n)}
         tl = os.path.join("runs", n + ".jsonl")
         row["mtime"] = os.path.getmtime(tl) if os.path.exists(tl) else None
         row["size"] = os.path.getsize(tl) if os.path.exists(tl) else 0
+        lg = os.path.join("runs", n + ".log")     # when the run was launched: the log is created at the start
+        row["started"] = os.path.getctime(lg) if os.path.exists(lg) else row["mtime"]
         if running(n):
             row["progress"] = progress(n)
             row["args"] = j["args"]
         out.append(row)
     return out
+
+
+def finish_anim(req):
+    """Turn the PNG frames the viewer uploaded into one animated WebP or GIF (Pillow) under runs/_export/."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return {"error": "nopillow"}
+    import shutil
+    d = os.path.join("runs", "_export", os.path.basename(str(req.get("id", ""))))
+    files = sorted(glob.glob(os.path.join(d, "*.png")))
+    if not files:
+        return {"error": "no frames"}
+    fmt = "gif" if req.get("fmt") == "gif" else "webp"
+    fps = max(1, min(60, int(req.get("fps", 10))))
+    name = "".join(c for c in str(req.get("name", "replay")) if c.isalnum() or c in "_-") or "replay"
+    out = os.path.join("runs", "_export", "%s.%s" % (name, fmt))
+    imgs = [Image.open(f).convert("RGB") for f in files]
+    if fmt == "webp":
+        q = int(req.get("quality", 90))
+        opts = {"lossless": True} if q >= 100 else {"quality": q, "method": 4}
+        imgs[0].save(out, "WEBP", save_all=True, append_images=imgs[1:], duration=int(1000 / fps), loop=0, **opts)
+    else:
+        pal = [im.quantize(256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE) for im in imgs]
+        pal[0].save(out, "GIF", save_all=True, append_images=pal[1:], duration=int(1000 / fps), loop=0, disposal=1)
+    shutil.rmtree(d, ignore_errors=True)
+    return {"url": "/runs/_export/" + os.path.basename(out), "bytes": os.path.getsize(out), "frames": len(files), "size": list(imgs[0].size)}
 
 
 class H(http.server.SimpleHTTPRequestHandler):
@@ -241,14 +276,28 @@ class H(http.server.SimpleHTTPRequestHandler):
             return self.send_json([summarise(unquote(n[5:])) for n in names])
         if path == "/api/saves":
             saves = sorted(os.path.basename(p) for p in glob.glob(os.path.join(SAVE_DIR, "*.cam")))
-            return self.send_json({"saves": saves, "game": GAME, "titles": TITLES})
+            kor = run_batch.campaign_labels(run_batch.GAME).get("korea", ("Korea", ["", "", ""]))
+            names = {"save%d.cam" % i: "%s - %s" % (kor[0], t) for i, t in enumerate(kor[1]) if t}   # as the campaign screen names them
+            return self.send_json({"saves": saves, "game": GAME, "titles": TITLES, "names": names})
         if path in ("/", ""):
             self.path = "/lab.html"
         return super().do_GET()
 
     def do_POST(self):
         n = int(self.headers.get("Content-Length", 0))
-        req = json.loads(self.rfile.read(n) or b"{}")
+        raw = self.rfile.read(n)
+        path, _, qs = self.path.partition("?")
+        if path == "/api/anim/frame":                      # one PNG of a replay export (viewer.html)
+            from urllib.parse import parse_qs
+            q = parse_qs(qs)
+            d = os.path.join("runs", "_export", os.path.basename(q.get("id", ["x"])[0]))
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "%06d.png" % int(q.get("n", ["0"])[0])), "wb") as fh:
+                fh.write(raw)
+            return self.send_json({"ok": True})
+        req = json.loads(raw or b"{}")
+        if path == "/api/anim/finish":
+            return self.send_json(finish_anim(req))
         if self.path == "/api/run":
             return self.send_json({"started": start_runs(req)})
         if self.path == "/api/cancel":                  # queued runs only; a running one finishes
