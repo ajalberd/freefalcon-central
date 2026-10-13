@@ -5,11 +5,13 @@ and does the front notice?  Reads the runs made by
 
 with tags base, fact1, facth, refh, prodh, pow1, powh, allh (blow=factory:red, factory:red:hold, refinery:red:hold,
 producers:red:hold, power:red, power:red:hold, all:red:hold).  Prints pools, production, battalion supply, ground vehicles
-and objectives per scenario over time (mean of the seeds), then the war result.  `python supply_whatif.py`
+and objectives per scenario over time (mean of the seeds), then the war result.  `python supply_whatif.py [tag prefix, default sup]`
 """
 import json, os
 HERE = os.path.dirname(os.path.abspath(__file__))
-R = os.path.join(HERE, "runs", "save0-sup-%s-s%d.jsonl")
+import sys
+PREFIX = sys.argv[1] if len(sys.argv) > 1 else "sup"          # run tag prefix: sup = the first set (no replacement fix), sup2 = fix on
+R = os.path.join(HERE, "runs", "save0-" + PREFIX + "-%s-s%d.jsonl")
 SC = [("base","baseline"),("fact1","factories blown at start (repairable)"),("facth","factories held down"),("refh","refineries held down"),
       ("prodh","all producers held down"),("pow1","power plants blown at start (repairable)"),("powh","power plants held down"),("allh","producers + power held down")]
 HRS = [1, 12, 24, 48, 72, 96, 119]
