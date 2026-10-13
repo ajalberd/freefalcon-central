@@ -2292,6 +2292,56 @@ static void HoldTestLog(int hour)
     }
 }
 
+// blow=<type>:<team>[:hold] -- destroy every feature of the team's objectives of that type at the start (hold: every tick, a
+// bombing campaign that is never repaired). type: factory refinery power depot port armybase bridge road railroad producers all.
+// team: a number, or "red" for teams 4, 5 and 6 (China and Russia fold into DPRK). Measures how much the supply chain depends on it.
+struct BlowRule { int type; int team; int hold; int done; };
+static BlowRule gBlow[32];
+static int gBlowN;
+
+static int BlowMatches(const BlowRule &r, Objective o)
+{
+    int t = o->GetType(), tm = o->GetTeam();
+
+    if (r.team >= 0 ? tm != r.team : !(tm == 4 || tm == 5 || tm == 6))
+        return 0;
+
+    return r.type == TYPE_POWERPLANT ? (t == TYPE_POWERPLANT || t == TYPE_NUCLEAR) : t == r.type;
+}
+
+static void ApplyBlow(void)
+{
+    for (int i = 0; i < gBlowN; i++)
+    {
+        BlowRule &r = gBlow[i];
+
+        if (r.done && !r.hold)
+            continue;
+
+        int n = 0, rate = 0;
+        VuListIterator oit(AllObjList);
+
+        for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+        {
+            if (!BlowMatches(r, o))
+                continue;
+
+            for (int f = 0; f < o->GetTotalFeatures(); f++)
+                if (o->GetFeatureStatus(f) != VIS_DESTROYED)
+                    o->SetFeatureStatus(f, VIS_DESTROYED);
+
+            o->ResetObjectiveStatus();
+            n++;
+            rate += o->GetObjectiveDataRate();
+        }
+
+        if (!r.done)
+            printf("BLOW type %d team %d%s: %d objectives destroyed (data rate %d)\n", r.type, r.team, r.hold ? " (held down)" : "", n, rate);
+
+        r.done = 1;
+    }
+}
+
 static void ApplyAbHeal(void)
 {
     VuListIterator oit(AllObjList);
@@ -2517,6 +2567,35 @@ static void ApplyKnobs(int argc, char **argv)
                 gAbHeal[team] = 1;
 
             printf("KNOB abheal team %d: airbases and airstrips repaired every 10 ticks\n", team);
+        }
+        else if (!strcmp(key, "blow"))
+        {
+            char tn[32] = "", tm[16] = "", hd[16] = "";
+            sscanf(val, "%31[^:]:%15[^:]:%15s", tn, tm, hd);
+            int team = !strcmp(tm, "red") ? -1 : atoi(tm), hold = !strcmp(hd, "hold");
+            static const struct { const char *n; int t; } names[] = {
+                {"factory", TYPE_FACTORY}, {"refinery", TYPE_REFINERY}, {"power", TYPE_POWERPLANT}, {"depot", TYPE_DEPOT},
+                {"port", TYPE_PORT}, {"armybase", TYPE_ARMYBASE}, {"bridge", TYPE_BRIDGE}, {"road", TYPE_ROAD},
+                {"railroad", TYPE_RAILROAD}};
+            int found = 0;
+            bool prod = !strcmp(tn, "producers") || !strcmp(tn, "all");
+
+            for (int k = 0; k < (int)(sizeof(names) / sizeof(names[0])); k++)
+            {
+                bool want = !strcmp(tn, names[k].n) ||
+                            (prod && (names[k].t == TYPE_FACTORY || names[k].t == TYPE_REFINERY || names[k].t == TYPE_DEPOT ||
+                                      names[k].t == TYPE_PORT || names[k].t == TYPE_ARMYBASE)) ||
+                            (!strcmp(tn, "all") && names[k].t == TYPE_POWERPLANT);
+
+                if (want && gBlowN < 32)
+                {
+                    gBlow[gBlowN].type = names[k].t, gBlow[gBlowN].team = team, gBlow[gBlowN].hold = hold, gBlow[gBlowN].done = 0;
+                    gBlowN++;
+                    found++;
+                }
+            }
+
+            printf("KNOB blow %s team %s%s: %d rule(s)\n", tn, tm, hold ? " held down" : "", found);
         }
         else if (!strcmp(key, "airtempo"))
         {
@@ -2941,7 +3020,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';
@@ -3413,6 +3492,7 @@ int main(int argc, char **argv)
             // (railnet.cpp GameSeconds), and without this they stood still at the start time.
             vuxGameTime = TheCampaign.CurrentTime;
             ApplyAirTempo();
+            ApplyBlow();
 
             if ((iter % 10) == 0)
                 ApplyAbHeal();

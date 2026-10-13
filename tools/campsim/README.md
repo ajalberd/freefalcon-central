@@ -39,6 +39,7 @@ python make_backdrop.py                                         # terrain image 
 | `crashtest=N` | fault on purpose at tick N, to check the crash logger |
 | `tri=NAME` | read triggers from `campaign/SAVE/NAME.tri`. **Needed for trigger variants**: the engine picks the .tri by the scenario name stored *inside* the .cam, so a renamed save (`both.cam`) still reads `save0.tri`. Example: `both.tri` = save0 with the win needing Pyongyang AND Wonsan (`#IF_CONTROLLED 2 A 680 260 404`) |
 | `theater=<tdf>` / `simroot=<dir>` | run another theater; see "Other theaters" below |
+| `blow=TYPE:TEAM[:hold]` | destroy every feature of the team's objectives of that type at the start (`hold`: re-destroyed every tick, a bombing campaign that is never repaired). TYPE: `factory refinery power depot port armybase bridge road railroad producers all`; TEAM: a number or `red` (teams 4, 5, 6: China and Russia fold into DPRK). See "Supply what-ifs" |
 | `pak=ID:VALUE[:TEAM]` | the player's PAK slider for objective ID's PAK (`player_priority`; team defaults to 2). Air planning only. Pyongyang is one PAK, 260 (680 belongs to it) |
 
 A crash now writes `CRASH at campaign min ...` with the fault address and a symbolised stack
@@ -160,6 +161,21 @@ DEBUG-only null check); that check now always runs.
 
 The engine **re-reads the .tri on every trigger check**, so editing a script changes runs already in
 progress. Stop them first.
+
+## Supply what-ifs (Korea, Rolling Fire)
+
+`blow=` plus `supply_whatif.py` measure how much the supply chain matters (the chain itself is described in
+`CAMPAIGN-SUPPLY-ENGINE.md`). Result of eight scenarios x 2 seeds x 5 days (usecfg=1, noend=1, all AI fixes on):
+
+- DPRK production capacity per day: 15,350 baseline; 7,710 with the factories gone; 2,170 with every producer gone; 0 with the
+  power plants gone (every producer is multiplied by its nearest plant's status). The supply pool falls with it within an hour
+  (about 250 to 30 without power); refineries held down cut the fuel pool by about 60% in 12 hours and about 95% in 24.
+- The front does not notice inside five days: mean battalion supply about 93% at baseline and 89-92% in the worst case, 0-2
+  battalions under 25%, no pattern in the Blue win time or the final objective counts. Units start near 100% and burn about a
+  point a day; production (21,000 supply over the five days) runs about six times above what they draw (3,300).
+- Repair is slow: power plants blown once were back to about 68% of baseline production after five days.
+- A finding on the side: DPRK ground units received 3 replacement vehicles in five days (ROK ground: 4,446) in every scenario,
+  although DPRK's replacement pool grew to about 4,800 unused.
 
 ## Timeline format (`runs/*.jsonl`, one JSON object per line)
 
