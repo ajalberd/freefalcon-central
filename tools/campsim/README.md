@@ -42,8 +42,9 @@ python make_backdrop.py                                         # terrain image 
 | `replfix=0/1` | `g_bReplSplitFix` (default 1, see "Replacements" below); `0` = stock split |
 | `relsquad=F` | override `RelSquadBonus` (Falcon4.AII, stock 4.0) for the run; `REPLSPLIT` log lines every 6 hours show each team's air and ground vehicle shortfall and the lambda used |
 | `noairlift=1` | airlift landings add no supply, fuel or replacements (the flights still happen); `AIRLIFT` lines every 6 hours count landings and what they added |
+| `airliftneed=0/1`, `airliftrunway=0/1` | `g_bAirliftNeed` / `g_bAirliftRunway` (default 1: airlift credit capped by the need around the destination, none at an airbase with no working runway; 0 = stock) |
 | `airliftlog=1` | one `AIRLIFTLAND` line per credited landing: squadron, home airbase, landing airbase, distance, flight size, runway status |
-| `blow=TYPE:TEAM[:hold]` | destroy every feature of the team's objectives of that type at the start (`hold`: re-destroyed every tick, a bombing campaign that is never repaired). TYPE: `factory refinery power depot port armybase bridge road railroad producers all`; TEAM: a number or `red` (teams 4, 5, 6: China and Russia fold into DPRK). See "Supply what-ifs" |
+| `blow=TYPE:TEAM[:hold]` | destroy every feature of the team's objectives of that type at the start (`hold`: re-destroyed every tick, a bombing campaign that is never repaired). TYPE: `factory refinery power depot port armybase bridge road railroad airbase producers all`; TEAM: a number or `red` (teams 4, 5, 6: China and Russia fold into DPRK). See "Supply what-ifs" |
 | `pak=ID:VALUE[:TEAM]` | the player's PAK slider for objective ID's PAK (`player_priority`; team defaults to 2). Air planning only. Pyongyang is one PAK, 260 (680 belongs to it) |
 
 A crash now writes `CRASH at campaign min ...` with the fault address and a symbolised stack

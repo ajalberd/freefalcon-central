@@ -27,6 +27,7 @@
 #include "aiinput.h"
 #include "cuievent.h"
 #include "msginc/radiochattermsg.h"
+#include "ptdata.h"
 #include "msginc/campweaponfiremsg.h"
 #include "msginc/awacsmsg.h"
 #include "misseval.h"
@@ -50,9 +51,71 @@
 
 // Artscout - 2026, campsim diagnostics: per team, landed airlift flights and what they added to the team pools
 // ([0] landings, [1] supply, [2] fuel, [3] replacements). gAirliftOff (campsim noairlift=1) skips the supplies.
-int gAirliftDiag[8][4];
+// [4] landings refused (no working runway), [5] landings whose credit the destination's need cut, [6] / [7] supply / replacements
+// the flight would have brought (before the caps).
+int gAirliftDiag[8][8];
 int gAirliftOff;
 void (*gAirliftHook)(Unit, WayPoint); // campsim: called for every credited airlift landing
+
+#define AIRLIFT_NEED_RADIUS 40.0F // km: battalions this close to the landing airbase count as its need
+
+// Artscout - 2026 (g_bAirliftRunway): at least one of the airbase's runways is not destroyed (the same test ObjectiveClass::CalcStatus
+// uses to cap an airbase's status). An airbase with no runway data counts as usable.
+static bool AirliftRunwayOK(Objective ab)
+{
+    ObjClassDataType *oc = ab->GetObjectiveClassData();
+
+    if (!oc)
+        return true;
+
+    int runways = 0, inactive = 0;
+
+    for (int index = oc->PtDataIndex; index; index = PtHeaderDataTable[index].nextHeader)
+    {
+        if (PtHeaderDataTable[index].type == RunwayPt)
+        {
+            runways++;
+
+            if (CheckHeaderStatus(ab, index) == VIS_DESTROYED)
+                inactive++;
+        }
+    }
+
+    return runways == 0 || inactive < runways;
+}
+
+// Artscout - 2026 (g_bAirliftNeed): what is missing around an airbase. Supply / fuel: the shortfall of the team's battalions within
+// AIRLIFT_NEED_RADIUS. Replacements: missing vehicles in those battalions plus missing aircraft in the squadrons based at the airbase.
+// Squadron supply need is left out on purpose: GetUnitSupplyNeed on a squadron has side effects, and its need is mostly the gap to
+// a full weapon-stores table that squadrons never draw down.
+static void AirliftDeficit(Objective ab, int team, int &sup, int &fuel, int &repl)
+{
+    GridIndex ax = 0, ay = 0;
+    ab->GetLocation(&ax, &ay);
+    sup = fuel = repl = 0;
+    VuListIterator uit(AllUnitList);
+
+    for (Unit un = GetFirstUnit(&uit); un; un = GetNextUnit(&uit))
+    {
+        if (un->GetTeam() != team)
+            continue;
+
+        if (un->IsBattalion())
+        {
+            GridIndex x = 0, y = 0;
+            un->GetLocation(&x, &y);
+
+            if (Distance(ax, ay, x, y) <= AIRLIFT_NEED_RADIUS)
+            {
+                sup += un->GetUnitSupplyNeed(FALSE);
+                fuel += un->GetUnitFuelNeed(FALSE);
+                repl += un->GetFullstrengthVehicles() - un->GetTotalVehicles();
+            }
+        }
+        else if (un->IsSquadron() && un->GetUnitAirbaseID() == ab->Id())
+            repl += un->GetFullstrengthVehicles() - un->GetTotalVehicles();
+    }
+}
 
 extern void AircraftLaunch(Flight f);
 extern void GoHome(Flight flight);
@@ -537,17 +600,43 @@ int DoWPAction(Flight u)
 
             if (!gAirliftOff)
             {
-                gAirliftDiag[team & 7][1] += AIRLIFT_SUPPLIES * el / 3;
-                gAirliftDiag[team & 7][2] += AIRLIFT_FUEL * el / 3;
-                gAirliftDiag[team & 7][3] += AIRLIFT_REPLACEMENTS * el / 3;
+                extern bool g_bAirliftRunway, g_bAirliftNeed;
                 // RV - Biker - Make airlift supply dependent on package strength
-                TeamInfo[team]->SetSupplyAvail(TeamInfo[team]->GetSupplyAvail() +
-                                               AIRLIFT_SUPPLIES * el / 3);
-                TeamInfo[team]->SetFuelAvail(TeamInfo[team]->GetFuelAvail() +
-                                             AIRLIFT_FUEL * el / 3);
-                TeamInfo[team]->SetReplacementsAvail(
-                    TeamInfo[team]->GetReplacementsAvail() +
-                    AIRLIFT_REPLACEMENTS * el / 3);
+                int cs = AIRLIFT_SUPPLIES * el / 3, cf = AIRLIFT_FUEL * el / 3, cr = AIRLIFT_REPLACEMENTS * el / 3;
+                gAirliftDiag[team & 7][6] += cs;
+                gAirliftDiag[team & 7][7] += cr;
+
+                if (g_bAirliftRunway or g_bAirliftNeed)
+                {
+                    GridIndex lx = 0, ly = 0;
+                    w->GetWPLocation(&lx, &ly);
+                    Objective dest = FindNearestAirbase(lx, ly);
+
+                    if (dest and g_bAirliftRunway and not AirliftRunwayOK(dest))
+                    {
+                        cs = cf = cr = 0;
+                        gAirliftDiag[team & 7][4]++;
+                    }
+                    else if (dest and g_bAirliftNeed)
+                    {
+                        int ds, df, dr;
+                        AirliftDeficit(dest, team, ds, df, dr);
+
+                        if (cs > ds or cf > df or cr > dr)
+                            gAirliftDiag[team & 7][5]++;
+
+                        cs = max(0, min(cs, ds));
+                        cf = max(0, min(cf, df));
+                        cr = max(0, min(cr, dr));
+                    }
+                }
+
+                gAirliftDiag[team & 7][1] += cs;
+                gAirliftDiag[team & 7][2] += cf;
+                gAirliftDiag[team & 7][3] += cr;
+                TeamInfo[team]->SetSupplyAvail(TeamInfo[team]->GetSupplyAvail() + cs);
+                TeamInfo[team]->SetFuelAvail(TeamInfo[team]->GetFuelAvail() + cf);
+                TeamInfo[team]->SetReplacementsAvail(TeamInfo[team]->GetReplacementsAvail() + cr);
             }
 #ifdef DEBUG
             gSupplyFromAirlift[team] += AIRLIFT_SUPPLIES;

@@ -2348,13 +2348,14 @@ static void ReplSplitLog(int hour)
             gnd[t] += need, nGnd[t]++;
     }
 
-    extern int gAirliftDiag[8][4];
+    extern int gAirliftDiag[8][8];
 
     for (int t = 0; t < NUM_TEAMS; t++)
     {
         if (t < 8 && gAirliftDiag[t][0])
-            printf("AIRLIFT h%d team %d %-6s landings %d, added supply %d fuel %d replacements %d (cumulative)\n", hour, t,
-                   TeamInfo[t] ? TeamInfo[t]->name : "?", gAirliftDiag[t][0], gAirliftDiag[t][1], gAirliftDiag[t][2], gAirliftDiag[t][3]);
+            printf("AIRLIFT h%d team %d %-6s landings %d, added supply %d fuel %d replacements %d (cumulative); flights would have brought supply %d replacements %d; refused for runway %d, credit cut by need %d\n",
+                   hour, t, TeamInfo[t] ? TeamInfo[t]->name : "?", gAirliftDiag[t][0], gAirliftDiag[t][1], gAirliftDiag[t][2], gAirliftDiag[t][3],
+                   gAirliftDiag[t][6], gAirliftDiag[t][7], gAirliftDiag[t][4], gAirliftDiag[t][5]);
 
         if (!air[t] && !gnd[t])
             continue;
@@ -2379,7 +2380,7 @@ static void ReplSplitLog(int hour)
 }
 
 // blow=<type>:<team>[:hold] -- destroy every feature of the team's objectives of that type at the start (hold: every tick, a
-// bombing campaign that is never repaired). type: factory refinery power depot port armybase bridge road railroad producers all.
+// bombing campaign that is never repaired). type: factory refinery power depot port armybase bridge road railroad airbase producers all.
 // team: a number, or "red" for teams 4, 5 and 6 (China and Russia fold into DPRK). Measures how much the supply chain depends on it.
 struct BlowRule { int type; int team; int hold; int done; };
 static BlowRule gBlow[32];
@@ -2666,6 +2667,18 @@ static void ApplyKnobs(int argc, char **argv)
             gAirliftHook = gAirliftLog ? AirliftLandLog : NULL;
             printf("KNOB airliftlog = %d\n", gAirliftLog);
         }
+        else if (!strcmp(key, "airliftneed"))
+        {
+            extern bool g_bAirliftNeed;
+            g_bAirliftNeed = atoi(val) != 0;
+            printf("KNOB g_bAirliftNeed = %d\n", (int)g_bAirliftNeed);
+        }
+        else if (!strcmp(key, "airliftrunway"))
+        {
+            extern bool g_bAirliftRunway;
+            g_bAirliftRunway = atoi(val) != 0;
+            printf("KNOB g_bAirliftRunway = %d\n", (int)g_bAirliftRunway);
+        }
         else if (!strcmp(key, "noairlift"))
         {
             extern int gAirliftOff;
@@ -2686,7 +2699,7 @@ static void ApplyKnobs(int argc, char **argv)
             static const struct { const char *n; int t; } names[] = {
                 {"factory", TYPE_FACTORY}, {"refinery", TYPE_REFINERY}, {"power", TYPE_POWERPLANT}, {"depot", TYPE_DEPOT},
                 {"port", TYPE_PORT}, {"armybase", TYPE_ARMYBASE}, {"bridge", TYPE_BRIDGE}, {"road", TYPE_ROAD},
-                {"railroad", TYPE_RAILROAD}};
+                {"railroad", TYPE_RAILROAD}, {"airbase", TYPE_AIRBASE}};
             int found = 0;
             bool prod = !strcmp(tn, "producers") || !strcmp(tn, "all");
 
@@ -3130,7 +3143,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';

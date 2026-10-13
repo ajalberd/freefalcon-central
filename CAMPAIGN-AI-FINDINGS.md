@@ -160,6 +160,8 @@ These cost a day each and apply to any theater with scripted endings (found on t
   Measured per 6 hours across ~400 DPRK battalions: moving ~250 points, firing at aircraft ~110, **firing at ground ~5**: ground
   combat costs almost no supply. Resupply gives `need x min(0.5, pool/need) x typeBonus` (attack role x6) every 20 min / 3 h, so any
   non-trivial pool refills a unit a few percent down. Supply does not constrain the ground war.
+- Switches `g_bAirliftNeed` / `g_bAirliftRunway` (on by default) cap the airlift credit by the need around the destination and refuse
+  landings at airbases with no working runway: DPRK supply credit -65%, replacements -9% (always plenty of nearby shortfall).
 - `RelSquadBonus` replacement split: see section 7 / `g_bReplSplitFix`.
 
 ## Open items (not solved)

@@ -363,6 +363,23 @@ Consequences: shooting down airlift flights or cratering their destination runwa
 flights themselves are base-to-base shuttles. Candidate changes (none made): cap the credit per team per day, scale it by aircraft
 type and count, require a supply deficit at the destination, require a usable runway, or remove it.
 
+### Switches: AirliftRunway and AirliftNeed (both on by default, 0 = stock)
+
+- `g_bAirliftRunway` (cfg `AirliftRunway`): a landing is credited only if the airbase has a runway that is not destroyed (the runway-point
+  test `ObjectiveClass::CalcStatus` already uses to cap an airbase's status).
+- `g_bAirliftNeed` (cfg `AirliftNeed`): each currency is credited only up to what is short around the destination: supply and fuel =
+  the shortfall of the team's battalions within 40 km of the airbase; replacements = missing vehicles in those battalions plus missing
+  aircraft in the squadrons based there. Squadron supply need is not counted (side effects, and it is mostly the gap to a never-drawn
+  weapon-stores table).
+
+campsim (`airliftneed=`, `airliftrunway=`, `AIRLIFT` lines with offered / credited / refused / cut): Korea, 5 days, 2 seeds, DPRK. Baseline:
+the flights bring ~7,080 supply and replacements; with both rules supply credited is 2,444 (35%), replacements 6,467 (91%); 2% of landings
+(7) were at cratered runways. Power plants held down: supply credited 4,769 of 7,044 (68%), battalion supply 86% mean / 83% at the front
+(unrestricted airlift 93% / 92%; no airlift at all 74% / 66%). The need cap bites supply and barely touches replacements, because every
+base always has far more than 12 points of missing aircraft and vehicles nearby, so replacements remain a free stream well above
+production (1,800). With every DPRK airbase destroyed the flights mostly cannot take off (offered fell from ~7,000 to 84), DPRK ground
+replacements fell from ~3,500 to ~1,400. Not yet done: a tighter replacement cap (ground shortfall only, or scaled by flight size).
+
 ## Open questions
 
 - Ground **movement** — whether destroyed bridges block or slow unit movement is a
