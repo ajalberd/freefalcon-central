@@ -52,7 +52,7 @@ runs with `--theater` (run_batch) or the `theater=` knob (campsim.exe):
 ```
 python run_batch.py --theater list                                      # what theater.lst offers
 python run_batch.py --theater israel_classic --save save1 --days 19 --set usecfg=1
-python run_batch.py --theater israel2007 --save save2 --days 32 --seeds 1 2 3 4 --jobs 4
+python run_batch.py --theater israel2007 --save save2 --days 10 --seeds 1 2 3 4 --jobs 4
 campsim.exe <game> save1 19 1 out.jsonl 60 theater=theaters/Israel_Classic/Israel_Classic.tdf simroot=<dir>
 ```
 
@@ -69,12 +69,24 @@ passes `simroot=` itself. Without it the log shows `radarDatFileTable ... entrie
 `[SIMLIB-OPEN-FAIL] req='sim/radar/radtypes.lst'`, so check that line on a new theater. The Korea-family
 theaters (korea_2012, korea1980s, eurowar) share Korea's sim data and need only `theater=`.
 
-The Campaign Lab (`serve.py`) still starts Korea runs only, but the replay viewer (`viewer.html`) opens any run:
-team names and colours come from the run's own `meta.teams`, the backdrop from the theater in the run's file
-name (`python make_backdrop.py <terrdata dir> backdrop-<stem>.png`; `backdrop-Israel.png` serves all three
-Israel theaters). Viewer: wheel zoom, drag pan, double-click fit, space / arrows to play and step; layers for
-territory, objectives (by type), ground units (strength bar), flights, movement trails and capture rings; the
-event list jumps to the frame an event first fired; the banner shows the END_GAME code.
+**Campaign Lab (`serve.py`).** It still *starts* Korea runs only (any theater's runs from the command line show up in it).
+The run table has one column group per team, whatever the theater (objectives held, ground and air left, start to end) and
+sorts by run, started, state, days or end (click a header; the choice is remembered). Runs carry the campaign's own name as
+the game's campaign screen shows it (`Korea - Tiger Spirit`, `Israel 2012 - 2007 Fictional War`: the theater `.tdf` name plus
+`TXT_SCENARIO_1..3` from its `art/main/lcktxtrc.irc`; `run_batch.campaign_labels`), and the end column says what ended the war:
+the `END_GAME` code with the `//` comment above that block in the `.tri` (`END 14  Arabs own Hermon, Bir Jif Jaffar & Baluza`).
+
+**Replay viewer (`viewer.html`)** opens any run: team names and colours come from the run's own `meta.teams`, the backdrop from
+the theater in the run's file name (`python make_backdrop.py <terrdata dir> backdrop-<stem>.png`; `backdrop-Israel.png` serves all
+three Israel theaters; the PNGs are generated, not committed). Main teams come first (ROK, DPRK / Israel, Egypt).
+- map: wheel zoom, drag pan, double-click fits; territory glow per owner, objectives by type, ground units as framed boxes with a
+  strength bar, flights, movement trails and rings on fresh captures; each layer can be switched off; hover for details
+- sidebar: a clock and slider (space plays, arrows step), the scripted events with the frame each first fired (click to jump), a
+  per-team table at the slider position with the change since frame 1 (forces; posture; battalion morale and supply; supply and
+  fuel levels, pools, producers, power; flights, packages, airbases; cumulative losses by cause), and **three charts**, each with its
+  own metric picker, that jump the slider when clicked
+- the sidebar is resizable (drag the bar next to the map, double-click resets) and your width and chart choices are remembered
+- the banner and the event list show the end code with its label
 
 **Saving a replay as an animation:** the viewer's "Save replay as animation" panel renders the map as framed on screen
 (zoom, pan, layers) plus a title / clock / scores overlay, scaled to 1024-2560 px wide, and saves an animated **WebP**
@@ -87,20 +99,24 @@ The `tri=` knob and the .tri / .cam lookups use the theater's campaign dir. `gam
 
 ### The Israel theaters (FF6 ITO 2)
 
-Three theaters with three campaigns each, nine campaigns in all. Only one of them is modern, despite
-the "ITO 2012: 2004, 2007, 2012" description:
+Three theaters with three campaigns each, nine in all. Two are modern fictional wars (Israel 2012's **2004** and **2012**, hidden
+in the shipped game and rebuilt 2026-10-13, see below) plus the **2007** one.
 
 | theater (stem) | save0 | save1 | save2 |
 |---|---|---|---|
-| Israeli (`Israeli`) | 1967 Six Days (RAM22 update) | 1973 Yom Kippur | 1982 Lebanon |
-| Israel 2012 (`Israel2007`) | 1967, bigger OOB | 1973, bigger OOB, Egypt holds all of Sinai | **2007 fictional** (F-16I, AH-64D, US, Saudi) |
+| Israeli (`Israeli`; folder `Israel`) | 1967 Six Days (RAM22 update) | 1973 Yom Kippur | 1982 Lebanon |
+| Israel 2012 (`Israel2007`) | **2004 Fictional War** (rebuilt) | **2012 Fictional War** (rebuilt) | **2007 Fictional War** (F-16I, AH-64D, US, Saudi) |
 | Israel Classic (`Israel_Classic`) | 1982 | 1973 | 1967 |
+
+Classic's `save0.cam` names `save2` as its scenario and `save2.cam` names `save0`, and the engine reads `<Scenario>.tri`, so on
+disk the two script files are swapped to match. The saves' contents do not always match their button names (Classic's "1967"
+starts with Israel already holding the old city of Jerusalem); read a run's first frame, not the label.
 
 Teams: 2 Israel, 6 Egypt; 3 Iraq, 4 Jordan, 5 Syria, 7 Saudi, 1 US (2007). `#CHANGE_RELATIONS a b 1`
 (allied) **merges** team a into team b (`SetTeam`), so once Syria or Jordan joins, their ground counts as
-team 6: write end conditions against team 6, not the joining country. Day limits: 1967 day 6-7,
-1973 day 18, 1982 and 2007 day 30. `#IF_CAMPAIGN_DAY G N` fires on the first trigger check after day N
-starts, so run `--days N+2`.
+team 6: write end conditions against team 6, not the joining country. Day limits after the retune: 1967 Israeli day 9, Classic
+1967 day 8, 1973 day 10, 1982 day 9, 2004 / 2007 / 2012 day 9-10. `#IF_CAMPAIGN_DAY G N` fires roughly N-1 days into the war, so
+run `--days 10`.
 
 **The objective numbering differs per theater.** Israel_Classic uses the original IDs that the ITO
 scripts and the win-conditions document (`Theaters/Israel/FF Israeli Docs/`) were written for. The
@@ -117,7 +133,14 @@ original kept as `save?.tri.bak-orig`):
 - "falls/regained" blocks never reset themselves, so their ±50 initiative shift repeated on every check;
 - 1973/1982 IDs remapped in the newer theaters;
 - the 2007 Syria win sat below `#ENDSCRIPT` (now: Syria takes Haifa);
-- the Israel 2012 1973 Arab win was already true at the start (now: Hermon + Ramon AB + Ovda AB).
+- a trailing space after `#ENDIF` (the engine strips only CR / LF, so `#ENDIF ` is not an ENDIF and every later block nested
+  under it) was removed from every script;
+- Classic's save0 / save2 scripts were swapped on disk to match the Scenario names inside the `.cam` files;
+- Israeli 1967's conquest win, commented out by its author, was restored;
+- Israel 2012's old save0 / save1 (1967 and 1973 data under 2004 / 2012 titles, buttons commented out) no longer exist as such:
+  see the rebuild below.
+
+The scripts that did all of this are in `israel/` (its README lists them: `fix_tri.py`, `build_modern.py`, `retune.py`, `report.py`).
 
 **Retuned 2026-10-13 toward a 5-10 day war** (installed scripts and saves keep `*.bak-pre-retune`; the untouched originals `*.bak-orig`):
 Israel 2012's hidden `save0` / `save1` were rebuilt as the modern **2004** and **2012 Fictional War** campaigns (copies of the 2007 save with
