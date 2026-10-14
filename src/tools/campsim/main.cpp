@@ -2357,6 +2357,21 @@ static void ReplSplitLog(int hour)
                    hour, t, TeamInfo[t] ? TeamInfo[t]->name : "?", gAirliftDiag[t][0], gAirliftDiag[t][1], gAirliftDiag[t][2], gAirliftDiag[t][3],
                    gAirliftDiag[t][6], gAirliftDiag[t][7], gAirliftDiag[t][4], gAirliftDiag[t][5]);
 
+        extern bool g_bSupplyStocks;
+        extern int gStoreDiag[NUM_TEAMS][8];
+        extern void StoreStats(int team, int *count, int *stockS, int *capS, int *stockF, int *low);
+
+        if (g_bSupplyStocks)
+        {
+            int sn, ss, sc, sf, sl;
+            StoreStats(t, &sn, &ss, &sc, &sf, &sl);
+
+            if (sn)
+                printf("STORES h%d team %d %-6s stores %d, stock supply %d of %d fuel %d, under 25%% %d | drawn supply %d fuel %d, asked but not in stock %d, no store behind the unit %d | refilled supply %d fuel %d, stock lost %d\n",
+                       hour, t, TeamInfo[t] ? TeamInfo[t]->name : "?", sn, ss, sc, sf, sl, gStoreDiag[t][0], gStoreDiag[t][1], gStoreDiag[t][2],
+                       gStoreDiag[t][3], gStoreDiag[t][4], gStoreDiag[t][6], gStoreDiag[t][5]);
+        }
+
         if (!air[t] && !gnd[t])
             continue;
 
@@ -2670,6 +2685,30 @@ static void ApplyKnobs(int argc, char **argv)
             gAirliftLog = atoi(val) != 0;
             gAirliftHook = gAirliftLog ? AirliftLandLog : NULL;
             printf("KNOB airliftlog = %d\n", gAirliftLog);
+        }
+        else if (!strcmp(key, "stocks"))
+        {
+            extern bool g_bSupplyStocks;
+            g_bSupplyStocks = atoi(val) != 0;
+            printf("KNOB g_bSupplyStocks = %d\n", (int)g_bSupplyStocks);
+        }
+        else if (!strcmp(key, "storesproduce"))
+        {
+            extern bool g_bStoresProduce;
+            g_bStoresProduce = atoi(val) != 0;
+            printf("KNOB g_bStoresProduce = %d\n", (int)g_bStoresProduce);
+        }
+        else if (!strcmp(key, "storecap"))
+        {
+            extern int g_nStoreCapPct;
+            g_nStoreCapPct = atoi(val);
+            printf("KNOB g_nStoreCapPct = %d\n", g_nStoreCapPct);
+        }
+        else if (!strcmp(key, "storefill"))
+        {
+            extern int g_nStoreFillPct;
+            g_nStoreFillPct = atoi(val);
+            printf("KNOB g_nStoreFillPct = %d\n", g_nStoreFillPct);
         }
         else if (!strcmp(key, "airliftneed"))
         {
@@ -3147,7 +3186,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';

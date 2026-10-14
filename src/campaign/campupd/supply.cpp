@@ -58,6 +58,137 @@ int gSupplyPath[NUM_TEAMS][SUPPATH_LAST] = {{0}};
 
 
 // ====================
+// Regional stocks (g_bSupplyStocks, an experiment, off by default)
+// ====================
+// Depots and army bases hold a local stock of supply and fuel (class DataRate x StoreCapPct, the same number of each). Production
+// into the national pool is unchanged except that stores stop producing unless StoresProduce. Each production call the pool tops
+// the stores up (at most StoreFillPct of capacity each, shared out by how short they are); a battalion draws from the nearest store
+// behind it instead of from the pool, so the stock really goes down where the fighting is and a bombed or captured store loses what
+// it held. Squadrons keep using the pool. The stock is not saved: stores start full on load.
+extern bool g_bSupplyStocks, g_bStoresProduce;
+extern int g_nStoreCapPct, g_nStoreFillPct;
+static float gStoreSup[MAX_CAMP_ENTITIES], gStoreFuel[MAX_CAMP_ENTITIES];
+static uchar gStoreOwner[MAX_CAMP_ENTITIES], gStoreInit[MAX_CAMP_ENTITIES];
+// campsim diagnostic, per team: [0] supply drawn, [1] fuel drawn, [2] supply asked for but not in stock, [3] resupplies with no store
+// behind the unit, [4] supply refilled from the pool, [5] stock lost to capture or damage, [6] fuel refilled
+int gStoreDiag[NUM_TEAMS][8] = {{0}};
+
+static int IsStoreObj(Objective o)
+{
+    return o->GetType() == TYPE_DEPOT or o->GetType() == TYPE_ARMYBASE;
+}
+
+static int StoreCap(Objective o)
+{
+    int rate = o->static_data.class_data ? o->static_data.class_data->DataRate : 0;
+    int c = rate * g_nStoreCapPct / 100;
+    return c < 20 ? 20 : c;
+}
+
+static void StoreSync(Objective o)
+{
+    int id = o->GetCampID(), team = o->GetTeam();
+
+    if (id < 0 or id >= MAX_CAMP_ENTITIES)
+        return;
+
+    int cap = StoreCap(o);
+
+    if (not gStoreInit[id])
+    {
+        gStoreInit[id] = 1;
+        gStoreOwner[id] = (uchar)team;
+        gStoreSup[id] = gStoreFuel[id] = (float)cap;
+        return;
+    }
+
+    if (gStoreOwner[id] != team)
+    {
+        gStoreDiag[gStoreOwner[id] % NUM_TEAMS][5] += (int)gStoreSup[id];
+        gStoreSup[id] = gStoreFuel[id] = 0.0F;
+        gStoreOwner[id] = (uchar)team;
+    }
+
+    float lim = (float)(cap * o->GetObjectiveStatus() / 100); // bombed: the stock burns with it
+
+    if (gStoreSup[id] > lim)
+    {
+        gStoreDiag[team % NUM_TEAMS][5] += (int)(gStoreSup[id] - lim);
+        gStoreSup[id] = lim;
+    }
+
+    if (gStoreFuel[id] > lim)
+        gStoreFuel[id] = lim;
+}
+
+// Top the team's stores up from its pools: shared out by how short each is, none taking more than StoreFillPct of its capacity.
+static void FillStores(int who)
+{
+    static Objective st[512];
+    static float wantS[512], wantF[512];
+    int n = 0;
+    float totS = 0.0F, totF = 0.0F;
+    VuListIterator oit(AllObjList);
+
+    for (Objective o = GetFirstObjective(&oit); o and n < 512; o = GetNextObjective(&oit))
+    {
+        if (not IsStoreObj(o) or o->GetTeam() != who)
+            continue;
+
+        StoreSync(o);
+        int id = o->GetCampID(), cap = StoreCap(o);
+        float room = (float)cap * (float)o->GetObjectiveStatus() / 100.0F, fill = (float)cap * g_nStoreFillPct / 100.0F;
+        st[n] = o;
+        wantS[n] = max(0.0F, min(room - gStoreSup[id], fill));
+        wantF[n] = max(0.0F, min(room - gStoreFuel[id], fill));
+        totS += wantS[n];
+        totF += wantF[n];
+        n++;
+    }
+
+    float poolS = (float)TeamInfo[who]->GetSupplyAvail(), poolF = (float)TeamInfo[who]->GetFuelAvail();
+    float kS = totS > 0.0F ? min(1.0F, poolS / totS) : 0.0F, kF = totF > 0.0F ? min(1.0F, poolF / totF) : 0.0F;
+    float usedS = 0.0F, usedF = 0.0F;
+
+    for (int i = 0; i < n; i++)
+    {
+        int id = st[i]->GetCampID();
+        gStoreSup[id] += wantS[i] * kS;
+        gStoreFuel[id] += wantF[i] * kF;
+        usedS += wantS[i] * kS;
+        usedF += wantF[i] * kF;
+    }
+
+    TeamInfo[who]->SetSupplyAvail((int)(poolS - usedS));
+    TeamInfo[who]->SetFuelAvail((int)(poolF - usedF));
+    gStoreDiag[who][4] += (int)usedS;
+    gStoreDiag[who][6] += (int)usedF;
+}
+
+// campsim: a team's stores now
+void StoreStats(int team, int *count, int *stockS, int *capS, int *stockF, int *low)
+{
+    *count = *stockS = *capS = *stockF = *low = 0;
+    VuListIterator oit(AllObjList);
+
+    for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+    {
+        if (not IsStoreObj(o) or o->GetTeam() != team)
+            continue;
+
+        StoreSync(o);
+        int id = o->GetCampID(), cap = StoreCap(o);
+        (*count)++;
+        *stockS += (int)gStoreSup[id];
+        *stockF += (int)gStoreFuel[id];
+        *capS += cap;
+
+        if (gStoreSup[id] < cap * 0.25F)
+            (*low)++;
+    }
+}
+
+// ====================
 // Production functions
 // ====================
 
@@ -85,8 +216,8 @@ int ProduceSupplies(CampaignTime deltaTime)
             type = o->GetType();
 
             //Cobra Added Army, depot, and port per JimG
-            if ((type == TYPE_FACTORY or type == TYPE_ARMYBASE or
-                 type == TYPE_DEPOT or type == TYPE_PORT) and
+            if ((type == TYPE_FACTORY or type == TYPE_PORT or
+                 ((type == TYPE_ARMYBASE or type == TYPE_DEPOT) and (not g_bSupplyStocks or g_bStoresProduce))) and
                 o->GetObjectiveOldown() == o->GetOwner()) // Supply
             {
                 if (g_bPowerGrid)
@@ -267,6 +398,9 @@ int ProduceSupplies(CampaignTime deltaTime)
 
         TeamInfo[who]->SetFuelAvail(fuel[who]);
         TeamInfo[who]->SetReplacementsAvail(replacements[who]);
+
+        if (g_bSupplyStocks)
+            FillStores(who);
     }
 
     return 1;
@@ -706,6 +840,15 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                 fuel = FloatToInt32(unit->GetUnitFuelNeed(FALSE) * fratio *
                                     typeBonus);
 
+                // g_bSupplyStocks: a battalion asks its regional store for up to MAX_SUPPLY_RATIO of what it is short of (x typeBonus)
+                const bool stockUnit = g_bSupplyStocks and unit->IsBattalion();
+
+                if (stockUnit)
+                {
+                    supply = FloatToInt32(unit->GetUnitSupplyNeed(FALSE) * MAX_SUPPLY_RATIO * typeBonus);
+                    fuel = FloatToInt32(unit->GetUnitFuelNeed(FALSE) * MAX_SUPPLY_RATIO * typeBonus);
+                }
+
                 // A.S.  2001-12-09. No Type Bonus for replacements. This helps fixing the bug that units can get more replacements than available.
                 if (NoTypeBonusRepl)
                     typeBonus = 1.0F;
@@ -806,6 +949,47 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                     gSupplyDiag[who][SUPDIAG_RESUPPLIES]++;
                     unit->GetLocation(&x, &y);
                     o = FindNearestFriendlyObjective(who, &x, &y, 0);
+
+                    if (stockUnit)
+                    {
+                        Objective st = o ? FindNearestSupplyStore(o) : NULL;
+
+                        if (not st)
+                        {
+                            gSupplyDiag[who][SUPDIAG_NO_SOURCE]++;
+                            gStoreDiag[who][3]++;
+                        }
+                        else
+                        {
+                            StoreSync(st);
+                            const int sid = st->GetCampID();
+                            int ds = min(supply, (int)gStoreSup[sid]), df = min(fuel, (int)gStoreFuel[sid]);
+                            gStoreDiag[who][2] += supply - ds;
+                            gStoreSup[sid] -= (float)ds;
+                            gStoreFuel[sid] -= (float)df;
+                            gStoreDiag[who][0] += ds;
+                            gStoreDiag[who][1] += df;
+                            gots = ds;
+                            gotf = df;
+                            gSupplyDiag[who][SUPDIAG_SENT_SUPPLY] += ds;
+                            gSupplyDiag[who][SUPDIAG_SENT_FUEL] += df;
+
+                            if (ds or df)
+                            {
+                                if (SendSupply(st, o, &gots, &gotf))
+                                {
+                                    SupplyUnit(unit, ds, gots, df, gotf);
+                                    gSupplyDiag[who][SUPDIAG_GOT_SUPPLY] += gots;
+                                    gSupplyDiag[who][SUPDIAG_GOT_FUEL] += gotf;
+                                    gSupplySplit[who][0] += gots;
+                                }
+                                else
+                                    gSupplyDiag[who][SUPDIAG_LOST_ALL]++;
+                            }
+                        }
+                    }
+                    else
+                    {
                     s = o ? FindNearestSupplySource(o) : NULL;
 
                     if (o and s)
@@ -832,6 +1016,7 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                     }
                     else
                         gSupplyDiag[who][SUPDIAG_NO_SOURCE]++;
+                    }
                 }
 
                 unit->SetLastResupplyTime(TheCampaign.CurrentTime);

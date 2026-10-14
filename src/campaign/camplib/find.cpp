@@ -641,6 +641,57 @@ CampEntity GetEntityByCampID(int id)
     return NULL;
 }
 
+// Artscout - 2026 (g_bSupplyStocks): the nearest of the team's own depots and army bases behind the front, the objective itself first.
+static int IsSupplyStore(Objective c, int who)
+{
+    return (c->GetType() == TYPE_DEPOT or c->GetType() == TYPE_ARMYBASE) and c->GetTeam() == who and not c->IsFrontline() and
+           not c->IsSecondline();
+}
+
+Objective FindNearestSupplyStore(Objective o)
+{
+    Objective c;
+    int n, who = o->GetTeam();
+    float cost;
+
+    if (IsSupplyStore(o, who))
+        return o;
+
+    memset(CampSearch, 0, sizeof(uchar) * MAX_CAMP_ENTITIES);
+    FalconPrivateList looklist(&AllObjFilter);
+    looklist.ForcedInsert(o);
+    VuListIterator myit(&looklist);
+    o = GetFirstObjective(&myit);
+
+    while (o)
+    {
+        CampSearch[o->GetCampID()] = 1;
+
+        for (n = 0; n < o->static_data.links; n++)
+        {
+            c = o->GetNeighbor(n);
+
+            if (c and not CampSearch[c->GetCampID()])
+            {
+                cost = GetObjectiveMovementCost(o, NULL, n, Wheeled, (uchar)who, PATH_MARINE);
+
+                if (cost < 250)
+                {
+                    if (IsSupplyStore(c, who))
+                        return c;
+
+                    looklist.ForcedInsert(c);
+                }
+            }
+        }
+
+        looklist.Remove(o);
+        o = GetFirstObjective(&myit);
+    }
+
+    return NULL;
+}
+
 // Finds nearest supply source
 Objective FindNearestSupplySource(Objective o)
 {

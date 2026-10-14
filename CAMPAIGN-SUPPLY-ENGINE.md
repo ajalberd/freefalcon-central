@@ -428,6 +428,34 @@ railroad objectives) cut delivered supply by about 60% and raised transit loss f
 (front 92%): the bridges also stop units from moving, which is where most supply is spent, so need fell with delivery. Roads: nothing,
 they barely exist as objectives. Transit loss at baseline is 0.2%: nearly every unit is within one or two links of a source.
 
+## Experiment: regional stocks (`SupplyStocks`, off by default)
+
+Depots and army bases become **stores**: each holds a local stock of supply and fuel (class DataRate x `StoreCapPct`, default 100, the same number of
+each, at least 20), and they stop producing unless `StoresProduce`. Factories, ports and refineries still fill the national pool. Each hourly
+production call the pool tops the stores up, none taking more than `StoreFillPct` (default 10) of its capacity, shared out by how short they are.
+A battalion asks the nearest store behind it (own depot or army base, not front line; `FindNearestSupplyStore`) for up to half of what it is short
+of and draws that from the store's stock instead of the pool; the delivery path and losses are unchanged. A store that is captured loses its stock, one
+that is damaged loses stock above capacity x status. Squadrons keep using the pool. Stocks are not saved (stores start full on load).
+campsim: `stocks=1 storesproduce= storecap=PCT storefill=PCT`, `STORES` lines every 6 hours.
+
+Korea, 5 days, 2 seeds (unit supply %, mean battalion at hour 119, front line in brackets; control = the national pool):
+
+| Scenario | DPRK | ROK | What the stores did |
+|---|---|---|---|
+| Control (stock model off) | 94% (94%) | 96% (95%) | |
+| Stores, default capacity | 94% (94%) | 96% (94%) | nothing: stocks 98% full at the end |
+| Stores that also produce | 93% (92%) | 96% (94%) | nothing |
+| Tiny stores (cap 10% = 20 points each) | 85% (78%) | 80% (67%) | drained: ~20,000 (DPRK) / ~139,000 (ROK) supply points asked for and not in stock |
+| Stores, power plants held down | 90% (88%) | 96% (95%) | DPRK stores down to 71% of capacity, refilled by the floor and airlift |
+| Cap 25% + power plants held down | 88% (82%) | 88% (81%) | |
+| All depots and army bases held down | 86% (83%) | 93% (89%) | DPRK stock 7% of capacity: stock burned with the bombed stores |
+
+No store within reach: 648 DPRK / 484 ROK resupplies in five days (depots and army bases are far scarcer than the cities and ports the stock model's
+"source" accepted) -- those units get nothing, yet their supply barely moved: consumption is small. Ground vehicles and objectives did not differ
+from control. Conclusion: with realistic capacities a five-day war never leans on the stores; they bite only when they are small (buffer of a few
+days) or when the stores themselves are destroyed or captured, which is the behaviour a regional-stock model is for. A per-store capacity in
+days of local consumption, rather than a multiple of the DataRate, would be the next thing to tune.
+
 ## Open questions
 
 - Ground **movement** — whether destroyed bridges block or slow unit movement is a

@@ -90,6 +90,7 @@ extern CampEntity FindEntity(VU_ID id);
 extern CampEntity GetEntityByCampID(int id);
 
 extern Objective FindNearestSupplySource(Objective o);
+extern Objective FindNearestSupplyStore(Objective o);
 
 extern Unit FindNearestEnemyUnit(GridIndex X, GridIndex Y, GridIndex max);
 

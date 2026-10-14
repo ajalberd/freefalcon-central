@@ -737,6 +737,10 @@ bool g_bGtmCaptureFront = true; // campaign: non-secondary enemy objectives on t
 bool g_bSupplyNeedFix = true; // campaign: resupply counts only positive needs, and a squadron's need only its own table's weapon types (stock: off-table stores in reinforcement squadrons stop all battalion resupply)
 bool g_bGridPathPartial = true; // campaign: a ground unit follows the partial route when its grid path search hits its length/node limit (stock: discarded, the unit retries the same far waypoint forever)
 bool g_bReserveHold = true; // campaign: a reserve battalion on one of our objectives away from the front keeps it (stock: kicked off any non-secondary objective, it fell back 3 links again and again, burning supply)
+bool g_bSupplyStocks = false; // campaign experiment: depots and army bases hold regional stocks of supply and fuel that battalions draw down and the national pool refills; they stop producing unless StoresProduce
+bool g_bStoresProduce = false; // campaign experiment (with SupplyStocks): depots and army bases keep producing into the pool as well
+int g_nStoreCapPct = 100; // campaign experiment (SupplyStocks): a store holds this percent of its class DataRate in supply points (and the same in fuel)
+int g_nStoreFillPct = 10; // campaign experiment (SupplyStocks): most a store takes from the pool per production call, percent of its capacity
 bool g_bAirliftRunway = true; // campaign: an airlift landing is credited only if the airbase it lands at has a runway that is not destroyed (stock: credited anyway)
 bool g_bAirliftNeed = true; // campaign: an airlift landing adds supply, fuel and replacements only up to what units within 40 km of the airbase (and the squadrons based there, for replacements) are short of (stock: a flat credit from nothing, ~25% of DPRK supply and ~80% of its replacements)
 bool g_bReplSplitFix = true; // campaign: replacements are split between squadrons and ground units as w*air / (w*air + ground) with w = RelSquadBonus (stock: min(1, w*air share), so once aircraft are a quarter of a team's shortfall its ground units get no replacements at all: DPRK ground got 3 vehicles in 5 days, ROK thousands)
@@ -1970,6 +1974,8 @@ static ConfigOption<bool> BoolOpts[] = {
     {"SupplyNeedFix", &g_bSupplyNeedFix}, // 1 = a unit's surplus can no longer zero everyone's resupply
     {"GridPathPartial", &g_bGridPathPartial}, // 1 = units heading for a far waypoint move on along the partial route
     {"ReserveHold", &g_bReserveHold}, // 1 = reserves stop shuttling back and forth
+    {"SupplyStocks", &g_bSupplyStocks}, // 1 = regional stocks in depots and army bases (experiment)
+    {"StoresProduce", &g_bStoresProduce}, // 1 = ... and they still produce
     {"AirliftRunway", &g_bAirliftRunway}, // 1 = no airlift credit for a landing at an airbase with no working runway
     {"AirliftNeed", &g_bAirliftNeed}, // 1 = airlift credit is capped by the need around the destination
     {"ReplSplitFix", &g_bReplSplitFix}, // 1 = ground units always keep a share of the replacement pool
@@ -2377,6 +2383,8 @@ static ConfigOption<int> IntOpts[] = {
     {"GtmCaptureMaxKm", &g_nGtmCaptureMaxKm}, // capture targets beyond this distance are not offered (0 = stock)
     {"CaptureInitiative", &g_nCaptureInitiative}, // initiative per captured objective (stock 5)
     {"CounterAttackInitiative", &g_nCounterAttackInitiative}, // a defending side with this much initiative may counterattack (0 = stock)
+    {"StoreCapPct", &g_nStoreCapPct}, // SupplyStocks: store capacity, percent of the class DataRate
+    {"StoreFillPct", &g_nStoreFillPct}, // SupplyStocks: refill per production call, percent of capacity
     {"GtmCaptureUnits", &g_nGtmCaptureUnits}, // battalions the ground AI sends at one capture objective per cycle (stock 1)
     {"GtmKeepCaptureStall", &g_nGtmKeepCaptureStall}, // hours a kept attacker may stand still before it is re-tasked
     {"NavalAI", &g_nNavalAI}, // campaign: 1 = ships sortie, patrol and sail port to port, 0 = old behaviour
