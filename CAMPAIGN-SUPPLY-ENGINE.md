@@ -400,6 +400,25 @@ FF6 raised the army-base rate from 2 / 6 to 127 and cut ports from 300 to 100 re
 its Korea campaign file holds 825 objectives (no army bases, 40 factories at rate 100, 18 ports at 50, one refinery), so a BMS
 economy is far leaner; BMS's own supply code is not public, so whether it even runs `ProduceSupplies` is unknown.
 
+**What one object of each type is worth** (FF6 Korea save0, both sides; DataRate is the class value the editor shows as "rate"; pool points per
+day at 100% damage and power, measured against the simulator: supply = rate x 0.3 (DataRateModSup 1.5 / 5), replacements = rate / 40, fuel = rate x 1.5):
+
+| Object type | Feeds | Count | Rate each (mean, range) | Supply / day each | Replacements / day each | Fuel / day each |
+|---|---|---|---|---|---|---|
+| Factory | supply + replacements | 113 | 212 (100-400; 58 at 100, 36 at 300, 18 at 400) | ~64 | ~5.3 | - |
+| Army base | supply + replacements | 59 | 127 (100 or 200) | ~38 | ~3.2 | - |
+| Depot | supply + replacements | 26 | 146 (100 or 200) | ~44 | ~3.7 | - |
+| Port | supply + replacements | 41 | 107 (100, three at 200) | ~32 | ~2.7 | - |
+| Refinery | fuel only | 8 | 675 (600 or 800) | - | - | ~1,010 |
+| Nuclear plant | scales producers | 27 | 396 (class rate unused) | - | - | - |
+| Power plant | scales producers | 9 | 300 (class rate unused) | - | - | - |
+| City | delivery source only | 361 | 100 (unused) | - | - | - |
+| Airbase / airstrip | nothing | 90 | 1-2 | - | - | - |
+| Bridge | delivery node (2% loss, more if damaged) | 762 | 100 (unused) | - | - | - |
+
+On top of that every team gets 5 supply and 5 fuel and 1 replacement per hourly production call regardless, and airlift landings
+credit 12 of each per landing (see "Airlift"). DPRK: 15,350 supply capacity a day is about 4,600 supply and 380 replacements a day.
+
 **Bombing a hub type** (DPRK, supply+replacement capacity at hour 2, baseline 15,350 a day): all 15 army bases -12%, all 20 ports -12%,
 all 13 depots -12%, all 55 factories **-50%** (1,200 fuel from the 2 refineries is untouched by all four). Production is linear in damage
 and each hub contributes only its own rate; a bombed army base, port or depot still counts as a delivery source (`IsSupplySource` ignores damage).
