@@ -487,6 +487,43 @@ median of 4 objectives (largest 36) and a store was 1-13 links away with no limi
 front line; 7: no connection at all). So a battalion in a captured or cut-off pocket, or on the patchwork front where ownership alternates
 objective by objective, cannot reach any store even though one stands a few links away behind the enemy's objectives.
 
+### The supply stack over 10 days: a choke that follows the factories
+
+Korea Rolling Fire, 10 days, 2 seeds, `ReplSplitFix` + `AirliftNeed` + `AirliftRunway` on, battalion supply use x1 / x3 / x4 (`usemult`), with and
+without the DPRK factories destroyed (`blow=factory:red:hold` held down from the start; `:red` once, repairable). `supply_stack.py` prints it all.
+DPRK mean battalion supply % (front line in brackets) at hour 24 / 96 / 192 / 239:
+
+| Scenario | h24 | h96 | h192 | h239 |
+|---|---|---|---|---|
+| use x1, factories intact | 94 (94) | 96 (95) | 94 (92) | 96 (95) |
+| use x3, factories intact | 92 (90) | 94 (92) | 86 (78) | 83 (76) |
+| use x4, factories intact | 87 (86) | 90 (88) | 77 (72) | 56 (32) |
+| use x3, factories held down | 85 (81) | 75 (68) | 64 (62) | 57 (47) |
+| use x4, factories held down | 76 (73) | 55 (38) | 38 (21) | 40 (14) |
+| use x4, factories destroyed once | 77 (72) | 88 (85) | 80 (75) | 73 (62) |
+
+ROK stays at 84-92% in every case (its economy is untouched). With use x4 and the factories held down the front slides progressively: 73% on
+day 1, 38% on day 4, 21% on day 8, with 54-92 battalions under 25% (against 0-26 with the factories intact). Repairs matter: factories destroyed
+once recover to 88% by day 4. At x1 nothing binds whatever is destroyed. The intact x4 run's late fall (56% / 32% front at the end) is conquest,
+not bombing: DPRK holds 530 objectives of 1,138 and produces 3,400 of 15,350 a day by then.
+
+**What the DPRK economy loses in a normal war** (use x1, `PRODMIX` lines, supply sites only; 97 at the start, 15,350 /day at class rate):
+
+| Hour | Sites still DPRK | Production now | Lost to capture | Lost to damage | Lost to power |
+|---|---|---|---|---|---|
+| 24 | 92 | 14,300 | 650 | 419 | 0 |
+| 72 | 82 | 12,145 | 2,150 | 166 | 889 |
+| 120 | 72 | 10,947 | 3,450 | 170 | 783 |
+| 234 | 54 | 7,627 | 6,100 | 994 | 628 |
+
+Capture is 67-79% of what is lost, the grid 8-28%, direct bomb damage 4-13% (the share grows late): the AI does generate strikes on factories, depots, ports and power
+plants (atm.cpp), but they leave production almost whole. The choke on the previous page therefore comes from conquest, or from a player (or a
+future AI) who bombs the factories; it does not come from the AI's own interdiction. By hour 120 DPRK holds 42 of 49 factories, 7 of 15 army bases,
+7 of 13 depots, 13 of 18 ports.
+
+Also seen: the DPRK replacement pool piles up (4,100 unspent at hour 239 at x1) while its ground vehicles fall from 5,400 to 1,800: replacements are
+not what limits it, delivery is (no-source resupplies, 22% of attempts in the baseline).
+
 ## Open questions
 
 - Ground **movement** — whether destroyed bridges block or slow unit movement is a

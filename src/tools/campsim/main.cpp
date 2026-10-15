@@ -2328,6 +2328,71 @@ static void AirliftLandLog(Unit u, WayPoint w)
            (int)u->GetTotalVehicles(), dest ? (int)dest->GetObjectiveStatus() : -1, dest ? (int)dest->GetTeam() : -1);
 }
 
+// What is left of a team's economy and what it makes, per producer type, every 6 hours (PRODMIX lines): originally its own (n0),
+// still its own, captured by the other side, damaged (status under 100), nearly dead (under 25), the class rate it would make undamaged
+// (full), what it makes now (damage and power applied), and where the rest went: captured, damage, power.
+static void ProdMixLog(int hour)
+{
+    extern bool g_bPowerGrid;
+    static const int types[5] = {TYPE_FACTORY, TYPE_ARMYBASE, TYPE_DEPOT, TYPE_PORT, TYPE_REFINERY};
+    static const char *tn[5] = {"factory", "armybase", "depot", "port", "refinery"};
+    static const int teams[2] = {6, 2};
+
+    for (int ti = 0; ti < 2; ti++)
+    {
+        for (int k = 0; k < 5; k++)
+        {
+            int n0 = 0, own = 0, cap = 0, dmg = 0, dead = 0;
+            double full = 0, now = 0, lostCap = 0, lostDmg = 0, lostPow = 0;
+            VuListIterator oit(AllObjList);
+
+            for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+            {
+                if (o->GetType() != types[k] || o->GetObjectiveOldown() != teams[ti])
+                    continue;
+
+                int rate = o->static_data.class_data ? o->static_data.class_data->DataRate : 0;
+                n0++;
+                full += rate;
+
+                if (o->GetOwner() != teams[ti])
+                {
+                    cap++;
+                    lostCap += rate;
+                    continue;
+                }
+
+                own++;
+                int st = o->GetObjectiveStatus();
+
+                if (st < 100)
+                    dmg++;
+
+                if (st < 25)
+                    dead++;
+
+                long power = 100;
+
+                if (g_bPowerGrid)
+                {
+                    GridIndex x, y;
+                    o->GetLocation(&x, &y);
+                    Objective po = FindNearestFriendlyPowerStation(AllObjList, teams[ti], x, y);
+                    power = po ? po->GetObjectiveStatus() : 0;
+                }
+
+                double afterDmg = (double)rate * st / 100.0;
+                lostDmg += rate - afterDmg;
+                lostPow += afterDmg * (100 - power) / 100.0;
+                now += afterDmg * power / 100.0;
+            }
+
+            printf("PRODMIX h%d team %d %-8s n0 %d own %d captured %d damaged %d dead %d | full %.0f now %.0f | lost: captured %.0f damage %.0f power %.0f\n",
+                   hour, teams[ti], tn[k], n0, own, cap, dmg, dead, full, now, lostCap, lostDmg, lostPow);
+        }
+    }
+}
+
 static void ReplSplitLog(int hour)
 {
     int air[NUM_TEAMS] = {0}, gnd[NUM_TEAMS] = {0}, nAir[NUM_TEAMS] = {0}, nGnd[NUM_TEAMS] = {0};
@@ -3684,6 +3749,9 @@ int main(int argc, char **argv)
 
             if (iter > 0 && (iter % 360) == 0)
                 ReplSplitLog(iter / 60);
+
+            if (iter == 1 || (iter % 360) == 0)
+                ProdMixLog(iter / 60);
 
             if ((iter % 10) == 0)
                 ApplyAbHeal();
