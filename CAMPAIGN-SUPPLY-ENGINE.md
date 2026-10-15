@@ -524,6 +524,23 @@ future AI) who bombs the factories; it does not come from the AI's own interdict
 Also seen: the DPRK replacement pool piles up (4,100 unspent at hour 239 at x1) while its ground vehicles fall from 5,400 to 1,800: replacements are
 not what limits it, delivery is (no-source resupplies, 22% of attempts in the baseline).
 
+### Turning the priority sliders up (`objpri=`)
+
+The priority screen's sliders (`TeamClass::objtype_priority`, 0-100) rank air requests by target type: a type at 0 is dropped, otherwise value / 2 is its
+share of the request's priority. Defaults for every team: production (factory, chemical, nuclear) 40, POL (power plant, refinery) 50, depot 50, army base 40,
+roads (road, bridge, rail terminal) **0** (the AI never interdicts bridges), airbase 70. 10 days, use x4, fixes on, 2 seeds, DPRK:
+
+| Blue sliders | Supply % day 4 / 10 | Production/day on day 10 | Lost per day on day 5 (captured / bombed / power) | DPRK objectives held, vehicles at the end |
+|---|---|---|---|---|
+| default | 90 / 56 | 3,392 | 4,150 / 298 / 50 | 526, 973 |
+| production, POL, depot at 100 | 92 / 84 | 4,157 | 4,950 / 519 / 1,651 | 786, 1,250 |
+| ... plus army base 100, airbase, airstrip, radar at 0 | 91 / 92 | 9,570 | 2,600 / 3 / 657 | 1,159, 2,936 |
+
+Maxing the economic sliders does not choke DPRK: bomb damage stays at 2-5% of the capacity, the grid is hit harder (power loss up to 2,000 a day), but Blue's
+strikes are taken off the ground war, so it captures fewer sites and DPRK ends the 10 days with more supply and more production than by default. Repair is
+slow (one feature per repair interval), so the damage that is done lasts; there just is not much of it. Why the strikes do so little (how many reach
+a factory, how many weapons hit) has not been measured.
+
 ## Open questions
 
 - Ground **movement** — whether destroyed bridges block or slow unit movement is a

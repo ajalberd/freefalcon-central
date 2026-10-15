@@ -2513,6 +2513,64 @@ static void ApplyBlow(void)
     }
 }
 
+// objpri=NAME:VALUE[,NAME:VALUE...] -- set the campaign's target-priority sliders (TeamClass objtype_priority, 0-100) of every team that is not
+// DPRK / China / Russia, every tick, as the priority screen does. NAME is the screen's slider: prod (factory, chemical, nuclear), pol (power
+// plant, refinery), depot, armybase (army base, fortification), roads (road, bridge, rail terminal), airbase, airstrip, radar. A request for a
+// target type at 0 is dropped; otherwise the value / 2 is the type's share of the request's priority. OBJPRI lines show the values at the start.
+static int gObjPriN, gObjPriVal[16];
+static char gObjPriName[16][16];
+
+static int ObjPriTypes(const char *n, int *out)
+{
+    if (!strcmp(n, "prod")) { out[0] = TYPE_FACTORY; out[1] = TYPE_CHEMICAL; out[2] = TYPE_NUCLEAR; return 3; }
+    if (!strcmp(n, "pol")) { out[0] = TYPE_POWERPLANT; out[1] = TYPE_REFINERY; return 2; }
+    if (!strcmp(n, "depot")) { out[0] = TYPE_DEPOT; return 1; }
+    if (!strcmp(n, "armybase")) { out[0] = TYPE_ARMYBASE; out[1] = TYPE_FORTIFICATION; return 2; }
+    if (!strcmp(n, "roads")) { out[0] = TYPE_ROAD; out[1] = TYPE_BRIDGE; out[2] = TYPE_RAIL_TERMINAL; return 3; }
+    if (!strcmp(n, "airbase")) { out[0] = TYPE_AIRBASE; return 1; }
+    if (!strcmp(n, "airstrip")) { out[0] = TYPE_AIRSTRIP; return 1; }
+    if (!strcmp(n, "radar")) { out[0] = TYPE_RADAR; out[1] = TYPE_COM_CONTROL; return 2; }
+    return 0;
+}
+
+static void ApplyObjPri(void)
+{
+    for (int i = 0; i < gObjPriN; i++)
+    {
+        int ty[4], n = ObjPriTypes(gObjPriName[i], ty);
+
+        for (int t = 1; t < NUM_TEAMS; t++)
+        {
+            if (t == 4 || t == 5 || t == 6 || !TeamInfo[t])
+                continue;
+
+            for (int k = 0; k < n; k++)
+                TeamInfo[t]->SetObjTypePriority(ty[k], (uchar)gObjPriVal[i]);
+        }
+    }
+}
+
+static void ObjPriLog(void)
+{
+    static const char *nm[] = {"prod", "pol", "depot", "armybase", "roads", "airbase", "airstrip", "radar"};
+
+    for (int t = 1; t < NUM_TEAMS; t++)
+    {
+        if (!TeamInfo[t])
+            continue;
+
+        printf("OBJPRI team %d %s:", t, TeamInfo[t]->name);
+
+        for (int k = 0; k < 8; k++)
+        {
+            int ty[4], n = ObjPriTypes(nm[k], ty);
+            printf(" %s=%d", nm[k], n ? (int)TeamInfo[t]->GetObjTypePriority(ty[0]) : 0);
+        }
+
+        printf("\n");
+    }
+}
+
 static void ApplyAbHeal(void)
 {
     VuListIterator oit(AllObjList);
@@ -2818,6 +2876,29 @@ static void ApplyKnobs(int argc, char **argv)
             RelSquadBonus = (float)atof(val);
             gRelSquad = RelSquadBonus;
             printf("KNOB RelSquadBonus = %.2f (stock 4.0 in Falcon4.AII)\n", RelSquadBonus);
+        }
+        else if (!strcmp(key, "objpri"))
+        {
+            char buf[256];
+            strncpy(buf, val, 255);
+            buf[255] = 0;
+
+            for (char *tok = strtok(buf, ","); tok && gObjPriN < 16; tok = strtok(NULL, ","))
+            {
+                char nm[16] = "";
+                int v = 0, ty[4];
+
+                if (sscanf(tok, "%15[^:]:%d", nm, &v) == 2 && ObjPriTypes(nm, ty))
+                {
+                    strcpy(gObjPriName[gObjPriN], nm);
+                    gObjPriVal[gObjPriN++] = v;
+                    printf("KNOB objpri %s = %d\n", nm, v);
+                }
+                else
+                    printf("KNOB objpri: unknown %s\n", tok);
+            }
+
+            ObjPriLog();
         }
         else if (!strcmp(key, "blow"))
         {
@@ -3271,7 +3352,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';
@@ -3744,6 +3825,7 @@ int main(int argc, char **argv)
             vuxGameTime = TheCampaign.CurrentTime;
             ApplyAirTempo();
             ApplyBlow();
+            ApplyObjPri();
             if (gRelSquad >= 0.0f)
                 RelSquadBonus = gRelSquad;           // the AI data file is read at campaign load; keep the knob's value
 
