@@ -149,9 +149,145 @@ function drawEcon(g, r, toScreen, scale, M, data) {
   g.restore();
 }
 
+
+// ---- Links layer: the objective network supply and ground units travel along ----
+// A link joins two objectives; the engine's delivery path, the ground units' movement and the store search all walk it. A walk may
+// not step onto an objective of another team, nor onto a broken bridge (movement cost 255), which is why a front that is a patchwork
+// of owners cuts the network into pockets. "Front line" here means "has a neighbour of another team"; the engine's own flag
+// (IsFrontline) is computed from the war and is not in the file.
+function econGraph(data) {
+  const E = econBuild(data);
+  if (E.adj) return E;
+  const byN = new Map(data.objectives.map(o => [o.n, o])), adj = new Map();
+  for (const o of data.objectives) adj.set(o.n, []);
+  for (const o of data.objectives) for (const m of (o.links || [])) {
+    const p = byN.get(m);
+    if (!p) continue;
+    if (!adj.get(o.n).includes(p)) adj.get(o.n).push(p);
+    if (!adj.get(p.n).includes(o)) adj.get(p.n).push(o);
+  }
+  E.byN = byN; E.adj = adj;
+  return E;
+}
+
+function econBlocked(from, to) { return to.owner !== from.owner || (to.t === 6 && to.status <= 0); }
+
+function econRoute(E, start) {
+  const adj = E.adj, isFront = o => adj.get(o.n).some(q => q.owner !== o.owner);
+  const prev = new Map([[start, null]]), hops = new Map([[start, 0]]), queue = [start], reached = [start], refused = new Map();
+  for (let qi = 0; qi < queue.length; qi++) {
+    const u = queue[qi];
+    for (const v of adj.get(u.n)) {
+      if (prev.has(v)) continue;
+      if (econBlocked(u, v)) { if (!refused.has(v)) refused.set(v, u); continue; }
+      prev.set(v, u); hops.set(v, hops.get(u) + 1); queue.push(v); reached.push(v);
+    }
+  }
+  const pick = f => reached.find(f) || null;
+  const isStore = o => o.t === 3 || o.t === 10;
+  const store = pick(o => isStore(o) && !isFront(o)), storeFront = pick(isStore);
+  const producer = pick(o => ECON_KIND.supply.has(o.t) && o.rate > 0 && o.status > 0);
+  let beyond = null;                                   // nearest own store when owners and broken bridges are ignored
+  if (!store) {
+    const seen = new Map([[start, null]]), q2 = [start], hp = new Map([[start, 0]]);
+    for (let qi = 0; qi < q2.length && !beyond; qi++) {
+      const u = q2[qi];
+      for (const v of adj.get(u.n)) {
+        if (seen.has(v)) continue;
+        seen.set(v, u); hp.set(v, hp.get(u) + 1); q2.push(v);
+        if (isStore(v) && v.owner === start.owner) { beyond = {o: v, seen, hops: hp.get(v)}; break; }
+      }
+    }
+  }
+  const path = t => { const out = []; for (let u = t; u; u = prev.get(u)) out.push(u); return out.reverse(); };
+  return {start, prev, hops, reached, refused, store, storeFront, producer, beyond, path};
+}
+
+function econNearestOwn(data, x, y, owner) {
+  let best = null, bd = Infinity;
+  for (const o of data.objectives) {
+    if (o.owner !== owner) continue;
+    const d = (o.x - x) ** 2 + (o.y - y) ** 2;
+    if (d < bd) { bd = d; best = o; }
+  }
+  return best;
+}
+
+function drawLinks(g, r, toScreen, scale, M, data) {
+  const E = econGraph(data);
+  const on = (sx, sy, m) => sx > -m && sy > -m && sx < r.width + m && sy < r.height + m;
+  const col = (a, b) => a.owner === b.owner
+      ? (a.owner === 6 ? 'rgba(255,100,90,.55)' : a.owner === 2 ? 'rgba(100,160,255,.55)' : 'rgba(190,190,190,.35)')
+      : 'rgba(255,225,60,.95)';
+  g.save();
+  g.lineWidth = 1;
+  for (const o of data.objectives) {
+    const [ax, ay] = toScreen(o.x, o.y);
+    for (const p of E.adj.get(o.n)) {
+      if (p.n < o.n) continue;
+      const [bx, by] = toScreen(p.x, p.y);
+      if (!on(ax, ay, 40) && !on(bx, by, 40)) continue;
+      g.strokeStyle = col(o, p); g.lineWidth = o.owner !== p.owner ? 2 : 1;
+      if ((o.t === 6 && o.status <= 0) || (p.t === 6 && p.status <= 0)) g.setLineDash([3, 4]);
+      g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
+      g.setLineDash([]);
+    }
+  }
+
+  // the route for the selected objective, or for the nearest own objective of a selected unit (the engine's anchor)
+  const sel = M.selected && M.selected.item;
+  let start = null, label = '';
+  if (sel && M.selected.sort === 'objective') { start = data.objectives.find(o => o.n === sel.n) || null; label = start ? start.name : ''; }
+  else if (sel && M.selected.sort === 'unit') {
+    start = econNearestOwn(data, sel.x, sel.y, sel.owner);
+    label = start ? 'unit anchor ' + start.name : '';
+  }
+  if (start) {
+    const R = econRoute(E, start), lines = [];
+    const dist = (a, b) => Math.round(Math.hypot(a.x - b.x, a.y - b.y));
+    const pathLine = (t, colour, width) => {
+      const pts = R.path(t); g.lineWidth = width; g.strokeStyle = colour; g.lineJoin = 'round'; g.beginPath();
+      pts.forEach((o, i) => { const [sx, sy] = toScreen(o.x, o.y); if (i) g.lineTo(sx, sy); else g.moveTo(sx, sy); });
+      g.stroke();
+    };
+    for (const o of R.reached) {                       // the pocket the walk can reach
+      const [sx, sy] = toScreen(o.x, o.y); if (!on(sx, sy, 20)) continue;
+      g.fillStyle = 'rgba(255,255,255,.22)'; g.beginPath(); g.arc(sx, sy, 6, 0, Math.PI * 2); g.fill();
+    }
+    if (R.producer && R.producer !== R.start) pathLine(R.producer, 'rgba(255,179,71,.95)', 3);
+    if (R.store) pathLine(R.store, 'rgba(255,255,255,1)', 4);
+    if (R.beyond) {                                    // the store that exists but the walk cannot reach
+      const pts = []; for (let u = R.beyond.o; u; u = R.beyond.seen.get(u)) pts.push(u);
+      g.setLineDash([7, 5]); g.lineWidth = 3; g.strokeStyle = 'rgba(255,170,0,.95)'; g.beginPath();
+      pts.reverse().forEach((o, i) => { const [sx, sy] = toScreen(o.x, o.y); if (i) g.lineTo(sx, sy); else g.moveTo(sx, sy); });
+      g.stroke(); g.setLineDash([]);
+    }
+    for (const v of R.refused.keys()) {                // refused neighbours: crossed
+      const [sx, sy] = toScreen(v.x, v.y); if (!on(sx, sy, 20)) continue;
+      g.lineWidth = 3; g.strokeStyle = 'rgba(255,60,60,1)'; g.beginPath();
+      g.moveTo(sx - 6, sy - 6); g.lineTo(sx + 6, sy + 6); g.moveTo(sx + 6, sy - 6); g.lineTo(sx - 6, sy + 6); g.stroke();
+    }
+    const [stx, sty] = toScreen(start.x, start.y);
+    g.lineWidth = 3; g.strokeStyle = '#fff'; g.beginPath(); g.arc(stx, sty, 10, 0, Math.PI * 2); g.stroke();
+    const nm = o => (o.name || o.type) + ' (' + o.type + ')';
+    lines.push('Supply route from ' + label);
+    lines.push(R.store ? 'store: ' + nm(R.store) + ', ' + R.hops.get(R.store) + ' links, ' + dist(start, R.store) + ' km  [white]'
+               : 'no store reachable through own objectives' + (R.storeFront ? ' (front-line one: ' + nm(R.storeFront) + ')' : ''));
+    if (R.beyond) lines.push('nearest own store behind other owners: ' + nm(R.beyond.o) + ', ' + R.beyond.hops + ' links, ' + dist(start, R.beyond.o) + ' km  [dashed orange]');
+    lines.push(R.producer ? 'producer: ' + nm(R.producer) + ', ' + R.hops.get(R.producer) + ' links, ' + dist(start, R.producer) + ' km  [amber]' : 'no producer reachable');
+    lines.push('walk reached ' + R.reached.length + ' objectives, refused ' + R.refused.size + ' (other owner or broken bridge) [red x]');
+    g.font = '600 12px "Segoe UI", system-ui, sans-serif'; g.textAlign = 'left';
+    const w = Math.max(...lines.map(s => g.measureText(s).width)) + 20, h = lines.length * 17 + 12;
+    g.fillStyle = 'rgba(10,14,22,.88)'; g.fillRect(12, 12, w, h);
+    g.fillStyle = '#f2f6fb';
+    lines.forEach((s, i) => g.fillText(s, 22, 30 + i * 17));
+  }
+  g.restore();
+}
+
 // "makes 120/day: rate 300 x 40% damage x 100% power (Suwon Nuclear Power Plant, 22 km)" for the hover tip
 function econTip(o, M) {
-  if (!(M.showPower || M.showProd || M.showSupply)) return '';
+  if (!(M.showPower || M.showProd || M.showSupply || M.showLinks)) return '';
   if (o._econ) {
     const r = o._econ;
     return (r.kind === 'fuel' ? 'fuel ' : 'supply+repl ') + Math.round(r.eff) + '/day (rate ' + r.full + ', damage ' + o.status +

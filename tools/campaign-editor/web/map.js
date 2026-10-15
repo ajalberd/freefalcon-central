@@ -99,6 +99,7 @@ const M = {
   showPower: false,
   showProd: false,
   showSupply: false,
+  showLinks: false,
   showRail: true,
   showRailFit: false,
   view: {scale: 1, ox: 0, oy: 0},
@@ -575,6 +576,7 @@ async function mapPanel(file) {
     }
 
     if (M.showPower || M.showProd || M.showSupply) drawEcon(g, r, toScreen, M.view.scale, M, data);
+    if (M.showLinks) drawLinks(g, r, toScreen, M.view.scale, M, data);
 
     const size = markSize();
     for (const u of data.units) {
@@ -1334,9 +1336,10 @@ async function mapPanel(file) {
     showProd: 'Production: what each factory, army base, depot, port (supply and replacements, amber) and refinery (fuel, green) makes: '
             + 'dashed ring = full rate, disc = after damage and power',
     showSupply: 'Supply: delivery sources (cities, ports, depots, army bases) ringed in cyan, bridges as diamonds coloured by damage',
+    showLinks: 'Links: the network supply and ground units travel along (red DPRK, blue ROK, yellow across the front). Select an objective, or a unit, to see its route to the nearest store and producer, and where the walk is cut',
   };
   const econButtons = data.objectives.some(o => o.rate !== undefined)
-    ? [['showPower', 'Power'], ['showProd', 'Production'], ['showSupply', 'Supply']].map(([k, label]) =>
+    ? [['showPower', 'Power'], ['showProd', 'Production'], ['showSupply', 'Supply'], ['showLinks', 'Links']].map(([k, label]) =>
         el('button', {class: 'btn btn-sm' + (M[k] ? ' on' : ''), title: econTips[k],
           onclick: e => {
             M[k] = !M[k];

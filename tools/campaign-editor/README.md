@@ -58,7 +58,7 @@ instead of queueing behind one another.
 And on top of either, the airbase **TACAN** overlay: the station name and its
 channel, drawn the way the game draws it.
 
-Three **economy layers** show how the campaign's supply chain is laid out and how much of it is damaged
+Four **economy layers** show how the campaign's supply chain is laid out and how much of it is damaged
 (`web/econ.js`; the server sends every objective's class DataRate and its damage status):
 
 - **Power**: a line from each producer to the power plant that scales its output (the nearest plant of the same owner), plants sized by
@@ -66,6 +66,11 @@ Three **economy layers** show how the campaign's supply chain is laid out and ho
 - **Production**: what each factory, army base, depot and port (supply and replacements, amber) and refinery (fuel, green) makes: a
   dashed ring at the full rate, a disc after damage and power.
 - **Supply**: delivery sources (cities, ports, depots, army bases) ringed in cyan, bridges as diamonds coloured by damage.
+- **Links**: the objective network that supply deliveries, ground units and the store search travel along (red DPRK, blue ROK, yellow where it
+  crosses the front, dashed where a bridge is broken). Select an objective, or a unit (its nearest own objective is its anchor), and it draws the
+  route to the nearest store (white) and producer (amber), the pocket the walk can reach, the neighbours it refuses (red x: another owner or a
+  broken bridge) and, when no store is reachable, the nearest own store behind other owners (dashed orange). "Front line" is approximated as
+  "has a neighbour of another team"; the engine's flag depends on the war. The server sends each objective's links as `n` indices.
 
 A panel totals each team's production per day against its full rate (click its heading to fold it), the hover tip and the objective pane
 show the arithmetic (rate x damage x power) and which plant feeds it. The engine's "friendly plant" also admits neutral and allied teams, which

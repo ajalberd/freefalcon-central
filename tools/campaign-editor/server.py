@@ -1106,6 +1106,7 @@ def api_map(q, _body):
         units.append(entry)
 
     stations = ws.tacan()
+    link_index = {tuple(o["id"]): o["_n"] for o in cam.objectives}
     objs = []
     ftbl_econ = ws.db.table("featureentry")
     for o in cam.objectives:
@@ -1124,6 +1125,8 @@ def api_map(q, _body):
             "icon": icon_for(o["classIndex"], otbl),
             "tacan": stations.get(o["campId"], {}).get("label", ""),
             "campId": o["campId"],
+            # the road / rail / track links to neighbouring objectives, as "n" indices (the supply and ground-movement network)
+            "links": [link_index[tuple(l["id"])] for l in o["links"] if tuple(l["id"]) in link_index],
         })
 
     teams = []
