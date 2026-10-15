@@ -78,6 +78,8 @@ int g_nSupplyUseMult = 1, g_nStoreStartPct = 100;
 // store reachable at all, 3 only front or second line stores reachable), the hour is left to the caller
 int gStoreMiss[8000][10] = {{0}}, gStoreMissN = 0;
 extern void StoreSearchDiag(Objective start, int *visited, int *rejected, int *minRej, int *hops, int *worstCost);
+extern int gCaseBuf[12][300][6], gCaseCount[12], gCaseSlot;
+int gCaseUnit[12][4] = {{0}}, gCaseN = 0; // x, y, team, anchor id of the kept cases
 static uchar gStoreMissSeen[MAX_CAMP_ENTITIES];
 
 static int IsStoreObj(Objective o)
@@ -974,6 +976,17 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                                 gStoreMiss[gStoreMissN][2] = who;
                                 gStoreMiss[gStoreMissN][3] = not o ? 1 : (FindNearestSupplyStore(o, 1) ? 3 : 2);
                                 gStoreMiss[gStoreMissN][4] = (int)(TheCampaign.CurrentTime / CampaignHours);
+
+                                gCaseSlot = -1;
+
+                                if (o and gCaseN < 12 and gStoreMissN % 4 == 0)
+                                {
+                                    gCaseSlot = gCaseN++;
+                                    gCaseUnit[gCaseSlot][0] = x;
+                                    gCaseUnit[gCaseSlot][1] = y;
+                                    gCaseUnit[gCaseSlot][2] = who;
+                                    gCaseUnit[gCaseSlot][3] = o->GetCampID();
+                                }
 
                                 if (o)
                                     StoreSearchDiag(o, &gStoreMiss[gStoreMissN][5], &gStoreMiss[gStoreMissN][6], &gStoreMiss[gStoreMissN][7],

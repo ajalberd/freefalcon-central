@@ -697,6 +697,25 @@ Objective FindNearestSupplyStore(Objective o, int anyLine)
 // search again with no cost limit. visited = objectives the real search reached, rejected = links it refused (cost 250 or more),
 // minRej = the cheapest refused link, hops = links to the nearest own depot or army base with no cost limit (-1 none, front-line ones too),
 // worstCost (here: the number of refused links whose neighbour belongs to another team; the rest are broken bridges and the like)
+// a few cases are kept whole for campsim to print: [slot][n] = {id, type, team, x, y, kind} kind 0 = reached, 1 = refused neighbour, 2 = nearest own store ignoring the limit
+int gCaseBuf[12][300][6], gCaseCount[12], gCaseSlot = -1;
+
+static void CaseAdd(Objective o, int kind)
+{
+    if (gCaseSlot < 0 or gCaseCount[gCaseSlot] >= 300)
+        return;
+
+    GridIndex x, y;
+    o->GetLocation(&x, &y);
+    int *r = gCaseBuf[gCaseSlot][gCaseCount[gCaseSlot]++];
+    r[0] = o->GetCampID();
+    r[1] = o->GetType();
+    r[2] = o->GetTeam();
+    r[3] = x;
+    r[4] = y;
+    r[5] = kind;
+}
+
 void StoreSearchDiag(Objective start, int *visited, int *rejected, int *minRej, int *hops, int *worstCost)
 {
     static short depth[MAX_CAMP_ENTITIES];
@@ -718,6 +737,7 @@ void StoreSearchDiag(Objective start, int *visited, int *rejected, int *minRej, 
     {
         Objective o = queue[head++];
         (*visited)++;
+        CaseAdd(o, 0);
 
         for (n = 0; n < o->static_data.links; n++)
         {
@@ -736,6 +756,7 @@ void StoreSearchDiag(Objective start, int *visited, int *rejected, int *minRej, 
             else
             {
                 (*rejected)++;
+                CaseAdd(c, 1);
 
                 if ((int)cost < *minRej)
                     *minRej = (int)cost;
@@ -760,6 +781,7 @@ void StoreSearchDiag(Objective start, int *visited, int *rejected, int *minRej, 
         if (IsSupplyStore(o, who, 1))
         {
             *hops = depth[o->GetCampID()];
+            CaseAdd(o, 2);
             return;
         }
 

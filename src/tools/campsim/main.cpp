@@ -3815,6 +3815,16 @@ int main(int argc, char **argv)
                            (int)ob->IsFrontline(), (int)ob->IsSecondline());
                 }
 
+                extern int gCaseBuf[12][300][6], gCaseCount[12], gCaseUnit[12][4], gCaseN;
+
+                for (int k = 0; k < gCaseN; k++)
+                {
+                    printf("SMAPCASE %d %d %d %d %d\n", k, gCaseUnit[k][0], gCaseUnit[k][1], gCaseUnit[k][2], gCaseUnit[k][3]);
+
+                    for (int j = 0; j < gCaseCount[k]; j++)
+                        printf("SMAPNODE %d %d %d %d %d %d %d\n", k, gCaseBuf[k][j][0], gCaseBuf[k][j][1], gCaseBuf[k][j][2], gCaseBuf[k][j][3], gCaseBuf[k][j][4], gCaseBuf[k][j][5]);
+                }
+
                 for (int i = 0; i < gStoreMissN; i++)
                     printf("SMAPMISS %d %d %d %d %d %d %d %d %d %d\n", gStoreMiss[i][0], gStoreMiss[i][1], gStoreMiss[i][2], gStoreMiss[i][3], gStoreMiss[i][4], gStoreMiss[i][5], gStoreMiss[i][6], gStoreMiss[i][7], gStoreMiss[i][8], gStoreMiss[i][9]);
             }
