@@ -74,6 +74,8 @@ static uchar gStoreOwner[MAX_CAMP_ENTITIES], gStoreInit[MAX_CAMP_ENTITIES];
 int gStoreDiag[NUM_TEAMS][8] = {{0}};
 // campsim experiment knobs (not in the cfg): battalion supply consumption multiplier, and the level stores start at, percent of capacity
 int g_nSupplyUseMult = 1, g_nStoreStartPct = 100;
+// campsim experiment knob (not in the cfg): depots and army bases are storage only, they do not produce (BMS 4.37 has no army bases and one depot at rate 1)
+bool g_bStoresNoProd = false;
 // campsim diagnostic: the first resupply of each battalion that found no store: grid x, y, team, reason (1 no friendly objective near it, 2 no
 // store reachable at all, 3 only front or second line stores reachable), the hour is left to the caller
 int gStoreMiss[8000][10] = {{0}}, gStoreMissN = 0;
@@ -226,7 +228,7 @@ int ProduceSupplies(CampaignTime deltaTime)
 
             //Cobra Added Army, depot, and port per JimG
             if ((type == TYPE_FACTORY or type == TYPE_PORT or
-                 ((type == TYPE_ARMYBASE or type == TYPE_DEPOT) and (not g_bSupplyStocks or g_bStoresProduce))) and
+                 ((type == TYPE_ARMYBASE or type == TYPE_DEPOT) and not g_bStoresNoProd and (not g_bSupplyStocks or g_bStoresProduce))) and
                 o->GetObjectiveOldown() == o->GetOwner()) // Supply
             {
                 if (g_bPowerGrid)

@@ -43,6 +43,7 @@ python make_backdrop.py                                         # terrain image 
 | `relsquad=F` | override `RelSquadBonus` (Falcon4.AII, stock 4.0) for the run; `REPLSPLIT` log lines every 6 hours show each team's air and ground vehicle shortfall and the lambda used |
 | `noairlift=1` | airlift landings add no supply, fuel or replacements (the flights still happen); `AIRLIFT` lines every 6 hours count landings and what they added |
 | `airliftneed=0/1`, `airliftrunway=0/1` | `g_bAirliftNeed` / `g_bAirliftRunway` (default 1: airlift credit capped by the need around the destination, none at an airbase with no working runway; 0 = stock) |
+| `noprod=1` | depots and army bases do not produce (storage only, as in BMS 4.37 and Falcon 4.0); factories and ports still do. DPRK production falls from 15,350 to about 11,000 supply/day |
 | `startsup=PCT`, `usemult=N`, `storestart=PCT` | supply tuning: every battalion starts at PCT supply, battalion supply use x N (moving, idle, firing), stores start at PCT of capacity; `supply_tune.py` reports the `st-*` runs |
 | `stocks=0/1`, `storesproduce=0/1`, `storecap=PCT`, `storefill=PCT` | the regional-stocks experiment (`g_bSupplyStocks`, off by default): depots and army bases hold supply and fuel stock that battalions draw down; see `CAMPAIGN-SUPPLY-ENGINE.md` "Experiment: regional stocks"; `STORES` lines every 6 hours |
 | `airliftlog=1` | one `AIRLIFTLAND` line per credited landing: squadron, home airbase, landing airbase, distance, flight size, runway status |

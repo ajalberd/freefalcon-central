@@ -541,6 +541,26 @@ strikes are taken off the ground war, so it captures fewer sites and DPRK ends t
 slow (one feature per repair interval), so the damage that is done lasts; there just is not much of it. Why the strikes do so little (how many reach
 a factory, how many weapons hit) has not been measured.
 
+### Depots and army bases as storage only (`noprod=1`), use x2 / x3 / x4
+
+BMS 4.37's Korea has no army bases and one depot at rate 1; the Falcon 4.0 manual groups depots with ports as "Logistics" and factories with power plants as
+"War Production". With depots and army bases not producing, DPRK makes about 11,000 supply a day instead of 15,350 (factories 87% of it). 10 days, fixes on, 2
+seeds, DPRK mean battalion supply % (front line in brackets) at hour 24 / 96 / 192 / 239:
+
+| Scenario | h24 | h96 | h192 | h239 |
+|---|---|---|---|---|
+| all producing, use x4 (before) | 87 (86) | 90 (88) | 77 (72) | 56 (32) |
+| no storage production, x2 | 93 (92) | 93 (91) | 90 (87) | 87 (85) |
+| x3 | 89 (90) | 92 (90) | 88 (90) | 88 (80) |
+| x4 | 83 (82) | 82 (81) | 91 (91) | 86 (78) |
+| x2, factories held down | 89 (87) | 84 (80) | 90 (88) | 87 (84) |
+| x3, factories held down | 79 (74) | 62 (52) | 48 (38) | 48 (32) |
+| x4, factories held down | 76 (69) | 48 (34) | 30 (14) | 32 (29) |
+
+x3 is the setting that does what was asked: an intact economy holds 88-92%, and with the factories gone the front slides 74 -> 52 -> 38 over days 1, 4, 8
+(60-78 battalions under 25%). x2 barely notices the factories; x4 sags with the economy intact (77% on day 2) and collapses without factories (14% front),
+which is the overkill that was feared. The war still ends on day 3-6 whatever the supply does.
+
 ## Open questions
 
 - Ground **movement** — whether destroyed bridges block or slow unit movement is a

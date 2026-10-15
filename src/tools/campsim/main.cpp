@@ -1876,7 +1876,8 @@ static void SupplyFrame()
                 continue;
 
             int type = o->GetType();
-            bool sup = type == TYPE_FACTORY || type == TYPE_ARMYBASE || type == TYPE_DEPOT || type == TYPE_PORT;
+            extern bool g_bStoresNoProd;
+            bool sup = type == TYPE_FACTORY || type == TYPE_PORT || (!g_bStoresNoProd && (type == TYPE_ARMYBASE || type == TYPE_DEPOT));
             bool ref = type == TYPE_REFINERY;
 
             // FindNearestFriendlyPowerStation takes nuclear plants too.
@@ -2809,6 +2810,12 @@ static void ApplyKnobs(int argc, char **argv)
             gAirliftHook = gAirliftLog ? AirliftLandLog : NULL;
             printf("KNOB airliftlog = %d\n", gAirliftLog);
         }
+        else if (!strcmp(key, "noprod"))
+        {
+            extern bool g_bStoresNoProd;
+            g_bStoresNoProd = atoi(val) != 0;
+            printf("KNOB g_bStoresNoProd = %d\n", (int)g_bStoresNoProd);
+        }
         else if (!strcmp(key, "usemult"))
         {
             extern int g_nSupplyUseMult;
@@ -3352,7 +3359,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';
