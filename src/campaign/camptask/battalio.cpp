@@ -1082,9 +1082,11 @@ int BattalionClass::MoveUnit(CampaignTime time)
             {
                 // RV - Biker - Reduce supply at higher rate
                 //supply--;
-                supply -= 2;
-                gSupplyUse[GetTeam() % 8][0] += 2;
-                gSupplyUseGround[GetTeam() % NUM_TEAMS] += 2.0F * GetTotalVehicles() / 100.0F;
+                extern int g_nSupplyUseMult;
+                int use = 2 * g_nSupplyUseMult;
+                supply = (supply > use) ? supply - use : 0;
+                gSupplyUse[GetTeam() % 8][0] += use;
+                gSupplyUseGround[GetTeam() % NUM_TEAMS] += (float)use * GetTotalVehicles() / 100.0F;
                 // fatigue++;
                 SetUnitMoved(0);
             }
@@ -1129,9 +1131,11 @@ int BattalionClass::MoveUnit(CampaignTime time)
 
             if (GetMoveTime() > 3 * DEG_TO_SEC * SEC_TO_MSEC and supply > 2)
             {
-                supply -= 2;
-                gSupplyUse[GetTeam() % 8][3] += 2;
-                gSupplyUseGround[GetTeam() % NUM_TEAMS] += 2.0F * GetTotalVehicles() / 100.0F;
+                extern int g_nSupplyUseMult;
+                int use = 2 * g_nSupplyUseMult;
+                supply = (supply > use) ? supply - use : 0;
+                gSupplyUse[GetTeam() % 8][3] += use;
+                gSupplyUseGround[GetTeam() % NUM_TEAMS] += (float)use * GetTotalVehicles() / 100.0F;
             }
         }
     }

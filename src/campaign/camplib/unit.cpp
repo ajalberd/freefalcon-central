@@ -4986,6 +4986,12 @@ int UnitClass::CollectWeapons(uchar* dam, MoveType m, short w[], uchar wc[],
         ((GetUnitSupply() * shot) /
          total); // The '*2' for shots makes up for non-popular weapons not getting shot
 
+    if (IsBattalion())
+    {
+        extern int g_nSupplyUseMult;
+        sup = GetUnitSupply() - (GetUnitSupply() - sup) * g_nSupplyUseMult;
+    }
+
     if (sup < 0)
         sup = 0;
 

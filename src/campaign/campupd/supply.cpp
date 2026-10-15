@@ -72,6 +72,8 @@ static uchar gStoreOwner[MAX_CAMP_ENTITIES], gStoreInit[MAX_CAMP_ENTITIES];
 // campsim diagnostic, per team: [0] supply drawn, [1] fuel drawn, [2] supply asked for but not in stock, [3] resupplies with no store
 // behind the unit, [4] supply refilled from the pool, [5] stock lost to capture or damage, [6] fuel refilled
 int gStoreDiag[NUM_TEAMS][8] = {{0}};
+// campsim experiment knobs (not in the cfg): battalion supply consumption multiplier, and the level stores start at, percent of capacity
+int g_nSupplyUseMult = 1, g_nStoreStartPct = 100;
 
 static int IsStoreObj(Objective o)
 {
@@ -98,7 +100,7 @@ static void StoreSync(Objective o)
     {
         gStoreInit[id] = 1;
         gStoreOwner[id] = (uchar)team;
-        gStoreSup[id] = gStoreFuel[id] = (float)cap;
+        gStoreSup[id] = gStoreFuel[id] = (float)cap * g_nStoreStartPct / 100.0F;
         return;
     }
 

@@ -456,6 +456,30 @@ from control. Conclusion: with realistic capacities a five-day war never leans o
 days) or when the stores themselves are destroyed or captured, which is the behaviour a regional-stock model is for. A per-store capacity in
 days of local consumption, rather than a multiple of the DataRate, would be the next thing to tune.
 
+### Making supply bind: starting level, consumption, store size
+
+Three campsim knobs (not in the cfg) test what it takes for supply to matter in a 5-day war: `startsup=PCT` (every battalion starts at PCT),
+`usemult=N` (moving, idle and firing cost N times as much battalion supply), `storestart=PCT` (stores start at PCT of capacity).
+Korea, 5 days, 2 seeds, DPRK mean battalion supply % at hour 119 (front line, battalions under 25%); `supply_tune.py`:
+
+| Scenario | DPRK | ROK |
+|---|---|---|
+| Pool, start 100%, use x1 (control) | 94 (94, 2) | 97 (96, 0) |
+| Pool, use x3 | 92 (92, 4) | 92 (90, 1) |
+| Pool, use x5 | 84 (82, 12), low point 76 at h48 | 84 (79, 16), low point 82 |
+| Pool, start 50%, use x3 | 89 (88, 2): back to normal by day 3 | 92 |
+| Stores (cap 25%, start 50%), use x3 | 50 (36, 120) | 58 (42, 63) |
+| Stores, use x5 | 44 (34, 140) | 48 (34, 102) |
+| ... plus power plants held down | 36 (20, 188) | 50 |
+| ... plus army bases held down | 30 (18, 156) | 48 |
+| ... plus everything held down | 30 (16, 135) | 52 |
+
+The starting level does not matter for long: with the national pool the force refills in two or three days, because production is several
+times what the units use. Consumption does matter, but x5 only costs a few points. The store model is what makes supply bind, mostly because
+about half the battalions have no depot or army base behind them and never refill, so the whole force sinks to the starting level minus its
+use; with the stores in place, bombing power plants or army bases then pushes the front from 34% to 16-20%. That is a coverage effect, not
+a stock effect: a usable store model needs a store within reach of every unit (or cities and ports counted as stores) before capacity is tuned.
+
 ## Open questions
 
 - Ground **movement** — whether destroyed bridges block or slow unit movement is a
