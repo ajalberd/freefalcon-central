@@ -1539,6 +1539,7 @@ float RailDistanceKm(float simX, float simY)
 // Riders are not saved: a battalion riding when the game is saved marches on from where it was.
 
 extern bool g_bRailTroops;
+extern bool g_bRailHomeOnly;
 extern int g_nRailTroopMinKm;
 extern int g_nRailTroopRoadKph;
 extern int g_nRailTroopWalkKm;
@@ -1564,7 +1565,8 @@ const double REBOARD_SEC = 2.0 * 3600.0;        // after detraining, march for a
 struct Sample
 {
     float x, y;
-    short owner;
+    short owner; // who holds the nearest objective now
+    short home;  // who held it before the war (the objective's original owner): the rail is that side's rolling stock and gauge
     char cut, safe;
 };
 
@@ -1693,6 +1695,7 @@ void BuildNet()
             Sample &sm = g_samples[ri][i];
             PointAt(r, i * SAMPLE_FT, &sm.x, &sm.y, &yaw);
             sm.owner = 0;
+            sm.home = 0;
             sm.cut = 0;
             sm.safe = 0;
         }
@@ -1768,6 +1771,7 @@ void TroopRefresh(const std::vector<std::vector<char>> &downs)
         {
             Objective o = FindNearestObjective(GridOf(v[i].y), GridOf(v[i].x), NULL);
             v[i].owner = (short)(o ? o->GetTeam() : 0);
+            v[i].home = (short)(o ? o->GetObjectiveOldown() : 0);
             v[i].cut = 0;
         }
 
@@ -1805,9 +1809,12 @@ void TroopRefresh(const std::vector<std::vector<char>> &downs)
 }
 
 // Can a battalion of `team` be at this sample (ride through it)?
+// RailHomeOnly: a side cannot ride the other side's railway even where it has captured the ground: Blue does not take the North's trains,
+// the North does not take the South's. Track whose original owner is hostile to the team is closed to it, held or not.
 bool Passable(const Sample &sm, int team)
 {
-    return not sm.cut and not(sm.owner > 0 and IsHostile(team, sm.owner));
+    return not sm.cut and not(sm.owner > 0 and IsHostile(team, sm.owner)) and
+           not(g_bRailHomeOnly and sm.home > 0 and IsHostile(team, sm.home));
 }
 
 // Detrain here? The sample must be safe for the owner, and the owner a friend of the team.

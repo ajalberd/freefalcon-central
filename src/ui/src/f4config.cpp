@@ -1093,6 +1093,8 @@ int g_nRailWaveFarKm = 80; // Artscout - 2026: only battalions farther than this
 int g_nRailWaveFrontMinKm = 20; // Artscout - 2026: nearest a mobilisation railhead objective may be to the enemy, km. "RailWaveFrontMinKm".
 int g_nRailWaveFrontMaxKm = 60; // Artscout - 2026: farthest a mobilisation railhead objective may be from the enemy, km. "RailWaveFrontMaxKm".
 int g_nCloudDepthAlpha = 60; // Artscout - 2026: texture alpha, in percent, at which a cumulus puff also writes depth (a second, colour-masked pass in the D3D12 renderer). The puffs are DX2D quads, which never wrote depth, so everything drawn after them showed through: the GPU particles (see ParticlesLast) and, in an external view, your own aircraft (drawn in a later flush). The dense core now occludes them; the soft edge below this alpha still only blends. Objects drawn before the clouds -- other aircraft, ground -- are unaffected: they already sat behind a ~90% opaque puff. 0 = off. "CloudDepthAlpha".
+bool g_bRailHomeOnly =
+    true; // Artscout - 2026: troop trains only run on track whose original owner is a friend (RailHomeOnly): a side cannot ride the other side's railway even where it has captured the ground. Off = any track the nearest objective of which is not hostile now. "RailHomeOnly".
 bool g_bParticlesLast =
     true; // Artscout - 2026: draw the GPU particles (dust, smoke columns, explosions) after the DX2D world quads -- the cumulus puffs, smoke trails and the rail strip -- instead of partway through the scene. Neither writes depth, so whichever draws last paints over the other: with the particles first, a cloud behind a dust plume drew over it. Costs the rarer case, a puff between the eye and the plume. 0 = the old order. "ParticlesLast".
 int g_nPathDamageCost =
@@ -1872,6 +1874,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"PitShadow",
      &g_bPitShadow}, // Artscout - 2026: cockpit sun shadows (depth-only pit replay + PS lookup)
     {"CloudShadow",
+    {"RailHomeOnly", &g_bRailHomeOnly}, // Artscout - 2026: troop trains only on track of friendly origin
      &g_bCloudShadow}, // Artscout - 2026: cumulus shadows on ground, objects and pit
     {"CloudShadowLog",
      &g_bCloudShadowLog}, // Artscout - 2026: log cloud shadow mask rebuilds

@@ -427,3 +427,7 @@ option 3 planned** for bridges.
    a terminus, strands a train cut off from its hub, shows as an X on the map.
 6. **Troop trains.** `LoadUnit`/`UnloadUnit` through the GTM.
 7. **Own models.** A locomotive and wagons instead of KrAz trucks.
+
+### Whose railway (`RailHomeOnly`, on by default)
+
+Troop trains only run on track whose **original** owner (the nearest objective's `Oldown`) is a friend of the battalion's team, as well as not being held by a hostile team now. Before this, Blue battalions that had captured ground in the North rode the Pyongra, Pyongui, Pyongbu, Kangwon, Manpo and Pyongdok lines (125 rides in two 10-day runs); now Blue rides only the Gyeongbu and Gyeongui lines and the North only its own, with China and Russia (friends of the North) still free to ride both Chinese and North Korean track. Supply trains are unchanged. Turn it off with `set g_bRailHomeOnly 0`.
