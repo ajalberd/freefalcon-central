@@ -642,19 +642,20 @@ CampEntity GetEntityByCampID(int id)
 }
 
 // Artscout - 2026 (g_bSupplyStocks): the nearest of the team's own depots and army bases behind the front, the objective itself first.
-static int IsSupplyStore(Objective c, int who)
+static int IsSupplyStore(Objective c, int who, int anyLine)
 {
-    return (c->GetType() == TYPE_DEPOT or c->GetType() == TYPE_ARMYBASE) and c->GetTeam() == who and not c->IsFrontline() and
-           not c->IsSecondline();
+    return (c->GetType() == TYPE_DEPOT or c->GetType() == TYPE_ARMYBASE) and c->GetTeam() == who and
+           (anyLine or (not c->IsFrontline() and not c->IsSecondline()));
 }
 
-Objective FindNearestSupplyStore(Objective o)
+// anyLine (campsim diagnostic): also accept stores on the front or second line
+Objective FindNearestSupplyStore(Objective o, int anyLine)
 {
     Objective c;
     int n, who = o->GetTeam();
     float cost;
 
-    if (IsSupplyStore(o, who))
+    if (IsSupplyStore(o, who, anyLine))
         return o;
 
     memset(CampSearch, 0, sizeof(uchar) * MAX_CAMP_ENTITIES);
@@ -677,7 +678,7 @@ Objective FindNearestSupplyStore(Objective o)
 
                 if (cost < 250)
                 {
-                    if (IsSupplyStore(c, who))
+                    if (IsSupplyStore(c, who, anyLine))
                         return c;
 
                     looklist.ForcedInsert(c);
@@ -690,6 +691,90 @@ Objective FindNearestSupplyStore(Objective o)
     }
 
     return NULL;
+}
+
+// campsim diagnostic for a battalion that found no store: the same search as FindNearestSupplyStore, counting what it saw, then the
+// search again with no cost limit. visited = objectives the real search reached, rejected = links it refused (cost 250 or more),
+// minRej = the cheapest refused link, hops = links to the nearest own depot or army base with no cost limit (-1 none, front-line ones too),
+// worstCost (here: the number of refused links whose neighbour belongs to another team; the rest are broken bridges and the like)
+void StoreSearchDiag(Objective start, int *visited, int *rejected, int *minRej, int *hops, int *worstCost)
+{
+    static short depth[MAX_CAMP_ENTITIES];
+    static Objective queue[MAX_CAMP_ENTITIES];
+    static uchar seen[MAX_CAMP_ENTITIES];
+    int who = start->GetTeam(), head, tail, n;
+    *visited = *rejected = 0;
+    *minRej = 99999;
+    *hops = -1;
+    *worstCost = 0;
+
+    // 1. as the real search: cost limit 250
+    memset(seen, 0, sizeof(seen));
+    head = tail = 0;
+    queue[tail++] = start;
+    seen[start->GetCampID()] = 1;
+
+    while (head < tail)
+    {
+        Objective o = queue[head++];
+        (*visited)++;
+
+        for (n = 0; n < o->static_data.links; n++)
+        {
+            Objective c = o->GetNeighbor(n);
+
+            if (not c or seen[c->GetCampID()])
+                continue;
+
+            float cost = GetObjectiveMovementCost(o, NULL, n, Wheeled, (uchar)who, PATH_MARINE);
+
+            if (cost < 250)
+            {
+                seen[c->GetCampID()] = 1;
+                queue[tail++] = c;
+            }
+            else
+            {
+                (*rejected)++;
+
+                if ((int)cost < *minRej)
+                    *minRej = (int)cost;
+
+                if (c->GetTeam() != who)
+                    (*worstCost)++; // refused because the neighbour belongs to someone else (enemy ground is a wall for this search)
+            }
+        }
+    }
+
+    // 2. no cost limit: hops to the nearest own depot / army base
+    memset(seen, 0, sizeof(seen));
+    head = tail = 0;
+    queue[tail++] = start;
+    seen[start->GetCampID()] = 1;
+    depth[start->GetCampID()] = 0;
+
+    while (head < tail)
+    {
+        Objective o = queue[head++];
+
+        if (IsSupplyStore(o, who, 1))
+        {
+            *hops = depth[o->GetCampID()];
+            return;
+        }
+
+        for (n = 0; n < o->static_data.links; n++)
+        {
+            Objective c = o->GetNeighbor(n);
+
+            if (not c or seen[c->GetCampID()])
+                continue;
+
+            seen[c->GetCampID()] = 1;
+            depth[c->GetCampID()] = depth[o->GetCampID()] + 1;
+            queue[tail++] = c;
+        }
+    }
 }
 
 // Finds nearest supply source

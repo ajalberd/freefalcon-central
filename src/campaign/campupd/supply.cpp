@@ -74,6 +74,11 @@ static uchar gStoreOwner[MAX_CAMP_ENTITIES], gStoreInit[MAX_CAMP_ENTITIES];
 int gStoreDiag[NUM_TEAMS][8] = {{0}};
 // campsim experiment knobs (not in the cfg): battalion supply consumption multiplier, and the level stores start at, percent of capacity
 int g_nSupplyUseMult = 1, g_nStoreStartPct = 100;
+// campsim diagnostic: the first resupply of each battalion that found no store: grid x, y, team, reason (1 no friendly objective near it, 2 no
+// store reachable at all, 3 only front or second line stores reachable), the hour is left to the caller
+int gStoreMiss[8000][10] = {{0}}, gStoreMissN = 0;
+extern void StoreSearchDiag(Objective start, int *visited, int *rejected, int *minRej, int *hops, int *worstCost);
+static uchar gStoreMissSeen[MAX_CAMP_ENTITIES];
 
 static int IsStoreObj(Objective o)
 {
@@ -960,6 +965,22 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                         {
                             gSupplyDiag[who][SUPDIAG_NO_SOURCE]++;
                             gStoreDiag[who][3]++;
+
+                            if (gStoreMissN < 8000 and unit->GetCampID() < MAX_CAMP_ENTITIES and not gStoreMissSeen[unit->GetCampID()])
+                            {
+                                gStoreMissSeen[unit->GetCampID()] = 1;
+                                gStoreMiss[gStoreMissN][0] = x;
+                                gStoreMiss[gStoreMissN][1] = y;
+                                gStoreMiss[gStoreMissN][2] = who;
+                                gStoreMiss[gStoreMissN][3] = not o ? 1 : (FindNearestSupplyStore(o, 1) ? 3 : 2);
+                                gStoreMiss[gStoreMissN][4] = (int)(TheCampaign.CurrentTime / CampaignHours);
+
+                                if (o)
+                                    StoreSearchDiag(o, &gStoreMiss[gStoreMissN][5], &gStoreMiss[gStoreMissN][6], &gStoreMiss[gStoreMissN][7],
+                                                    &gStoreMiss[gStoreMissN][8], &gStoreMiss[gStoreMissN][9]);
+
+                                gStoreMissN++;
+                            }
                         }
                         else
                         {

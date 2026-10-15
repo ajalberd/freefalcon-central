@@ -3799,6 +3799,27 @@ int main(int argc, char **argv)
         CampsimDumpMoveDiag();
         DumpCampaign("final");
 
+        {
+            extern bool g_bSupplyStocks;
+            extern int gStoreMiss[8000][10], gStoreMissN;
+
+            if (g_bSupplyStocks)
+            {
+                VuListIterator oit(AllObjList);
+
+                for (Objective ob = GetFirstObjective(&oit); ob; ob = GetNextObjective(&oit))
+                {
+                    GridIndex ox, oy;
+                    ob->GetLocation(&ox, &oy);
+                    printf("SMAPOBJ %d %d %d %d %d %d %d\n", (int)ob->GetCampID(), (int)ob->GetType(), (int)ob->GetTeam(), (int)ox, (int)oy,
+                           (int)ob->IsFrontline(), (int)ob->IsSecondline());
+                }
+
+                for (int i = 0; i < gStoreMissN; i++)
+                    printf("SMAPMISS %d %d %d %d %d %d %d %d %d %d\n", gStoreMiss[i][0], gStoreMiss[i][1], gStoreMiss[i][2], gStoreMiss[i][3], gStoreMiss[i][4], gStoreMiss[i][5], gStoreMiss[i][6], gStoreMiss[i][7], gStoreMiss[i][8], gStoreMiss[i][9]);
+            }
+        }
+
         // ALERT scrambles per squadron (atm.cpp gAlertScrambleSq), plus how many alert flights each has right now
         {
             extern int gAlertScrambleSq[8192];

@@ -480,6 +480,13 @@ about half the battalions have no depot or army base behind them and never refil
 use; with the stores in place, bombing power plants or army bases then pushes the front from 34% to 16-20%. That is a coverage effect, not
 a stock effect: a usable store model needs a store within reach of every unit (or cities and ports counted as stores) before capacity is tuned.
 
+**Why battalions find no store** (campsim `SMAPMISS` lines, `store_map.py` draws them; Korea, 2 days, 57 battalions, first failure each):
+`FindNearestSupplyStore` walks the objective links and refuses any link whose neighbour is enemy-owned (movement cost 255, because the search
+passes no "enemy ok" flag) or whose bridge is broken. 138 of the 141 refused links were enemy-owned neighbours. The pocket it could reach had a
+median of 4 objectives (largest 36) and a store was 1-13 links away with no limit (5 units: the store was their own objective but on the
+front line; 7: no connection at all). So a battalion in a captured or cut-off pocket, or on the patchwork front where ownership alternates
+objective by objective, cannot reach any store even though one stands a few links away behind the enemy's objectives.
+
 ## Open questions
 
 - Ground **movement** — whether destroyed bridges block or slow unit movement is a
