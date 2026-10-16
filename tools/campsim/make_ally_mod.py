@@ -5,6 +5,8 @@
 Variants:  prc      PRC battalions + squadrons
            prc+cis  PRC and CIS
            prcair   PRC squadrons only, and its 12 reinforcement squadrons active from the start
+           prc-border  PRC battalions only, on the Chinese towns along the border (17 objectives, y 680-800), squadrons untouched:
+                    China starts where its army would be, 200-300 km from the front, and has to come in by rail
 
 In save0 the PRC's 43 battalions start ~340 km behind the front (mean grid y 822, front ~490)
 and campsim shows they never come south after China joins: the ground AI rejects any objective
@@ -29,7 +31,8 @@ FRONT_Y = 490
 BAND = (FRONT_Y + 100, FRONT_Y + 170)          # where battalions go
 AIR_BAND = (FRONT_Y + 60, FRONT_Y + 230)       # airbases for squadrons
 GROUND_TYPES = ("Town", "City", "Village", "Road", "Intersection", "Army base", "Depot")
-TEAMS = {"prc": (5,), "prc+cis": (5, 4), "prcair": (5,)}
+TEAMS = {"prc": (5,), "prc+cis": (5, 4), "prcair": (5,), "prc-border": (5,)}
+BORDER_BOX = (100, 340, 680, 800)              # x0, x1, y0, y1: the Chinese side of the Yalu round Dandong (prc-border)
 U_INACTIVE = 0x20000
 
 
@@ -38,8 +41,13 @@ def stage(cam, objs, variant):
     base = entities.base_offsets(cam.version)
     raw = bytearray(cam.units_raw)
 
-    spots = sorted((o for o in objs if o["owner"] == 6 and BAND[0] <= o["y"] <= BAND[1]
-                    and any(t in o["typeName"] for t in GROUND_TYPES)), key=lambda o: o["x"])
+    if variant == "prc-border":
+        x0, x1, y0, y1 = BORDER_BOX
+        spots = sorted((o for o in objs if o["owner"] == 5 and x0 <= o["x"] <= x1 and y0 <= o["y"] <= y1
+                        and any(t in o["typeName"] for t in ("Town", "City", "Village"))), key=lambda o: o["x"])
+    else:
+        spots = sorted((o for o in objs if o["owner"] == 6 and BAND[0] <= o["y"] <= BAND[1]
+                        and any(t in o["typeName"] for t in GROUND_TYPES)), key=lambda o: o["x"])
     bases = sorted((o for o in objs if o["owner"] == 6 and o["typeName"] in ("Airbase", "Airstrip")
                     and AIR_BAND[0] <= o["y"] <= AIR_BAND[1]), key=lambda o: o["x"])
     if not spots or not bases:
@@ -49,7 +57,7 @@ def stage(cam, objs, variant):
     # prcair: air only -- squadrons rehomed AND the reinforcement squadrons active from the start
     bns = [] if variant == "prcair" else [
         u for u in cam.units if u["owner"] in TEAMS[variant] and u["kind"] == "battalion"]
-    sqs = [u for u in cam.units if u["owner"] in TEAMS[variant] and u["kind"] == "squadron"]
+    sqs = [] if variant == "prc-border" else [u for u in cam.units if u["owner"] in TEAMS[variant] and u["kind"] == "squadron"]
     bns.sort(key=lambda u: u["x"])
     for i, u in enumerate(bns):
         # spread evenly across the band's objectives, west to east, like the units were

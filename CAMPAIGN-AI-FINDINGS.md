@@ -224,3 +224,8 @@ joined (DPRK 940 vs Blue 1,458 objectives, 86 Chinese battalions idle). `chn_app
 24-56 Chinese battalions left, no Blue win. With the production stack on top (fixes, depots and army bases not producing, use x3; `chn_appr`, 4 seeds): factories intact -> China joins h47-67, DPRK supply 94-96%, at most 1
 battalion under 25%, objectives DPRK 1,438-1,619 vs Blue 1,081-1,241; factories held down -> DPRK battalion supply 70-75% at h96 (95-92% again at the end), objectives DPRK 1,439-1,577 vs Blue 1,123-1,261. The
 supply choke shows on day 4 and fades by day 8 because the North's ground force has shrunk to about a third (less to feed) and it has taken ground back; it does not change who holds what.
+**China staged at its own border (`make_ally_mod.py prc-border`).** The installed `save0.cam` is the Korea Escalation scenario (PRC doubled to 86 battalions, staged 100-170 km behind the front inside the
+North, median start y 625; stock: 43 battalions at y ~822), so every China result above used forward staging. `prc-border` puts the 86 battalions on the 17 Chinese towns along the Yalu (Dandong, Feng-cheng, Donggou,
+Kuandian ..., median y 761, 200-300 km from the front) and leaves the squadrons alone; saved as `Campaign/SAVE/chnb.cam` for the test (`--save chnb`). 8 days, 4 seeds, `chn_appr2` + counteroffensive:
+China joins h40-58 (forward: h38-80) but reaches contact (8 battalions within 60 km of Blue) at h91-107, about two days later than forward staging (h38-55); the end state leans slightly to Blue (DPRK 1,262-1,459 vs Blue 1,241-1,438
+objectives, against 1,342-1,431 vs 1,248-1,358 forward), with 45-56 Chinese battalions alive (24-56 forward) and no Blue win in 8 days.
