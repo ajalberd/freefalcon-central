@@ -263,6 +263,8 @@ def main():
         queue([("f", "d10", s) for s in range(1, 13)])
     elif ph == "phase13":
         queue([("b", "d10x", s) for s in range(1, 13)] + [("f", "d10x", s) for s in range(1, 7)])
+    elif ph == "phase14":   # widen the final setting: border seeds 13-30, forward seeds 7-18, and the ungated min-8 reference on seeds 13-24
+        queue([("b", "d10x", s) for s in range(13, 31)] + [("f", "d10x", s) for s in range(7, 19)] + [("b", "npp075u2", s) for s in range(13, 25)])
     elif ph == "report":
         report(sys.argv[2] if len(sys.argv) > 2 else None, 0)
     else:

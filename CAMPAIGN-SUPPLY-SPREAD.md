@@ -65,6 +65,19 @@ The day-9 gate still let 2 of 12 games end on day 9. Gating the win at `#IF_CAMP
 no game ends early (0 of 12), China keeps 47 battalions, the North's front-line supply bottoms at 78% and ends at 90%.** With China forward (6 seeds, same rules): Blue 47% (46-49), ahead in 0 of 6, China 24 left. The
 day-9 version (57%, 2 of 12 end on day 9) and the stock win rule (56%, 7 of 12 end on day 3-6) are the alternatives if you prefer Blue to be able to finish it.
 
+### The final setting on a wide sample (30 border seeds, 18 forward seeds, plus references)
+
+| Setting | Seeds | Blue share of objectives at day 10 (mean +- standard error; sd; range) | Blue ahead | Blue / North vehicles | North front supply low / end | Chinese left | Blue wins before day 10 |
+|---|---|---|---|---|---|---|---|
+| **Final: border, min 10, Blue cannot win before day 11** | 30 | **56.0% +- 1.4** (sd 7.9; 43-74) | 22 of 30 | 2.06 | 77 / 91 | 52 | 0 |
+| Same, China forward | 18 | 45.9% +- 0.9 (sd 3.8; 33-50) | 1 of 18 | 2.51 | 85 / 94 | 22 | 0 |
+| Min 8, stock win rule, border | 24 | 49.0% +- 0.9 (sd 4.6; 41-58) | 9 of 24 | 1.80 | 81 / 94 | 52 | 1 |
+| Unchanged supply (control), border | 12 | 49.0% +- 1.3 (sd 4.4; 43-56) | 5 of 12 | 1.68 | 91 / 95 | 49 | 0 |
+| Unchanged supply (control), forward | 6 | 46.9% +- 0.3 | 0 of 6 | 3.38 | 92 / 95 | 18 | 0 |
+
+The win gate is my own design choice, not something the scenario had: without it every Blue-ahead setting ends the war on day 3-6 in about half the games (min 10, stock rule: 7 of 12) and the only setting that runs the ten days
+without a gate (min 8) is even, not Blue-sided. If you would rather not touch the win rule, min 8 is the honest even-war setting; the gate is what turns "Blue-leaning" into "Blue-leaning and still going on day 10".
+
 ## Supply code, second pass (what reading it again found)
 
 - **Replacements are a stock, supply is a flow.** `ProduceSupplies` halves the supply and fuel pools each tick and caps them at `MAX_SUPPLIES`, but the replacement pool is `old + new` with no decay and no cap: that is why the
