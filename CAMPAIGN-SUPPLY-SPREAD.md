@@ -16,7 +16,7 @@ make supply matter, and get a fair, dynamic war that is close but Blue-sided by 
    vehicles) because a battalion under 50% supply is only tasked as reserve and one under 30% cannot fire.
 3. **The dial that sets the balance is the China counteroffensive**, `AlliedCounterattack` with `AlliedCounterMin` (allied battalions at the front that
    launch it). At the border: none 82% Blue, 24 -> 71%, 16 -> 67%, 12 -> 63%, 10 -> 56%, 9 -> 55%, **8 -> 50%** (12 seeds, 42-58% by seed).
-4. **Chosen: min 10 with Blue unable to win before day 9: Blue 57%, 2 of 12 games end (day 9), the rest run the ten days (see the section below).** The even alternative, **fair, close, Blue-ahead in force, supply felt, no Blue win in 10 days (11 of 12 seeds):** China at the border + `AlliedCounterMin 8` +
+4. **Chosen: min 10 with Blue unable to win before day 11 (`chn_appr4`): Blue 54%, ahead in 8 of 12, no game ends early (see "Final choice").** The even alternative, **fair, close, Blue-ahead in force, supply felt, no Blue win in 10 days (11 of 12 seeds):** China at the border + `AlliedCounterMin 8` +
    depots and army bases not producing + production x0.75 + battalion supply use x2 (`noprod=1 prodsup=0.75 usemult=2`). Blue ends with 50% of the objectives
    (42-58 by seed), 1.7x the North's vehicles, the North's front-line supply bottoms at about 82% (mean) and ends at 94%. Min 9 or 10 makes Blue 55-56% but ends
    the war on day 3.5-6 in 40-60% of seeds (Blue takes Pyongyang and Wonsan).
@@ -57,6 +57,30 @@ gives 50% and Blue wins 1 of 12 (h114); the finer grid (counteroffensive distanc
 China forward is the North-leaning version: it arrives early and is ground down, but the North holds the ground, and Blue never leads on objectives. At the border the war is close and Blue-leaning.
 
 The supply settings contribute the "felt" part (the front-line low point of 76-80% against 91% for the unchanged game); they do not move the result.
+
+## Final choice: the same setting with the war guaranteed to run the ten days (`chn_appr4`, no Blue win before campaign day 11)
+
+The day-9 gate still let 2 of 12 games end on day 9. Gating the win at `#IF_CAMPAIGN_DAY G 11` (`chn_appr4.tri`, `d10x` in the spread) means Blue cannot end the war inside the ten days at all. 12 seeds, China at the border,
+`AlliedCounterMin 10`, depots and army bases not producing, production x0.75, supply use x2: **Blue holds 54% of the objectives at day 10 (45-65 by seed), Blue is ahead in 8 of 12 games, Blue's vehicles are 2.1x the North's,
+no game ends early (0 of 12), China keeps 47 battalions, the North's front-line supply bottoms at 78% and ends at 90%.** With China forward (6 seeds, same rules): Blue 47% (46-49), ahead in 0 of 6, China 24 left. The
+day-9 version (57%, 2 of 12 end on day 9) and the stock win rule (56%, 7 of 12 end on day 3-6) are the alternatives if you prefer Blue to be able to finish it.
+
+## Supply code, second pass (what reading it again found)
+
+- **Replacements are a stock, supply is a flow.** `ProduceSupplies` halves the supply and fuel pools each tick and caps them at `MAX_SUPPLIES`, but the replacement pool is `old + new` with no decay and no cap: that is why the
+  North ends a 10-day war holding about 4,000 replacements it never used. Delivery is the limit: a battalion gets at most half of its shortfall times the ground share, only on its resupply tick (20 min on attack orders, 3 h otherwise),
+  and the rounding-up bonus only below 85% strength on a 51% roll. Production of replacements is not what binds.
+- **A latent underflow.** In the ground-replacement branch `SetReplacementsAvail(avail - repl_v)` has no guard (only the rounding-up branch checks `avail > 12`); the pool is a `ushort`, so an over-draw would wrap to about 65,000. The ratios
+  keep the total under the pool in practice, so it has not shown; it is a one-line guard if it ever does.
+- **A dead path.** The old squadron replacement code subtracts the replacements twice (`NoTypeBonusRepl = 0` only; it is 1 in the shipped AII).
+- **The delivery path is a wall for anything not friendly.** `SendSupply` (and the store search) plan with `PATH_MARINE` only, so an enemy-held objective or a broken bridge ends the route; 22% of the North's resupply attempts find no
+  source in the stock war. Losses are multiplicative per road, intersection, rail or bridge node (2% each, exact maths since `SupplyExactLoss`; `SupplyInterdiction` makes damaged nodes cost up to 15%, bridges 50%).
+- **Production has no memory of damage beyond status.** Output is `DataRate x status x nearest friendly power plant`; the AI's strikes leave it at 87-99% in a normal war (capture is 70-80% of the loss), so a production-based choke
+  needs a player or a future AI that bombs and keeps the factories down.
+- **The action-type multiplier is off.** `actionBonus` (offensive x4, defensive x1, none x0) would multiply production, but `NoActionBonusProd = 1` in the AII turns it off; turning it on would make the offensive side four times
+  as productive, and a team with no action none.
+- **Unit-level levers that exist but do nothing in 10 days:** moving 2% per about 20 km, idle 2% per tick, firing a share; at the stock rates consumption is about a sixth of production, which is why use x2-x3 and a production
+  scale of 0.75 are needed for supply to be felt at all.
 
 ## What the supply code does (re-read for this)
 

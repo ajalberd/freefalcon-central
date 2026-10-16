@@ -89,6 +89,7 @@ CONFIGS = {
     "d9": NP + " prodsup=0.75 usemult=2 alliedcounter=1:9:80 tri=chn_appr3",
     "d10": NP + " prodsup=0.75 usemult=2 alliedcounter=1:10:80 tri=chn_appr3",
     "dg10": NP + " prodsup=0.75 usemult=2 alliedcounter=1:10:80 hcg=2.5 tri=chn_appr3",
+    "d10x": NP + " prodsup=0.75 usemult=2 alliedcounter=1:10:80 tri=chn_appr4",   # Blue cannot end the war before campaign day 11: it always runs the ten days
     "npu3gd360go60": NP + " usemult=3 gndsupdef=360 gndsupoff=60", "npu2gd720go120": NP + " usemult=2 gndsupdef=720 gndsupoff=120",
 }
 
@@ -260,6 +261,8 @@ def main():
         queue([("b", cfg, s) for s in (7, 8, 9, 10, 11, 12) for cfg in ("d9", "d10")])
     elif ph == "phase12":   # the chosen setting (d10) with China forward instead of at the border: 12 seeds
         queue([("f", "d10", s) for s in range(1, 13)])
+    elif ph == "phase13":
+        queue([("b", "d10x", s) for s in range(1, 13)] + [("f", "d10x", s) for s in range(1, 7)])
     elif ph == "report":
         report(sys.argv[2] if len(sys.argv) > 2 else None, 0)
     else:
