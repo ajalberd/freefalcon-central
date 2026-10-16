@@ -16,29 +16,34 @@ make supply matter, and get a fair, dynamic war that is close but Blue-sided by 
    vehicles) because a battalion under 50% supply is only tasked as reserve and one under 30% cannot fire.
 3. **The dial that sets the balance is the China counteroffensive**, `AlliedCounterattack` with `AlliedCounterMin` (allied battalions at the front that
    launch it). At the border: none 82% Blue, 24 -> 71%, 16 -> 67%, 12 -> 63%, 10 -> 56%, 9 -> 55%, **8 -> 50%** (12 seeds, 42-58% by seed).
-4. **Chosen: min 10 (Blue 56%, wins about half the games on days 3-6; see the section below).** The even alternative, **fair, close, Blue-ahead in force, supply felt, no Blue win in 10 days (11 of 12 seeds):** China at the border + `AlliedCounterMin 8` +
+4. **Chosen: min 10 with Blue unable to win before day 9: Blue 57%, 2 of 12 games end (day 9), the rest run the ten days (see the section below).** The even alternative, **fair, close, Blue-ahead in force, supply felt, no Blue win in 10 days (11 of 12 seeds):** China at the border + `AlliedCounterMin 8` +
    depots and army bases not producing + production x0.75 + battalion supply use x2 (`noprod=1 prodsup=0.75 usemult=2`). Blue ends with 50% of the objectives
    (42-58 by seed), 1.7x the North's vehicles, the North's front-line supply bottoms at about 82% (mean) and ends at 94%. Min 9 or 10 makes Blue 55-56% but ends
    the war on day 3.5-6 in 40-60% of seeds (Blue takes Pyongyang and Wonsan).
 
-## The setting I chose: close, Blue-sided, supply felt (`AlliedCounterMin 10`)
+## The setting I chose: close, Blue-sided, runs the ten days (`AlliedCounterMin 10` + Blue cannot win before day 9)
 
-Target: a war that is close but leans to Blue by day 10. The dial gives two honest answers, even (min 8: Blue 50%, the war almost never ends) and Blue-ahead (min 10: Blue 56-58% of the
-objectives). I pick **min 10**: China at the border, `chn_appr2`, `AlliedCounterMin 10`, depots and army bases not producing, production x0.75, battalion supply use x2. Evidence (border, seeds 1-12 for
-the main run, plus the finer grid in phase 8, 6 seeds each):
+Target: a war that is close but leans to Blue by day 10 and is still a war on day 10. The counteroffensive dial alone cannot do both (min 8 is even and rarely ends, 50%; min 9-10 is Blue-ahead,
+55-57%, but ends the war on day 3-6 in about half the games when Blue takes Pyongyang and Wonsan). Slowing Blue's ground war (`hcg` 2.5-4) moved the Blue wins only from day 3-4 to day 4-5. What works is a
+small script change: event 17 (Blue holds Pyongyang, South Pyongyang and Wonsan) is gated with `#IF_CAMPAIGN_DAY G 9` (`chn_appr3.tri`), so Blue can only end the war from about day 8.5. Chosen:
 
-| Setting | Blue share of objectives | Blue / North vehicles | North front supply low point | Blue wins (first holds Pyongyang and Wonsan) |
-|---|---|---|---|---|
-| min 10, within 80 km (12 seeds) | 56% (44-69) | 1.91 | 79% | 7 of 12, h64-144; the rest unresolved at day 10 with Blue ahead |
-| min 10, within 100 km (6 seeds) | 57% (52-64) | 1.93 | 79% | 4 of 6, h64-97 |
-| min 10, within 60 km (6 seeds) | 58% (47-70) | 1.70 | 79% | 4 of 6, h64-104 |
-| min 9 (10 seeds) | 55% (44-63) | 2.06 | 78% | 4 of 10, h86-99 |
-| min 8 (12 seeds) | 50% (42-58) | 1.70 | 82% | 1 of 12 |
-| min 12 | 63% (56-69) | 2.76 | 72% | 6 of 6 |
+**China staged at the border (`prc-border`), `chn_appr3` (China joins when ROK holds Sariwon, Hwangju, Anbyon or Wonsan; Blue cannot win before day 9), `AlliedCounterattack` min 10 within 80 km,
+depots and army bases not producing, production x0.75, battalion supply use x2.**
 
-So at min 10 Blue wins roughly every second game, usually between day 3 and day 6, after a real fight (the North holds 44% of the objectives to the end in the other games), China keeps 54-59
-battalions and the North's front-line supply dips to 79% and ends at 93%. The supply settings contribute the "felt" part (they do not move the result); min 8 is the choice if you want a war that
-runs the full ten days. The distance and cadence of the counteroffensive (`AlliedCounterKm` 60-120, `AlliedCounterRestHours`) moved the share by 3 points or less.
+12 seeds, border: Blue holds **57%** of the objectives at day 10 (45-69 by seed; Blue ahead in 9 of 12), Blue's vehicles are 1.85x the North's, **Blue ends the war in 2 of 12 games (h207, h221, i.e. on
+day 9)** and the other 10 are unresolved at day 10 with the sides still fighting, China keeps 56 battalions, and the North's front-line supply bottoms at 76% and ends at 90% (2 battalions under 25% at the end).
+With min 9 instead: 54% (47-66), ahead in 8 of 12, vehicles 2.3x, 2 wins (both h207). For comparison, the same settings with no gate: min 10 gives 56% and Blue wins 7 of 12 games on day 3-6; min 8
+gives 50% and Blue wins 1 of 12 (h114); the finer grid (counteroffensive distance 60-120 km, hcg 2.5 / 4, rest hours) moved Blue's share by 3 points or less.
+
+| Setting (border, supply: noprod, prod x0.75, use x2) | Blue share of objectives at day 10 | Blue / North vehicles | Blue wins before day 10 |
+|---|---|---|---|
+| min 8, stock win rule (12 seeds) | 50% (42-58) | 1.70 | 1 of 12 (h114) |
+| min 10, stock win rule (12 seeds) | 56% (44-69) | 1.91 | 7 of 12 (h64-144) |
+| **min 10, no Blue win before day 9 (12 seeds)** | **57% (45-69)** | **1.85** | **2 of 12 (h207, h221)** |
+| min 9, no Blue win before day 9 (12 seeds) | 54% (47-66) | 2.30 | 2 of 12 (h207) |
+| min 10 + hcg 2.5, stock win rule (6) | 57% (52-68) | 1.73 | 3 of 6 (h100-113) |
+
+The supply settings contribute the "felt" part (the front-line low point of 76-80% against 91% for the unchanged game); they do not move the result.
 
 ## What the supply code does (re-read for this)
 

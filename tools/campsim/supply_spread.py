@@ -81,6 +81,14 @@ CONFIGS = {
     "m9k100": NP + " prodsup=0.75 usemult=2 alliedcounter=1:9:100",
     "m10k60": NP + " prodsup=0.75 usemult=2 alliedcounter=1:10:60",
     "m10k100": NP + " prodsup=0.75 usemult=2 alliedcounter=1:10:100",
+    "g9_2p5": NP + " prodsup=0.75 usemult=2 alliedcounter=1:9:80 hcg=2.5",
+    "g9_4": NP + " prodsup=0.75 usemult=2 alliedcounter=1:9:80 hcg=4",
+    "g10_2p5": NP + " prodsup=0.75 usemult=2 alliedcounter=1:10:80 hcg=2.5",
+    "g10_4": NP + " prodsup=0.75 usemult=2 alliedcounter=1:10:80 hcg=4",
+    # phase 10: the same Blue-leaning settings, but Blue cannot end the war before campaign day 9 (chn_appr3.tri gates event 17)
+    "d9": NP + " prodsup=0.75 usemult=2 alliedcounter=1:9:80 tri=chn_appr3",
+    "d10": NP + " prodsup=0.75 usemult=2 alliedcounter=1:10:80 tri=chn_appr3",
+    "dg10": NP + " prodsup=0.75 usemult=2 alliedcounter=1:10:80 hcg=2.5 tri=chn_appr3",
     "npu3gd360go60": NP + " usemult=3 gndsupdef=360 gndsupoff=60", "npu2gd720go120": NP + " usemult=2 gndsupdef=720 gndsupoff=120",
 }
 
@@ -244,6 +252,12 @@ def main():
         queue([("b", cfg, s) for s in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10) for cfg in ("t9",)] + [("b", "t10", s) for s in (7, 8, 9, 10, 11, 12)])
     elif ph == "phase8":   # finer settings between the two counteroffensive dial positions: even (8) and Blue-ending (9+)
         queue([("b", cfg, s) for s in (1, 2, 3, 4, 5, 6) for cfg in ("m8k100", "m8k120", "m9k60", "m9k100", "m10k60", "m10k100")])
+    elif ph == "phase9":   # slow Blue's ground war a little (aircraft hit chance vs ground units) so a Blue-leaning setting does not end on day 3-5
+        queue([("b", cfg, s) for s in (1, 2, 3, 4, 5, 6) for cfg in ("g9_2p5", "g9_4", "g10_2p5", "g10_4")])
+    elif ph == "phase10":
+        queue([("b", cfg, s) for s in (1, 2, 3, 4, 5, 6) for cfg in ("d9", "d10", "dg10")])
+    elif ph == "phase11":   # confirm the day-9-gated settings on six more seeds
+        queue([("b", cfg, s) for s in (7, 8, 9, 10, 11, 12) for cfg in ("d9", "d10")])
     elif ph == "report":
         report(sys.argv[2] if len(sys.argv) > 2 else None, 0)
     else:
