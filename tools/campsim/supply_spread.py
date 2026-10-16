@@ -75,6 +75,12 @@ CONFIGS = {
     "t12": NP + " prodsup=0.75 usemult=2 alliedcounter=1:12:80",
     "t12k120": NP + " prodsup=0.75 usemult=2 alliedcounter=1:12:120",
     "t9": NP + " prodsup=0.75 usemult=2 alliedcounter=1:9:80",
+    "m8k100": NP + " prodsup=0.75 usemult=2 alliedcounter=1:8:100",
+    "m8k120": NP + " prodsup=0.75 usemult=2 alliedcounter=1:8:120",
+    "m9k60": NP + " prodsup=0.75 usemult=2 alliedcounter=1:9:60",
+    "m9k100": NP + " prodsup=0.75 usemult=2 alliedcounter=1:9:100",
+    "m10k60": NP + " prodsup=0.75 usemult=2 alliedcounter=1:10:60",
+    "m10k100": NP + " prodsup=0.75 usemult=2 alliedcounter=1:10:100",
     "npu3gd360go60": NP + " usemult=3 gndsupdef=360 gndsupoff=60", "npu2gd720go120": NP + " usemult=2 gndsupdef=720 gndsupoff=120",
 }
 
@@ -236,6 +242,8 @@ def main():
         queue([("b", cfg, s) for s in (1, 2, 3, 4, 5, 6) for cfg in ("t10", "t12", "t12k120")])
     elif ph == "phase7":
         queue([("b", cfg, s) for s in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10) for cfg in ("t9",)] + [("b", "t10", s) for s in (7, 8, 9, 10, 11, 12)])
+    elif ph == "phase8":   # finer settings between the two counteroffensive dial positions: even (8) and Blue-ending (9+)
+        queue([("b", cfg, s) for s in (1, 2, 3, 4, 5, 6) for cfg in ("m8k100", "m8k120", "m9k60", "m9k100", "m10k60", "m10k100")])
     elif ph == "report":
         report(sys.argv[2] if len(sys.argv) > 2 else None, 0)
     else:
