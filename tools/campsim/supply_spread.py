@@ -24,7 +24,7 @@ RES = os.path.join(OUT, "results.jsonl")
 EXE = os.environ.get("CAMPSIM_EXE_DIR", "")
 BASE = "usecfg=1 noend=1 tri=chn_appr2 alliedcounter=1:8:80"
 PAR = int(os.environ.get("SPREAD_JOBS", "11"))
-STAGE = {"b": "chnb", "f": "save0", "b72": "chnb72", "b60": "chnb60", "b48": "chnb48", "b43": "chnb43"}   # b72 etc.: China at the border with fewer battalions (make_china_size.py)
+STAGE = {"b": "chnb", "f": "save0", "b72": "chnb72", "b60": "chnb60", "b48": "chnb48", "b43": "chnb43", "b45": "chnb45", "b46": "chnb46"}   # b72 etc.: China at the border with fewer battalions (make_china_size.py)
 lock = threading.Lock()
 
 NP = "noprod=1"
@@ -269,6 +269,8 @@ def main():
         queue([(st, "npp075u2", s) for s in range(1, 9) for st in ("b72", "b60", "b48")])
     elif ph == "phase16":   # widen the 48-battalion setting and add the 43 (originals only)
         queue([("b48", "npp075u2", s) for s in range(9, 25)] + [("b43", "npp075u2", s) for s in range(1, 13)])
+    elif ph == "phase17":   # 45 and 46 battalions with the stock win rule, and 48 with the day-11 gate
+        queue([(st, "npp075u2", s) for s in range(1, 17) for st in ("b45", "b46")] + [("b48", "d10x", s) for s in range(1, 17)])
     elif ph == "report":
         report(sys.argv[2] if len(sys.argv) > 2 else None, 0)
     else:
