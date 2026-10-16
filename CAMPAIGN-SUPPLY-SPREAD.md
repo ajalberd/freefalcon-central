@@ -58,6 +58,23 @@ China forward is the North-leaning version: it arrives early and is ground down,
 
 The supply settings contribute the "felt" part (the front-line low point of 76-80% against 91% for the unchanged game); they do not move the result.
 
+## Best answer without touching the win rule: China's size is the dial (`make_china_size.py`, `chnb48`)
+
+The win gate below is my own device. A smoother, scenario-honest dial turned out to be how many Chinese battalions there are (the Escalation mod doubles China to 86; `make_china_size.py N` deletes cloned battalions down to N, minimum 43).
+Everything else fixed: China at the border, `chn_appr2` (the scenario's own win rule: Blue wins when it holds Pyongyang, South Pyongyang and Wonsan), counteroffensive min 8, depots and army bases not producing,
+production x0.75, supply use x2.
+
+| Chinese battalions | Seeds | Blue share of objectives at day 10 (mean +- se; range) | Blue ahead | Blue / North vehicles | War still on at day 10 | North front supply low / end | Chinese left |
+|---|---|---|---|---|---|---|---|
+| 86 (the mod) | 24 | 49.0% +- 0.9 (41-58) | 9 of 24 | 1.80 | 23 of 24 | 81 / 94 | 52 |
+| 72 | 8 | 50.1% +- 1.5 (45-56) | 3 of 8 | 2.03 | 7 of 8 | 82 / 92 | 42 |
+| 60 | 8 | 52.0% +- 1.4 (49-59) | 5 of 8 | 2.28 | 7 of 8 | 81 / 94 | 40 |
+| **48** | **24** | **54.7% +- 0.9 (49-69)** | **23 of 24** | **2.29** | **18 of 24 (Blue wins at h78-99 in the other 6)** | **83 / 92** | **28** |
+| 43 (the 43 originals) | 12 | 51.4% +- 1.2 (43-58) | 8 of 12 | 2.30 | 12 of 12 | 85 / 94 | 24 |
+
+**48 Chinese battalions, no gate:** Blue leads on objectives in 23 of 24 games (54.7%), three games in four are still being fought on day 10, and the rest end with a Blue win between day 3.5 and day 4. Adding the day-11 gate on top
+of 48 would make it ten days in every game; it was not tested together. This is the answer that needs no change to the scenario's rules, only to China's order of battle.
+
 ## Final choice: the same setting with the war guaranteed to run the ten days (`chn_appr4`, no Blue win before campaign day 11)
 
 The day-9 gate still let 2 of 12 games end on day 9. Gating the win at `#IF_CAMPAIGN_DAY G 11` (`chn_appr4.tri`, `d10x` in the spread) means Blue cannot end the war inside the ten days at all. 12 seeds, China at the border,
