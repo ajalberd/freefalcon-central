@@ -25,7 +25,9 @@
 #include "supply.h"
 
 #define MAX_SUPPLIES 60000
-#define MAX_SUPPLY_RATIO 0.5F
+// campsim experiment knob (maxratio=): the most of its need a unit may be sent per resupply cycle (stock 0.5)
+float g_fMaxSupplyRatio = 0.5F;
+#define MAX_SUPPLY_RATIO g_fMaxSupplyRatio
 
 #define AUTOMATIC_SUPPLY 5
 #define AUTOMATIC_REPLACEMENTS 1

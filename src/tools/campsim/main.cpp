@@ -2534,6 +2534,24 @@ static int ObjPriTypes(const char *n, int *out)
     return 0;
 }
 
+// prodsup= / prodrepl= / resup=: Falcon4.AII values (read at campaign load) kept at the knob's value
+extern float DataRateModSup, DataRateModRepl;
+extern short MIN_RESUPPLY;
+static float gProdSup = -1.0F, gProdRepl = -1.0F;
+static int gResup = -1;
+
+static void ApplyAiiKnobs(void)
+{
+    if (gProdSup >= 0.0F)
+        DataRateModSup = gProdSup;
+
+    if (gProdRepl >= 0.0F)
+        DataRateModRepl = gProdRepl;
+
+    if (gResup > 0)
+        MIN_RESUPPLY = (short)gResup;
+}
+
 static void ApplyObjPri(void)
 {
     for (int i = 0; i < gObjPriN; i++)
@@ -2809,6 +2827,27 @@ static void ApplyKnobs(int argc, char **argv)
             gAirliftLog = atoi(val) != 0;
             gAirliftHook = gAirliftLog ? AirliftLandLog : NULL;
             printf("KNOB airliftlog = %d\n", gAirliftLog);
+        }
+        else if (!strcmp(key, "prodsup"))
+        {
+            gProdSup = (float)atof(val);
+            printf("KNOB DataRateModSup = %.2f (Falcon4.AII 1.5)\n", gProdSup);
+        }
+        else if (!strcmp(key, "prodrepl"))
+        {
+            gProdRepl = (float)atof(val);
+            printf("KNOB DataRateModRepl = %.2f (Falcon4.AII 1.0)\n", gProdRepl);
+        }
+        else if (!strcmp(key, "resup"))
+        {
+            gResup = atoi(val);
+            printf("KNOB MIN_RESUPPLY = %d minutes\n", gResup);
+        }
+        else if (!strcmp(key, "maxratio"))
+        {
+            extern float g_fMaxSupplyRatio;
+            g_fMaxSupplyRatio = (float)atof(val);
+            printf("KNOB MAX_SUPPLY_RATIO = %.2f (stock 0.5)\n", g_fMaxSupplyRatio);
         }
         else if (!strcmp(key, "alliedteams"))
         {
@@ -3397,7 +3436,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';
@@ -3871,6 +3910,7 @@ int main(int argc, char **argv)
             ApplyAirTempo();
             ApplyBlow();
             ApplyObjPri();
+            ApplyAiiKnobs();
             if (gRelSquad >= 0.0f)
                 RelSquadBonus = gRelSquad;           // the AI data file is read at campaign load; keep the knob's value
 
