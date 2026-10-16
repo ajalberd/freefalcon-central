@@ -82,6 +82,10 @@ of 48 would make it ten days in every game; it was not tested together. This is 
 with the North's front-line supply bottoming at 81-85% and ending at 90-94%, Blue / North vehicles 2.3-2.65, 22-30 Chinese battalions left. The size dial is flat within the noise between 43 and 48 (the standard errors are 1-1.7 points),
 so read it as "about 45": close, Blue-leaning, nearly always unresolved on day 10, no change to any rule.
 
+**Correction after 24 more seeds at 45 (n = 40): Blue 55.0% +- 1.0 (sd 6.2; 46-72), ahead in 35 of 40, Blue's vehicles 2.46x, the North's front supply low point 82% and 91% at the end, 29 Chinese
+battalions left, and the war still on at day 10 in 30 of 40 games (75%); the other 10 end on a Blue win between day 3 and day 4.7 (h70-112).** The 93% above came from the first 16 seeds and was optimistic. Pooling every game at 43, 45
+and 46 battalions (68 games) the war is still on at day 10 in 58 (85%) and Blue leads on objectives in 54 (79%). Size 46 (16 of 16 unresolved, Blue 51.9%) and 43 (12 of 12, 51.4%) are the quieter choices; 45 is the Blue-leaning one.
+
 The day-11 win gate does not combine well with a small China: 48 battalions + the gate gives Blue 66.8% (58-72, ahead in 16 of 16, vehicles 3.3x), because Blue keeps taking ground with no win to stop it. The gate belongs with the 86-battalion
 mod (Blue 56%, 30 seeds, no game ends early), not with the small-China setting.
 
