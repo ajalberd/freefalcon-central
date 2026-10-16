@@ -211,3 +211,11 @@ teams that may use `AlliedCounterattack` / `AlliedCapture`. With Blue excluded t
 That is a swing from a Blue romp to a back-and-forth, and probably too strong; `AlliedCounterMin` / `Km` set when it starts. `AlliedCounterRestHours` does not yet produce pauses (the action
 re-arms at once; not traced). China's losses (`ALLYLOSS` lines, vehicles lost to air / artillery / ground, 5 days, 2 seeds): baseline 656 / 0 / 983 and 350 / 0 / 847, so 60-71% ground combat and 29-40%
 air; team counteroffensive 512 / 255 / 349 and 413 / 219 / 490 (air 31-44%, Blue artillery now 19-24%); allied-only capture 686 / 12 / 792 and 730 / 13 / 780 (air 45%).
+**When should China join? (event #11, 8-day runs, 2 seeds, counteroffensive on)** Stock: `IF_SUPPLY 6 L 40` (never fires, the stat stays ~91%) or `IF_FORCE_RATIO A 6 2 L 6` (DPRK aircraft x10 / ROK
+<= 6: fires at h11). New trigger `#IF_GROUND_PCT team L|G pct` (the team's ground vehicles as a percent of its start, `startStats`); variants in `tools/campsim/tri/chn_*.tri` (copy next to
+`save0.tri` and run `tri=chn_<name>`). Results (China joins / objectives DPRK vs Blue at h192; Blue holds 1,239 and DPRK 1,440 at the start):
+`chn_g70` (`IF_GROUND_PCT 6 L 70`) joined at h28 / h10 (the team stat falls faster than the vehicle count I used to predict day 3): 1,570 vs 1,109 and 1,512 vs 1,167; `chn_ratio`
+(`IF_FORCE_RATIO G 6 2 L 10`) h23 / h11: 1,578 vs 1,101 and 1,523 vs 1,156; `chn_appr` (`IF_CONTROLLED 2 O 253 256 732`: ROK holds Sariwon, Hwangju or Anbyon, the approaches to Pyongyang
+and Wonsan) h80 / h60: 1,421 vs 1,258 and 1,306 vs 1,373, with 37-56 Chinese battalions left, and no Blue win in 8 days. Baseline without the rule: Blue wins at h114-117 with 1,590-1,610 objectives.
+Blue first takes (baseline, 2 seeds): Hoeyang h40-46, Sariwon h71-82, Hwangju h79-99, Anbyon h83-101, Wonsan h75-101, South Pyongyang h100-112, Pyongyang h107-117.
+South of Pyongyang: Sariwon (253) 62 km, Hwangju (256) 42 km, Songnim (257) 35 km, Chunghwa (259) 21 km, Nampo (258) 33 km; south of Wonsan: Anbyon (732) 18 km, Hoeyang (411) 43 km, Kojo (407) 28 km.

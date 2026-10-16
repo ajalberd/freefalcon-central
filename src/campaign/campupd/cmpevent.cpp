@@ -1140,6 +1140,40 @@ int ReadScriptedTriggerFile(char* filename)
                     else if (func == 'L' and ratio <= i)
                         stack_active[curr_stack] = 1;
                 }
+                else if (strncmp(token, "#IF_GROUND_PCT", 14) == 0)
+                {
+                    // Artscout - 2026: #IF_GROUND_PCT team L|G pct -- the team's ground vehicles as a percent of what it started the
+                    // campaign with (TeamClass startStats). A scripted "this side is losing" trigger that does not depend on the other side
+                    // (IF_FORCE_RATIO does: Blue's reinforcements move it) or on the supply stat (which never leaves 90%).
+                    char func;
+                    int pct, start, now;
+
+                    if (sptr = strchr(token, ' '))
+                        sptr++;
+
+                    team = atoi(sptr);
+
+                    if (sptr = strchr(sptr, ' '))
+                        sptr++;
+
+                    func = *sptr;
+
+                    if (sptr = strchr(sptr, ' '))
+                        sptr++;
+
+                    i = atoi(sptr);
+                    start = TeamInfo[team]->startStats.groundVehs;
+                    now = TeamInfo[team]->GetCurrentStats()->groundVehs;
+                    pct = start > 0 ? now * 100 / start : 100;
+                    stack_active[curr_stack] = 0;
+                    condA[curr_stack] = pct;
+                    condB[curr_stack] = start;
+
+                    if (func == 'L' and pct <= i)
+                        stack_active[curr_stack] = 1;
+                    else if (func == 'G' and pct >= i)
+                        stack_active[curr_stack] = 1;
+                }
                 else if (strncmp(token, "#IF_BORDOM_HOURS", 16) == 0)
                 {
                     if (sptr = strchr(token, ' '))
