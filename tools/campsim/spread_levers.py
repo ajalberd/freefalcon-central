@@ -48,7 +48,9 @@ OUT = [("front_min", "North front supply low point (%)", lambda r: r["front_min"
 
 def main():
     sel = sys.argv[1] if len(sys.argv) > 1 else None
-    rows = [r for r in S.load() if r["cfg"] in S.CONFIGS and (sel is None or r["stage"] == sel)]
+    # the linear model is for the moderate supply levers: leave out the China counteroffensive dial (t*) and the deliberately extreme h* configs
+    rows = [r for r in S.load() if r["cfg"] in S.CONFIGS and "alliedcounter" not in S.CONFIGS[r["cfg"]] and not (r["cfg"][0] == "h" and r["cfg"][1:].isdigit())
+            and (sel is None or r["stage"] == sel)]
     X = np.array([[1.0] + features(r["cfg"]) + ([1.0 if r["stage"] == "b" else 0.0] if sel is None else []) for r in rows])
     names = ["(constant)"] + [d for _, _, d in FEATS] + (["China at the border"] if sel is None else [])
     print("%d runs, %d configs\n" % (len(rows), len({r["cfg"] for r in rows})))

@@ -66,6 +66,15 @@ CONFIGS = {
     "h4": "usemult=5 startsup=50 prodsup=0.5 noairlift=1",
     "h5": NP + " usemult=5 startsup=40 prodsup=0.4 gndsupdef=720 maxratio=0.25 noairlift=1 prodrepl=0.25",
     "h6": NP + " usemult=3 startsup=60 prodsup=0.75 gndsupdef=360 objpri=prod:100,pol:100,depot:100,roads:100",
+    # phase 5: tilt the war toward Blue without supply: how hard the China counteroffensive comes
+    "t16": NP + " prodsup=0.75 usemult=2 alliedcounter=1:16:80",
+    "t24": NP + " prodsup=0.75 usemult=2 alliedcounter=1:24:80",
+    "tcap": NP + " prodsup=0.75 usemult=2 alliedcounter=0 alliedcapture=1:8:80",
+    "toff": NP + " prodsup=0.75 usemult=2 alliedcounter=0",
+    "t10": NP + " prodsup=0.75 usemult=2 alliedcounter=1:10:80",
+    "t12": NP + " prodsup=0.75 usemult=2 alliedcounter=1:12:80",
+    "t12k120": NP + " prodsup=0.75 usemult=2 alliedcounter=1:12:120",
+    "t9": NP + " prodsup=0.75 usemult=2 alliedcounter=1:9:80",
     "npu3gd360go60": NP + " usemult=3 gndsupdef=360 gndsupoff=60", "npu2gd720go120": NP + " usemult=2 gndsupdef=720 gndsupoff=120",
 }
 
@@ -219,6 +228,14 @@ def main():
         queue(items)
     elif ph == "phase3":
         queue([("b", cfg, s) for s in (1, 2, 3, 4, 5, 6) for cfg in ("h1", "h2", "h3", "h4", "h5", "h6")])
+    elif ph == "phase4":   # more seeds for the two best phase-2 configs and the control, China at the border
+        queue([("b", cfg, s) for s in (7, 8, 9, 10, 11, 12) for cfg in ("c0", "npp075u2", "npu3r50mr35")])
+    elif ph == "phase5":
+        queue([("b", cfg, s) for s in (1, 2, 3, 4, 5, 6) for cfg in ("t16", "t24", "tcap", "toff")])
+    elif ph == "phase6":
+        queue([("b", cfg, s) for s in (1, 2, 3, 4, 5, 6) for cfg in ("t10", "t12", "t12k120")])
+    elif ph == "phase7":
+        queue([("b", cfg, s) for s in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10) for cfg in ("t9",)] + [("b", "t10", s) for s in (7, 8, 9, 10, 11, 12)])
     elif ph == "report":
         report(sys.argv[2] if len(sys.argv) > 2 else None, 0)
     else:

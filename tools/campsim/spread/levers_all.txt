@@ -1,0 +1,74 @@
+208 runs, 60 configs
+
+== North front supply low point (%) (mean 77.78, residual sd 3.97)
+   use x (per +1)                                          -7.34  (+-0.42)  <-- clear
+   depots/army bases do not produce                        -0.36  (+-0.76)
+   production scale (per -0.5)                             -2.97  (+-0.54)  <-- clear
+   replacement scale (per -0.5)                            -0.11  (+-0.57)
+   no airlift credit                                       -1.21  (+-1.23)
+   start supply (per -25 points)                          -16.92  (+-0.60)  <-- clear
+   max share of need per resupply (per -0.1)               -2.09  (+-0.50)  <-- clear
+   ground resupply interval, other orders (per +60 min)    -2.25  (+-0.18)  <-- clear
+   economic sliders up, bridges bombed                     -0.77  (+-0.95)
+   China at the border                                     -3.36  (+-0.71)  <-- clear
+
+== Blue share of objectives at h240 (%) (mean 48.81, residual sd 3.89)
+   use x (per +1)                                          +0.34  (+-0.42)
+   depots/army bases do not produce                        -0.43  (+-0.75)
+   production scale (per -0.5)                             -0.03  (+-0.53)
+   replacement scale (per -0.5)                            +0.24  (+-0.56)
+   no airlift credit                                       +0.77  (+-1.20)
+   start supply (per -25 points)                           +0.22  (+-0.59)
+   max share of need per resupply (per -0.1)               -0.30  (+-0.49)
+   ground resupply interval, other orders (per +60 min)    -0.06  (+-0.18)
+   economic sliders up, bridges bombed                     -1.60  (+-0.93)
+   China at the border                                     +2.44  (+-0.69)  <-- clear
+
+== Blue / North vehicles at h240 (mean 1.94, residual sd 0.57)
+   use x (per +1)                                          +0.06  (+-0.06)
+   depots/army bases do not produce                        -0.01  (+-0.11)
+   production scale (per -0.5)                             -0.17  (+-0.08)  <-- clear
+   replacement scale (per -0.5)                            +0.03  (+-0.08)
+   no airlift credit                                       +0.03  (+-0.17)
+   start supply (per -25 points)                           -0.19  (+-0.09)  <-- clear
+   max share of need per resupply (per -0.1)               -0.20  (+-0.07)  <-- clear
+   ground resupply interval, other orders (per +60 min)    -0.00  (+-0.03)
+   economic sliders up, bridges bombed                     -0.11  (+-0.14)
+   China at the border                                     -0.72  (+-0.10)  <-- clear
+
+== Blue won before h192 (0/1) (mean 0.08, residual sd 0.27)
+   use x (per +1)                                          -0.02  (+-0.03)
+   depots/army bases do not produce                        +0.03  (+-0.05)
+   production scale (per -0.5)                             -0.07  (+-0.04)
+   replacement scale (per -0.5)                            +0.03  (+-0.04)
+   no airlift credit                                       -0.03  (+-0.08)
+   start supply (per -25 points)                           +0.04  (+-0.04)
+   max share of need per resupply (per -0.1)               -0.02  (+-0.03)
+   ground resupply interval, other orders (per +60 min)    -0.02  (+-0.01)
+   economic sliders up, bridges bombed                     -0.10  (+-0.07)
+   China at the border                                     +0.12  (+-0.05)  <-- clear
+
+== Chinese battalions left (mean 44.73, residual sd 8.03)
+   use x (per +1)                                          +0.15  (+-0.86)
+   depots/army bases do not produce                        -0.41  (+-1.54)
+   production scale (per -0.5)                             +3.23  (+-1.10)  <-- clear
+   replacement scale (per -0.5)                            +0.42  (+-1.16)
+   no airlift credit                                       +1.50  (+-2.48)
+   start supply (per -25 points)                           +1.27  (+-1.22)
+   max share of need per resupply (per -0.1)               +2.36  (+-1.01)  <-- clear
+   ground resupply interval, other orders (per +60 min)    +0.04  (+-0.37)
+   economic sliders up, bridges bombed                     +0.88  (+-1.92)
+   China at the border                                    +26.14  (+-1.43)  <-- clear
+
+== North battalions under 25% at h240 (mean 3.45, residual sd 2.71)
+   use x (per +1)                                          +2.44  (+-0.29)  <-- clear
+   depots/army bases do not produce                        +1.18  (+-0.52)  <-- clear
+   production scale (per -0.5)                             -0.57  (+-0.37)
+   replacement scale (per -0.5)                            -0.61  (+-0.39)
+   no airlift credit                                       +0.38  (+-0.84)
+   start supply (per -25 points)                           +0.28  (+-0.41)
+   max share of need per resupply (per -0.1)               +0.43  (+-0.34)
+   ground resupply interval, other orders (per +60 min)    +1.22  (+-0.12)  <-- clear
+   economic sliders up, bridges bombed                     -0.05  (+-0.65)
+   China at the border                                     +3.10  (+-0.48)  <-- clear
+
