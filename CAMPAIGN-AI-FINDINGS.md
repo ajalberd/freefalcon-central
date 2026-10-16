@@ -204,3 +204,10 @@ is not forced onto the defensive. Result, 5 days, 2 seeds: China has CAPTURE ord
 battalions alive at h120 against 37-49 with the team counteroffensive (28-37 at baseline), and the North's objectives end at 1,071-1,243 against 1,194-1,246
 (counteroffensive) and 1,069-1,099 (baseline). The team counteroffensive is better for China because it also forces Blue onto the defensive for the action timeout; attacking
 into Blue's running offensive costs the allies their strength.
+**Correction and what China's losses are made of (2026-10-15, later).** The one-hour / 18-hour cycles above were partly my own doing: Blue's US battalions are folded into the ROK
+team with a different country, so the rule also gave Blue a counteroffensive, which held the North's back (`GADBG`: `held 1` for 18 h). `AlliedCounterTeams` (default `6`, DPRK) now lists the
+teams that may use `AlliedCounterattack` / `AlliedCapture`. With Blue excluded the North's counteroffensive runs 86-87% of the time (5 days, 2 seeds): it ends with 1,469-1,474 objectives
+(it started with 1,440; baseline 1,091-1,113), Blue with 1,205-1,210 (started 1,239; baseline 1,587-1,609), China has 42-45 battalions left (28-41 baseline), and Blue does not win inside the 5 days.
+That is a swing from a Blue romp to a back-and-forth, and probably too strong; `AlliedCounterMin` / `Km` set when it starts. `AlliedCounterRestHours` does not yet produce pauses (the action
+re-arms at once; not traced). China's losses (`ALLYLOSS` lines, vehicles lost to air / artillery / ground, 5 days, 2 seeds): baseline 656 / 0 / 983 and 350 / 0 / 847, so 60-71% ground combat and 29-40%
+air; team counteroffensive 512 / 255 / 349 and 413 / 219 / 490 (air 31-44%, Blue artillery now 19-24%); allied-only capture 686 / 12 / 792 and 730 / 13 / 780 (air 45%).

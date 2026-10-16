@@ -1178,6 +1178,7 @@ _TCHAR *TeamClass::GetMotto(void)
 // as any enemy is on the offensive, and are killed piecemeal (campsim: 69 of 86 Chinese battalions RESERVE at h24, 2-4 with CAPTURE, 28-37 left at h120).
 extern bool g_bAlliedCounterattack;
 extern int g_nAlliedCounterMin, g_nAlliedCounterKm, g_nAlliedCounterRestH;
+extern char g_strAlliedCounterTeams[];
 
 // While an allied counteroffensive runs (a full action timeout from its launch) the enemy's own launches are held back: otherwise its
 // counterattack cycle flips the team back to DEFENSIVE at its next hourly evaluation (campsim: every allied offensive lasted one hour).
@@ -1186,6 +1187,28 @@ static CampaignTime alliedUntil[NUM_TEAMS];
 // How many allied battalions (team == who, country not) are within g_nAlliedCounterKm of the front. Also used by the GTM (AlliedCapture).
 int AlliedAtFront(int who)
 {
+    // Only the teams listed (AlliedCounterTeams, default DPRK = 6): Blue's own US units are 'allied' to the ROK team too, and without the list the
+    // rule gave Blue the same counteroffensive, which then held ours back.
+    bool listed = false;
+
+    for (const char *p = g_strAlliedCounterTeams; *p;)
+    {
+        while (*p and (*p < '0' or *p > '9'))
+            p++;
+
+        if (not *p)
+            break;
+
+        if (atoi(p) == who)
+            listed = true;
+
+        while (*p >= '0' and *p <= '9')
+            p++;
+    }
+
+    if (not listed)
+        return 0;
+
     int n = 0, foreign = 0, near_ = 0;
     VuListIterator uit(AllUnitList);
 
@@ -1262,6 +1285,7 @@ void TeamClass::SelectGroundAction(void)
             GetRoE(who, ht, ROE_GROUND_CAPTURE) == ROE_ALLOWED)
             held = true;
 
+
     if (groundAction.actionType == GACTION_DEFENSIVE and
         ((g_nCounterAttackInitiative > 0 and initiative >= caMin and TheCampaign.CurrentTime >= counterReady[who % NUM_TEAMS]) or
          (allies and TheCampaign.CurrentTime >= alliedUntil[who % NUM_TEAMS] + g_nAlliedCounterRestH * CampaignHours)) and
@@ -1273,7 +1297,9 @@ void TeamClass::SelectGroundAction(void)
     }
 
     // If we're not currently in an action, see if we can start one
-    const bool alliedGo = allies or (groundAction.actionType == GACTION_CONSOLIDATE and AlliedStrikeReady(who));
+    const bool alliedGo =
+        allies or (groundAction.actionType == GACTION_CONSOLIDATE and AlliedStrikeReady(who) and
+                   TheCampaign.CurrentTime >= alliedUntil[who % NUM_TEAMS] + g_nAlliedCounterRestH * CampaignHours);
 
     if (groundAction.actionType == GACTION_CONSOLIDATE and POList and not held and
         (initiative >= caMin or alliedGo) and

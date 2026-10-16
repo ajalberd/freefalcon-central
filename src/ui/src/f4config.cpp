@@ -752,6 +752,7 @@ int g_nGtmCaptureMaxKm = 0; // campaign: capture targets farther than this many 
 bool g_bGtmCaptureBestScore = true; // campaign (Andrew 2026-10-05, campsim: capture trips median 45 -> 31 km, >100 km 15.4% -> 2.1%): like GtmCaptureNearest, but the best-scoring valid capture target within reach (the GTM's own target score), nearest on a tie
 bool g_bGtmCaptureNearest = false; // campaign: a battalion sent to capture something beyond GtmCaptureMaxKm (60 if unset) attacks the nearest valid target instead
 int g_nCaptureInitiative = 5; // campaign: initiative points the captor takes from the loser per objective captured (stock 5)
+char g_strAlliedCounterTeams[0x100] = "6"; // campaign: teams that may use AlliedCounterattack / AlliedCapture, comma-separated team numbers (6 DPRK). "AlliedCounterTeams".
 bool g_bAlliedCapture = false; // campaign (AlliedCapture): allied armies folded into a team (China into DPRK) at the front get capture orders of their own while the team stays defensive
 bool g_bAlliedCounterattack = false; // campaign (AlliedCounterattack): when allied armies folded into a team (China, Russia into DPRK) have arrived at the front, the team launches a full counteroffensive whatever its initiative
 int g_nAlliedCounterMin = 8; // campaign: how many allied battalions near the front start it (AlliedCounterMin)
@@ -2522,6 +2523,7 @@ static ConfigOption<int> IntOpts[] = {
 static ConfigOption<char> StringOpts[] = {
     {"MasterServerName", &g_strMasterServerName[0]},
     {"RailTrainLines", &g_strRailTrainLines[0]}, // Artscout - 2026: routes that get a train
+    {"AlliedCounterTeams", &g_strAlliedCounterTeams[0]}, // teams that may use the allied counteroffensive / capture
     {"RailWaveCountries", &g_strRailWaveCountries[0]}, // Artscout - 2026: countries that mobilise by rail
     {"SoundDevice", &g_strSoundDevice[0]}, // OpenAL output device substring ("" = default)
     {"ServerName", &g_strServerName[0]},

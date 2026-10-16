@@ -585,6 +585,8 @@ void UnitClass::BroadcastUnitMessage(VU_ID id, short msg, short d1, short d2,
 // update remote copies of this entity, call the mission evaluation/event storage routines,
 // and add any craters we require.
 int gLossDiag[NUM_TEAMS][10] = {{0}};
+// campsim: the same for battalions of an allied country folded into the team (China, Russia in DPRK): [team][0 flight, 1 artillery, 2 other ground, 3 other]
+int gLossAllied[NUM_TEAMS][4] = {{0}};
 
 int UnitClass::ApplyDamage(FalconCampWeaponsFire* cwfm, uchar bonusToHit)
 {
@@ -776,6 +778,12 @@ int UnitClass::ApplyDamage(FalconCampWeaponsFire* cwfm, uchar bonusToHit)
 
         if (k >= 0 and t >= 0 and t < NUM_TEAMS)
             gLossDiag[t][k] += currentLosses;
+
+        if (IsBattalion() and k >= 0 and k <= 3 and t >= 0 and t < NUM_TEAMS and GetCountry() not_eq t)
+        {
+            extern int gLossAllied[NUM_TEAMS][4];
+            gLossAllied[t][k] += currentLosses;
+        }
 
         // 8 flight<-ship (a subset of 5): what ship air defence shoots down
         if (IsFlight() and shooter->IsTaskForce() and t >= 0 and t < NUM_TEAMS)

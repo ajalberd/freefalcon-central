@@ -2810,6 +2810,13 @@ static void ApplyKnobs(int argc, char **argv)
             gAirliftHook = gAirliftLog ? AirliftLandLog : NULL;
             printf("KNOB airliftlog = %d\n", gAirliftLog);
         }
+        else if (!strcmp(key, "alliedteams"))
+        {
+            extern char g_strAlliedCounterTeams[];
+            strncpy(g_strAlliedCounterTeams, val, 255);
+            g_strAlliedCounterTeams[255] = 0;
+            printf("KNOB g_strAlliedCounterTeams = \"%s\"\n", g_strAlliedCounterTeams);
+        }
         else if (!strcmp(key, "alliedcapture"))
         {
             extern bool g_bAlliedCapture;
@@ -3390,7 +3397,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';
@@ -3962,6 +3969,13 @@ int main(int argc, char **argv)
 
             if ((iter % 60) == 0 && vuLocalSessionEntity)
                 printf("SESSREF h=%d ref=%d\n", iter / 60, vuLocalSessionEntity->RefCount());
+
+            if ((iter % 360) == 0)
+            {
+                extern int gLossAllied[NUM_TEAMS][4];
+                printf("ALLYLOSS h=%d team 6 allied battalions (China, Russia) lost: <-air %d  <-artillery %d  <-ground %d  <-other %d | all team 6 battalions: <-air %d  <-artillery %d  <-ground %d\n",
+                       iter / 60, gLossAllied[6][0], gLossAllied[6][1], gLossAllied[6][2], gLossAllied[6][3], gLossDiag[6][0], gLossDiag[6][1], gLossDiag[6][2]);
+            }
 
             if ((iter % 360) == 0)
                 for (int tm : {1, 2, 6})
