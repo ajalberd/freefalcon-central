@@ -137,8 +137,10 @@ int AA_Saves = 0;
 extern float
     MIN_DEAD_PCT; // KCK: Strength below which a reaggregating vehicle will be considered dead
 
-#define GND_OFFENSIVE_SUPPLY_TIME (20 * CampaignMinutes)
-#define GND_DEFENSIVE_SUPPLY_TIME (3 * CampaignHours)
+// campsim experiment knobs (gndsupoff= / gndsupdef=, minutes): how often a battalion on attack / other orders is resupplied (stock 20 minutes / 3 hours)
+int g_nGndSupplyOffMin = 20, g_nGndSupplyDefMin = 180;
+#define GND_OFFENSIVE_SUPPLY_TIME (g_nGndSupplyOffMin * CampaignMinutes)
+#define GND_DEFENSIVE_SUPPLY_TIME (g_nGndSupplyDefMin * CampaignMinutes)
 #define AIR_OFFENSIVE_SUPPLY_TIME                                              \
     ((ActionTimeOut / 2) *                                                     \
      CampaignHours) //A.S. 2001-12-09, to make cosistent with "ActionTimeOut"

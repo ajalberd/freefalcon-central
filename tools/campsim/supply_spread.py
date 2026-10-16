@@ -56,6 +56,10 @@ CONFIGS = {
     "npu3p075": NP + " usemult=3 prodsup=0.75",
     "npu3mr25r50": NP + " usemult=3 maxratio=0.25 prodrepl=0.5",
     "npu3na_sl": NP + " usemult=3 noairlift=1 " + SLIDERS,
+    # ground resupply cadence (resup= only touches the squadrons' fuel arithmetic, so npu3rs* above are replicates of npu3)
+    "gd360": "gndsupdef=360", "gd720": "gndsupdef=720", "npu3gd360": NP + " usemult=3 gndsupdef=360", "npu3gd720": NP + " usemult=3 gndsupdef=720",
+    "npu3go60": NP + " usemult=3 gndsupoff=60", "npu2gd360": NP + " usemult=2 gndsupdef=360", "npu3gd360r50": NP + " usemult=3 gndsupdef=360 prodrepl=0.5",
+    "npu3gd360go60": NP + " usemult=3 gndsupdef=360 gndsupoff=60", "npu2gd720go120": NP + " usemult=2 gndsupdef=720 gndsupoff=120",
 }
 
 
@@ -198,6 +202,7 @@ def main():
         queue([("b", cfg, s) for s in (1, 2) for cfg in CONFIGS])
     elif ph == "phase2":
         n = int(sys.argv[2]) if len(sys.argv) > 2 else 6
+        queue([("b", cfg, s) for s in (1, 2) for cfg in CONFIGS])   # configs added since phase 1 get their screening seeds first
         rows = [r for r in ranked([o for o in load() if o["stage"] == "b"]) if r["cfg"] != "c0"]
         # a config only counts if supply is felt without a collapse
         good = [r for r in rows if r["front_min"] < 85][: n]
