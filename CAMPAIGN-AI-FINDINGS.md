@@ -219,3 +219,8 @@ air; team counteroffensive 512 / 255 / 349 and 413 / 219 / 490 (air 31-44%, Blue
 and Wonsan) h80 / h60: 1,421 vs 1,258 and 1,306 vs 1,373, with 37-56 Chinese battalions left, and no Blue win in 8 days. Baseline without the rule: Blue wins at h114-117 with 1,590-1,610 objectives.
 Blue first takes (baseline, 2 seeds): Hoeyang h40-46, Sariwon h71-82, Hwangju h79-99, Anbyon h83-101, Wonsan h75-101, South Pyongyang h100-112, Pyongyang h107-117.
 South of Pyongyang: Sariwon (253) 62 km, Hwangju (256) 42 km, Songnim (257) 35 km, Chunghwa (259) 21 km, Nampo (258) 33 km; south of Wonsan: Anbyon (732) 18 km, Hoeyang (411) 43 km, Kojo (407) 28 km.
+**The approach trigger on 4 seeds, and with the production changes (8 days).** Seed 3 exposed a gap in `chn_appr`: Blue took Wonsan itself at h64 without ever taking Sariwon, Hwangju or Anbyon, so China never
+joined (DPRK 940 vs Blue 1,458 objectives, 86 Chinese battalions idle). `chn_appr2` adds Wonsan (404): China joins in all four seeds (h38-80) and the end state is level: DPRK 1,342-1,431 vs Blue 1,248-1,358 objectives,
+24-56 Chinese battalions left, no Blue win. With the production stack on top (fixes, depots and army bases not producing, use x3; `chn_appr`, 4 seeds): factories intact -> China joins h47-67, DPRK supply 94-96%, at most 1
+battalion under 25%, objectives DPRK 1,438-1,619 vs Blue 1,081-1,241; factories held down -> DPRK battalion supply 70-75% at h96 (95-92% again at the end), objectives DPRK 1,439-1,577 vs Blue 1,123-1,261. The
+supply choke shows on day 4 and fades by day 8 because the North's ground force has shrunk to about a third (less to feed) and it has taken ground back; it does not change who holds what.
