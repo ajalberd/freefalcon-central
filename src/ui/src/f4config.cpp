@@ -1869,6 +1869,9 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bCampMapIconHealth}, // Artscout - 2026: darken objective icons by damage
     {"RailTrains", &g_bRailTrains}, // Artscout - 2026: trains on the rail routes (railnet.cpp)
     {"RailTroops", &g_bRailTroops}, // Artscout - 2026: battalions may ride the railway
+    {"AlliedCapture", &g_bAlliedCapture}, // allied armies at the front get capture orders of their own
+    {"AlliedCounterattack", &g_bAlliedCounterattack}, // allied armies at the front trigger a counteroffensive
+    {"RailHomeOnly", &g_bRailHomeOnly}, // Artscout - 2026: troop trains only on track of friendly origin
     {"RailWave", &g_bRailWave}, // Artscout - 2026: rail mobilisation (China wave)
     {"CampRailLines", &g_bCampRailLines}, // Artscout - 2026: campaign map draws the rail routes
     {"RailMapAllTrains", &g_bRailMapAllTrains}, // Artscout - 2026: mark enemy trains too (test aid)
@@ -1879,12 +1882,6 @@ static ConfigOption<bool> BoolOpts[] = {
     {"PitShadow",
      &g_bPitShadow}, // Artscout - 2026: cockpit sun shadows (depth-only pit replay + PS lookup)
     {"CloudShadow",
-    {"AlliedCapture", &g_bAlliedCapture}, // allied armies at the front get capture orders of their own
-    {"AlliedCounterattack", &g_bAlliedCounterattack}, // allied armies at the front trigger a counteroffensive
-    {"RailHomeOnly", &g_bRailHomeOnly}, // Artscout - 2026: troop trains only on track of friendly origin
-    {"AlliedCounterattack", &g_bAlliedCounterattack}, // allied armies at the front trigger a counteroffensive
-    {"RailHomeOnly", &g_bRailHomeOnly}, // Artscout - 2026: troop trains only on track of friendly origin
-    {"RailHomeOnly", &g_bRailHomeOnly}, // Artscout - 2026: troop trains only on track of friendly origin
      &g_bCloudShadow}, // Artscout - 2026: cumulus shadows on ground, objects and pit
     {"CloudShadowLog",
      &g_bCloudShadowLog}, // Artscout - 2026: log cloud shadow mask rebuilds
