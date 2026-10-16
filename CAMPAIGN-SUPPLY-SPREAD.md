@@ -43,6 +43,19 @@ gives 50% and Blue wins 1 of 12 (h114); the finer grid (counteroffensive distanc
 | min 9, no Blue win before day 9 (12 seeds) | 54% (47-66) | 2.30 | 2 of 12 (h207) |
 | min 10 + hcg 2.5, stock win rule (6) | 57% (52-68) | 1.73 | 3 of 6 (h100-113) |
 
+**Same chosen setting, China forward instead of at the border (12 seeds each):**
+
+| | China at the border | China forward |
+|---|---|---|
+| Blue's share of objectives at day 10 | **57%** (45-69), Blue ahead in 9 of 12 | 47% (44-50), Blue ahead in 0 of 12 |
+| Blue / North vehicles | 1.85 | 2.76 (Blue's army is intact but it holds fewer objectives) |
+| Blue ends the war | 2 of 12 (day 9) | 0 of 12 |
+| Chinese battalions left | 56 | 23 |
+| China joins / reaches contact | h40-68 / about h90-105 | h48-66 / about h40-55 |
+| North's front supply low point / end | 76% / 90% | 87% / 94% |
+
+China forward is the North-leaning version: it arrives early and is ground down, but the North holds the ground, and Blue never leads on objectives. At the border the war is close and Blue-leaning.
+
 The supply settings contribute the "felt" part (the front-line low point of 76-80% against 91% for the unchanged game); they do not move the result.
 
 ## What the supply code does (re-read for this)

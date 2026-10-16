@@ -258,6 +258,8 @@ def main():
         queue([("b", cfg, s) for s in (1, 2, 3, 4, 5, 6) for cfg in ("d9", "d10", "dg10")])
     elif ph == "phase11":   # confirm the day-9-gated settings on six more seeds
         queue([("b", cfg, s) for s in (7, 8, 9, 10, 11, 12) for cfg in ("d9", "d10")])
+    elif ph == "phase12":   # the chosen setting (d10) with China forward instead of at the border: 12 seeds
+        queue([("f", "d10", s) for s in range(1, 13)])
     elif ph == "report":
         report(sys.argv[2] if len(sys.argv) > 2 else None, 0)
     else:
