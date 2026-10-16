@@ -59,6 +59,13 @@ CONFIGS = {
     # ground resupply cadence (resup= only touches the squadrons' fuel arithmetic, so npu3rs* above are replicates of npu3)
     "gd360": "gndsupdef=360", "gd720": "gndsupdef=720", "npu3gd360": NP + " usemult=3 gndsupdef=360", "npu3gd720": NP + " usemult=3 gndsupdef=720",
     "npu3go60": NP + " usemult=3 gndsupoff=60", "npu2gd360": NP + " usemult=2 gndsupdef=360", "npu3gd360r50": NP + " usemult=3 gndsupdef=360 prodrepl=0.5",
+    # phase 3: push supply hard on purpose (does a starved North change who holds what?)
+    "h1": NP + " usemult=4 startsup=50 prodsup=0.5 gndsupdef=360 maxratio=0.3",
+    "h2": "usemult=4 gndsupdef=360 startsup=60 prodsup=0.75",
+    "h3": NP + " usemult=3 gndsupdef=720 prodsup=0.75",
+    "h4": "usemult=5 startsup=50 prodsup=0.5 noairlift=1",
+    "h5": NP + " usemult=5 startsup=40 prodsup=0.4 gndsupdef=720 maxratio=0.25 noairlift=1 prodrepl=0.25",
+    "h6": NP + " usemult=3 startsup=60 prodsup=0.75 gndsupdef=360 objpri=prod:100,pol:100,depot:100,roads:100",
     "npu3gd360go60": NP + " usemult=3 gndsupdef=360 gndsupoff=60", "npu2gd720go120": NP + " usemult=2 gndsupdef=720 gndsupoff=120",
 }
 
@@ -210,6 +217,8 @@ def main():
         print("phase 2 picks:", picks, flush=True)
         items = [(st, cfg, s) for s in (1, 2, 3, 4, 5, 6) for cfg in picks for st in ("b", "f")]
         queue(items)
+    elif ph == "phase3":
+        queue([("b", cfg, s) for s in (1, 2, 3, 4, 5, 6) for cfg in ("h1", "h2", "h3", "h4", "h5", "h6")])
     elif ph == "report":
         report(sys.argv[2] if len(sys.argv) > 2 else None, 0)
     else:
