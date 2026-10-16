@@ -273,11 +273,19 @@ void GroundTaskingManagerClass::DoCalculations(void)
     }
 }
 
+// Artscout - 2026 (g_bAlliedCapture): the allied armies folded into this team (China, Russia into DPRK) get CAPTURE orders of their own whatever
+// the team's posture is, once AlliedCounterMin of them are within AlliedCounterKm of the front. The team stays DEFENSIVE (its Korean battalions
+// keep their defend and reserve orders) and the enemy is not forced onto the defensive.
+extern bool g_bAlliedCapture;
+extern int g_nAlliedCounterMin;
+extern int AlliedAtFront(int who);
+
 int GroundTaskingManagerClass::Task(void)
 {
     int done = 0;
     int count = 0, collect;
     int action;
+    bool alliedCap = false;
 
     // Don't do this if we're not active, or not owned by this machine
     if (not(TeamInfo[owner]->flags bitand TEAM_ACTIVE) or not IsLocal())
@@ -310,6 +318,11 @@ int GroundTaskingManagerClass::Task(void)
               COLLECT_REPAIR bitor COLLECT_RESERVE bitor COLLECT_DEFEND bitor
               COLLECT_RADAR;
 
+    alliedCap = g_bAlliedCapture and action not_eq GACTION_OFFENSIVE and AlliedAtFront(owner) >= g_nAlliedCounterMin;
+
+    if (alliedCap)
+        collect or_eq COLLECT_CAPTURE;
+
     if (action == GACTION_OFFENSIVE)
         collect or_eq COLLECT_CAPTURE bitor COLLECT_ASSAULT bitor
                       COLLECT_AIRBORNE bitor COLLECT_COMMANDO bitor
@@ -329,6 +342,23 @@ int GroundTaskingManagerClass::Task(void)
 #ifdef KEV_GDEBUG
         ListBuildTime = GetTickCount() - ltime;
 #endif
+
+        // AlliedCapture: only the allied battalions are candidates for capture
+        if (alliedCap)
+        {
+            USNode nextc = canidateList[GORD_CAPTURE], curc;
+
+            while (nextc)
+            {
+                curc = nextc;
+                nextc = curc->next;
+
+                if (curc->unit->GetCountry() == owner)
+                    canidateList[GORD_CAPTURE] = canidateList[GORD_CAPTURE]->Remove(curc);
+            }
+
+            AssignUnits(GORD_CAPTURE, GTM_MODE_FASTEST);
+        }
 
         // Give orders based on action type
         switch (action)
@@ -383,7 +413,7 @@ int GroundTaskingManagerClass::Task(void)
         extern bool g_bGtmCaptureBestScore;
         extern int g_nGtmCaptureMaxKm;
 
-        if ((g_bGtmCaptureNearest or g_bGtmCaptureBestScore) and action == GACTION_OFFENSIVE)
+        if ((g_bGtmCaptureNearest or g_bGtmCaptureBestScore) and (action == GACTION_OFFENSIVE or alliedCap))
         {
             const float lim = g_nGtmCaptureMaxKm > 0 ? (float)g_nGtmCaptureMaxKm : 60.0F;
             VuListIterator uit(AllParentList);
@@ -391,7 +421,7 @@ int GroundTaskingManagerClass::Task(void)
             for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
             {
                 if (u->GetTeam() not_eq owner or not u->IsBattalion() or u->GetUnitOrders() not_eq GORD_CAPTURE or
-                    u->PlayerHeld())
+                    u->PlayerHeld() or (action not_eq GACTION_OFFENSIVE and u->GetCountry() == owner))
                     continue;
 
                 Objective t = u->GetUnitObjective();

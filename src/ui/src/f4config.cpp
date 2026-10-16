@@ -752,6 +752,7 @@ int g_nGtmCaptureMaxKm = 0; // campaign: capture targets farther than this many 
 bool g_bGtmCaptureBestScore = true; // campaign (Andrew 2026-10-05, campsim: capture trips median 45 -> 31 km, >100 km 15.4% -> 2.1%): like GtmCaptureNearest, but the best-scoring valid capture target within reach (the GTM's own target score), nearest on a tie
 bool g_bGtmCaptureNearest = false; // campaign: a battalion sent to capture something beyond GtmCaptureMaxKm (60 if unset) attacks the nearest valid target instead
 int g_nCaptureInitiative = 5; // campaign: initiative points the captor takes from the loser per objective captured (stock 5)
+bool g_bAlliedCapture = false; // campaign (AlliedCapture): allied armies folded into a team (China into DPRK) at the front get capture orders of their own while the team stays defensive
 bool g_bAlliedCounterattack = false; // campaign (AlliedCounterattack): when allied armies folded into a team (China, Russia into DPRK) have arrived at the front, the team launches a full counteroffensive whatever its initiative
 int g_nAlliedCounterMin = 8; // campaign: how many allied battalions near the front start it (AlliedCounterMin)
 int g_nAlliedCounterRestH = 0; // campaign: hours the team rests between allied counteroffensives (AlliedCounterRestHours)
@@ -1878,6 +1879,9 @@ static ConfigOption<bool> BoolOpts[] = {
     {"PitShadow",
      &g_bPitShadow}, // Artscout - 2026: cockpit sun shadows (depth-only pit replay + PS lookup)
     {"CloudShadow",
+    {"AlliedCapture", &g_bAlliedCapture}, // allied armies at the front get capture orders of their own
+    {"AlliedCounterattack", &g_bAlliedCounterattack}, // allied armies at the front trigger a counteroffensive
+    {"RailHomeOnly", &g_bRailHomeOnly}, // Artscout - 2026: troop trains only on track of friendly origin
     {"AlliedCounterattack", &g_bAlliedCounterattack}, // allied armies at the front trigger a counteroffensive
     {"RailHomeOnly", &g_bRailHomeOnly}, // Artscout - 2026: troop trains only on track of friendly origin
     {"RailHomeOnly", &g_bRailHomeOnly}, // Artscout - 2026: troop trains only on track of friendly origin

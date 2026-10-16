@@ -1183,11 +1183,9 @@ extern int g_nAlliedCounterMin, g_nAlliedCounterKm, g_nAlliedCounterRestH;
 // counterattack cycle flips the team back to DEFENSIVE at its next hourly evaluation (campsim: every allied offensive lasted one hour).
 static CampaignTime alliedUntil[NUM_TEAMS];
 
-static bool AlliedStrikeReady(int who)
+// How many allied battalions (team == who, country not) are within g_nAlliedCounterKm of the front. Also used by the GTM (AlliedCapture).
+int AlliedAtFront(int who)
 {
-    if (not g_bAlliedCounterattack)
-        return false;
-
     int n = 0, foreign = 0, near_ = 0;
     VuListIterator uit(AllUnitList);
 
@@ -1205,11 +1203,16 @@ static bool AlliedStrikeReady(int who)
         if (DistanceToFront(x, y) <= (float)g_nAlliedCounterKm)
             near_++;
 
-        if (DistanceToFront(x, y) <= (float)g_nAlliedCounterKm and ++n >= g_nAlliedCounterMin)
-            return true;
+        if (DistanceToFront(x, y) <= (float)g_nAlliedCounterKm)
+            n++;
     }
 
-    return false;
+    return n;
+}
+
+static bool AlliedStrikeReady(int who)
+{
+    return g_bAlliedCounterattack and AlliedAtFront(who) >= g_nAlliedCounterMin;
 }
 
 void TeamClass::SelectGroundAction(void)

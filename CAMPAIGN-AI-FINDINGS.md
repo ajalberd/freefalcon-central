@@ -198,3 +198,9 @@ allied offensive lasted one hour; the enemy's launches are now held back for the
 time (h39-57, h75-93, h111-) against 5%, 32-38 of China's battalions have CAPTURE orders at h48 against 9-11, 37-49 are alive at h120 against 28-37, and the
 North ends with 1,147-1,246 objectives against 1,069-1,099. Blue still wins the war in neither or one seed of two (h119 at baseline). The North's offensive does
 not restart right after Blue's offensive ends (an 18 h cycle, rest hours make no difference); why has not been traced.
+`AlliedCapture` (cfg, off by default; campsim `alliedcapture=1[:min:km]`, same Min / Km as above) is the alternative: the North stays DEFENSIVE and only the folded-in
+allied battalions get CAPTURE orders (the planner collects capture candidates, keeps the allied ones, assigns them before the defensive pass; `gtm.cpp` `Task`). Blue
+is not forced onto the defensive. Result, 5 days, 2 seeds: China has CAPTURE orders earlier (33-39 of 86 at h24, 27-34 at h48 against 2-9) but dies faster: 21-24
+battalions alive at h120 against 37-49 with the team counteroffensive (28-37 at baseline), and the North's objectives end at 1,071-1,243 against 1,194-1,246
+(counteroffensive) and 1,069-1,099 (baseline). The team counteroffensive is better for China because it also forces Blue onto the defensive for the action timeout; attacking
+into Blue's running offensive costs the allies their strength.
