@@ -752,6 +752,10 @@ int g_nGtmCaptureMaxKm = 0; // campaign: capture targets farther than this many 
 bool g_bGtmCaptureBestScore = true; // campaign (Andrew 2026-10-05, campsim: capture trips median 45 -> 31 km, >100 km 15.4% -> 2.1%): like GtmCaptureNearest, but the best-scoring valid capture target within reach (the GTM's own target score), nearest on a tie
 bool g_bGtmCaptureNearest = false; // campaign: a battalion sent to capture something beyond GtmCaptureMaxKm (60 if unset) attacks the nearest valid target instead
 int g_nCaptureInitiative = 5; // campaign: initiative points the captor takes from the loser per objective captured (stock 5)
+bool g_bAlliedCounterattack = false; // campaign (AlliedCounterattack): when allied armies folded into a team (China, Russia into DPRK) have arrived at the front, the team launches a full counteroffensive whatever its initiative
+int g_nAlliedCounterMin = 8; // campaign: how many allied battalions near the front start it (AlliedCounterMin)
+int g_nAlliedCounterRestH = 0; // campaign: hours the team rests between allied counteroffensives (AlliedCounterRestHours)
+int g_nAlliedCounterKm = 80; // campaign: how near the front counts, km (AlliedCounterKm)
 int g_nCounterAttackInitiative = 0; // campaign: a defending side with at least this initiative may launch a full counteroffensive (0 = stock: never while the enemy is attacking)
 float g_fEnemyTownPathCost = 4.0f; // campaign: ground route cost multiplier through an enemy town or an objective under an enemy-held parent (stock 4)
 bool g_bGtmKeepCapture = true; // campaign: a battalion keeps a capture order while its target is still a valid one (stock: re-planned every cycle)
@@ -1874,6 +1878,8 @@ static ConfigOption<bool> BoolOpts[] = {
     {"PitShadow",
      &g_bPitShadow}, // Artscout - 2026: cockpit sun shadows (depth-only pit replay + PS lookup)
     {"CloudShadow",
+    {"AlliedCounterattack", &g_bAlliedCounterattack}, // allied armies at the front trigger a counteroffensive
+    {"RailHomeOnly", &g_bRailHomeOnly}, // Artscout - 2026: troop trains only on track of friendly origin
     {"RailHomeOnly", &g_bRailHomeOnly}, // Artscout - 2026: troop trains only on track of friendly origin
      &g_bCloudShadow}, // Artscout - 2026: cumulus shadows on ground, objects and pit
     {"CloudShadowLog",
@@ -2393,6 +2399,9 @@ static ConfigOption<int> IntOpts[] = {
     {"NavalAI", &g_nNavalAI}, // campaign: 1 = ships sortie, patrol and sail port to port, 0 = old behaviour
     {"NavalTankerFuel", &g_nNavalTankerFuel}, // fuel per docked sea tanker, scaled by missing refinery output (0 = off)
     {"SimToGridFix", &g_nSimToGridFix}, // campaign: 1 = floor the sim->grid conversion (ground units can move again), 0 = old rounding
+    {"AlliedCounterMin", &g_nAlliedCounterMin}, // allied battalions at the front that start a counteroffensive
+    {"AlliedCounterRestHours", &g_nAlliedCounterRestH}, // hours between allied counteroffensives
+    {"AlliedCounterKm", &g_nAlliedCounterKm}, // how near the front counts, km
     {"RwrFont", &g_nRwrFont}, // Artscout - 2026 (RWR): -1 = one size below the MFD font, else 0..3
     {"CanopyAttenuation", &g_nCanopyAttenuation}, // Artscout - 2026: extra dB of canopy muffling, 0 = off
     {"PadlockBoxSize", &g_nPadlockBoxSize},

@@ -181,3 +181,20 @@ These cost a day each and apply to any theater with scripted endings (found on t
 | see which `#IF` branch fired | the `.evt` CND1 trailer, shown in the campaign editor |
 | read / edit `.cam`, `.tri`, class tables | `tools/campaign-editor` (`ffcamp` library) |
 | decode `Falcon4.AII`, `FALCON4.TT` | struct layouts in `tactics.h`; `campsim` log lines |
+
+## China does move now; the allied counteroffensive (`AlliedCounterattack`, 2026-10-15)
+
+Korea Rolling Fire, current code (troop trains and rail mobilisation on): China's 86 battalions start 140-200 km from Blue, join the war at h11,
+and ride to the front: median 80-90 km from the nearest Blue battalion at h24, 19-34 km at h36-48. They then sit in RESERVE (69 of 86 at h24) behind a
+North that is DEFENSIVE all war (its planner hands out DEFEND to the thin band of near-front towns and RESERVE to the rest: at h24 the North's Korean
+battalions are 132 RESERVE, 170 air defence, 6 DEFEND, 2 CAPTURE), and are killed piecemeal: 28-37 battalions left at h120 (1,566 -> 554-666
+vehicles), supply 94% and morale 60-77 throughout. `china_report.py <run>` prints this. China's problem is orders, not supply or morale.
+
+`AlliedCounterattack` (cfg, off by default; `AlliedCounterMin` 8 battalions, `AlliedCounterKm` 80 km of the front, `AlliedCounterRestHours` 0; campsim
+`alliedcounter=1[:min:km:rest]`): when that many allied battalions folded into a team (team DPRK, `GetCountry()` China or Russia) are at the front, the team
+launches a full counteroffensive whatever its initiative. Two things were needed: the launch (`SelectGroundAction`, bypassing the initiative test) and a
+hold, because Blue's own counterattack cycle (`CounterAttackInitiative`, 18 h) flipped the North back to DEFENSIVE at its next hourly evaluation, so every
+allied offensive lasted one hour; the enemy's launches are now held back for the action timeout. Result (5 days, 2 seeds): DPRK is OFFENSIVE 39% of the
+time (h39-57, h75-93, h111-) against 5%, 32-38 of China's battalions have CAPTURE orders at h48 against 9-11, 37-49 are alive at h120 against 28-37, and the
+North ends with 1,147-1,246 objectives against 1,069-1,099. Blue still wins the war in neither or one seed of two (h119 at baseline). The North's offensive does
+not restart right after Blue's offensive ends (an 18 h cycle, rest hours make no difference); why has not been traced.

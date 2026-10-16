@@ -1172,6 +1172,46 @@ _TCHAR *TeamClass::GetMotto(void)
     return teamMotto;
 }
 
+// Artscout - 2026 (g_bAlliedCounterattack): allied armies folded into this team (China and Russia fold into DPRK when they join: team = DPRK,
+// country = theirs) that have arrived within g_nAlliedCounterKm of the front. At g_nAlliedCounterMin battalions the team launches a full counteroffensive,
+// whatever its initiative: the arrival of the allies is the trigger. Without it the folded armies sit in RESERVE behind a team that is DEFENSIVE for as long
+// as any enemy is on the offensive, and are killed piecemeal (campsim: 69 of 86 Chinese battalions RESERVE at h24, 2-4 with CAPTURE, 28-37 left at h120).
+extern bool g_bAlliedCounterattack;
+extern int g_nAlliedCounterMin, g_nAlliedCounterKm, g_nAlliedCounterRestH;
+
+// While an allied counteroffensive runs (a full action timeout from its launch) the enemy's own launches are held back: otherwise its
+// counterattack cycle flips the team back to DEFENSIVE at its next hourly evaluation (campsim: every allied offensive lasted one hour).
+static CampaignTime alliedUntil[NUM_TEAMS];
+
+static bool AlliedStrikeReady(int who)
+{
+    if (not g_bAlliedCounterattack)
+        return false;
+
+    int n = 0, foreign = 0, near_ = 0;
+    VuListIterator uit(AllUnitList);
+
+    for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+    {
+        if (u->GetTeam() == who and u->GetOwner() not_eq who and u->IsBattalion())
+            foreign++;
+
+        if (u->GetTeam() not_eq who or u->GetCountry() == who or not u->IsBattalion() or u->IsDead())
+            continue;
+
+        GridIndex x, y;
+        u->GetLocation(&x, &y);
+
+        if (DistanceToFront(x, y) <= (float)g_nAlliedCounterKm)
+            near_++;
+
+        if (DistanceToFront(x, y) <= (float)g_nAlliedCounterKm and ++n >= g_nAlliedCounterMin)
+            return true;
+    }
+
+    return false;
+}
+
 void TeamClass::SelectGroundAction(void)
 {
     // Find the highest priority primary objective
@@ -1211,8 +1251,18 @@ void TeamClass::SelectGroundAction(void)
     const int caMin = g_nCounterAttackInitiative > 0 ? g_nCounterAttackInitiative : MIN_COUNTER_ATTACK_INITIATIVE;
     const int fullMin = g_nCounterAttackInitiative > 0 ? caMin : MIN_FULL_OFFENSIVE_INITIATIVE;
 
-    if (g_nCounterAttackInitiative > 0 and groundAction.actionType == GACTION_DEFENSIVE and
-        initiative >= caMin and TheCampaign.CurrentTime >= counterReady[who % NUM_TEAMS])
+    const bool allies = groundAction.actionType == GACTION_DEFENSIVE and AlliedStrikeReady(who);
+    bool held = false;
+
+    for (int ht = 0; ht < NUM_TEAMS; ht++)
+        if (ht not_eq who and alliedUntil[ht] > TheCampaign.CurrentTime and
+            GetRoE(who, ht, ROE_GROUND_CAPTURE) == ROE_ALLOWED)
+            held = true;
+
+    if (groundAction.actionType == GACTION_DEFENSIVE and
+        ((g_nCounterAttackInitiative > 0 and initiative >= caMin and TheCampaign.CurrentTime >= counterReady[who % NUM_TEAMS]) or
+         (allies and TheCampaign.CurrentTime >= alliedUntil[who % NUM_TEAMS] + g_nAlliedCounterRestH * CampaignHours)) and
+        not held)
     {
         groundAction.actionType = GACTION_CONSOLIDATE;
         groundAction.actionTimeout = TheCampaign.CurrentTime - ACTION_RATE;
@@ -1220,8 +1270,10 @@ void TeamClass::SelectGroundAction(void)
     }
 
     // If we're not currently in an action, see if we can start one
-    if (groundAction.actionType == GACTION_CONSOLIDATE and POList and
-        initiative >= caMin and
+    const bool alliedGo = allies or (groundAction.actionType == GACTION_CONSOLIDATE and AlliedStrikeReady(who));
+
+    if (groundAction.actionType == GACTION_CONSOLIDATE and POList and not held and
+        (initiative >= caMin or alliedGo) and
         TheCampaign.CurrentTime >= groundAction.actionTimeout + ACTION_RATE)
     {
         // Select our objective
@@ -1251,7 +1303,10 @@ void TeamClass::SelectGroundAction(void)
         if (bo)
         {
             // Offensive Action Yahoo
-            if (initiative >= fullMin)
+            if (alliedGo)
+                alliedUntil[who % NUM_TEAMS] = TheCampaign.CurrentTime + ACTION_TIMEOUT;
+
+            if (initiative >= fullMin or alliedGo)
                 groundAction.actionType = GACTION_OFFENSIVE;
             else
                 groundAction.actionType = GACTION_MINOROFFENSIVE;
@@ -1321,7 +1376,7 @@ void TeamClass::SelectGroundAction(void)
         // A.S. begin, 2001-12-09  if initiative < 40 then consolidate
         if (NewInitiativePoints)
         {
-            if (groundAction.actionPoints and bo and initiative >= (caMin < 40 ? caMin : 40))
+            if (groundAction.actionPoints and bo and (initiative >= (caMin < 40 ? caMin : 40) or AlliedStrikeReady(who)))
                 return; // We've still got umph, or havn't started yet, and havn't captured our objective
         }
         else // *** old code ***
