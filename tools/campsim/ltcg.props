@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Link-time code generation for campsim and every library it links, without touching the 66
+     .vcxproj files: build_ltcg.ps1 passes /p:ForceImportAfterCppTargets=<this file>. Item
+     definitions imported after Microsoft.Cpp.targets come after each project's own, so they win.
+
+     Build it in its own worktree (build_ltcg.ps1 does): the libraries would otherwise land, compiled
+     with /GL, in the Falcon4___x64_Release folders the game build links from.
+
+     FFLinkMode: LTCG (default) | PGI (instrumented, writes .pgc when run) | PGO (uses them; FFPgd
+     names the .pgd). PGO changes results -- 2026-10-17 it counted 5557 DPRK vehicles at minute 20
+     of save0 seed 1 against 5556 -- so it is for experiments only. -->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WholeProgramOptimization>true</WholeProgramOptimization>
+      <!-- with /GL the .asm listings are written at link time, relative to each lib: LNK1257 -->
+      <AssemblerOutput>NoListing</AssemblerOutput>
+    </ClCompile>
+    <Lib>
+      <LinkTimeCodeGeneration>true</LinkTimeCodeGeneration>
+    </Lib>
+    <Link Condition="'$(FFLinkMode)'=='LTCG' or '$(FFLinkMode)'==''">
+      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+    </Link>
+    <Link Condition="'$(FFLinkMode)'=='PGI'">
+      <LinkTimeCodeGeneration>PGInstrument</LinkTimeCodeGeneration>
+      <ProfileGuidedDatabase>$(FFPgd)</ProfileGuidedDatabase>
+      <!-- campsim links with IgnoreAllDefaultLibraries, so the probe runtime must be named -->
+      <AdditionalDependencies>pgobootrun.lib;pgort.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <Link Condition="'$(FFLinkMode)'=='PGO'">
+      <LinkTimeCodeGeneration>PGOptimization</LinkTimeCodeGeneration>
+      <ProfileGuidedDatabase>$(FFPgd)</ProfileGuidedDatabase>
+    </Link>
+  </ItemDefinitionGroup>
+</Project>

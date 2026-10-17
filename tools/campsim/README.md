@@ -20,6 +20,13 @@ python make_backdrop.py                                         # terrain image 
 
 `campsim.exe <game> <save> <days> <seed> [timeline.jsonl] [frame_minutes] [knob=value ...]`
 
+**Faster build for batches (~12%, same results):** `powershell -File build_ltcg.ps1` builds campsim with
+link-time code generation in its own worktree (`..\ff-campsim-ltcg` beside this repo) so the game build's
+libraries are not recompiled with `/GL`. It prints the `CAMPSIM_EXE_DIR` to set; `run_batch.py` and
+`supply_spread.py` then copy the exe from there. Rerun it (`-Rebuild` after a header gains a member) to
+pick up new commits. Do not mix exes within one batch: the ATM's 200 ms wall-clock cutoff makes results
+depend slightly on speed. PGO (`FFLinkMode=PGI/PGO` in `ltcg.props`) is faster still but changes results.
+
 ## Knobs (extra `key=value` args; `--set` in run_batch)
 
 | knob | effect |
