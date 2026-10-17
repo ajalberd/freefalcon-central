@@ -5,6 +5,13 @@ Everything below is reproducible with `tools/campsim/supply_spread.py` (queue, `
 `tools/campsim/runs/<save>-sp-<config>-s<seed>.jsonl`, viewable in the viewer by that name). `spread_levers.py` is the regression. Goal from Andrew:
 make supply matter, and get a fair, dynamic war that is close but Blue-sided by day 10, with China staged at the border and not at the border.
 
+## Correction (2026-10-17): read the win-gate results as a warning, not a recommendation
+
+The day-7, day-9 and day-11 win gates (`chn_appr3/4/5.tri`) and the "about 45 Chinese battalions" setting were me tuning rules and an order-of-battle number until the day-10 metric looked right. A gate that forbids Blue from
+winning before day N does not produce a ten-day war: it hides a war that would have ended on day 3-5 behind a timer (in `chnb45-sp-e9-s22` Blue held all three capitals from day 4 to the day-9 win with nothing happening). Do not ship any of them as the answer.
+What the data supports, without the gates: no numeric supply lever (use, production, start level, resupply speed, replacements, airlift, bridge bombing, depots not producing) changes who holds what; the China counteroffensive and China's
+position and size do. The real goal (a ten-day war a player can tip with strikes on factories and deep targets) needs a mechanism change in how supply and the economy turn into combat power: see the list of supply redesign experiments at the end.
+
 ## The short version
 
 1. **China at the border is better than China forward** (6 seeds, same supply settings): Blue holds 2-4 points more of the objectives, the North keeps
@@ -240,3 +247,12 @@ approach trigger in `save0.tri`, and the border staging in the Escalation mod bu
 
 Caveats: two campsim quirks - the seeds differ by up to 16 points of Blue share inside one config, so quote the means over 6-12 seeds, not single runs; and every number is
 for the Escalation scenario (Blue combat air cut to Falcon 4.0 levels, DPRK bombers, doubled PRC), not stock Rolling Fire.
+
+## Supply redesign experiments (not built)
+
+1. Starvation that loses: low supply drives morale down, retreat or surrender, instead of a unit sitting in reserve (why a starved North froze the front instead of losing it is not yet explained).
+2. Stores with real geography: depots and army bases hold local stock, the search crosses small enemy objectives, stocks run down and refill, strikes on depots, bridges and rail starve a region.
+3. Two resources: fuel (refineries) limits movement and offensives, ammunition (factories) limits fire.
+4. Replacements as the real limit: destroyed vehicles are replaced only at the rate factories produce and transport delivers (today the pool piles up, about 4,000 unused at day 10).
+5. Convoys the player or the AI can strike (trucks, trains from producers to stores): most work.
+Test harness for any of them: a delayed strike campaign (factories, power, refineries destroyed and held from day 2 or 3) on a setting where Blue otherwise loses or stalls, to see whether the strikes tip the war.

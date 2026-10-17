@@ -31,7 +31,8 @@ FRONT_Y = 490
 BAND = (FRONT_Y + 100, FRONT_Y + 170)          # where battalions go
 AIR_BAND = (FRONT_Y + 60, FRONT_Y + 230)       # airbases for squadrons
 GROUND_TYPES = ("Town", "City", "Village", "Road", "Intersection", "Army base", "Depot")
-TEAMS = {"prc": (5,), "prc+cis": (5, 4), "prcair": (5,), "prc-border": (5,)}
+TEAMS = {"prc": (5,), "prc+cis": (5, 4), "prcair": (5,), "prc-border": (5,), "prc-yalu": (5,)}
+YALU_KM = 35                                    # prc-yalu: Chinese towns within this many km of a North Korean objective
 BORDER_BOX = (100, 340, 680, 800)              # x0, x1, y0, y1: the Chinese side of the Yalu round Dandong (prc-border)
 U_INACTIVE = 0x20000
 
@@ -41,7 +42,12 @@ def stage(cam, objs, variant):
     base = entities.base_offsets(cam.version)
     raw = bytearray(cam.units_raw)
 
-    if variant == "prc-border":
+    if variant == "prc-yalu":
+        dprk = [o for o in objs if o["owner"] == 6]
+        spots = sorted((o for o in objs if o["owner"] == 5 and any(t in o["typeName"] for t in ("Town", "City", "Village"))
+                        and o["x"] <= 380   # the Yalu: Dandong to Kuandian and the line up to Xinbin (the Tumen frontier in the east is much further from the war)
+                        and min(((o["x"] - q["x"]) ** 2 + (o["y"] - q["y"]) ** 2) ** 0.5 for q in dprk) <= YALU_KM), key=lambda o: o["x"])
+    elif variant == "prc-border":
         x0, x1, y0, y1 = BORDER_BOX
         spots = sorted((o for o in objs if o["owner"] == 5 and x0 <= o["x"] <= x1 and y0 <= o["y"] <= y1
                         and any(t in o["typeName"] for t in ("Town", "City", "Village"))), key=lambda o: o["x"])
@@ -57,7 +63,7 @@ def stage(cam, objs, variant):
     # prcair: air only -- squadrons rehomed AND the reinforcement squadrons active from the start
     bns = [] if variant == "prcair" else [
         u for u in cam.units if u["owner"] in TEAMS[variant] and u["kind"] == "battalion"]
-    sqs = [] if variant == "prc-border" else [u for u in cam.units if u["owner"] in TEAMS[variant] and u["kind"] == "squadron"]
+    sqs = [] if variant in ("prc-border", "prc-yalu") else [u for u in cam.units if u["owner"] in TEAMS[variant] and u["kind"] == "squadron"]
     bns.sort(key=lambda u: u["x"])
     for i, u in enumerate(bns):
         # spread evenly across the band's objectives, west to east, like the units were

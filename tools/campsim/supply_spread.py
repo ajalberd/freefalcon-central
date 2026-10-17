@@ -24,7 +24,7 @@ RES = os.path.join(OUT, "results.jsonl")
 EXE = os.environ.get("CAMPSIM_EXE_DIR", "")
 BASE = "usecfg=1 noend=1 tri=chn_appr2 alliedcounter=1:8:80"
 PAR = int(os.environ.get("SPREAD_JOBS", "11"))
-STAGE = {"b": "chnb", "f": "save0", "b72": "chnb72", "b60": "chnb60", "b48": "chnb48", "b43": "chnb43", "b45": "chnb45", "b46": "chnb46"}   # b72 etc.: China at the border with fewer battalions (make_china_size.py)
+STAGE = {"b": "chnb", "f": "save0", "b72": "chnb72", "b60": "chnb60", "b48": "chnb48", "b43": "chnb43", "b45": "chnb45", "b46": "chnb46", "y45": "chny45"}   # y45: the 45 battalions on the 11 Chinese towns within 35 km of North Korea (make_ally_mod.py prc-yalu)   # b72 etc.: China at the border with fewer battalions (make_china_size.py)
 lock = threading.Lock()
 
 NP = "noprod=1"
@@ -279,6 +279,10 @@ def main():
         queue([("b46", "npp075u2", s) for s in range(17, 41)] + [("b43", "npp075u2", s) for s in range(13, 41)])
     elif ph == "phase20":
         queue([("b45", cfg, s) for s in range(1, 25) for cfg in ("e7", "e9")])
+    elif ph == "phase21":   # the best setting (45 bn + day-7 gate) to 40 seeds
+        queue([("b45", "e7", s) for s in range(25, 41)])
+    elif ph == "phase22":   # the true border: 45 battalions within 35 km of North Korea, scenario win rule and the day-7 gate
+        queue([("y45", cfg, s) for s in range(1, 25) for cfg in ("npp075u2", "e7")])
     elif ph == "report":
         report(sys.argv[2] if len(sys.argv) > 2 else None, 0)
     else:
