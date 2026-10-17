@@ -387,6 +387,12 @@ static void GtmLog(int hour)
 
             printf("%s\n", buf);
             memcpy(prevWhy[t], gGtmWhy[t], sizeof(prevWhy[t]));
+
+            {
+                extern int gGtmScoreDiag[NUM_TEAMS][4];
+                printf("GTMCOST h=%d team %d capture scorings %d, refused for path cost %d, lowest cost %d, limit %d\n", hour, t, gGtmScoreDiag[t][0], gGtmScoreDiag[t][1],
+                       gGtmScoreDiag[t][2], gGtmScoreDiag[t][3]);
+            }
         }
 
         memcpy(prev[t], gGtmDiag[t], sizeof(prev[t]));

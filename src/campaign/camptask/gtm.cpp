@@ -1275,6 +1275,7 @@ int GroundTaskingManagerClass::AssignUnit(Unit u, int orders, Objective o,
 // gGtmAction counts GTM cycles by ground action type.
 int gGtmDiag[NUM_TEAMS][GORD_LAST][5] = {{{0}}};
 int gGtmAction[NUM_TEAMS][8] = {{0}};
+int gGtmScoreDiag[NUM_TEAMS][4] = {{0}};
 
 int GroundTaskingManagerClass::AssignUnits(int orders, int mode)
 {
@@ -1626,6 +1627,21 @@ int GroundTaskingManagerClass::ScoreUnit(USNode curu, GODNode curo, int orders,
     }
 
     cost = CostToArrive(curu->unit, orders, ux, uy, curo->obj);
+
+    // campsim diagnostic: per team, GORD_CAPTURE scorings [0], those refused for cost [1], the lowest cost seen [2] and the limit [3]
+    if (orders == GORD_CAPTURE)
+    {
+        extern int gGtmScoreDiag[NUM_TEAMS][4];
+        gGtmScoreDiag[owner][0]++;
+
+        if (cost >= OBJ_GROUND_PATH_MAX_COST)
+            gGtmScoreDiag[owner][1]++;
+
+        if (not gGtmScoreDiag[owner][2] or (int)cost < gGtmScoreDiag[owner][2])
+            gGtmScoreDiag[owner][2] = (int)cost;
+
+        gGtmScoreDiag[owner][3] = (int)OBJ_GROUND_PATH_MAX_COST;
+    }
 
     if (cost >= OBJ_GROUND_PATH_MAX_COST)
     {
