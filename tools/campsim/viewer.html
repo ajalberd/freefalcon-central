@@ -30,6 +30,12 @@
   #grip:hover, #grip.on { background:#4aa3ff; }
   .chartbox { margin-bottom:8px; } .chartbox select { max-width:100%; margin-bottom:2px; }
   .chartbox canvas { width:100%; height:120px; display:block; cursor:pointer; }
+  #tip { position:absolute; display:none; pointer-events:none; background:#000d; border:1px solid #333; padding:6px 8px;
+         border-radius:5px; font-size:12px; line-height:1.35; max-width:340px; z-index:2; }
+  #tip table { width:auto; margin-top:4px; } #tip td { border:0; padding:1px 8px 1px 0; text-align:left; vertical-align:top; white-space:nowrap; }
+  #tip td:first-child { color:#89a; } #tip small { color:#89a; } #tip .dn { color:#ff7a7a; } #tip .up { color:#6ad1a3; }
+  #tip .tb { display:inline-block; width:46px; height:5px; background:#333; border-radius:2px; vertical-align:middle; overflow:hidden; }
+  #tip .tb i { display:block; height:100%; }
   #hint { position:absolute; right:10px; bottom:8px; color:#789; font-size:11px; }
 </style>
 <div id="side">
@@ -75,7 +81,7 @@
 <div id="grip" title="drag to resize the sidebar"></div>
 <div id="map"><canvas id="c"></canvas><div id="banner"></div><div id="legend"></div>
   <div id="hint">wheel zoom · drag pan · double-click fit · space play · ←/→ step</div>
-  <div id="tip" style="position:absolute;display:none;pointer-events:none;background:#000c;padding:4px 6px;border-radius:4px;font-size:12px;white-space:pre"></div></div>
+  <div id="tip"></div></div>
 <script>
 // Team colours by name (any theater); unknown names fall back to a palette by team index.
 const NAMECOL = {US:'#7fd6ff', Israel:'#4aa3ff', Egypt:'#ff4d4d', Syria:'#ff9f1c', Jordan:'#c9a0ff', Iraq:'#ffd23f',
@@ -84,7 +90,8 @@ const NAMECOL = {US:'#7fd6ff', Israel:'#4aa3ff', Egypt:'#ff4d4d', Syria:'#ff9f1c
 const KORCOL = {1:'#4aa3ff',2:'#3ddc84',3:'#9be7ff',4:'#c9a0ff',5:'#ffd23f',6:'#ff4d4d',7:'#999'};
 const ORD = ['reserve','CAPTURE','secure','assault','airborne','commando','defend','support','repair','air defense','recon','radar'];
 const ORD_COL = {0:'#8a93a0',1:'#ff9f1c',2:'#ffd23f',3:'#ff5d8f',4:'#c77dff',5:'#c77dff',6:'#5ec2ff',7:'#6ad1a3',8:'#6ad1a3',9:'#b0b8c4',10:'#6ad1a3',11:'#b0b8c4'};
-const TAC = {13:'defend',14:'delay hold',15:'delay fallback',16:'move airborne',17:'move marine',18:'brigade column',19:'repair',20:'support unit',21:'support',22:'column',23:'overwatch 1',24:'overwatch 2',25:'wedge'};
+const TAC = {13:'defend',14:'delay hold',15:'delay fallback',16:'move airborne',17:'move marine',18:'brigade column',19:'repair',20:'support unit',21:'support',22:'column',23:'overwatch 1',24:'overwatch 2',25:'wedge',
+  26:'echelon',27:'reserve',28:'move hold',29:'wait till ready',30:'withdraw',31:'brigade secure',32:'brigade defend',33:'brigade move',34:'brigade withdraw'};
 const ACT = {0:'-',1:'defensive',2:'consolidate',3:'minor offensive',4:'OFFENSIVE'};
 const KIND = ['battalion','brigade','squadron','task force','flight'];
 // objective type -> [name, shape, size km-ish on screen in px, important]
@@ -131,26 +138,67 @@ function setBackdrop() {
   bg.onerror = () => { if (++i < tryList.length) bg.src = tryList[i]; };
   if (tryList.length) bg.src = tryList[0];
 }
-async function load() {
-  runName = $('runs').value; if (!runName) return;
-  const txt = await fetch('runs/' + runName).then(x => x.text());
-  frames = []; fin = null; meta = null;
+// The timeline comes from api/tail (only complete lines; X-Next = where to continue). A run that is still
+// going (no "final" line yet, X-Live) is polled for the frames appended since, so a replay follows it live.
+let tlNext = 0, tlLive = false, tlToken = 0, ownCur = null;
+let unitNames = new Map(), firstSeen = new Map(), hover = null;
+async function fetchTimeline(from) {
+  const name = runName.replace(/\.jsonl$/, '');
+  const r = await fetch(`api/tail?name=${encodeURIComponent(name)}&from=${from}`).catch(() => null);
+  if (!r || !r.ok) {                               // a plain static server: the whole file
+    if (from) return null;
+    return {txt: await fetch('runs/' + runName).then(x => x.text()), next: 0, live: false, reset: false};
+  }
+  return {txt: await r.text(), next: +r.headers.get('X-Next'), live: r.headers.get('X-Live') === '1', reset: r.headers.get('X-Reset') === '1'};
+}
+// frames get owners per frame (so seeking is O(objectives)) and which objectives changed in each;
+// units' names ("nm", written once per unit) and the strength each unit was first seen at are collected
+function addLines(txt) {
   for (const ln of txt.split('\n')) {
     if (!ln) continue;
-    const o = JSON.parse(ln);
-    if (o.meta) meta = o; else if (o.final) fin = o; else frames.push(o);
+    // campsim built from e391ada0 (fixed in 882ca8f2) wrote the first frame's "nm" with one opening bracket
+    let o; try { o = JSON.parse(ln); } catch (e) { try { o = JSON.parse(ln.replace(/"nm":\[(\d)/, '"nm":[[$1')); } catch (e2) { continue; } }
+    if (o.meta) { meta = o; ownCur = new Map(meta.objs.map(x => [x[0], x[4]])); continue; }
+    if (o.final) { fin = o; continue; }
+    if (!ownCur) continue;
+    o.flips = o.o.map(([id, team]) => [id, ownCur.get(id), team]);
+    for (const [id, team] of o.o) ownCur.set(id, team);
+    o.owners = new Map(ownCur);
+    if (o.nm) for (const [id, n, c] of o.nm) unitNames.set(id, [n, c]);
+    for (const u of o.u) if (!firstSeen.has(u[0])) firstSeen.set(u[0], [u[5], frames.length]);
+    frames.push(o);
   }
+}
+async function follow(token) {
+  if (token !== tlToken || fin || !tlLive) return;
+  const got = await fetchTimeline(tlNext);
+  if (token !== tlToken) return;
+  if (got && got.reset) return load();             // the run was restarted under the same name
+  if (got && got.txt) {
+    const atEnd = idx === frames.length - 1, n = frames.length;
+    addLines(got.txt); tlNext = got.next;
+    if (frames.length > n) {
+      $('seek').max = frames.length - 1;
+      if (fin) buildLog();
+      atEnd ? show(frames.length - 1) : show(idx);
+      verdict();
+    }
+  }
+  tlLive = !!got && got.live;
+  if (!fin && tlLive) setTimeout(() => follow(token), 5000);
+  else show(idx);
+}
+async function load() {
+  runName = $('runs').value; if (!runName) return;
+  const token = ++tlToken;
+  const got = await fetchTimeline(0);
+  if (token !== tlToken) return;
+  frames = []; fin = null; meta = null; ownCur = null; unitNames = new Map(); firstSeen = new Map(); hover = null;
+  addLines(got.txt); tlNext = got.next; tlLive = got.live;
   if (!meta || !frames.length) return;
   objById = new Map(meta.objs.map(o => [o[0], o]));
   theater = theaterOf(runName); setBackdrop(); palette();
   document.title = $('runs').selectedOptions[0].textContent.replace(/ +\(.*\)$/, '') + ' - Campaign Sim Viewer';
-  // owners per frame (so seeking is O(objectives)) and which objectives changed in each frame
-  const cur = new Map(meta.objs.map(o => [o[0], o[4]]));
-  for (const f of frames) {
-    f.flips = f.o.map(([id, team]) => [id, cur.get(id), team]);
-    for (const [id, team] of f.o) cur.set(id, team);
-    f.owners = new Map(cur);
-  }
   // fit the view to the objectives (and add margin)
   // fit to the bulk of the objectives (2nd..98th percentile) so a few far-off ones do not shrink the map
   const q = (arr, p) => { const v = arr.slice().sort((m, n) => m - n); return v[Math.floor(p * (v.length - 1))]; };
@@ -164,6 +212,7 @@ async function load() {
   }
   syncExportRange();
   buildLog(); chart(); verdict(); show(0);
+  if (!fin && tlLive) setTimeout(() => follow(token), 5000);
 }
 let home = {x0:0,x1:1024,y0:0,y1:1024};
 function fit() {
@@ -338,14 +387,14 @@ function show(i) {
   idx = Math.max(0, Math.min(frames.length - 1, i)); $('seek').value = idx;
   const f = frames[idx]; if (!f) return;
   const days = Math.floor(f.t/1440), h = Math.floor(f.t%1440/60);
-  $('clock').textContent = `Day ${days} +${String(h).padStart(2,'0')}h  (frame ${idx+1}/${frames.length})`;
+  $('clock').textContent = `Day ${days} +${String(h).padStart(2,'0')}h  (frame ${idx+1}/${frames.length})` + (tlLive && !fin ? '  · live' : '');
   const ts = activeTeams();
   statsTable(f, frames[0]);
   const last = idx === frames.length - 1 && fin && fin.endgame;
   $('banner').style.display = last ? 'block' : 'none';
   if (last) $('banner').textContent = 'Campaign ended: ' + endText() + ' (day ' + (f.t/1440).toFixed(1) + ')';
   $('legend').innerHTML = ts.map(t => `<span class="sw" style="background:${tcol(t)}"></span>${tname(t)}`).join('<br>');
-  chart(); draw();
+  chart(); draw(); updateTip();
 }
 function resize() { cv.width = cv.clientWidth; cv.height = cv.clientHeight; if (meta) fit(); draw(); }
 
@@ -442,6 +491,7 @@ function draw() {
     g.fillStyle = '#000'; g.fillRect(px - w/2, py + h/2 + 1, w, 2);
     g.fillStyle = fr > .6 ? '#5f5' : fr > .3 ? '#fd4' : '#f55'; g.fillRect(px - w/2, py + h/2 + 1, w * fr, 2);
   }
+  if (!exporting) drawHover();
 }
 
 
@@ -660,34 +710,147 @@ let drag = null;
 cv.addEventListener('mousedown', e => { drag = {x:e.clientX, y:e.clientY, cx:view.cx, cy:view.cy}; });
 addEventListener('mouseup', () => { drag = null; });
 cv.addEventListener('dblclick', () => { fit(); draw(); });
-cv.addEventListener('mousemove', e => {
-  const tip = $('tip');
-  if (drag) { view.cx = drag.cx - (e.clientX - drag.x) / view.s; view.cy = drag.cy + (e.clientY - drag.y) / view.s; tip.style.display = 'none'; draw(); return; }
-  if (!meta || !frames.length) { tip.style.display = 'none'; return; }
-  const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
-  let best = null, bd = 150, kindOf = 0;
-  const f = frames[idx];
+// ---- hover: what the timeline knows about a unit or objective ----
+// unit fields: 0 id, 1 kind, 2 team, 3 x, 4 y (km), 5 vehicles, 6 full strength, 7 moving, 8 morale, 9 orders,
+// 10 tactic, 11 supply, 12 objective id, 13-14 objective x,y, 15-16 destination x,y; timelines from
+// 2026-10-17 on add 17 status flags, 18 fatigue, 19 ground role / flight mission, 20 parent brigade id
+// and "nm" [id, name, class] the first time a unit appears; meta.objs adds 5 name, 6 parent objective id.
+const FLAGS = ['engaged', 'in combat', 'broken', 'taking losses', 'retreating', 'refused orders', 'targeted', 'detached'];
+const ROLE = ['reserve', 'attack', 'assault', 'airborne', 'defense', 'air defense', 'fire support', 'engineer', 'recon'];
+const AMIS = ['none','BARCAP','BARCAP (border)','HAVCAP','TARCAP','RESCAP','ambush CAP','sweep','alert','intercept','escort',
+  'SEAD strike','SEAD escort','OCA strike','interdiction strike','strike','deep strike','stealth strike','strategic bombing','FAC',
+  'on-call CAS','pre-planned CAS','CAS','search and destroy','interdiction','BAI','AWACS','JSTARS','tanker','recon','BDA','ECM',
+  'air cavalry','airlift','SAR','ASW','anti-ship','patrol','recon patrol','abort','training','other'];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+const km = (x0, y0, x1, y1) => Math.round(Math.hypot(x1 - x0, y1 - y0));
+const sw = t => `<span class="sw" style="background:${tcol(t)}"></span>`;
+const bar = (v, max = 100) => { const fr = Math.max(0, Math.min(1, v / max));
+  return `<span class="tb"><i style="width:${Math.round(fr * 100)}%;background:${fr > .6 ? '#5f5' : fr > .3 ? '#fd4' : '#f55'}"></i></span>`; };
+const objName = o => o && o[5] && o[5] !== 'Nowhere' ? o[5] : '';
+// objective types the map draws as plain dots (classtbl.h TYPE_*), named for the hover only
+const OTX = {4:'beach', 5:'border', 12:'ford', 16:'nav beacon', 24:'railroad', 25:'refinery', 26:'road', 27:'sea', 28:'town', 29:'village',
+  30:'HARTS', 31:'SAM site', 58:'artillery site'};
+const objLabel = o => { const ty = (OT[o[3]] || [OTX[o[3]] || 'objective type ' + o[3]])[0], n = objName(o);
+  return n ? `${esc(n)} <small>(${ty} #${o[0]})</small>` : `${ty} #${o[0]}`; };
+const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
+function unitTip(u, f) {
+  const nm = unitNames.get(u[0]), ground = u[1] <= 1, ext = u.length > 17;
+  let h = `<b>${nm ? esc(nm[0]) : KIND[u[1]] + ' #' + u[0]}</b><br>${sw(u[2])}${esc(tname(u[2]))} · ${KIND[u[1]]}` +
+          (nm && nm[1] ? ' · ' + esc(nm[1]) : '') + ` <small>#${u[0]}</small><table>`;
+  const pct = u[6] ? Math.round(100 * u[5] / u[6]) : 0;
+  const fs = firstSeen.get(u[0]), lost = fs && fs[0] - u[5];
+  h += row(ground ? 'strength' : 'aircraft', `${bar(u[5], u[6] || 1)} ${u[5]}/${u[6]} (${pct}%)` +
+           (lost > 0 ? ` <small class="dn">−${lost} since frame ${fs[1] + 1}</small>` : lost < 0 ? ` <small class="up">+${-lost}</small>` : ''));
+  if (ground) {
+    h += row('morale', `${bar(u[8])} ${u[8]}%`) + row('supply', `${bar(u[11])} ${u[11]}%`);
+    if (ext) h += row('fatigue', `${u[18]}`);
+    h += row('orders', `<span style="color:${ORD_COL[u[9]] || '#ccc'}">${ORD[u[9]] ?? u[9]}</span>` + (ext ? ` · role ${ROLE[u[19]] ?? u[19]}` : ''));
+    h += row('tactic', TAC[u[10]] || (u[10] ? u[10] : '-'));
+    if (u[12]) {
+      const o = objById.get(u[12]), own = f.owners.get(u[12]);
+      h += row('objective', `${o ? objLabel(o) : '#' + u[12]}<br>${sw(own)}${esc(tname(own))}-held, ${km(u[3], u[4], u[13], u[14])} km away`);
+    }
+    if (u[15] || u[16]) h += row('destination', `${u[15]},${u[16]} · ${km(u[3], u[4], u[15], u[16])} km`);
+    if (ext && u[20]) { const p = unitNames.get(u[20]); h += row('brigade', p ? esc(p[0]) : '#' + u[20]); }
+  } else if (ext && u[1] === 4) h += row('mission', AMIS[u[19]] || u[19]);
+  const p = idx > 0 && (frames[idx - 1]._um || (frames[idx - 1]._um = new Map(frames[idx - 1].u.map(q => [q[0], q])))).get(u[0]);
+  const st = ground ? [u[7] ? 'moving' + (p ? ` (${km(p[3], p[4], u[3], u[4])} km since last frame)` : '') : 'halted']
+                   : p ? [`${km(p[3], p[4], u[3], u[4])} km since last frame`] : [];
+  if (ext) FLAGS.forEach((n, b) => { if (u[17] & (1 << b)) st.push(b === 2 || b === 4 ? `<span class="dn">${n}</span>` : n); });
+  if (st.length) h += row('status', st.join(' · '));
+  h += row('position', `${u[3]}, ${u[4]} km`);
+  return h + '</table>';
+}
+function objTip(o, f) {
+  const own = f.owners.get(o[0]), par = o[6] && objById.get(o[6]);
+  let h = `<b>${objLabel(o)}</b><br>${sw(own)}${esc(tname(own))}` + (own !== o[4] ? ` <small>(${esc(tname(o[4]))} at the start)</small>` : '') + '<table>';
+  if (par && par !== o) h += row('part of', objLabel(par));
+  let caps = 0, lastCap = null;
+  for (let i = 0; i <= idx; i++) for (const [id, was, now] of frames[i].flips) if (id === o[0] && was !== now) { caps++; lastCap = [i, now]; }
+  if (caps) h += row('captured', `${caps}× · last by ${esc(tname(lastCap[1]))}, day ${(frames[lastCap[0]].t / 1440).toFixed(1)}`);
+  const by = new Map();                              // ground units with this objective, per team
+  for (const u of f.u) if (u[1] <= 1 && u[12] === o[0]) { const b = by.get(u[2]) || [0, 0]; b[0]++; b[1] += u[5]; by.set(u[2], b); }
+  for (const [t, [n, v]] of by) h += row(t === own ? 'holding it' : 'going for it', `${sw(t)}${esc(tname(t))}: ${n} unit${n > 1 ? 's' : ''}, ${v} vehicles`);
+  return h + row('position', `${o[1]}, ${o[2]} km`) + '</table>';
+}
+function pick(mx, my) {
+  const f = frames[idx], gnd = $('l-gnd').checked, air = $('l-air').checked;
+  let best = null, bd = 150;
   for (const u of f.u) {
-    if (u[1] > 1 && u[1] !== 4) continue;
+    if (u[1] <= 1 ? !gnd : u[1] !== 4 || !air) continue;
     const dx = X(u[3]) - mx, dy = Y(u[4]) - my, d = dx*dx + dy*dy;
     if (d < bd) { bd = d; best = u; }
   }
-  if (!best) for (const o of meta.objs) {                      // objectives when no unit is near
+  if (best) return {u: best};
+  bd = 100;
+  for (const o of meta.objs) {                       // objectives when no unit is near
+    if (!(OT[o[3]] || [])[3] && view.s < .9) continue;   // as drawn: minor ones only when zoomed in
     const dx = X(o[1]) - mx, dy = Y(o[2]) - my, d = dx*dx + dy*dy;
-    if (d < 100 && d < bd + 1e9) { bd = d; best = o; kindOf = 1; }
+    if (d < bd) { bd = d; best = o; }
   }
-  if (!best) { tip.style.display = 'none'; return; }
-  const u = best;
-  if (kindOf) {
-    const own = f.owners.get(u[0]);
-    tip.textContent = `${(OT[u[3]] || ['objective type ' + u[3]])[0]} #${u[0]}\n${tname(own)}   @ ${u[1]},${u[2]}`;
+  return best ? {o: best} : null;
+}
+function drawHover() {                             // the hovered unit's objective and destination, or who wants an objective
+  if (!hover || !meta) return;
+  const f = frames[idx];
+  const line = (x0, y0, x1, y1, col, dash) => {      // a dark casing under the colour, so it reads over any backdrop
+    for (const [c, w] of [['#000c', 4.5], [col, 2]]) {
+      g.strokeStyle = c; g.lineWidth = w; g.setLineDash(dash || []);
+      g.beginPath(); g.moveTo(X(x0), Y(y0)); g.lineTo(X(x1), Y(y1)); g.stroke();
+    }
+  };
+  const ring = (x, y, col, r = 12) => { for (const [c, w] of [['#000c', 4.5], [col, 2]]) {
+    g.strokeStyle = c; g.lineWidth = w; g.setLineDash([]); g.beginPath(); g.arc(X(x), Y(y), r, 0, 7); g.stroke(); } };
+  g.save();
+  if (hover.u) {
+    const u = (f._um || (f._um = new Map(f.u.map(q => [q[0], q])))).get(hover.u[0]);
+    if (u) {
+      if (u[1] <= 1 && (u[15] || u[16]) && (u[15] !== u[3] || u[16] !== u[4])) line(u[3], u[4], u[15], u[16], '#fff', [3, 4]);
+      if (u[1] <= 1 && u[12]) { line(u[3], u[4], u[13], u[14], '#ffc24a', [8, 5]); ring(u[13], u[14], '#ffc24a', 9); }
+      ring(u[3], u[4], '#fff');
+    }
   } else {
-    tip.textContent = `${KIND[u[1]]} #${u[0]}  ${tname(u[2])}\n@ ${u[3]},${u[4]}   vehicles ${u[5]}/${u[6]}` +
-      (u[1] <= 1 ? `\nmorale ${u[8]}  supply ${u[11]}\norders ${ORD[u[9]] || u[9]}   tactic ${TAC[u[10]] || u[10]}` : '');
+    const o = hover.o;
+    for (const u of f.u) if (u[1] <= 1 && u[12] === o[0]) line(u[3], u[4], o[1], o[2], tcol(u[2]));
+    ring(o[1], o[2], '#fff');
   }
-  tip.style.left = (mx + 14) + 'px'; tip.style.top = (my + 14) + 'px'; tip.style.display = 'block';
+  g.restore();
+}
+let tipAt = null;
+function updateTip() {                             // also re-run when the frame changes under a resting mouse
+  const tip = $('tip');
+  if (!tipAt || !meta || !frames.length) { tip.style.display = 'none'; return; }
+  const [mx, my] = tipAt, f = frames[idx];
+  const hit = pick(mx, my);
+  const key = hit ? (hit.u ? 'u' + hit.u[0] : 'o' + hit.o[0]) : '';
+  const moved = key !== (hover ? (hover.u ? 'u' + hover.u[0] : 'o' + hover.o[0]) : '');
+  hover = hit;
+  if (moved) draw();
+  if (!hit) { tip.style.display = 'none'; return; }
+  tip.innerHTML = hit.u ? unitTip(hit.u, f) : objTip(hit.o, f);
+  tip.style.display = 'block';
+  // inside the map, and on the side away from the unit's objective so the line to it stays visible
+  const W = cv.width, H = cv.height, tw = tip.offsetWidth, th = tip.offsetHeight;
+  const obj = hit.u && hit.u[1] <= 1 && hit.u[12] ? [X(hit.u[13]), Y(hit.u[14])] : null;
+  const right = mx + 14, left = mx - 14 - tw, below = my + 14, above = my - 14 - th;
+  let x, y;
+  if (!obj) { x = right + tw <= W ? right : left; y = below + th <= H ? below : above; }
+  else if (obj[0] < mx ? right + tw <= W : left >= 0) {   // beside the cursor, away from the objective
+    x = obj[0] < mx ? right : left; y = below + th <= H ? below : above;
+  } else {                                                // a narrow map: above or below it instead
+    x = Math.min(W - tw, mx - tw / 2);
+    y = obj[1] < my ? (below + th <= H ? below : above) : (above >= 0 ? above : below);
+  }
+  tip.style.left = Math.max(0, x) + 'px';
+  tip.style.top = Math.max(0, Math.min(H - th, y)) + 'px';
+}
+cv.addEventListener('mousemove', e => {
+  if (drag) { view.cx = drag.cx - (e.clientX - drag.x) / view.s; view.cy = drag.cy + (e.clientY - drag.y) / view.s; tipAt = null; hover = null; $('tip').style.display = 'none'; draw(); return; }
+  const r = cv.getBoundingClientRect();
+  tipAt = [e.clientX - r.left, e.clientY - r.top];
+  updateTip();
 });
-cv.addEventListener('mouseleave', () => { $('tip').style.display = 'none'; });
+cv.addEventListener('mouseleave', () => { tipAt = null; const had = hover; hover = null; $('tip').style.display = 'none'; if (had) draw(); });
 $('load').onclick = () => load();
 
 // ---- resizable sidebar

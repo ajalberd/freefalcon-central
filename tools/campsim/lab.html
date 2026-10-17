@@ -165,18 +165,27 @@ $('go').onclick = async () => {
 function saveSel() { localStorageSet('lab.sel', JSON.stringify([...selected])); }
 
 async function refresh() {
-  runs = await fetch('api/runs').then(r => r.json());
-  const need = runs.filter(r => (selected.has(r.name) || !sums[r.name] || r.state !== 'done') && r.size)
-                   .filter(r => !sums[r.name] || sums[r.name]._mtime !== r.mtime || r.state !== 'done');
-  // Summaries are cached server side, but a big batch still takes a moment: fetch a few at a time.
-  for (let i = 0; i < need.length; i += 6) {
-    const batch = need.slice(i, i + 6);
-    const res = await fetch('api/summary?' + batch.map(r => 'name=' + encodeURIComponent(r.name)).join('&')).then(r => r.json());
-    res.forEach((s, j) => { s._mtime = batch[j].mtime; sums[s.name] = s; });
-    if (i === 0) render();
-  }
-  render();
+  if (refreshing) return;              // a slow refresh must not pile up behind the 3 s timer
+  refreshing = true;
+  try {
+    runs = await fetch('api/runs').then(r => r.json());
+    // only what changed: a finished run whose timeline is unchanged is never fetched again. The table needs the
+    // lite summary (no curve, ~10x smaller); ticked runs get the full one for the charts.
+    const stale = r => r.size && (!sums[r.name] || sums[r.name]._mtime !== r.mtime || r.state !== 'done');
+    const full = runs.filter(r => selected.has(r.name) && (stale(r) || !sums[r.name]._full));
+    const lite = runs.filter(r => !selected.has(r.name) && stale(r));
+    const get = async (batch, isFull) => {
+      const res = await fetch('api/summary?' + (isFull ? '' : 'lite=1&') + batch.map(r => 'name=' + encodeURIComponent(r.name)).join('&')).then(r => r.json());
+      res.forEach((s, j) => { s._mtime = batch[j].mtime; s._full = isFull; sums[s.name] = s; });
+    };
+    for (let i = 0; i < full.length; i += 6) await get(full.slice(i, i + 6), true);
+    for (let i = 0; i < lite.length; i += 100) { await get(lite.slice(i, i + 100), false); if (i === 0 && lite.length > 100) render(); }
+    // the table has ~1600 rows (~300 ms to rebuild): only when a run, its progress or the selection changed
+    const sig = [...selected].join() + '|' + runs.map(r => r.name + r.state + r.mtime + (r.progress ? r.progress.pct : '')).join();
+    if (sig !== lastSig || full.length || lite.length) { lastSig = sig; render(); }
+  } finally { refreshing = false; }
 }
+let refreshing = false, lastSig = '';
 
 const TEAMCOL = {US:'#7fd6ff', Israel:'#4aa3ff', Egypt:'#ff4d4d', Syria:'#ff9f1c', Jordan:'#c9a0ff', Iraq:'#ffd23f',
   'Saudi Arabia':'#3ddc84', Lebanon:'#9aa7b5', ROK:'#3ddc84', DPRK:'#ff4d4d', PRC:'#ff8a3d', CIS:'#c9a0ff', Japan:'#9be7ff'};
