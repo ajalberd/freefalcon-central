@@ -1336,6 +1336,10 @@ int CampaignClass::Decode(VU_BYTE **stream, long *rem)
     }
 
     SetTime(CurrentTime);
+    // Only the campaign thread's tick set this, so weather init later in the load raced it:
+    // a 09:00 save could read TimeOfDay 0 and roll night wind/temperature (one rand() fewer,
+    // so the same seed gave a different game depending on load speed).
+    TimeOfDay = CurrentTime % CampaignDay;
 
     if (gCampDataVersion >= 48)
     {

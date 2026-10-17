@@ -3562,6 +3562,10 @@ static LONG __stdcall CampsimCrashFilter(EXCEPTION_POINTERS *ep)
     if (InterlockedExchange(&inCrash, 1))
         return EXCEPTION_CONTINUE_SEARCH;
 
+    // stdout is buffered: get the lines before the fault out ahead of the report. No lock -- the
+    // fault may have hit inside a printf on another thread, and fflush would wait on it forever.
+    _fflush_nolock(stdout);
+
     char line[600];
     EXCEPTION_RECORD *er = ep->ExceptionRecord;
     wsprintfA(line, "\nCRASH at campaign min %d (day %d): code 0x%08X at %p",
@@ -3673,7 +3677,10 @@ static int ApplyTheater(int argc, char **argv, const char *slashdir)
 int main(int argc, char **argv)
 {
     InitializeCriticalSection(&gVuLock);
-    setvbuf(stdout, NULL, _IONBF, 0);
+    // Buffered: unbuffered, every printf fragment was its own WriteFile -- 20% of the run's wall
+    // time (the per-hour logs print in pieces). The hourly progress line, STEP, EVENT and the
+    // watchdog fflush, so a live tail lags at most one campaign hour; the crash filter flushes too.
+    setvbuf(stdout, NULL, _IOFBF, 1 << 16);
 
     SymSetOptions(SYMOPT_UNDNAME | SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS);
     SymInitialize(GetCurrentProcess(), NULL, TRUE);
