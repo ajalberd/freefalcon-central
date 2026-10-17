@@ -75,6 +75,23 @@ Why a starved North froze the front (item 1 of the brief): supply never fed mora
 Why Blue does not exploit it (read from the code, `team.cpp`): a side starts an offensive only when its **initiative** is 50-55 or more, and a side being attacked is forced onto the defensive. Initiative is 50% ground-vehicle ratio, 40% aircraft ratio and 10% losses, each as an arctangent of
 ours over theirs; it never looks at supply, production or objectives. M6 changes the vehicle term to supply-weighted vehicles; the strike effect with it is +2.8 (+6.1 with M1 + M2) and the games still do not end.
 
+## Why Blue stops capturing at day 3-4 (read from the existing runs, no new runs)
+
+Blue is not slow early: in every one of the 24 stock and strike seeds it is on offensive 80-96% of hours 6-72 and gains about 4 objectives an hour (1,239 to ~1,550, a 62-65% share at the peak, hour 65-90).
+After hour 84 it is on offensive 0-19% of the time and only 2-3 of its ~230 battalions hold capture orders, so Pyongyang is never reached. The cause is the initiative score (INIT lines in the logs, seed 2):
+
+| Hour | Blue vs North ground vehicles | aircraft | ground term | air term | blend | Blue initiative |
+|---|---|---|---|---|---|---|
+| 42 | 4,041 vs 2,640 | 216 vs 232 | 64 | 48 | 58 | 60 |
+| 60 | 4,175 vs 1,961 | 228 vs 247 | 73 | 48 | 62 | 76 |
+| 78 | 3,816 vs 2,944 | 151 vs 689 | 59 | 14 | 41 | 50 |
+| 114 | 3,805 vs 2,708 | 163 vs 727 | 61 | 15 | 43 | 42 |
+| 240 | 3,682 vs 1,916 | 189 vs 920 | 70 | 13 | 46 | 45 |
+
+When China's air force joins (about hour 70), the aircraft term (40% of the blend) falls from 48 to 13 and holds Blue under the 50 it needs to start an offensive, although Blue keeps a 1.4-1.9x ground lead.
+A side being attacked is forced defensive, so the North keeps the offensive for the rest of the war. This is also why starving the North's ground units, or weighting initiative by supply (M6), did so little: the ground term is not the limiter.
+`initw=G:A:L` (blend weights, stock 5:4:1) was built to test it; a first test (8:1:1, 8 seeds each, strike and no strike) was queued and stopped at the user's request before any result, so the hypothesis is untested.
+
 ## What was built (all campsim-only knobs, off by default)
 
 | Switch | What it does | Result |

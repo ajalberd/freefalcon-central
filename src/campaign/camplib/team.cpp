@@ -2194,6 +2194,10 @@ int gInitDiag[8][12];
 // campsim experiment (initsupply=1, off = stock): the ground term of initiative counts a side's vehicles weighted by their battalions'
 // supply, so a starved army counts for less and the other side gets the initiative (stock: vehicles only, supply never enters).
 bool g_bInitSupply = false;
+// campsim experiment (initw=G:A:L): the weights of the ground, aircraft and loss terms of the long-run initiative (stock 5:4:1).
+// In the Escalation scenario the aircraft term falls from ~48 to ~13 when China's air force joins and holds Blue's initiative under 50 for the rest
+// of the war, whatever its ground lead; a ground-weighted blend tests whether that is what stops Blue's offensive.
+int g_nInitWG = 5, g_nInitWA = 4, g_nInitWL = 1;
 
 static int EffectiveGroundVehicles(Team t)
 {
@@ -2296,9 +2300,9 @@ void NewInitiativePointSetting(Team who)
     longRunInitiative3 =
         (int)(atan(tloss / oloss) * 100 / (3.142 / 2) +
               1); // e.g., if the relative strenght is 1, longRunInitiative = 50.
-    longRunInitiative = (5 * longRunInitiative1 + 4 * longRunInitiative2 +
-                         1 * longRunInitiative3) /
-                        10;
+    longRunInitiative = (g_nInitWG * longRunInitiative1 + g_nInitWA * longRunInitiative2 +
+                         g_nInitWL * longRunInitiative3) /
+                        (g_nInitWG + g_nInitWA + g_nInitWL);
 
 
     initiative = TeamInfo[who]->GetInitiative();
