@@ -86,6 +86,18 @@ so read it as "about 45": close, Blue-leaning, nearly always unresolved on day 1
 battalions left, and the war still on at day 10 in 30 of 40 games (75%); the other 10 end on a Blue win between day 3 and day 4.7 (h70-112).** The 93% above came from the first 16 seeds and was optimistic. Pooling every game at 43, 45
 and 46 battalions (68 games) the war is still on at day 10 in 58 (85%) and Blue leads on objectives in 54 (79%). Size 46 (16 of 16 unresolved, Blue 51.9%) and 43 (12 of 12, 51.4%) are the quieter choices; 45 is the Blue-leaning one.
 
+**All sizes on equal footing (40 seeds each, 24 for 48; border, scenario's own win rule, min 8, noprod, prod x0.75, use x2):**
+
+| Chinese battalions | Blue share of objectives at day 10 | Blue ahead | War still on at day 10 | Blue / North vehicles | Front supply low / end | Chinese left |
+|---|---|---|---|---|---|---|
+| 43 (the originals) | 52.1% +- 0.8 (43-70) | 27 of 40 | **39 of 40 (98%)** | 2.50 | 83 / 92 | 23 |
+| 46 | 51.9% +- 0.8 (42-67) | 26 of 40 | 35 of 40 (88%) | 2.53 | 84 / 93 | 24 |
+| **45** | **55.0% +- 1.0 (46-72)** | **35 of 40** | 30 of 40 (75%) | 2.46 | 82 / 91 | 29 |
+| 48 | 54.7% +- 0.9 (49-69) | 23 of 24 | 18 of 24 (75%) | 2.29 | 83 / 92 | 28 |
+
+There is a trade-off and no setting gets both for free: **43 is the "fair war through day 10" choice** (a 98% chance the war is still being fought, Blue ahead in 68% of games, 52% of the objectives), **45 is the "Blue-sided" choice** (Blue ahead in 88%,
+55%, but 25% of games end with a Blue win on day 3-4.7). The size is the dial; the day-11 gate is the way to remove the early endings at 86 battalions.
+
 The day-11 win gate does not combine well with a small China: 48 battalions + the gate gives Blue 66.8% (58-72, ahead in 16 of 16, vehicles 3.3x), because Blue keeps taking ground with no win to stop it. The gate belongs with the 86-battalion
 mod (Blue 56%, 30 seeds, no game ends early), not with the small-China setting.
 

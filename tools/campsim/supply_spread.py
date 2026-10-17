@@ -273,6 +273,8 @@ def main():
         queue([(st, "npp075u2", s) for s in range(1, 17) for st in ("b45", "b46")] + [("b48", "d10x", s) for s in range(1, 17)])
     elif ph == "phase18":   # the recommended 45-battalion setting on 24 more seeds
         queue([("b45", "npp075u2", s) for s in range(17, 41)])
+    elif ph == "phase19":   # bring 46 and 43 battalions to 40 seeds like 45
+        queue([("b46", "npp075u2", s) for s in range(17, 41)] + [("b43", "npp075u2", s) for s in range(13, 41)])
     elif ph == "report":
         report(sys.argv[2] if len(sys.argv) > 2 else None, 0)
     else:
