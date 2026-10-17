@@ -222,11 +222,17 @@ the same effect from the data side (DPRK ground replacements about 4,200-4,950).
 
 ## Timeline format (`runs/*.jsonl`, one JSON object per line)
 
-`{"meta":1,..., "roe":[8x8 ground-capture ROE], "po":<primary objectives>, "objs":[[campId,x,y,type,team]...]}`
+`{"meta":1,..., "roe":[8x8 ground-capture ROE], "po":<primary objectives>, "objs":[[campId,x,y,type,team,name,parentId]...]}`
 then frames `{"t":minutes,"day","hour","ev":[fired event ids],"st":[[supply%,aircraft,groundVehs] per team (the
 trigger statistics)],"af":[[ATM rejection counters] per team],"o":[[campId,team,status] changed owners],
-"u":[[vuId,kind,team,x,y,veh,full,moving,morale,orders,tactic,supply]...],
+"u":[[vuId,kind,team,x,y,veh,full,moving,morale,orders,tactic,supply,objId,objX,objY,destX,destY,
+flags,fatigue,role,parentId]...], "nm":[[vuId,name,class] units seen for the first time],
 "a":[[actionType,tempo,points,initiative,objective] per team],"s":[[gnd,ad,air,ships,objs] per team]}`
+Since 2026-10-17 (older timelines stop at destY / objective team): unit `flags` bits 1 engaged, 2 in combat, 4 broken,
+8 losses, 16 retreating, 32 refused, 64 targeted, 128 detached; `role` is `GRO_*` for ground units and the
+`AMIS_*` mission for flights; `parentId` the battalion's brigade (0 if none); objective `name` is "Nowhere" when the
+game has none. Readers must take frame keys by name: `serve.py` reads only the tail (`"st"`, `"s"`, `"sp"`) of
+each frame line, so keep those last.
 plus `"sp"`: the supply chain per team (pools, supply/fuel %, distribution ratios, cumulative production /
 delivery / replacement counters, producer capacity, power, battalion supply) - index list above `SupplyFrame`
 in `main.cpp`; `python supply_report.py runs/<run>.jsonl [--team 6] [--every 6]` prints it as a table,

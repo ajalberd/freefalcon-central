@@ -1863,9 +1863,15 @@ static void TimelineMeta(const char *save, unsigned int seed, int days)
     while (o)
     {
         GridIndex x, y;
+        _TCHAR nm[80] = "";
+        Objective par = o->GetObjectiveParent();
         o->GetLocation(&x, &y);
-        TlPrintf("%s[%d,%d,%d,%d,%d]", first ? "" : ",", (int)o->GetCampID(),
-                (int)x, (int)y, (int)o->GetType(), (int)o->GetTeam());
+        o->GetName(nm, sizeof(nm) - 1, FALSE);
+        nm[sizeof(nm) - 1] = 0;
+        // 5, 6 (appended): name, parent objective id
+        TlPrintf("%s[%d,%d,%d,%d,%d,\"%s\",%d]", first ? "" : ",", (int)o->GetCampID(),
+                (int)x, (int)y, (int)o->GetType(), (int)o->GetTeam(), TlEscape(nm).c_str(),
+                par ? (int)par->GetCampID() : 0);
         gTlObjTeam[o->GetCampID()] = o->GetTeam();
         first = 0;
         o = GetNextObjective(&oit);
