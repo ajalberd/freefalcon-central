@@ -2477,8 +2477,14 @@ static int BlowMatches(const BlowRule &r, Objective o)
     return r.type == TYPE_POWERPLANT ? (t == TYPE_POWERPLANT || t == TYPE_NUCLEAR) : t == r.type;
 }
 
-static void ApplyBlow(void)
+// blowat=HOUR: the blow rules start at that campaign hour (a strike campaign that begins on day 2 or 3, not at the start)
+static int gBlowAt = 0;
+
+static void ApplyBlow(int hour)
 {
+    if (hour < gBlowAt)
+        return;
+
     for (int i = 0; i < gBlowN; i++)
     {
         BlowRule &r = gBlow[i];
@@ -2990,6 +2996,26 @@ static void ApplyKnobs(int argc, char **argv)
 
             ObjPriLog();
         }
+        else if (!strcmp(key, "starvemorale"))
+        {
+            extern int g_nStarveMorale, g_nStarveBreak;
+            g_nStarveMorale = atoi(val);
+            const char *colon = strchr(val, ':');
+            if (colon)
+                g_nStarveBreak = atoi(colon + 1);
+            printf("KNOB starvation drains morale: %d points an hour at 0 supply, a battalion breaks under %d\n", g_nStarveMorale, g_nStarveBreak);
+        }
+        else if (!strcmp(key, "supplyfall"))
+        {
+            extern bool g_bSupplyFallback;
+            g_bSupplyFallback = atoi(val) != 0;
+            printf("KNOB supply-aware fall-back = %d\n", g_bSupplyFallback ? 1 : 0);
+        }
+        else if (!strcmp(key, "blowat"))
+        {
+            gBlowAt = atoi(val);
+            printf("KNOB blow rules start at hour %d\n", gBlowAt);
+        }
         else if (!strcmp(key, "blow"))
         {
             char tn[32] = "", tm[16] = "", hd[16] = "";
@@ -3442,7 +3468,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';
@@ -3914,7 +3940,7 @@ int main(int argc, char **argv)
             // (railnet.cpp GameSeconds), and without this they stood still at the start time.
             vuxGameTime = TheCampaign.CurrentTime;
             ApplyAirTempo();
-            ApplyBlow();
+            ApplyBlow(iter / 60);
             ApplyObjPri();
             ApplyAiiKnobs();
             if (gRelSquad >= 0.0f)
@@ -4015,6 +4041,20 @@ int main(int argc, char **argv)
 
             if ((iter % 60) == 0 && vuLocalSessionEntity)
                 printf("SESSREF h=%d ref=%d\n", iter / 60, vuLocalSessionEntity->RefCount());
+
+            if ((iter % 360) == 0)
+            {
+                extern int gAirLossDepth[NUM_TEAMS][20][2], gSupplyFallbackMoves;
+                printf("SUPPLYFALL h=%d starved battalions sent to a supply source: %d\n", iter / 60, gSupplyFallbackMoves);
+                for (int tm : {1, 2})
+                {
+                    printf("AIRLOSSDEPTH h=%d team %d (aircraft lost to ground fire by shooter y band of 50; any/air-defence):", iter / 60, tm);
+                    for (int b = 0; b < 20; b++)
+                        if (gAirLossDepth[tm][b][0])
+                            printf(" y%d:%d/%d", b * 50, gAirLossDepth[tm][b][0], gAirLossDepth[tm][b][1]);
+                    printf("\n");
+                }
+            }
 
             if ((iter % 360) == 0)
             {

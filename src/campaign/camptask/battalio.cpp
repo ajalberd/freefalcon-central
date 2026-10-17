@@ -2236,6 +2236,11 @@ int BattalionClass::GetUnitElement(void)
     return 0;
 }
 
+// campsim experiment (starvemorale=, percentage points of morale per hour at 0 supply; 0 = stock): a battalion below half supply
+// does not regain morale -- it loses it, in proportion to how far below half it is -- and a battalion whose morale has run out breaks
+// (a broken unit takes the WITHDRAW tactic, runs at twice the speed and is tasked as reserve only). Stock: supply never feeds morale.
+int g_nStarveMorale = 0, g_nStarveBreak = 30;
+
 int BattalionClass::RallyUnit(int minutes)
 {
     int maxMorale, increase;
@@ -2247,6 +2252,29 @@ int BattalionClass::RallyUnit(int minutes)
         maxMorale = (GetTotalVehicles() * 100) / fullstrength;
     else
         maxMorale = 0; // MLR 6/26/2004 - 0 er?
+
+    if (g_nStarveMorale > 0 and GetUnitSupply() < 50 and IsBattalion())
+    {
+        int lose = (g_nStarveMorale * (50 - GetUnitSupply()) * minutes) / (50 * 60);
+
+        if (lose < 1)
+            lose = 1;
+
+        int m = GetUnitMorale() - lose;
+
+        if (m < 1)
+            m = 1;
+
+        SetUnitMorale(m);
+
+        if (m < g_nStarveBreak and not Broken())
+        {
+            SetBroken(1);
+            ChooseTactic();
+        }
+
+        return Broken();
+    }
 
     // Regain MORALE_REGAIN_RATE % of maxMorale each hour we've been waiting
     if (/* not Engaged() and */ GetUnitMorale() < maxMorale)

@@ -2370,6 +2370,66 @@ void FindBestCover(GridIndex x, GridIndex y, CampaignHeading h, GridIndex *cx,
     }
 }
 
+// campsim experiment (supplyfall=1, off = stock): the nearest friendly objective behind the third line that is a supply source (city, port,
+// depot, army base), as a secondary objective a reserve unit may sit on; NULL when there is none within maxkm or the unit is on it already.
+// A starved battalion is sent there to be fed, rather than left holding a front that the pool cannot reach.
+Objective FindSupplyFallback(Unit u, int maxkm)
+{
+    ListClass looklist;
+    ListNode lp;
+    Objective s, o;
+    GridIndex x, y, sx, sy;
+    int n, dist, odist;
+    uchar team = u->GetTeam();
+
+    memset(CampSearch, 0, sizeof(uchar) * MAX_CAMP_ENTITIES);
+    u->GetLocation(&x, &y);
+    sx = x;
+    sy = y;
+    s = FindNearestFriendlyObjective(team, &sx, &sy, 0);
+
+    if (not s)
+        return NULL;
+
+    looklist.InsertNewElement(0, s, LADT_SORTED_LIST);
+
+    while (lp = looklist.GetFirstElement())
+    {
+        dist = lp->GetKey();
+        s = (Objective)lp->GetUserData();
+        CampSearch[s->GetCampID()] = 1;
+
+        if (dist > maxkm)
+            return NULL;
+
+        if (s->IsSupplySource() and not s->IsThirdline() and s->GetObjectiveStatus() >= 50)
+        {
+            Objective so = s->IsSecondary() ? s : s->GetObjectiveParent();
+
+            if (so and so->GetTeam() == team and so->IsSecondary() and not so->IsNearfront() and not so->IsFrontline() and
+                not so->IsSecondline() and not so->IsThirdline())
+                return so;
+        }
+
+        for (n = 0; n < s->NumLinks(); n++)
+        {
+            o = s->GetNeighbor(n);
+
+            if (o and not CampSearch[o->GetCampID()] and team == o->GetTeam())
+            {
+                o->GetLocation(&x, &y);
+                s->GetLocation(&sx, &sy);
+                odist = dist + FloatToInt32(Distance(x, y, sx, sy));
+                looklist.InsertNewElement(odist, o, LADT_SORTED_LIST);
+            }
+        }
+
+        looklist.Remove(lp);
+    }
+
+    return NULL;
+}
+
 // Try and find the nearest objective of the specified depth (number of moves)
 // away from the front line. We need to actually follow links to make sure
 // it's possible to move here.

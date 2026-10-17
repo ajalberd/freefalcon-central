@@ -589,6 +589,8 @@ void UnitClass::BroadcastUnitMessage(VU_ID id, short msg, short d1, short d2,
 int gLossDiag[NUM_TEAMS][10] = {{0}};
 // campsim: the same for battalions of an allied country folded into the team (China, Russia in DPRK): [team][0 flight, 1 artillery, 2 other ground, 3 other]
 int gLossAllied[NUM_TEAMS][4] = {{0}};
+// campsim: aircraft lost to ground fire, by the shooter's y in 50-cell bands: [team][band][0 any ground shooter, 1 air defence battalion]
+int gAirLossDepth[NUM_TEAMS][20][2] = {{{0}}};
 
 int UnitClass::ApplyDamage(FalconCampWeaponsFire* cwfm, uchar bonusToHit)
 {
@@ -785,6 +787,25 @@ int UnitClass::ApplyDamage(FalconCampWeaponsFire* cwfm, uchar bonusToHit)
         {
             extern int gLossAllied[NUM_TEAMS][4];
             gLossAllied[t][k] += currentLosses;
+        }
+
+        if (IsFlight() and not shooter->IsFlight() and not shooter->IsTaskForce() and currentLosses > 0 and t >= 0 and t < NUM_TEAMS)
+        {
+            extern int gAirLossDepth[NUM_TEAMS][20][2];
+            GridIndex sx, sy;
+            shooter->GetLocation(&sx, &sy);
+            int band = sy / 50;
+
+            if (band < 0)
+                band = 0;
+
+            if (band > 19)
+                band = 19;
+
+            gAirLossDepth[t][band][0] += currentLosses;
+
+            if (shooter->IsBattalion() and shooter->GetUnitNormalRole() == GRO_AIRDEFENSE)
+                gAirLossDepth[t][band][1] += currentLosses;
         }
 
         // 8 flight<-ship (a subset of 5): what ship air defence shoots down

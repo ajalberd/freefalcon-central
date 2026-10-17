@@ -273,6 +273,7 @@ extern void FindBestCover(GridIndex x, GridIndex y, CampaignHeading h,
                           GridIndex *cx, GridIndex *cy, int roadok);
 
 extern Objective FindRetreatPath(Unit u, int depth, int flags);
+extern Objective FindSupplyFallback(Unit u, int maxkm);
 
 extern Unit RequestArtillerySupport(Unit req, Unit target);
 

@@ -936,6 +936,10 @@ static int CaptureStalled(Unit u, Objective o)
 // [8] kept order was SECURE, [9] kept order was DEFEND.
 int gGtmWhy[NUM_TEAMS][10] = {{0}};
 
+// campsim experiment switch (supplyfall=1): starved battalions are sent to the nearest supply source behind the third line; moves counted
+bool g_bSupplyFallback = false;
+int gSupplyFallbackMoves = 0;
+
 void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
 {
     int i, role;
@@ -945,6 +949,46 @@ void GroundTaskingManagerClass::AddToLists(Unit u, int to_collect)
     // hands it over), so it takes no orders here and must not use up a reserve slot (GtmReservesPerCycle).
     if (u->IsTrain() or RailIsRiding(u) or RailIsMobilising(u))
         return;
+
+    // campsim experiment (g_bSupplyFallback, off = stock): a battalion under half supply that is not attacking is sent to the nearest
+    // supply source behind the third line, and stays there until it is back above 80%. Checked before the "valid orders are kept" rule,
+    // which is what leaves a starved garrison holding its front.
+    {
+        extern bool g_bSupplyFallback;
+        static uchar sFell[MAX_CAMP_ENTITIES];
+
+        if (g_bSupplyFallback and u->IsBattalion() and u->GetUnitNormalRole() not_eq GRO_FIRESUPPORT and u->GetMovementType() not_eq NoMove)
+        {
+            int id = u->GetCampID();
+            int sup = u->GetUnitSupply();
+
+            if (sup >= 80)
+                sFell[id] = 0;
+            else if (sup < 50)
+                sFell[id] = 1;
+
+            if (sFell[id] and u->GetUnitOrders() not_eq GORD_CAPTURE)
+            {
+                Objective cur = u->GetUnitObjective();
+                extern int gSupplyFallbackMoves;
+
+                if (cur and cur->IsSecondary() and cur->IsSupplySource() and not cur->IsThirdline() and not cur->IsNearfront())
+                {
+                    AssignUnit(u, GORD_RESERVE, cur, 999);   // already fed here: stay until back above 80%
+                    return;
+                }
+
+                Objective fb = FindSupplyFallback(u, 250);
+
+                if (fb and fb not_eq cur)
+                {
+                    gSupplyFallbackMoves++;
+                    AssignUnit(u, GORD_RESERVE, fb, 999);
+                    return;
+                }
+            }
+        }
+    }
 
     // Artscout - 2026 (g_bGtmKeepCapture, off = stock): a unit attacking a target that is still a
     // valid capture objective keeps it. Stock re-plans it every cycle: it is only kept when the side is
