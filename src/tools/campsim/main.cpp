@@ -2130,7 +2130,7 @@ static void TimelineFrame(CampaignTime startTime)
                         _TCHAR nm[80] = "";
                         u->GetName(nm, sizeof(nm) - 1, FALSE);
                         nm[sizeof(nm) - 1] = 0;
-                        names += names.empty() ? "[" : ",[";
+                        names += names.empty() ? "[[" : ",[";
                         names += std::to_string((unsigned)u->Id().num_) + ",\"" + TlEscape(nm) + "\",\"" +
                                  TlEscape(u->GetUnitClassName()) + "\"]";
                     }
