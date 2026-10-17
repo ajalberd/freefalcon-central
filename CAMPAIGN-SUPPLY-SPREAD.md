@@ -250,7 +250,7 @@ for the Escalation scenario (Blue combat air cut to Falcon 4.0 levels, DPRK bomb
 
 ## Supply redesign experiments (not built)
 
-1. Starvation that loses: low supply drives morale down, retreat or surrender, instead of a unit sitting in reserve (why a starved North froze the front instead of losing it is not yet explained).
+1. Starvation that loses: low supply drives morale down, retreat or surrender, instead of a unit sitting in reserve. **Built and measured (2026-10-17) as `starvemorale=` and `supplyfall=`: see `CAMPAIGN-STRIKE-EXPERIMENTS.md`** (a starved North froze because supply never fed morale and its garrisons kept valid DEFEND orders; with the switches strikes move Blue's share by +5 points, not enough to decide the war).
 2. Stores with real geography: depots and army bases hold local stock, the search crosses small enemy objectives, stocks run down and refill, strikes on depots, bridges and rail starve a region.
 3. Two resources: fuel (refineries) limits movement and offensives, ammunition (factories) limits fire.
 4. Replacements as the real limit: destroyed vehicles are replaced only at the rate factories produce and transport delivers (today the pool piles up, about 4,000 unused at day 10).

@@ -6,6 +6,8 @@ Variants (comma-joined, e.g. sites,china):
   china   every Chinese air-defence battalion becomes SA-10 (6 of the 12 already are), and one more SA-10 battalion stands with every
           fourth Chinese ground battalion
   sa5     the same as sites but SA-5 only, half the number (every other site)
+  dummy   the control for sites: two KS-19 anti-aircraft gun battalions (class 734, 100 mm guns the jets fly over) on every site -- the same
+          number of extra battalions standing on the same objectives, with almost no air-defence value
 Writes Campaign/SAVE/<out>.cam beside the source.  Nothing else about the scenario changes.  Used by the strike experiments in supply_spread.py."""
 import os
 import struct
@@ -17,7 +19,7 @@ from ffcamp import entities, workspace  # noqa: E402
 
 GAME = r"C:\FreeFalcon6"
 TDF = "terrdata/theaterdefinition/korea.tdf"
-SA10, SA5 = 799, 733          # unit class-table rows: "Air Defense" with SA-10 / SA-5 vehicles (campsim class survey)
+SA10, SA5, KS19 = 799, 733, 734          # unit class-table rows: "Air Defense" with SA-10 / SA-5 vehicles (campsim class survey)
 GORD_AIRDEFENSE = 9           # entities.GROUND_ORDERS index of "Air defence"
 DPRK, PRC = 6, 5
 SITE_WORDS = ("Factory", "Power", "Refinery", "Chemical", "Nuclear")
@@ -72,6 +74,11 @@ def main():
         for o in sites:
             add(SA10, o["x"], o["y"], DPRK)
             add(SA5, o["x"], o["y"], DPRK)
+            n_site += 2
+    if "dummy" in want:
+        for o in sites:
+            add(KS19, o["x"], o["y"], DPRK)
+            add(KS19, o["x"], o["y"], DPRK)
             n_site += 2
     if "sa5" in want:
         for i, o in enumerate(sites):

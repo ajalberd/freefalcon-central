@@ -17,6 +17,7 @@ import math
 import os
 import re
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -24,7 +25,7 @@ import supply_spread as S  # noqa: E402
 
 S.OUT = os.path.join(HERE, "strike")
 S.RES = os.path.join(S.OUT, "results.jsonl")
-S.STAGE.update({"sb": "chnb", "sx": "chboth", "ss": "chsite", "sc": "chchn", "s5": "chsa5"})
+S.STAGE.update({"sb": "chnb", "sx": "chboth", "ss": "chsite", "sc": "chchn", "s5": "chsa5", "sd": "chdum"})
 
 K = "noprod=1 prodsup=0.75 usemult=2"
 STRIKE = "blow=factory:6:hold blow=power:6:hold blow=refinery:6:hold blowat=48"
@@ -45,16 +46,22 @@ ARMS = {
 # second round: other ways to pull the same levers (8 seeds each)
 ST = "stocks=1 storecap=25 storestart=50"          # M4: depots and army bases are stores with a local stock (the store model; units with no store in reach get nothing)
 M1H = "starvemorale=30:45"                          # a harsher M1
+HARD = "noprod=1 prodsup=0.5 usemult=4 " + M1H + " " + M2
 EXTRA = {
     "ctl_st": ("sb", K + " " + ST), "str_st": ("sb", K + " " + STRIKE + " " + ST),
     "str24": ("sb", K + " " + STRIKE.replace("blowat=48", "blowat=24")), "str96": ("sb", K + " " + STRIKE.replace("blowat=48", "blowat=96")),
     "strF": ("sb", K + " blow=factory:6:hold blowat=48"), "strP": ("sb", K + " blow=power:6:hold blowat=48"),
+    "ctl_dum": ("sd", K), "str_dum": ("sd", K + " " + STRIKE),         # control for M3: 148 extra weak (KS-19 gun) battalions on the same sites
+    "ctl_site": ("ss", K), "str_site": ("ss", K + " " + STRIKE),      # M3 split: the 148 site battalions only
+    "ctl_chn": ("sc", K), "str_chn": ("sc", K + " " + STRIKE),         # M3 split: the Chinese AD only
+    "ctl_hard": ("sb", HARD), "str_hard": ("sb", HARD + " " + STRIKE),          # a tight supply regime with M1 (harsh) and M2: use x4, production 0.5
+    "ctl_hsam": ("sx", HARD), "str_hsam": ("sx", HARD + " " + STRIKE),          # ... and the SAM world
     "ctl_m12h": ("sb", K + " " + M1H + " " + M2), "str_m12h": ("sb", K + " " + STRIKE + " " + M1H + " " + M2),
 }
 ARMS.update(EXTRA)
 for name, (stage, knobs) in ARMS.items():
     S.CONFIGS["x_" + name] = knobs
-ORDER2 = list(EXTRA)
+ORDER2 = ["ctl_dum", "str_dum", "ctl_site", "str_site", "ctl_chn", "str_chn", "ctl_st", "str_st", "str24", "str96", "strF", "strP", "ctl_m12h", "str_m12h"]
 ORDER = ["ctl", "str", "ctl_sam", "str_sam", "ctl_m12", "str_m12", "ctl_all", "str_all", "ai", "ai_sam", "ctl_m1", "str_m1", "ctl_m2", "str_m2"]
 
 _orig_analyse = S.analyse
@@ -91,6 +98,13 @@ def analyse(stage, cfg, seed):
     sf = re.findall(r"SUPPLYFALL h=\d+ starved battalions sent to a supply source: (\d+)", log)
     m["fall_moves"] = int(sf[-1]) if sf else 0
     m["blow_log"] = re.findall(r"BLOW type \d+ team \d.*", log)[:1]
+    ev = {int(a): int(c) / 60.0 for a, c in re.findall(r"EVENT (\d+) FIRED at min (\d+)", log)}
+    late = [x for x in fr if x["t"] / 60 >= 72]
+    m["cap_d"] = round(sum(sum(1 for u in x["u"] if u[2] == 6 and u[1] == 0 and u[9] == 1) for x in late) / float(max(1, len(late))), 1)
+    m["cap_b"] = round(sum(sum(1 for u in x["u"] if u[2] == 2 and u[1] == 0 and u[9] == 1) for x in late) / float(max(1, len(late))), 1)
+    m["mor_d"] = round(sum(sum(u[8] for u in x["u"] if u[2] == 6 and u[1] == 0) / float(max(1, sum(1 for u in x["u"] if u[2] == 6 and u[1] == 0))) for x in late) / float(max(1, len(late))), 1)
+    m["red_win"] = ev.get(14)             # Seoul or Pusan fell
+    m["stalemate"] = ev.get(15)
     return m
 
 
@@ -106,10 +120,98 @@ def run(seeds, order=None):
     S.queue(items)
 
 
+# ---------------------------------------------------------------- the plan after the first 46 runs
+
+PLAN3 = {"ctl_hard": 6, "str_hard": 6, "ctl_hsam": 6, "str_hsam": 6}
+PLAN4 = {"ctl_st": 6, "str_st": 6, "str24": 6, "str96": 6, "strF": 6, "strP": 6}
+PLAN = {          # arm -> seeds to reach
+    "ctl": 12, "str": 12, "ctl_sam": 12, "str_sam": 12, "ctl_dum": 12, "str_dum": 12,
+    "ctl_all": 8, "str_all": 8, "ctl_m12": 8, "str_m12": 8, "ai": 8, "ai_sam": 8,
+    "ctl_m1": 4, "str_m1": 4, "ctl_m2": 4, "str_m2": 4,
+}
+import threading as _th
+_launch = _th.Lock()
+
+
+def campsim_count():
+    import subprocess
+    out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq campsim.exe", "/NH"], stdout=subprocess.PIPE, text=True).stdout
+    return sum(1 for l in out.splitlines() if l.lower().startswith("campsim"))
+
+
+def paced_run_one(stage, cfg, seed):
+    """Wait for a free core slot (other queues may still be running), one launch a minute, then run."""
+    with S.lock:
+        record()                                                    # finished runs that nobody recorded
+        done = any(o["stage"] == stage and o["cfg"] == cfg and o["seed"] == seed and o["hours"] >= 238 for o in S.load())
+    if done:
+        return None
+    log = os.path.join(HERE, "runs", S.runname(stage, cfg, seed) + ".log")
+    if os.path.exists(log) and time.time() - os.path.getmtime(log) < 20 * 60:
+        return None                                                 # still running from an earlier queue
+    with _launch:
+        while campsim_count() >= S.PAR:
+            time.sleep(30)
+        time.sleep(75)                       # let the campsim just launched show up in the count
+    return S.run_one(stage, cfg, seed)
+
+
+def run_plan(plan=None):
+    items = []
+    plan = plan or PLAN
+    top = max(plan.values())
+    for sd in range(1, top + 1):
+        for arm, n in plan.items():
+            if sd <= n:
+                items.append((ARMS[arm][0], "x_" + arm, sd))
+    # runs already in flight from the first queue are recorded by `record`; the pacing keeps the machine at S.PAR campsims
+    from concurrent.futures import ThreadPoolExecutor
+    print("plan: %d runs" % len(items), flush=True)
+    with ThreadPoolExecutor(max_workers=S.PAR) as ex:
+        list(ex.map(lambda a: paced_run_one(*a), items))
+
+
+def reanalyse():
+    """Recompute every x_ run's numbers from its files (after a change to analyse) and rewrite results.jsonl for them."""
+    keep = [r for r in S.load() if not r["cfg"].startswith("x_")]
+    out = []
+    for r in load():
+        n = analyse(r["stage"], r["cfg"], r["seed"])
+        n["score"] = S.score(n)
+        n["wall_s"] = r.get("wall_s", 0)
+        out.append(n)
+    with S.lock:
+        open(S.RES, "w").write("".join(json.dumps(o) + "\n" for o in out))
+    print("reanalysed", len(out))
+
+
+def record():
+    """Analyse finished x_ runs that no queue recorded (their orchestrator was stopped)."""
+    import glob
+    have = {(r["stage"], r["cfg"], r["seed"]) for r in S.load()}
+    for f in sorted(glob.glob(os.path.join(HERE, "runs", "*-sp-x_*-s*.log"))):
+        m = re.match(r"(\w+)-sp-(x_\w+)-s(\d+)\.log$", os.path.basename(f))
+        if not m or "RESULT" not in open(f, errors="replace").read()[-600:]:
+            continue
+        save, cfg, seed = m.group(1), m.group(2), int(m.group(3))
+        stage = [k for k, v in S.STAGE.items() if v == save and k in ("sb", "sx", "ss", "sc", "s5", "sd")][0]
+        if (stage, cfg, seed) in have:
+            continue
+        r = analyse(stage, cfg, seed)
+        r["score"] = S.score(r)
+        r["wall_s"] = 0
+        open(S.RES, "a").write(json.dumps(r) + "\n")
+        print("recorded", save, cfg, seed)
+
+
 # ---------------------------------------------------------------- report
 
 def load():
-    return [r for r in S.load() if r["cfg"].startswith("x_")]
+    seen = {}
+    for r in S.load():                       # the last record of a (stage, arm, seed) wins
+        if r["cfg"].startswith("x_"):
+            seen[(r["stage"], r["cfg"], r["seed"])] = r
+    return list(seen.values())
 
 
 def mean_se(xs):
@@ -135,9 +237,11 @@ def report():
             ("North front supply h240", lambda r: r["h240"]["front_d"]), ("North bn <25% h240", lambda r: r["h240"]["low_d"]),
             ("Blue aircraft lost", lambda r: r.get("blue_air_lost")), ("...of which to ground fire", lambda r: r.get("blue_air_lost_gnd")),
             ("Blue win hour", lambda r: r["blue_win"]), ("Blue won (0/1)", lambda r: 1.0 if r["blue_win"] is not None else 0.0),
-            ("starved bn sent back", lambda r: r.get("fall_moves"))]
+            ("starved bn sent back", lambda r: r.get("fall_moves")),
+            ("North bn on CAPTURE (h72+)", lambda r: r.get("cap_d")), ("Blue bn on CAPTURE (h72+)", lambda r: r.get("cap_b")),
+            ("North mean morale (h72+)", lambda r: r.get("mor_d")), ("North won (event 14)", lambda r: 1.0 if r.get("red_win") is not None else 0.0)]
     print("%-10s %3s " % ("arm", "n") + " ".join("%-24s" % c[0] for c in cols))
-    for arm in ORDER + ORDER2:
+    for arm in ORDER + ORDER2 + ["ctl_hard", "str_hard", "ctl_hsam", "str_hsam"]:
         rs = by.get(arm)
         if not rs:
             continue
@@ -147,8 +251,22 @@ def report():
             cells.append("%-24s" % ("-" if mu is None else "%.1f +-%.1f" % (mu, se)))
         print("%-10s %3d " % (arm, len(rs)) + " ".join(cells))
     print()
+    print("Blue aircraft lost to ground fire by how far north of the starting front (y 490) the shooter stood; mean per run, any shooter / air-defence battalion:")
+    bands = sorted({int(k) for r in rows for k in r.get("gnd_loss_depth", {})})
+    print("%-10s %3s " % ("arm", "n") + " ".join("%9s" % ("%d+" % b) for b in bands))
+    for arm in ("ctl", "str", "ctl_sam", "str_sam", "ctl_dum", "str_dum", "ai", "ai_sam"):
+        rs = by.get(arm)
+        if not rs:
+            continue
+        cells = []
+        for b in bands:
+            a = sum(r.get("gnd_loss_depth", {}).get(str(b), [0, 0])[0] for r in rs) / float(len(rs))
+            d = sum(r.get("gnd_loss_depth", {}).get(str(b), [0, 0])[1] for r in rs) / float(len(rs))
+            cells.append("%4.0f/%-4.0f" % (a, d))
+        print("%-10s %3d " % (arm, len(rs)) + " ".join(cells))
+    print()
     print("strike minus control, same seeds (paired), Blue share at h240 (points) and Blue win hour:")
-    for mech in ("", "_m1", "_m2", "_m12", "_sam", "_all", "_st", "_m12h"):
+    for mech in ("", "_m1", "_m2", "_m12", "_sam", "_all", "_dum", "_hard", "_hsam", "_site", "_chn", "_st", "_m12h"):
         a, b = by.get("str" + mech), by.get("ctl" + mech)
         if not a or not b:
             continue
@@ -163,6 +281,20 @@ def report():
             mech or "base", len(common), mu, se, sum(1 for w in wa if w is not None), sum(1 for w in wb if w is not None),
             "%.0f" % (sum(w for w in wa if w is not None) / max(1, sum(1 for w in wa if w is not None))) if any(w is not None for w in wa) else "-",
             "%.0f" % (sum(w for w in wb if w is not None) / max(1, sum(1 for w in wb if w is not None))) if any(w is not None for w in wb) else "-"))
+    print()
+    print("when and what to strike (base world), paired against the no-strike control on the same seeds:")
+    for arm, label in (("str24", "all three from hour 24"), ("str", "all three from hour 48"), ("str96", "all three from hour 96"),
+                       ("strF", "factories only, from 48"), ("strP", "power / nuclear plants only, from 48")):
+        a, b = by.get(arm), by.get("ctl")
+        if not a or not b:
+            continue
+        sb = {r["seed"]: r for r in b}
+        d = [share(r) - share(sb[r["seed"]]) for r in a if r["seed"] in sb]
+        fs = [r["front_min"] for r in a]
+        cd = [r.get("cap_d") for r in a if r.get("cap_d") is not None]
+        mu, se = mean_se(d)
+        print("  %-7s %-38s n=%2d  share %+5.1f +-%.1f   North front supply low %.0f%%   North bn on CAPTURE %s" % (
+            arm, label, len(d), mu, se, sum(fs) / len(fs), "%.1f" % (sum(cd) / len(cd)) if cd else "-"))
 
 
 if __name__ == "__main__":
@@ -170,6 +302,16 @@ if __name__ == "__main__":
     os.makedirs(S.OUT, exist_ok=True)
     if cmd == "run":
         run(int(sys.argv[2]) if len(sys.argv) > 2 else 12)
+    elif cmd == "plan":
+        run_plan()
+    elif cmd == "plan3":
+        run_plan(PLAN3)
+    elif cmd == "plan4":
+        run_plan(PLAN4)
+    elif cmd == "record":
+        record()
+    elif cmd == "reanalyse":
+        reanalyse()
     elif cmd == "run2":
         run(int(sys.argv[2]) if len(sys.argv) > 2 else 8, ORDER2)
     else:
