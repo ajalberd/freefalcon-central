@@ -345,7 +345,7 @@ static void GtmLog(int hour)
     static const char *ord[] = {"RES", "CAP", "SEC", "ASL", "ABN", "CMD", "DEF", "SUP", "REP", "AD", "RCN", "RAD"};
     static const char *act[] = {"none", "defensive", "consolidate", "minor-off", "OFFENSIVE", "?5", "?6", "?7"};
 
-    for (int t : {2, 6})
+    for (int t : {2, 5, 6})
     {
         char buf[1024];
         int n = sprintf(buf, "GTM h=%d team %d posture:", hour, t);
