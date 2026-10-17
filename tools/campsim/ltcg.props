@@ -7,8 +7,8 @@
      with /GL, in the Falcon4___x64_Release folders the game build links from.
 
      FFLinkMode: LTCG (default) | PGI (instrumented, writes .pgc when run) | PGO (uses them; FFPgd
-     names the .pgd). PGO changes results -- 2026-10-17 it counted 5557 DPRK vehicles at minute 20
-     of save0 seed 1 against 5556 -- so it is for experiments only. -->
+     names the .pgd). PGO changes results: 2026-10-17 it counted 5557 DPRK vehicles at minute 20
+     of save0 seed 1 against 5556, so it is for experiments only. -->
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemDefinitionGroup>
     <ClCompile>
