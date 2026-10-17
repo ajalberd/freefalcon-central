@@ -3005,6 +3005,21 @@ static void ApplyKnobs(int argc, char **argv)
                 g_nStarveBreak = atoi(colon + 1);
             printf("KNOB starvation drains morale: %d points an hour at 0 supply, a battalion breaks under %d\n", g_nStarveMorale, g_nStarveBreak);
         }
+        else if (!strcmp(key, "initsupply"))
+        {
+            extern bool g_bInitSupply;
+            g_bInitSupply = atoi(val) != 0;
+            printf("KNOB initiative counts supply-weighted ground vehicles = %d\n", g_bInitSupply ? 1 : 0);
+        }
+        else if (!strcmp(key, "strikeshock"))
+        {
+            extern int g_nStrikeShock, g_nStrikeShockKm;
+            g_nStrikeShock = atoi(val);
+            const char *colon = strchr(val, ':');
+            if (colon)
+                g_nStrikeShockKm = atoi(colon + 1);
+            printf("KNOB strike shock: %d morale points an hour at full damage next to the unit, radius %d km\n", g_nStrikeShock, g_nStrikeShockKm);
+        }
         else if (!strcmp(key, "supplyfall"))
         {
             extern bool g_bSupplyFallback;
@@ -3468,7 +3483,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';

@@ -2191,6 +2191,22 @@ void ApplyPlayerInput(Team who, VU_ID poid, int rating)
 // aircraft, our/their ground losses, the three long-run terms, their blend, the new initiative, the enemy team
 int gInitDiag[8][12];
 
+// campsim experiment (initsupply=1, off = stock): the ground term of initiative counts a side's vehicles weighted by their battalions'
+// supply, so a starved army counts for less and the other side gets the initiative (stock: vehicles only, supply never enters).
+bool g_bInitSupply = false;
+
+static int EffectiveGroundVehicles(Team t)
+{
+    float sum = 0.0F;
+    VuListIterator uit(AllUnitList);
+
+    for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+        if (u->IsBattalion() and u->GetTeam() == t)
+            sum += u->GetTotalVehicles() * (u->GetUnitSupply() / 100.0F);
+
+    return FloatToInt32(sum) + 1;
+}
+
 // A.S. begin 2001-12-09, New Procedure for Initiative Points
 void NewInitiativePointSetting(Team who)
 {
@@ -2260,6 +2276,16 @@ void NewInitiativePointSetting(Team who)
 
     if (tloss == 0)
         tloss = 1;
+
+    if (g_bInitSupply)
+    {
+        os = EffectiveGroundVehicles(who);
+        ts = 0;
+
+        for (i = 0; i < NUM_TEAMS; i++)
+            if (GetTTRelations(i, who) == War)
+                ts += EffectiveGroundVehicles(i);
+    }
 
     longRunInitiative1 =
         (int)(atan((os * 1.0) / ts) * 100 / (3.142 / 2) +

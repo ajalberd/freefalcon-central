@@ -2241,6 +2241,47 @@ int BattalionClass::GetUnitElement(void)
 // (a broken unit takes the WITHDRAW tactic, runs at twice the speed and is tasked as reserve only). Stock: supply never feeds morale.
 int g_nStarveMorale = 0, g_nStarveBreak = 30;
 
+// campsim experiment (strikeshock=G[:KM], points of morale an hour; 0 = stock): a battalion loses morale while its own side's supply,
+// production, depot, port, airbase or bridge objectives within KM (default 60) are damaged -- 'the rear is burning' -- in proportion to
+// how much damage and how near, and it breaks under g_nStarveBreak. Stock: morale only changes when the unit itself is shot at.
+int g_nStrikeShock = 0, g_nStrikeShockKm = 60;
+static int sShockN = 0;
+static short sShockX[2000], sShockY[2000];
+static uchar sShockW[2000], sShockTeam[2000];
+static CampaignTime sShockStamp = 0;
+
+static void RefreshShockList(void)
+{
+    if (sShockStamp and TheCampaign.CurrentTime - sShockStamp < CampaignHours)
+        return;
+
+    sShockStamp = TheCampaign.CurrentTime;
+    sShockN = 0;
+    VuListIterator oit(AllObjList);
+
+    for (Objective o = GetFirstObjective(&oit); o and sShockN < 2000; o = GetNextObjective(&oit))
+    {
+        int t = o->GetType();
+
+        if (t not_eq TYPE_FACTORY and t not_eq TYPE_REFINERY and t not_eq TYPE_POWERPLANT and t not_eq TYPE_NUCLEAR and
+            t not_eq TYPE_DEPOT and t not_eq TYPE_ARMYBASE and t not_eq TYPE_PORT and t not_eq TYPE_AIRBASE and t not_eq TYPE_BRIDGE)
+            continue;
+
+        int st = o->GetObjectiveStatus();
+
+        if (st >= 75)
+            continue;
+
+        GridIndex x, y;
+        o->GetLocation(&x, &y);
+        sShockX[sShockN] = x;
+        sShockY[sShockN] = y;
+        sShockW[sShockN] = (uchar)(100 - st);
+        sShockTeam[sShockN] = (uchar)o->GetTeam();
+        sShockN++;
+    }
+}
+
 int BattalionClass::RallyUnit(int minutes)
 {
     int maxMorale, increase;
@@ -2252,6 +2293,51 @@ int BattalionClass::RallyUnit(int minutes)
         maxMorale = (GetTotalVehicles() * 100) / fullstrength;
     else
         maxMorale = 0; // MLR 6/26/2004 - 0 er?
+
+    if (g_nStrikeShock > 0 and IsBattalion() and not Broken())
+    {
+        RefreshShockList();
+        GridIndex ux, uy;
+        GetLocation(&ux, &uy);
+        float press = 0.0F;
+
+        for (int i = 0; i < sShockN; i++)
+        {
+            if (sShockTeam[i] not_eq GetTeam())
+                continue;
+
+            float d = Distance(ux, uy, sShockX[i], sShockY[i]);
+
+            if (d < g_nStrikeShockKm)
+                press += (sShockW[i] / 100.0F) * (1.0F - d / g_nStrikeShockKm);
+        }
+
+        if (press > 0.0F)
+        {
+            if (press > 2.0F)
+                press = 2.0F;
+
+            int lose = FloatToInt32(g_nStrikeShock * press * minutes / 60.0F);
+
+            if (lose < 1)
+                lose = 1;
+
+            int m = GetUnitMorale() - lose;
+
+            if (m < 1)
+                m = 1;
+
+            SetUnitMorale(m);
+
+            if (m < g_nStarveBreak)
+            {
+                SetBroken(1);
+                ChooseTactic();
+            }
+
+            return Broken();
+        }
+    }
 
     if (g_nStarveMorale > 0 and GetUnitSupply() < 50 and IsBattalion())
     {

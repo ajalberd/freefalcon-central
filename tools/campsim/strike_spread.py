@@ -46,6 +46,8 @@ ARMS = {
 # second round: other ways to pull the same levers (8 seeds each)
 ST = "stocks=1 storecap=25 storestart=50"          # M4: depots and army bases are stores with a local stock (the store model; units with no store in reach get nothing)
 M1H = "starvemorale=30:45"                          # a harsher M1
+SHOCK = "strikeshock=20:60"                         # M5: morale falls while the unit's own supply / production / airbase / bridge objectives within 60 km are damaged
+INIT = "initsupply=1"                               # M6: the initiative score counts supply-weighted ground vehicles (a starved army gives the other side the initiative)
 HARD = "noprod=1 prodsup=0.5 usemult=4 " + M1H + " " + M2
 EXTRA = {
     "ctl_st": ("sb", K + " " + ST), "str_st": ("sb", K + " " + STRIKE + " " + ST),
@@ -54,6 +56,10 @@ EXTRA = {
     "ctl_dum": ("sd", K), "str_dum": ("sd", K + " " + STRIKE),         # control for M3: 148 extra weak (KS-19 gun) battalions on the same sites
     "ctl_site": ("ss", K), "str_site": ("ss", K + " " + STRIKE),      # M3 split: the 148 site battalions only
     "ctl_chn": ("sc", K), "str_chn": ("sc", K + " " + STRIKE),         # M3 split: the Chinese AD only
+    "ctl_sh": ("sb", K + " " + SHOCK), "str_sh": ("sb", K + " " + STRIKE + " " + SHOCK),
+    "ctl_sh12": ("sb", K + " " + SHOCK + " " + M1 + " " + M2), "str_sh12": ("sb", K + " " + STRIKE + " " + SHOCK + " " + M1 + " " + M2),
+    "ctl_is": ("sb", K + " " + INIT), "str_is": ("sb", K + " " + STRIKE + " " + INIT),
+    "ctl_is12": ("sb", K + " " + INIT + " " + M1 + " " + M2), "str_is12": ("sb", K + " " + STRIKE + " " + INIT + " " + M1 + " " + M2),
     "ctl_hard": ("sb", HARD), "str_hard": ("sb", HARD + " " + STRIKE),          # a tight supply regime with M1 (harsh) and M2: use x4, production 0.5
     "ctl_hsam": ("sx", HARD), "str_hsam": ("sx", HARD + " " + STRIKE),          # ... and the SAM world
     "ctl_m12h": ("sb", K + " " + M1H + " " + M2), "str_m12h": ("sb", K + " " + STRIKE + " " + M1H + " " + M2),
@@ -124,6 +130,11 @@ def run(seeds, order=None):
 
 PLAN3 = {"ctl_hard": 6, "str_hard": 6, "ctl_hsam": 6, "str_hsam": 6}
 PLAN4 = {"ctl_st": 6, "str_st": 6, "str24": 6, "str96": 6, "strF": 6, "strP": 6}
+PLAN8 = {a: 12 for a in ("ctl_sh", "str_sh", "ctl_sh12", "str_sh12")}      # M5 strike shock, 12 seeds
+PLAN7 = {a: 8 for a in ("ctl_is", "str_is", "ctl_is12", "str_is12")}      # M6 initiative with supply, 8 seeds
+PLAN5 = {a: 12 for a in ("ctl_m12", "str_m12", "ctl_all", "str_all", "ai", "ai_sam", "ctl_m1", "str_m1", "ctl_m2", "str_m2", "ctl_st", "str_st",
+                         "ctl_hard", "str_hard", "ctl_hsam", "str_hsam")}      # top-up: every arm in the headline tables to 12 seeds
+PLAN6 = {a: 12 for a in ("str24", "str96", "strF", "strP")}      # timing / target-class arms to 12 seeds
 PLAN = {          # arm -> seeds to reach
     "ctl": 12, "str": 12, "ctl_sam": 12, "str_sam": 12, "ctl_dum": 12, "str_dum": 12,
     "ctl_all": 8, "str_all": 8, "ctl_m12": 8, "str_m12": 8, "ai": 8, "ai_sam": 8,
@@ -241,7 +252,7 @@ def report():
             ("North bn on CAPTURE (h72+)", lambda r: r.get("cap_d")), ("Blue bn on CAPTURE (h72+)", lambda r: r.get("cap_b")),
             ("North mean morale (h72+)", lambda r: r.get("mor_d")), ("North won (event 14)", lambda r: 1.0 if r.get("red_win") is not None else 0.0)]
     print("%-10s %3s " % ("arm", "n") + " ".join("%-24s" % c[0] for c in cols))
-    for arm in ORDER + ORDER2 + ["ctl_hard", "str_hard", "ctl_hsam", "str_hsam"]:
+    for arm in ORDER + ORDER2 + ["ctl_hard", "str_hard", "ctl_hsam", "str_hsam", "ctl_sh", "str_sh", "ctl_sh12", "str_sh12", "ctl_is", "str_is", "ctl_is12", "str_is12"]:
         rs = by.get(arm)
         if not rs:
             continue
@@ -266,7 +277,7 @@ def report():
         print("%-10s %3d " % (arm, len(rs)) + " ".join(cells))
     print()
     print("strike minus control, same seeds (paired), Blue share at h240 (points) and Blue win hour:")
-    for mech in ("", "_m1", "_m2", "_m12", "_sam", "_all", "_dum", "_hard", "_hsam", "_site", "_chn", "_st", "_m12h"):
+    for mech in ("", "_m1", "_m2", "_m12", "_sam", "_all", "_dum", "_hard", "_hsam", "_sh", "_sh12", "_is", "_is12", "_site", "_chn", "_st", "_m12h"):
         a, b = by.get("str" + mech), by.get("ctl" + mech)
         if not a or not b:
             continue
@@ -306,6 +317,14 @@ if __name__ == "__main__":
         run_plan()
     elif cmd == "plan3":
         run_plan(PLAN3)
+    elif cmd == "plan8":
+        run_plan(PLAN8)
+    elif cmd == "plan7":
+        run_plan(PLAN7)
+    elif cmd == "plan6":
+        run_plan(PLAN6)
+    elif cmd == "plan5":
+        run_plan(PLAN5)
     elif cmd == "plan4":
         run_plan(PLAN4)
     elif cmd == "record":
