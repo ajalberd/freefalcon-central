@@ -1238,8 +1238,42 @@ static bool AlliedStrikeReady(int who)
     return g_bAlliedCounterattack and AlliedAtFront(who) >= g_nAlliedCounterMin;
 }
 
+// campsim diagnostic (gactlog=1): every change of a team's ground action (type, objective, timeout, points) with the initiative and the
+// 'held' flag the allied-counterattack override sets, and the enemy teams' actions, one GACT line per change
+bool g_bGActLog = false;
+
+struct GActLogger
+{
+    TeamClass *t;
+    int who, type0, pts0;
+    long long to0;
+    GActLogger(TeamClass *tt, int w) : t(tt), who(w), type0(tt->GetGroundActionType()), pts0(tt->GetGroundAction()->actionPoints), to0((long long)tt->GetGroundAction()->actionTimeout) {}
+    ~GActLogger()
+    {
+        if (not g_bGActLog)
+            return;
+
+        int type1 = t->GetGroundActionType(), pts1 = t->GetGroundAction()->actionPoints;
+        long long to1 = (long long)t->GetGroundAction()->actionTimeout;
+
+        if (type1 == type0 and pts1 == pts0 and to1 == to0)
+            return;
+
+        printf("GACT t=%d.%02d team %d: type %d->%d points %d->%d timeout %lld->%lld (now %lld) initiative %d | enemy types", (int)(TheCampaign.CurrentTime / CampaignHours),
+               (int)((TheCampaign.CurrentTime % CampaignHours) / CampaignMinutes), who, type0, type1, pts0, pts1, to0 / CampaignMinutes, to1 / CampaignMinutes,
+               (long long)TheCampaign.CurrentTime / CampaignMinutes, (int)t->GetInitiative());
+
+        for (int e = 0; e < NUM_TEAMS; e++)
+            if (e not_eq who and TeamInfo[e] and (TeamInfo[e]->flags bitand TEAM_ACTIVE))
+                printf(" %d:%d", e, (int)TeamInfo[e]->GetGroundActionType());
+
+        printf("\n");
+    }
+};
+
 void TeamClass::SelectGroundAction(void)
 {
+    GActLogger galog(this, who);
     // Find the highest priority primary objective
     Objective o, bo = NULL;
     POData pd;

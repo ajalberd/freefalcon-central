@@ -51,6 +51,10 @@ INIT = "initsupply=1"                               # M6: the initiative score c
 IW = "initw=8:1:1"                                  # M7: the initiative blend weighted to the ground war (stock 5:4:1), so China's aircraft do not decide who attacks
 HOLD = "holdtest=12 holdat=84 holdchain=1 playerhold=1"   # a 'player': from hour 84 (Blue is defensive) 12 Blue battalions are sent at the nearest North objective, and on to the next when it falls
 HOLD0 = "holdtest=12 holdat=84 holdchain=1 playerhold=0"   # the same orders, but the AI may take the battalions back (stock)
+AB = "blow=airbase:6:hold"                          # the North's airbases held destroyed too: the team aircraft statistic is squadron strength x home airbase status
+ABR = "blow=airbase:red:hold"                       # ... including China's (teams 4, 5, 6)
+CI0 = "counterinit=0"                                # the cfg's CounterAttackInitiative 15 off: stock thresholds (50 to start, 55 for a full offensive)
+AC = "alliedcounter=1:8:80:%d"                      # the China counteroffensive with a rest of N hours between its strikes (stock tests used no rest)
 HARD = "noprod=1 prodsup=0.5 usemult=4 " + M1H + " " + M2
 EXTRA = {
     "ctl_st": ("sb", K + " " + ST), "str_st": ("sb", K + " " + STRIKE + " " + ST),
@@ -66,6 +70,11 @@ EXTRA = {
     "ctl_iw": ("sb", K + " " + IW), "str_iw": ("sb", K + " " + STRIKE + " " + IW),
     "ctl_hold": ("sb", K + " " + HOLD), "str_hold": ("sb", K + " " + STRIKE + " " + HOLD),
     "ctl_hold0": ("sb", K + " " + HOLD0), "str_m12_hold": ("sb", K + " " + STRIKE + " " + M1 + " " + M2 + " " + HOLD),
+    "str_ab": ("sb", K + " " + STRIKE + " " + AB), "str_abr": ("sb", K + " " + STRIKE + " " + ABR),
+    "str_ab_ci0": ("sb", K + " " + STRIKE + " " + AB + " " + CI0), "str_ab_ci0_nac": ("sb", K + " " + STRIKE + " " + AB + " " + CI0 + " alliedcounter=0"),
+    "str_ci0": ("sb", K + " " + STRIKE + " " + CI0), "ctl_ci0": ("sb", K + " " + CI0),
+    "str_ab_r12": ("sb", K + " " + STRIKE + " " + AB + " " + AC % 12), "str_ab_r24": ("sb", K + " " + STRIKE + " " + AB + " " + AC % 24),
+    "str_r12": ("sb", K + " " + STRIKE + " " + AC % 12), "str_r24": ("sb", K + " " + STRIKE + " " + AC % 24),
     "ctl_hard": ("sb", HARD), "str_hard": ("sb", HARD + " " + STRIKE),          # a tight supply regime with M1 (harsh) and M2: use x4, production 0.5
     "ctl_hsam": ("sx", HARD), "str_hsam": ("sx", HARD + " " + STRIKE),          # ... and the SAM world
     "ctl_m12h": ("sb", K + " " + M1H + " " + M2), "str_m12h": ("sb", K + " " + STRIKE + " " + M1H + " " + M2),
@@ -142,6 +151,9 @@ PLAN8 = {a: 12 for a in ("ctl_sh", "str_sh", "ctl_sh12", "str_sh12")}      # M5 
 PLAN7 = {a: 8 for a in ("ctl_is", "str_is", "ctl_is12", "str_is12")}      # M6 initiative with supply, 8 seeds
 PLAN10 = {a: 8 for a in ("ctl_iw", "str_iw")}      # M7 ground-weighted initiative, 8 seeds
 PLAN11 = {a: 6 for a in ("ctl_hold", "str_hold", "ctl_hold0", "str_m12_hold")}      # a player pushing Blue north from hour 84
+PLAN12 = {"str_ab": 3, "str_abr": 3}      # airbase strikes: does the aircraft term of initiative move?
+PLAN13 = {"str_ab_ci0": 3, "str_ab_ci0_nac": 3, "str_ci0": 3, "ctl_ci0": 3}      # is the 15-point counterattack setting what locks Blue out?
+PLAN14 = {"str_ab_r12": 3, "str_ab_r24": 3, "str_r12": 3, "str_r24": 3}      # a rest between the allied strikes lets Blue's turn come round
 PLAN5 = {a: 12 for a in ("ctl_m12", "str_m12", "ctl_all", "str_all", "ai", "ai_sam", "ctl_m1", "str_m1", "ctl_m2", "str_m2", "ctl_st", "str_st",
                          "ctl_hard", "str_hard", "ctl_hsam", "str_hsam")}      # top-up: every arm in the headline tables to 12 seeds
 PLAN6 = {a: 12 for a in ("str24", "str96", "strF", "strP")}      # timing / target-class arms to 12 seeds
@@ -330,6 +342,12 @@ if __name__ == "__main__":
         run_plan()
     elif cmd == "plan3":
         run_plan(PLAN3)
+    elif cmd == "plan14":
+        run_plan(PLAN14)
+    elif cmd == "plan13":
+        run_plan(PLAN13)
+    elif cmd == "plan12":
+        run_plan(PLAN12)
     elif cmd == "plan11":
         run_plan(PLAN11)
     elif cmd == "plan10":
