@@ -126,7 +126,7 @@ power / nuclear plants only +2.3 +-2.0. Nothing separates them: the power plants
 - The strike is free to Blue by construction. The only Blue cost measured is the one the SAMs add to ordinary operations. A human flying deep would pay the deep-belt price, which the campaign AI never does.
 - The extra battalions of M3 stand alone on their objectives (no brigade). The weak-battalion control exists because that alone changes the war; compare M3 with it, not with the stock arm.
 - The error bars are standard errors of the paired differences; 4 seeds (M1, M2 alone) are weak evidence, 12 are good for about +-1 point.
-- 196 runs, one exe (`scratchpad/csbM`, built from `5c670350`). Both branches carry the change (`rail-tracks` 5c670350, `main` 7985bb4f); **main was not compiled** after the cherry-pick (the conflicts were in `gtm.cpp` and `main.cpp`, resolved by hand).
+- 196 runs, one exe (`scratchpad/csbM`, built from `5c670350`). Both branches carry the change (`rail-tracks` 5c670350, `main` 7985bb4f); `main` needed hand-resolved conflicts in `gtm.cpp` and `main.cpp` (it has no railnet) and was compile-checked afterwards: campsim builds; it was not run.
 - The Chinese counteroffensive, the trigger and the supply knobs are the best of the earlier spread (`noprod=1 prodsup=0.75 usemult=2`, `alliedcounter=1:8:80`, `chn_appr2`, China on its own side of the Yalu); nothing about them was changed.
 
 ## Reproduce
