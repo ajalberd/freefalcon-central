@@ -974,7 +974,8 @@ int BattalionClass::MoveUnit(CampaignTime time)
         {
             Objective o = GetUnitObjective();
 
-            if (o->GetTeam() == GetTeam())
+            // campsim holdtest (a player-ordered battalion whose objective is gone) hit a null here
+            if (o and o->GetTeam() == GetTeam())
             {
                 SetAssigned(0);
                 o->SetAbandoned(0);

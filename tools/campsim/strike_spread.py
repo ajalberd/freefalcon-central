@@ -49,6 +49,8 @@ M1H = "starvemorale=30:45"                          # a harsher M1
 SHOCK = "strikeshock=20:60"                         # M5: morale falls while the unit's own supply / production / airbase / bridge objectives within 60 km are damaged
 INIT = "initsupply=1"                               # M6: the initiative score counts supply-weighted ground vehicles (a starved army gives the other side the initiative)
 IW = "initw=8:1:1"                                  # M7: the initiative blend weighted to the ground war (stock 5:4:1), so China's aircraft do not decide who attacks
+HOLD = "holdtest=12 holdat=84 holdchain=1 playerhold=1"   # a 'player': from hour 84 (Blue is defensive) 12 Blue battalions are sent at the nearest North objective, and on to the next when it falls
+HOLD0 = "holdtest=12 holdat=84 holdchain=1 playerhold=0"   # the same orders, but the AI may take the battalions back (stock)
 HARD = "noprod=1 prodsup=0.5 usemult=4 " + M1H + " " + M2
 EXTRA = {
     "ctl_st": ("sb", K + " " + ST), "str_st": ("sb", K + " " + STRIKE + " " + ST),
@@ -62,6 +64,8 @@ EXTRA = {
     "ctl_is": ("sb", K + " " + INIT), "str_is": ("sb", K + " " + STRIKE + " " + INIT),
     "ctl_is12": ("sb", K + " " + INIT + " " + M1 + " " + M2), "str_is12": ("sb", K + " " + STRIKE + " " + INIT + " " + M1 + " " + M2),
     "ctl_iw": ("sb", K + " " + IW), "str_iw": ("sb", K + " " + STRIKE + " " + IW),
+    "ctl_hold": ("sb", K + " " + HOLD), "str_hold": ("sb", K + " " + STRIKE + " " + HOLD),
+    "ctl_hold0": ("sb", K + " " + HOLD0), "str_m12_hold": ("sb", K + " " + STRIKE + " " + M1 + " " + M2 + " " + HOLD),
     "ctl_hard": ("sb", HARD), "str_hard": ("sb", HARD + " " + STRIKE),          # a tight supply regime with M1 (harsh) and M2: use x4, production 0.5
     "ctl_hsam": ("sx", HARD), "str_hsam": ("sx", HARD + " " + STRIKE),          # ... and the SAM world
     "ctl_m12h": ("sb", K + " " + M1H + " " + M2), "str_m12h": ("sb", K + " " + STRIKE + " " + M1H + " " + M2),
@@ -111,6 +115,8 @@ def analyse(stage, cfg, seed):
     m["cap_d"] = round(sum(sum(1 for u in x["u"] if u[2] == 6 and u[1] == 0 and u[9] == 1) for x in late) / float(max(1, len(late))), 1)
     m["cap_b"] = round(sum(sum(1 for u in x["u"] if u[2] == 2 and u[1] == 0 and u[9] == 1) for x in late) / float(max(1, len(late))), 1)
     m["mor_d"] = round(sum(sum(u[8] for u in x["u"] if u[2] == 6 and u[1] == 0) / float(max(1, sum(1 for u in x["u"] if u[2] == 6 and u[1] == 0))) for x in late) / float(max(1, len(late))), 1)
+    hc = re.findall(r"HOLDCAP h=\d+ held battalions ordered (\d+) times, objectives taken (\d+)", log)
+    m["hold_orders"], m["hold_taken"] = (int(hc[-1][0]), int(hc[-1][1])) if hc else (0, 0)
     m["red_win"] = ev.get(14)             # Seoul or Pusan fell
     m["stalemate"] = ev.get(15)
     return m
@@ -135,6 +141,7 @@ PLAN4 = {"ctl_st": 6, "str_st": 6, "str24": 6, "str96": 6, "strF": 6, "strP": 6}
 PLAN8 = {a: 12 for a in ("ctl_sh", "str_sh", "ctl_sh12", "str_sh12")}      # M5 strike shock, 12 seeds
 PLAN7 = {a: 8 for a in ("ctl_is", "str_is", "ctl_is12", "str_is12")}      # M6 initiative with supply, 8 seeds
 PLAN10 = {a: 8 for a in ("ctl_iw", "str_iw")}      # M7 ground-weighted initiative, 8 seeds
+PLAN11 = {a: 6 for a in ("ctl_hold", "str_hold", "ctl_hold0", "str_m12_hold")}      # a player pushing Blue north from hour 84
 PLAN5 = {a: 12 for a in ("ctl_m12", "str_m12", "ctl_all", "str_all", "ai", "ai_sam", "ctl_m1", "str_m1", "ctl_m2", "str_m2", "ctl_st", "str_st",
                          "ctl_hard", "str_hard", "ctl_hsam", "str_hsam")}      # top-up: every arm in the headline tables to 12 seeds
 PLAN6 = {a: 12 for a in ("str24", "str96", "strF", "strP")}      # timing / target-class arms to 12 seeds
@@ -323,6 +330,8 @@ if __name__ == "__main__":
         run_plan()
     elif cmd == "plan3":
         run_plan(PLAN3)
+    elif cmd == "plan11":
+        run_plan(PLAN11)
     elif cmd == "plan10":
         run_plan(PLAN10)
     elif cmd == "plan9":

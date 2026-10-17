@@ -92,6 +92,25 @@ When China's air force joins (about hour 70), the aircraft term (40% of the blen
 A side being attacked is forced defensive, so the North keeps the offensive for the rest of the war. This is also why starving the North's ground units, or weighting initiative by supply (M6), did so little: the ground term is not the limiter.
 `initw=G:A:L` (blend weights, stock 5:4:1) was built to test it; a first test (8:1:1, 8 seeds each, strike and no strike) was queued and stopped at the user's request before any result, so the hypothesis is untested.
 
+## A player pushing north in the frozen window, with and without the strike (4-5 seeds per arm)
+
+The frozen phase (Blue defensive from hour ~84) is a refusal of the AI to task Blue, not a lack of strength, so a player who orders Blue's battalions forward should get around it. campsim's `holdtest` was extended
+(`holdat=H`, `holdchain=1`): at hour 84, 12 Blue battalions are given capture orders at the nearest North objective exactly as a waypoint drag does, and a battalion whose target has fallen is sent at the next nearest
+one within 60 km. `playerhold=1` makes the AI leave them alone (the WIP `g_bPlayerGroundHold`); `playerhold=0` lets the AI take them back, as stock does. (An engine crash this exposed, a null objective in
+`BattalionClass::MoveUnit`, is guarded.) Same seeds as the arms above, so the comparison is paired where the seed exists; the no-hold baselines were run on the older exe.
+
+| Arm | Games | Blue share h240 | Change vs same-seed no-hold | Objectives the ordered battalions took | Blue wins (hours) | North wins |
+|---|---|---|---|---|---|---|
+| player push, no strike | 4 | 52.2 | +2.0 | 268 | 0 | 0 |
+| player push, AI may take units back, no strike | 5 | 48.7 | -2.3 | 277 | 0 | 1 |
+| **player push + strike** | 4 | **63.4** | **+11.4** | 408 | **4 of 4** (132, 152, 188, 199) | 0 |
+| **player push + strike + starvation morale + fall-back** | 5 | **67.7** | **+14.2** | 362 | **4 of 5** (98, 128, 200, 206) | 0 |
+
+Neither the strike alone (no wins, share +1.8) nor the push alone (+2.0) does it; together they end the war with a Blue win in 8 of 9 games, most of them between day 5 and day 9, which is the "campaign ending around day 10 with a winner" the brief wanted.
+The order of causes the logs give: the strike starves the North's garrisons (front supply 44% at the lowest) and takes away its offence; the AI will not use that, because Blue's initiative sits at 45-50, so the player's orders
+are what carry the front forward. With the AI free to retask the battalions (`playerhold=0`) the push does nothing. Caveats: 4-5 games per arm; the "player" is an idealised one (12 battalions, always the nearest objective, instant re-orders); the
+objectives-taken count includes objectives that change hands more than once; the no-hold baselines are from the older exe.
+
 ## What was built (all campsim-only knobs, off by default)
 
 | Switch | What it does | Result |

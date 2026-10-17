@@ -2221,8 +2221,13 @@ static int gNoEnd;
 // holdtest=N -- give N ROK battalions a "player" order (capture the nearest DPRK objective),
 // exactly as the campaign map's waypoint drag does, and log hourly whether the AI keeps it.
 static int gHoldTest;
-static VU_ID gHoldIds[16];
-static VU_ID gHoldObj[16];
+// holdat=H -- the holdtest orders start at campaign hour H (default 1); holdchain=1 -- a held battalion whose target has fallen (or that
+// the AI took back) is sent at the next nearest DPRK objective within 60 km, as a player pushing the army north would. HOLDCAP lines count
+// the objectives the ordered battalions took.
+static int gHoldAt = 1, gHoldChain = 0, gHoldCaptures = 0, gHoldOrders = 0;
+static VU_ID gHoldIds[64];
+static VU_ID gHoldObj[64];
+static bool gHoldCredited[64];
 extern int gPlayerOrdering;
 extern bool g_bPlayerGroundHold;
 
@@ -2231,7 +2236,7 @@ static void HoldTestStart(void)
     VuListIterator uit(AllUnitList);
     int n = 0;
 
-    for (Unit u = GetFirstUnit(&uit); u && n < gHoldTest && n < 16; u = GetNextUnit(&uit))
+    for (Unit u = GetFirstUnit(&uit); u && n < gHoldTest && n < 64; u = GetNextUnit(&uit))
     {
         if (!u->IsBattalion() || u->GetTeam() != 2 || !u->Parent() || u->GetMovementType() == NoMove ||
             u->GetUnitNormalRole() == GRO_AIRDEFENSE || u->GetUnitNormalRole() == GRO_FIRESUPPORT)
@@ -2255,7 +2260,7 @@ static void HoldTestStart(void)
                 bd = d, best = o;
         }
 
-        if (!best || bd > 40.0f)
+        if (!best || bd > (gHoldAt > 1 ? 80.0f : 40.0f))
             continue;
 
         gPlayerOrdering = 1;
@@ -2267,6 +2272,8 @@ static void HoldTestStart(void)
 
         gHoldIds[n] = u->Id();
         gHoldObj[n] = best->Id();
+        gHoldCredited[n] = false;
+        gHoldOrders++;
         printf("HOLDTEST start bn camp=%d -> capture obj %d (%.0f km) held=%d\n", (int)u->GetCampID(),
                (int)best->GetCampID(), bd, u->PlayerHeld() ? 1 : 0);
         n++;
@@ -2275,7 +2282,7 @@ static void HoldTestStart(void)
 
 static void HoldTestLog(int hour)
 {
-    for (int i = 0; i < 16 && gHoldIds[i] != FalconNullId; i++)
+    for (int i = 0; i < 64 && gHoldIds[i] != FalconNullId; i++)
     {
         Unit u = FindUnit(gHoldIds[i]);
 
@@ -2286,6 +2293,51 @@ static void HoldTestLog(int hour)
         u->GetLocation(&x, &y);
         Objective o = (Objective)vuDatabase->Find(gHoldObj[i]);
         o ? o->GetLocation(&ox, &oy) : (void)(ox = x, oy = y);
+
+        if (o and o->GetTeam() == 2 and not gHoldCredited[i])
+        {
+            gHoldCredited[i] = true;
+            gHoldCaptures++;
+        }
+
+        if (gHoldChain and u->IsBattalion() and ((o and o->GetTeam() == 2) or not u->PlayerHeld() or u->GetUnitOrders() != GORD_CAPTURE or u->GetUnitObjectiveID() != gHoldObj[i]))
+        {
+            Objective best = NULL;
+            float bd = 1e9f;
+            VuListIterator oit(AllObjList);
+
+            for (Objective q = GetFirstObjective(&oit); q; q = GetNextObjective(&oit))
+            {
+                if (q->GetTeam() != 6)
+                    continue;
+
+                GridIndex qx, qy;
+                q->GetLocation(&qx, &qy);
+                float d = Distance(x, y, qx, qy);
+
+                if (d < bd)
+                    bd = d, best = q;
+            }
+
+            if (best and bd <= 60.0f and not u->Broken())
+            {
+                gPlayerOrdering = 1;
+                ((Battalion)u)->SetUnitOrders(GORD_CAPTURE, best->Id());
+                gPlayerOrdering = 0;
+
+                if (g_bPlayerGroundHold)
+                    u->SetPlayerHeld(1);
+
+                gHoldObj[i] = best->Id();
+                gHoldCredited[i] = false;
+                gHoldOrders++;
+                o = best;
+            }
+        }
+
+        if ((hour % 6) != 0)
+            continue;
+
         printf("HOLD h=%d bn=%d orders=%d keepsPlayerObj=%d held=%d dist=%.1f km objTeam=%d broken=%d\n", hour,
                (int)u->GetCampID(), (int)u->GetUnitOrders(), u->GetUnitObjectiveID() == gHoldObj[i] ? 1 : 0,
                u->PlayerHeld() ? 1 : 0, Distance(x, y, ox, oy), o ? (int)o->GetTeam() : -1,
@@ -3266,6 +3318,10 @@ static void ApplyKnobs(int argc, char **argv)
             GROUND_PATH_MAX = (short)atoi(val), printf("KNOB GroundPathMax = %d\n", (int)GROUND_PATH_MAX);
         else if (!strcmp(key, "holdtest"))
             gHoldTest = atoi(val);
+        else if (!strcmp(key, "holdat"))
+            gHoldAt = atoi(val) < 1 ? 1 : atoi(val);
+        else if (!strcmp(key, "holdchain"))
+            gHoldChain = atoi(val);
         else if (!strcmp(key, "playerhold"))
             g_bPlayerGroundHold = atoi(val) != 0, printf("KNOB g_bPlayerGroundHold = %d\n", (int)g_bPlayerGroundHold);
         else if (!strcmp(key, "noend"))
@@ -4063,11 +4119,14 @@ int main(int argc, char **argv)
             if (gAllyLog && (iter == 1 || (iter % 180) == 0))
                 AllyLog(iter / 60);
 
-            if (gHoldTest && iter == 1)
+            if (gHoldTest && iter == gHoldAt * (gHoldAt > 1 ? 60 : 1))
                 HoldTestStart();
 
-            if (gHoldTest && (iter % 60) == 0 && iter <= 60 * 24)
+            if (gHoldTest && (iter % 60) == 0 && iter > gHoldAt * (gHoldAt > 1 ? 60 : 1))
                 HoldTestLog(iter / 60);
+
+            if (gHoldTest && (iter % 360) == 0)
+                printf("HOLDCAP h=%d held battalions ordered %d times, objectives taken %d\n", iter / 60, gHoldOrders, gHoldCaptures);
 
             if ((iter % 60) == 0 && vuLocalSessionEntity)
                 printf("SESSREF h=%d ref=%d\n", iter / 60, vuLocalSessionEntity->RefCount());
