@@ -3057,6 +3057,24 @@ static void ApplyKnobs(int argc, char **argv)
                 g_nStarveBreak = atoi(colon + 1);
             printf("KNOB starvation drains morale: %d points an hour at 0 supply, a battalion breaks under %d\n", g_nStarveMorale, g_nStarveBreak);
         }
+        else if (!strcmp(key, "turnmode"))
+        {
+            extern int g_nTurnMode;
+            g_nTurnMode = atoi(val);
+            printf("KNOB turnmode = %d (1 spent offensives release the other side, 4 offensives shared, 8 allied strike needs fit units)\n", g_nTurnMode);
+        }
+        else if (!strcmp(key, "chinaown"))
+        {
+            extern bool g_bChinaOwn;
+            g_bChinaOwn = atoi(val) != 0;
+            printf("KNOB China stays a team of its own when it joins = %d\n", g_bChinaOwn ? 1 : 0);
+        }
+        else if (!strcmp(key, "initindep"))
+        {
+            extern bool g_bInitIndependent;
+            g_bInitIndependent = atoi(val) != 0;
+            printf("KNOB independent initiative per team = %d\n", g_bInitIndependent ? 1 : 0);
+        }
         else if (!strcmp(key, "gactlog"))
         {
             extern bool g_bGActLog;
@@ -3553,7 +3571,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "turnmode") and strcmp(key, "chinaown") and strcmp(key, "initindep") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';
@@ -4136,6 +4154,13 @@ int main(int argc, char **argv)
 
             if ((iter % 60) == 0 && vuLocalSessionEntity)
                 printf("SESSREF h=%d ref=%d\n", iter / 60, vuLocalSessionEntity->RefCount());
+
+            if ((iter % 60) == 0)
+            {
+                extern int gPrcFirstFireMin, gPrcFirstFireBlueMin, gPrcFireBlue, gPrcFirstFireBlueGndMin;
+                printf("PRCFIRST h=%d first fire on another team min %d, on a Blue unit min %d, on a Blue battalion min %d, volleys at Blue %d\n", iter / 60, gPrcFirstFireMin,
+                       gPrcFirstFireBlueMin, gPrcFirstFireBlueGndMin, gPrcFireBlue);
+            }
 
             if ((iter % 360) == 0)
             {

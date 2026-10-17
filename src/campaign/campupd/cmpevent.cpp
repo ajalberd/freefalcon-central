@@ -1306,7 +1306,24 @@ int ReadScriptedTriggerFile(char* filename)
                     logChain();
                     SetTTRelations(team, with, rel);
 
-                    if (rel == Allied)
+                    // campsim experiment (chinaown=1): the ally stays a team of its own -- allied to the North, at war with the North's enemies,
+                    // its own ground and air tasking and initiative -- instead of being folded into the North's team
+                    extern bool g_bChinaOwn;
+
+                    if (g_bChinaOwn and rel == Allied and team == 5)
+                    {
+                        SetTTRelations(with, team, Allied);
+
+                        for (int b = 1; b < NUM_TEAMS; b++)
+                            if (b not_eq team and b not_eq with and TeamInfo[b] and GetTTRelations(with, b) == War)
+                            {
+                                SetTTRelations(team, b, War);
+                                SetTTRelations(b, team, War);
+                            }
+
+                        TeamInfo[team]->flags or_eq TEAM_ACTIVE;
+                    }
+                    else if (rel == Allied)
                     {
                         SetTeam(team, with);
                         TeamInfo[team]->flags and_eq compl TEAM_ACTIVE;

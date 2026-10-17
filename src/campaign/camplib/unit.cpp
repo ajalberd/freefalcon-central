@@ -591,6 +591,9 @@ int gLossDiag[NUM_TEAMS][10] = {{0}};
 int gLossAllied[NUM_TEAMS][4] = {{0}};
 // campsim: aircraft lost to ground fire, by the shooter's y in 50-cell bands: [team][band][0 any ground shooter, 1 air defence battalion]
 int gAirLossDepth[NUM_TEAMS][20][2] = {{{0}}};
+// campsim: the first campaign minute a Chinese (country 5) battalion fired on a unit of another team, and how many such volleys at the
+// Blue teams (US, ROK, Japan): time to first combat for China
+int gPrcFirstFireMin = 0, gPrcFirstFireBlueMin = 0, gPrcFireBlue = 0, gPrcFirstFireBlueGndMin = 0;
 
 int UnitClass::ApplyDamage(FalconCampWeaponsFire* cwfm, uchar bonusToHit)
 {
@@ -787,6 +790,26 @@ int UnitClass::ApplyDamage(FalconCampWeaponsFire* cwfm, uchar bonusToHit)
         {
             extern int gLossAllied[NUM_TEAMS][4];
             gLossAllied[t][k] += currentLosses;
+        }
+
+        if (shooter->IsBattalion() and shooter->GetCountry() == 5 and totalShots > 0 and t not_eq shooter->GetTeam())
+        {
+            extern int gPrcFirstFireMin, gPrcFirstFireBlueMin, gPrcFireBlue, gPrcFirstFireBlueGndMin;
+            int now = (int)(TheCampaign.CurrentTime / CampaignMinutes);
+
+            if (not gPrcFirstFireMin)
+                gPrcFirstFireMin = now > 0 ? now : 1;
+
+            if (t >= 1 and t <= 3)
+            {
+                gPrcFireBlue++;
+
+                if (not gPrcFirstFireBlueMin)
+                    gPrcFirstFireBlueMin = now > 0 ? now : 1;
+
+                if (IsBattalion() and not gPrcFirstFireBlueGndMin)
+                    gPrcFirstFireBlueGndMin = now > 0 ? now : 1;
+            }
         }
 
         if (IsFlight() and not shooter->IsFlight() and not shooter->IsTaskForce() and currentLosses > 0 and t >= 0 and t < NUM_TEAMS)

@@ -1184,6 +1184,13 @@ extern char g_strAlliedCounterTeams[];
 // counterattack cycle flips the team back to DEFENSIVE at its next hourly evaluation (campsim: every allied offensive lasted one hour).
 static CampaignTime alliedUntil[NUM_TEAMS];
 
+// campsim experiments on how the two sides take turns (turnmode=, a bit mask, 0 = stock):
+//   1  SPENT   an enemy offensive whose action points are used up no longer keeps us DEFENSIVE, nor does it hold our counterattack back
+//              (stock: it does, so a launch that dies within the hour still blocks the other side for a full action timeout)
+//   4  SHARED  starting an offensive no longer forces the enemy teams onto the defensive, and an enemy offensive no longer keeps us there
+//   8  READY   the allied armies that arm the allied counterattack must be able to fight: supplied (50%+), unbroken, not air defence or artillery
+extern int g_nTurnMode;
+
 // How many allied battalions (team == who, country not) are within g_nAlliedCounterKm of the front. Also used by the GTM (AlliedCapture).
 int AlliedAtFront(int who)
 {
@@ -1218,6 +1225,10 @@ int AlliedAtFront(int who)
             foreign++;
 
         if (u->GetTeam() not_eq who or u->GetCountry() == who or not u->IsBattalion() or u->IsDead())
+            continue;
+
+        if ((g_nTurnMode bitand 8) and (u->GetUnitSupply() < 50 or u->Broken() or u->GetUnitNormalRole() == GRO_AIRDEFENSE or
+                                         u->GetUnitNormalRole() == GRO_FIRESUPPORT))
             continue;
 
         GridIndex x, y;
@@ -1316,8 +1327,27 @@ void TeamClass::SelectGroundAction(void)
 
     for (int ht = 0; ht < NUM_TEAMS; ht++)
         if (ht not_eq who and alliedUntil[ht] > TheCampaign.CurrentTime and
-            GetRoE(who, ht, ROE_GROUND_CAPTURE) == ROE_ALLOWED)
+            GetRoE(who, ht, ROE_GROUND_CAPTURE) == ROE_ALLOWED and
+            (not (g_nTurnMode bitand 1) or not TeamInfo[ht] or TeamInfo[ht]->GetGroundAction()->actionPoints > 0))
             held = true;
+
+    // SPENT: when no enemy offensive has points left, a defensive team is released and may start at once
+    if ((g_nTurnMode bitand 1) and groundAction.actionType == GACTION_DEFENSIVE)
+    {
+        bool active = false;
+
+        for (int et = 0; et < NUM_TEAMS; et++)
+            if (et not_eq who and TeamInfo[et] and GetRoE(et, who, ROE_GROUND_CAPTURE) == ROE_ALLOWED and
+                (TeamInfo[et]->GetGroundActionType() == GACTION_OFFENSIVE or TeamInfo[et]->GetGroundActionType() == GACTION_MINOROFFENSIVE) and
+                TeamInfo[et]->GetGroundAction()->actionPoints > 0)
+                active = true;
+
+        if (not active)
+        {
+            groundAction.actionType = GACTION_CONSOLIDATE;
+            groundAction.actionTimeout = TheCampaign.CurrentTime - ACTION_RATE;
+        }
+    }
 
 
     if (groundAction.actionType == GACTION_DEFENSIVE and
@@ -1409,7 +1439,7 @@ void TeamClass::SelectGroundAction(void)
 
             for (t = 0; t < NUM_TEAMS; t++)
             {
-                if (GetRoE(who, t, ROE_GROUND_CAPTURE) == ROE_ALLOWED)
+                if (GetRoE(who, t, ROE_GROUND_CAPTURE) == ROE_ALLOWED and not (g_nTurnMode bitand 4))
                 {
                     sup = ((TeamInfo[t]->GetCurrentStats()->groundVehs +
                             TeamInfo[t]->GetCurrentStats()->aircraft) *
@@ -1460,7 +1490,9 @@ void TeamClass::SelectGroundAction(void)
                 if (GetRoE(t, who, ROE_GROUND_CAPTURE) == ROE_ALLOWED and
                     (TeamInfo[t]->GetGroundActionType() == GACTION_OFFENSIVE or
                      TeamInfo[t]->GetGroundActionType() ==
-                         GACTION_MINOROFFENSIVE))
+                         GACTION_MINOROFFENSIVE) and
+                    not (g_nTurnMode bitand 4) and
+                    (not (g_nTurnMode bitand 1) or TeamInfo[t]->GetGroundAction()->actionPoints > 0))
                     return;
             }
         }
@@ -2245,9 +2277,91 @@ static int EffectiveGroundVehicles(Team t)
     return FloatToInt32(sum) + 1;
 }
 
+// campsim experiment (initindep=1, off = stock): every active team gets its own initiative from its own strength against the coalition at war
+// with it, smoothed as before, and the enemy is NOT set to 100 minus ours. Stock is zero-sum between two sides, which cannot describe a war with
+// three teams in it (Blue, the North, and China as a team of its own) and lets one side's rise silence the other's.
+bool g_bInitIndependent = false;
+bool g_bChinaOwn = false;
+int g_nTurnMode = 0;
+extern int gInitDiag[8][12];
+
+static void NewInitiativeIndependent(void)
+{
+    extern bool g_bInitTrueLosses;
+    extern int gLossDiag[NUM_TEAMS][10];
+
+    for (Team who = 1; who < NUM_TEAMS; who++)
+    {
+        if (not TeamInfo[who] or not (TeamInfo[who]->flags bitand TEAM_ACTIVE))
+            continue;
+
+        int os = TeamInfo[who]->GetCurrentStats()->groundVehs, oa = TeamInfo[who]->GetCurrentStats()->aircraft, ts = 0, ta = 0, et = -1;
+        float oloss = (float)(TeamInfo[who]->startStats.groundVehs - os), tloss = 0.0F;
+
+        if (g_bInitSupply)
+            os = EffectiveGroundVehicles(who);
+
+        for (Team i = 0; i < NUM_TEAMS; i++)
+        {
+            if (i == who or not TeamInfo[i] or GetTTRelations(i, who) not_eq War)
+                continue;
+
+            ts += g_bInitSupply ? EffectiveGroundVehicles(i) : TeamInfo[i]->GetCurrentStats()->groundVehs;
+            ta += TeamInfo[i]->GetCurrentStats()->aircraft;
+            tloss += (float)(TeamInfo[i]->startStats.groundVehs - TeamInfo[i]->GetCurrentStats()->groundVehs);
+            et = i;
+        }
+
+        if (et < 0)
+            continue;
+
+        if (g_bInitTrueLosses)
+        {
+            oloss = tloss = 0.0F;
+
+            for (int k = 0; k < 4; k++)
+                oloss += gLossDiag[who][k];
+
+            for (Team i = 0; i < NUM_TEAMS; i++)
+                if (i not_eq who and TeamInfo[i] and GetTTRelations(i, who) == War)
+                    for (int k = 0; k < 4; k++)
+                        tloss += gLossDiag[i][k];
+        }
+
+        if (oloss <= 0)
+            oloss = 1;
+
+        if (tloss <= 0)
+            tloss = 1;
+
+        if (ts < 1)
+            ts = 1;
+
+        if (ta < 1)
+            ta = 1;
+
+        int l1 = (int)(atan((os * 1.0) / ts) * 100 / (3.142 / 2) + 1);
+        int l2 = (int)(atan((oa * 1.0) / ta) * 100 / (3.142 / 2) + 1);
+        int l3 = (int)(atan(tloss / oloss) * 100 / (3.142 / 2) + 1);
+        int blend = (g_nInitWG * l1 + g_nInitWA * l2 + g_nInitWL * l3) / (g_nInitWG + g_nInitWA + g_nInitWL);
+        int ini = (int)(0.5F * TeamInfo[who]->GetInitiative() + 0.5F * blend);
+        TeamInfo[who]->SetInitiative(ini);
+
+        int *g = gInitDiag[who % 8];
+        g[0] = os, g[1] = ts, g[2] = oa, g[3] = ta, g[4] = (int)oloss, g[5] = (int)tloss;
+        g[6] = l1, g[7] = l2, g[8] = l3, g[9] = blend, g[10] = ini, g[11] = et;
+    }
+}
+
 // A.S. begin 2001-12-09, New Procedure for Initiative Points
 void NewInitiativePointSetting(Team who)
 {
+    if (g_bInitIndependent)
+    {
+        NewInitiativeIndependent();
+        return;
+    }
+
 
     int i, os, ts, initiative, initiative_old;
     int oa, ta, os_start, oa_start, ts_start, ta_start;
