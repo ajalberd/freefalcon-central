@@ -135,6 +135,9 @@ PLAN7 = {a: 8 for a in ("ctl_is", "str_is", "ctl_is12", "str_is12")}      # M6 i
 PLAN5 = {a: 12 for a in ("ctl_m12", "str_m12", "ctl_all", "str_all", "ai", "ai_sam", "ctl_m1", "str_m1", "ctl_m2", "str_m2", "ctl_st", "str_st",
                          "ctl_hard", "str_hard", "ctl_hsam", "str_hsam")}      # top-up: every arm in the headline tables to 12 seeds
 PLAN6 = {a: 12 for a in ("str24", "str96", "strF", "strP")}      # timing / target-class arms to 12 seeds
+PLAN9 = {a: 12 for a in ("ctl", "str", "ctl_sam", "str_sam", "ctl_dum", "str_dum", "ctl_m12", "str_m12", "ctl_all", "str_all", "ai", "ai_sam", "ctl_m1", "str_m1",
+                         "ctl_m2", "str_m2", "ctl_st", "str_st", "ctl_hard", "str_hard", "ctl_hsam", "str_hsam", "ctl_sh", "str_sh", "ctl_sh12", "str_sh12",
+                         "ctl_is", "str_is", "ctl_is12", "str_is12", "str24", "str96", "strF", "strP")}      # every arm with results, to 12 seeds
 PLAN = {          # arm -> seeds to reach
     "ctl": 12, "str": 12, "ctl_sam": 12, "str_sam": 12, "ctl_dum": 12, "str_dum": 12,
     "ctl_all": 8, "str_all": 8, "ctl_m12": 8, "str_m12": 8, "ai": 8, "ai_sam": 8,
@@ -317,6 +320,8 @@ if __name__ == "__main__":
         run_plan()
     elif cmd == "plan3":
         run_plan(PLAN3)
+    elif cmd == "plan9":
+        run_plan(PLAN9)
     elif cmd == "plan8":
         run_plan(PLAN8)
     elif cmd == "plan7":
