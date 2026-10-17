@@ -2,7 +2,7 @@
 
 #if VU_ALL_FILTERED
 
-VuRedBlackTree::VuRedBlackTree(VuKeyFilter *filter) : VuCollection(filter)
+VuRedBlackTree::VuRedBlackTree(VuKeyFilter *filter) : VuCollection(filter), stamp_(0)
 {
 }
 
@@ -12,10 +12,46 @@ VuRedBlackTree::~VuRedBlackTree()
     Purge(TRUE);
 }
 
+VuRedBlackTree::RBMap::size_type VuRedBlackTree::LowerBound(VU_KEY k) const
+{
+    RBMap::size_type lo = 0, hi = map_.size();
+
+    while (lo < hi)
+    {
+        RBMap::size_type mid = (lo + hi) / 2;
+
+        if (map_[mid].key < k)
+        {
+            lo = mid + 1;
+        }
+        else
+        {
+            hi = mid;
+        }
+    }
+
+    return lo;
+}
+
 VU_ERRCODE VuRedBlackTree::PrivateInsert(VuEntity *entity)
 {
     VuKeyFilter *kf = GetKeyFilter();
-    map_.insert(std::make_pair(kf->Key(entity), VuEntityBin(entity)));
+    VU_KEY k = kf->Key(entity);
+    // multimap insert goes after the equal keys (upper_bound)
+    RBMap::size_type i = LowerBound(k);
+
+    while ((i < map_.size()) and (map_[i].key == k))
+    {
+        ++i;
+    }
+
+    RBEntry e = { k, entity };
+    map_.insert(map_.begin() + i, e);
+    ++stamp_;
+    // the map's insert(make_pair(k, VuEntityBin(entity))) took 3 refs and never gave them back
+    VuReferenceEntity(entity);
+    VuReferenceEntity(entity);
+    VuReferenceEntity(entity);
     return VU_SUCCESS;
 }
 
@@ -23,27 +59,16 @@ VU_ERRCODE VuRedBlackTree::PrivateRemove(VuEntity *entity)
 {
     VuKeyFilter *kf = GetKeyFilter();
     VU_KEY k = kf->Key(entity);
-    unsigned int count = map_.count(k);
 
-    if (count == 0)
+    for (RBMap::size_type i = LowerBound(k); (i < map_.size()) and (map_[i].key == k); ++i)
     {
-        return VU_NO_OP;
-    }
-
-    RBMap::iterator it = map_.find(k);
-
-    do
-    {
-        VuEntity *e = it->second.get();
-
-        if (e == entity)
+        if (map_[i].ent == entity)
         {
-            map_.erase(it);
+            map_.erase(map_.begin() + i);
+            ++stamp_;
             return VU_SUCCESS;
         }
-
-        ++it;
-    } while (--count);
+    }
 
     return VU_NO_OP;
 }
@@ -52,28 +77,18 @@ bool VuRedBlackTree::PrivateFind(VuEntity *ent) const
 {
     VuKeyFilter *kf = GetKeyFilter();
     VU_KEY k = kf->Key(ent);
-    // get number of entities sharing key
-    unsigned int count = map_.count(k);
-
-    if (count == 0)
-    {
-        return false;
-    }
 
     // see which one is the one we want
-    RBMap::const_iterator it = map_.find(k);
-
-    do
+    for (RBMap::size_type i = LowerBound(k); (i < map_.size()) and (map_[i].key == k); ++i)
     {
-        VuEntityBin eb = it->second;
+        VuEntity *e = map_[i].ent;
+        VuReferenceEntity(e); // the map version copied a VuEntityBin here
 
-        if ((eb->VuState() == VU_MEM_ACTIVE) and (eb.get() == ent))
+        if ((e->VuState() == VU_MEM_ACTIVE) and (e == ent))
         {
             return true;
         }
-
-        ++it;
-    } while (--count);
+    }
 
     // can happen if all entities with given key are inactive
     return false;
@@ -83,23 +98,25 @@ bool VuRedBlackTree::PrivateFind(VuEntity *ent) const
 unsigned int VuRedBlackTree::Purge(VU_BOOL all)
 {
     unsigned int ret = 0;
+    RBMap::size_type out = 0;
 
-    for (RBMap::iterator it = map_.begin(); it not_eq map_.end();)
+    for (RBMap::size_type i = 0; i < map_.size(); ++i)
     {
-        VuEntityBin &eb = it->second;
+        VuEntity *e = map_[i].ent;
 
-        if (all or (not(eb->IsPrivate() and eb->IsPersistent()) and
-                    not eb->IsGlobal()))
+        if (all or (not(e->IsPrivate() and e->IsPersistent()) and
+                    not e->IsGlobal()))
         {
-            it = map_.erase(it);
             ++ret;
         }
         else
         {
-            ++it;
+            map_[out++] = map_[i];
         }
     }
 
+    map_.resize(out);
+    ++stamp_;
     return ret;
 }
 
@@ -107,11 +124,12 @@ unsigned int VuRedBlackTree::Count() const
 {
     int count = 0;
 
-    for (RBMap::const_iterator it = map_.begin(); it not_eq map_.end(); ++it)
+    for (RBMap::size_type i = 0; i < map_.size(); ++i)
     {
-        VuEntityBin eb = it->second;
+        VuEntity *e = map_[i].ent;
+        VuReferenceEntity(e); // the map version copied a VuEntityBin here
 
-        if (eb->VuState() == VU_MEM_ACTIVE)
+        if (e->VuState() == VU_MEM_ACTIVE)
         {
             ++count;
         }

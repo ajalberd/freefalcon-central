@@ -4177,6 +4177,9 @@ int main(int argc, char **argv)
                (TheCampaign.CurrentTime - startTime) / (float)CampaignHours,
                (GetTickCount() - startWall) / 1000.0f);
         fflush(stdout);
+        // a proximity row changed under a live grid iterator (0 = the flat rows walk exactly as
+        // the old multimaps did); stderr, so timelines and stdout stay comparable
+        fprintf(stderr, "vugrid resyncs=%lu lost=%lu\n", vuRBIteratorResyncs, vuRBIteratorLost);
     }
 
     printf("endgame=%d engine-result=%d\n", TheCampaign.EndgameResult,
