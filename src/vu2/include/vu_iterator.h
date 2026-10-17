@@ -63,10 +63,21 @@ public:
 
 protected:
     VuRBIterator(VuCollection *coll);
+    /** returns the entity at curr_ (NULL at end) and remembers it for Resync. */
+    VuEntity *At();
+    /** the tree changed since curr_ was set: find the remembered entry again (a map iterator
+    * would have stayed on its node). False if it had been erased: curr_ is then its successor. */
+    bool Resync();
 
 protected:
-    VuRedBlackTree::RBMap::iterator curr_;
+    VuRedBlackTree::RBMap::size_type curr_;
+    VU_KEY currKey_;
+    VuEntity *currEnt_;
+    unsigned int stamp_;
 };
+
+/** how often a tree changed under a live VuRBIterator, and how often its entry had gone. */
+extern unsigned long vuRBIteratorResyncs, vuRBIteratorLost;
 
 class VuGridIterator : public VuIterator
 {

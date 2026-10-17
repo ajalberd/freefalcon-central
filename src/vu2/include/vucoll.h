@@ -3,6 +3,7 @@
 
 #include <list>
 #include <map>
+#include <vector>
 
 #include "vu_templates.h"
 #include "vutypes.h"
@@ -605,8 +606,23 @@ private:
     /** returns the filter. */
     virtual VuKeyFilter *GetKeyFilter() const;
 
-    typedef std::multimap<VU_KEY, VuEntityBin> RBMap;
+    /** was a std::multimap<VU_KEY, VuEntityBin>: a sorted vector with the same order (equal keys
+    * in insertion order) walks without chasing nodes. The key is the one the entity had when it
+    * was inserted, exactly as the map kept it. Entities are raw pointers here; the refs the map's
+    * VuEntityBin copies took (3 per insert, 1 per Find/Count look) are taken by hand so entity
+    * lifetimes do not change.
+    */
+    struct RBEntry
+    {
+        VU_KEY key;
+        VuEntity *ent;
+    };
+    typedef std::vector<RBEntry> RBMap;
+    /** first element with key >= k (lower_bound). */
+    RBMap::size_type LowerBound(VU_KEY k) const;
     RBMap map_;
+    /** bumped on every change, so a live iterator knows to find its place again. */
+    unsigned int stamp_;
 };
 #else
 class VuRedBlackTree : public VuCollection
