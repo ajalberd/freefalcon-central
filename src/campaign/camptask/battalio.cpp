@@ -558,6 +558,20 @@ int BattalionClass::Handle(VuFullUpdateEvent *event)
     return (GroundUnitClass::Handle(event));
 }
 
+// campsim experiment (neutralnouse=1, off = stock): a battalion of a team that is at war with nobody uses no supply. Stock: China, neutral until its
+// join event and fed by no pool, burns supply moving and idling from the first hour (campsim: 100% -> 26% by hour 60 at use x2), so it joins the war
+// under half supply and is tasked as reserve only until the North's pool has refilled it, about 30 hours later.
+bool g_bNeutralNoUse = false;
+
+static bool TeamAtWarWithAnyone(int team)
+{
+    for (int i = 0; i < NUM_TEAMS; i++)
+        if (i not_eq team and TeamInfo[i] and GetTTRelations(team, i) == War)
+            return true;
+
+    return false;
+}
+
 int BattalionClass::MoveUnit(CampaignTime time)
 {
     GridIndex x, y, nx, ny;
@@ -1079,7 +1093,7 @@ int BattalionClass::MoveUnit(CampaignTime time)
             GetLocation(&x, &y);
 
             // Store move in path history, in opposite order
-            if (GetUnitMoved() > 20 and supply > 2)
+            if (GetUnitMoved() > 20 and supply > 2 and (not g_bNeutralNoUse or TeamAtWarWithAnyone(GetTeam())))
             {
                 // RV - Biker - Reduce supply at higher rate
                 //supply--;
@@ -1130,7 +1144,7 @@ int BattalionClass::MoveUnit(CampaignTime time)
         {
             moving = 0;
 
-            if (GetMoveTime() > 3 * DEG_TO_SEC * SEC_TO_MSEC and supply > 2)
+            if (GetMoveTime() > 3 * DEG_TO_SEC * SEC_TO_MSEC and supply > 2 and (not g_bNeutralNoUse or TeamAtWarWithAnyone(GetTeam())))
             {
                 extern int g_nSupplyUseMult;
                 int use = 2 * g_nSupplyUseMult;

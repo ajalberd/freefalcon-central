@@ -1788,6 +1788,34 @@ static void TlPrintf(const char *fmt, ...)
         TlFlush();
 }
 static std::map<int, int> gTlObjTeam;
+static std::set<unsigned int> gTlNamed;     // units whose name the timeline has written ("nm")
+
+// longer than TlPrintf's 512-byte buffer (the "nm" list of the first frame is ~100 KB)
+static void TlAppend(const std::string &s)
+{
+    gTlBuf.append(s);
+
+    if (gTlBuf.size() > 65536)
+        TlFlush();
+}
+
+static std::string TlEscape(const char *s)
+{
+    std::string o;
+
+    for (; s && *s; s++)
+    {
+        unsigned char c = (unsigned char)*s;
+
+        if (c == '"' || c == '\\')
+            o += '\\';
+
+        if (c >= 32 && c < 127)
+            o += (char)c;
+    }
+
+    return o;
+}
 
 static void TimelineMeta(const char *save, unsigned int seed, int days)
 {
@@ -1991,6 +2019,7 @@ static void TimelineFrame(CampaignTime startTime)
     CampaignTime t = TheCampaign.CurrentTime;
     long sum[NUM_TEAMS][4]; // ground, air defense, aircraft, ships
     int objsOwned[NUM_TEAMS];
+    std::string names;
     memset(sum, 0, sizeof(sum));
     memset(objsOwned, 0, sizeof(objsOwned));
 
@@ -2033,6 +2062,8 @@ static void TimelineFrame(CampaignTime startTime)
         std::set<unsigned int> seen;
         int first = 1;
 
+        names.clear();
+
         while (u)
         {
             int k = KindOf(u);
@@ -2073,15 +2104,36 @@ static void TimelineFrame(CampaignTime startTime)
                         u->GetUnitDestination(&dx, &dy);
                     }
 
-                    TlPrintf("%s[%u,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]", first ? "" : ",",
+                    // 17..20 (appended, so readers of 0..16 are unaffected): status flags, fatigue,
+                    // ground role or flight mission, parent brigade id
+                    int flags = (u->Engaged() ? 1 : 0) | (u->Combat() ? 2 : 0) | (u->Broken() ? 4 : 0) |
+                                (u->Losses() ? 8 : 0) | (u->Retreating() ? 16 : 0) | (u->Refused() ? 32 : 0) |
+                                (u->Targeted() ? 64 : 0) | (u->Detached() ? 128 : 0);
+                    Unit par = k == 0 ? u->GetUnitParent() : NULL;
+
+                    TlPrintf("%s[%u,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%u]", first ? "" : ",",
                              (unsigned)u->Id().num_, k, team, (int)x, (int)y, veh,
                              full, u->Moving() ? 1 : 0,
                              k <= 1 ? u->GetUnitMorale() : 0,
                              k <= 1 ? (int)u->GetUnitOrders() : 0,
                              k <= 1 ? (int)u->GetUnitTactic() : 0,
                              k <= 1 ? (int)u->GetUnitSupply() : 0,
-                             oid, (int)ox, (int)oy, (int)dx, (int)dy);
+                             oid, (int)ox, (int)oy, (int)dx, (int)dy,
+                             flags, k <= 1 ? u->GetUnitFatigue() : 0,
+                             k <= 1 ? u->GetUnitNormalRole() : (k == 4 ? (int)u->GetUnitMission() : 0),
+                             par ? (unsigned)par->Id().num_ : 0u);
                     first = 0;
+
+                    // a unit's name and class once, in the first frame it appears in ("nm")
+                    if (gTlNamed.insert(u->Id().num_).second && u->GetUnitClassData())
+                    {
+                        _TCHAR nm[80] = "";
+                        u->GetName(nm, sizeof(nm) - 1, FALSE);
+                        nm[sizeof(nm) - 1] = 0;
+                        names += names.empty() ? "[" : ",[";
+                        names += std::to_string((unsigned)u->Id().num_) + ",\"" + TlEscape(nm) + "\",\"" +
+                                 TlEscape(u->GetUnitClassName()) + "\"]";
+                    }
                 }
             }
 
@@ -2089,7 +2141,9 @@ static void TimelineFrame(CampaignTime startTime)
         }
     }
 
-    TlPrintf("],\"a\":[");
+    TlPrintf("],\"nm\":");
+    TlAppend(names.empty() ? std::string("[]") : names + "]");
+    TlPrintf(",\"a\":[");
 
     for (int tm = 0; tm < NUM_TEAMS; tm++)
     {
@@ -3057,6 +3111,12 @@ static void ApplyKnobs(int argc, char **argv)
                 g_nStarveBreak = atoi(colon + 1);
             printf("KNOB starvation drains morale: %d points an hour at 0 supply, a battalion breaks under %d\n", g_nStarveMorale, g_nStarveBreak);
         }
+        else if (!strcmp(key, "neutralnouse"))
+        {
+            extern bool g_bNeutralNoUse;
+            g_bNeutralNoUse = atoi(val) != 0;
+            printf("KNOB a team at war with nobody uses no battalion supply = %d\n", g_bNeutralNoUse ? 1 : 0);
+        }
         else if (!strcmp(key, "turnmode"))
         {
             extern int g_nTurnMode;
@@ -3571,7 +3631,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "turnmode") and strcmp(key, "chinaown") and strcmp(key, "initindep") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "neutralnouse") and strcmp(key, "turnmode") and strcmp(key, "chinaown") and strcmp(key, "initindep") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';
