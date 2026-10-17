@@ -566,6 +566,17 @@ static int CaptureFrontOK(Objective o)
     return g_bGtmCaptureFront and o->IsFrontline();
 }
 
+// campsim experiment (chinaown=1): China stays a team of its own, allied to the North. Its tasking may then use the ally's objectives to stage on,
+// defend and hold (stock: only its own, and a team whose own objectives are 400 km from the front never gets near it)
+extern bool g_bChinaOwn;
+
+static inline bool OwnerOrAlly(int owner, Objective o)
+{
+    const int t = o->GetTeam();
+
+    return owner == t or (g_bChinaOwn and t > 0 and GetTTRelations(owner, t) == Allied);
+}
+
 // Determine if this objective can accept the passed orders
 int GroundTaskingManagerClass::IsValidObjective(int orders, Objective o)
 {
@@ -582,7 +593,7 @@ int GroundTaskingManagerClass::IsValidObjective(int orders, Objective o)
         break;
 
     case GORD_SECURE:
-        if (o->IsSecondary() and owner == o->GetTeam() and
+        if (o->IsSecondary() and OwnerOrAlly(owner, o) and
             (o->IsFrontline() or o->IsSecondline()))
             return 1;
 
@@ -611,27 +622,27 @@ int GroundTaskingManagerClass::IsValidObjective(int orders, Objective o)
         break;
 
     case GORD_DEFEND:
-        if (o->IsSecondary() and o->IsNearfront() and owner == o->GetTeam() and
+        if (o->IsSecondary() and o->IsNearfront() and OwnerOrAlly(owner, o) and
             not o->Abandoned())
             return 1;
 
         break;
 
     case GORD_SUPPORT:
-        if (owner == o->GetTeam() and o->ArtillerySite())
+        if (OwnerOrAlly(owner, o) and o->ArtillerySite())
             return 1;
 
         break;
 
     case GORD_REPAIR:
-        if (owner == o->GetTeam() and o->NeedRepair() and
+        if (OwnerOrAlly(owner, o) and o->NeedRepair() and
             o->GetObjectiveStatus() < 51)
             return 1;
 
         break;
 
     case GORD_AIRDEFENSE:
-        if (owner == o->GetTeam() and o->SamSite())
+        if (OwnerOrAlly(owner, o) and o->SamSite())
             return 1;
 
         break;
@@ -641,14 +652,14 @@ int GroundTaskingManagerClass::IsValidObjective(int orders, Objective o)
         break;
 
     case GORD_RADAR:
-        if (owner == o->GetTeam() and o->RadarSite())
+        if (OwnerOrAlly(owner, o) and o->RadarSite())
             return 1;
 
         break;
 
     case GORD_RESERVE:
     default:
-        if (o->IsSecondary() and owner == o->GetTeam() and not o->IsNearfront())
+        if (o->IsSecondary() and OwnerOrAlly(owner, o) and not o->IsNearfront())
             return 1;
 
         break;
@@ -678,7 +689,7 @@ int GroundTaskingManagerClass::GetAddBits(Objective o, int to_collect)
     else
         add_now and_eq compl(COLLECT_CAPTURE bitor COLLECT_DEFEND);
 
-    if (owner not_eq o->GetTeam())
+    if (not OwnerOrAlly(owner, o))
         add_now and_eq
             compl(COLLECT_RESERVE bitor COLLECT_SECURE bitor
                   COLLECT_DEFEND bitor COLLECT_SUPPORT bitor

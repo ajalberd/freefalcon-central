@@ -602,8 +602,23 @@ void SupplyUnit(Unit u, int sneed, int supply, int fneed, int fuel)
 }
 
 // Supplies units - must be called by Campaign Master
+// campsim experiment (chinaown=1): China, a team of its own once it joins, draws on the North's pool: its battalions and squadrons count in the
+// North's needs and are supplied from it (a team of its own has no pool worth the name -- campsim: 70 of 86 Chinese battalions under 50% by hour 48)
+extern bool g_bChinaOwn;
+
+static bool SupplyMember(Unit u, Team who)
+{
+    if (u->GetTeam() == who)
+        return true;
+
+    return g_bChinaOwn and who == 6 and u->GetTeam() == 5 and TeamInfo[5] and GetTTRelations(5, 6) == Allied;
+}
+
 int SupplyUnits(Team who, CampaignTime deltaTime)
 {
+    if (g_bChinaOwn and who == 5 and TeamInfo[5] and GetTTRelations(5, 6) == Allied)
+        return 0; // supplied with the North
+
     Objective o, s;
     Unit unit;
     int supply, fuel, replacements, gots, gotf, type;
@@ -653,7 +668,7 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
 
         while (unit)
         {
-            if (unit->GetTeam() == who and
+            if (SupplyMember(unit, who) and
                 (unit->IsBattalion() or unit->IsSquadron()))
             {
                 // Artscout - 2026 (g_bSupplyNeedFix, off = stock): a unit holding more than it wants reports
@@ -826,7 +841,7 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
         while (unit)
         {
             // We only supply/repair Battalions and Squadrons
-            if (unit->GetTeam() == who and
+            if (SupplyMember(unit, who) and
                 (unit->IsBattalion() or unit->IsSquadron()) and
                 TheCampaign.CurrentTime - unit->GetLastResupplyTime() >
                     unit->GetUnitSupplyTime())
