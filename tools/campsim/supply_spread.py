@@ -90,6 +90,8 @@ CONFIGS = {
     "d10": NP + " prodsup=0.75 usemult=2 alliedcounter=1:10:80 tri=chn_appr3",
     "dg10": NP + " prodsup=0.75 usemult=2 alliedcounter=1:10:80 hcg=2.5 tri=chn_appr3",
     "d10x": NP + " prodsup=0.75 usemult=2 alliedcounter=1:10:80 tri=chn_appr4",   # Blue cannot end the war before campaign day 11: it always runs the ten days
+    "e7": NP + " prodsup=0.75 usemult=2 tri=chn_appr5",   # 45 battalions + Blue cannot win before campaign day 7
+    "e9": NP + " prodsup=0.75 usemult=2 tri=chn_appr3",   # ... before day 9
     "npu3gd360go60": NP + " usemult=3 gndsupdef=360 gndsupoff=60", "npu2gd720go120": NP + " usemult=2 gndsupdef=720 gndsupoff=120",
 }
 
@@ -275,6 +277,8 @@ def main():
         queue([("b45", "npp075u2", s) for s in range(17, 41)])
     elif ph == "phase19":   # bring 46 and 43 battalions to 40 seeds like 45
         queue([("b46", "npp075u2", s) for s in range(17, 41)] + [("b43", "npp075u2", s) for s in range(13, 41)])
+    elif ph == "phase20":
+        queue([("b45", cfg, s) for s in range(1, 25) for cfg in ("e7", "e9")])
     elif ph == "report":
         report(sys.argv[2] if len(sys.argv) > 2 else None, 0)
     else:

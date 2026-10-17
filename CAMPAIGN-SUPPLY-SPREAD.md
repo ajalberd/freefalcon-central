@@ -98,6 +98,18 @@ and 46 battalions (68 games) the war is still on at day 10 in 58 (85%) and Blue 
 There is a trade-off and no setting gets both for free: **43 is the "fair war through day 10" choice** (a 98% chance the war is still being fought, Blue ahead in 68% of games, 52% of the objectives), **45 is the "Blue-sided" choice** (Blue ahead in 88%,
 55%, but 25% of games end with a Blue win on day 3-4.7). The size is the dial; the day-11 gate is the way to remove the early endings at 86 battalions.
 
+**Both halves at once: 45 battalions plus a soft win gate (24 seeds each, `chn_appr5` = no Blue win before campaign day 7, `chn_appr3` = day 9).**
+
+| 45 Chinese battalions, border | Blue share of objectives at day 10 | Blue ahead | War still on at day 10 | Early Blue wins | Blue / North vehicles | Front supply low / end |
+|---|---|---|---|---|---|---|
+| scenario's win rule (40 seeds) | 55.0% +- 1.0 (46-72) | 35 of 40 | 30 of 40 (75%) | 10, h70-112 | 2.46 | 82 / 91 |
+| **no Blue win before day 7 (24)** | **54.1% +- 0.9 (47-66)** | **19 of 24** | **23 of 24 (96%)** | **1 (h159)** | 2.22 | 83 / 93 |
+| no Blue win before day 9 (24) | 57.3% +- 1.5 (46-72) | 22 of 24 | 19 of 24 (79%) | 5 (h207-209) | 2.59 | 82 / 93 |
+
+The day-7 gate only forbids the capitals falling in the first six days (the early Blue wins all happened on days 3-4.7), and removes them without changing the balance: Blue 54%, ahead in 79% of games, and the war is still
+being fought on day 10 in 96% of them. **This is the setting that is close, Blue-sided and runs to day 10: China at the border, 45 battalions, `chn_appr5.tri` (approach trigger + Blue cannot win before day 7), counteroffensive min 8,
+depots and army bases not producing, production x0.75, supply use x2.** It does add a script rule (a gate) that the scenario does not have.
+
 The day-11 win gate does not combine well with a small China: 48 battalions + the gate gives Blue 66.8% (58-72, ahead in 16 of 16, vehicles 3.3x), because Blue keeps taking ground with no win to stop it. The gate belongs with the 86-battalion
 mod (Blue 56%, 30 seeds, no game ends early), not with the small-China setting.
 
