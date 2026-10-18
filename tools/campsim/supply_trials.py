@@ -47,6 +47,18 @@ ARMS = {
     "home_h8_l10": ("sxrear=9999 sxhops=8 sxloss=10", 2),
     "use4": ("usemult=4", 2),
     "use4_home_l10": ("usemult=4 sxrear=9999 sxloss=10", 2),
+    # round 3: reach with forward depots after a delay (setback, then recovery?), and the engaged / convoy-time mechanisms
+    "b3": ("", 3),
+    "r_home": ("sxrear=9999 sxhops=8 sxloss=10", 3),
+    "r48": ("sxrear=48 sxhops=8 sxloss=10", 3),
+    "r72": ("sxrear=72 sxhops=8 sxloss=10", 3),
+    "r120": ("sxrear=120 sxhops=8 sxloss=10", 3),
+    "r72h12": ("sxrear=72 sxhops=12 sxloss=10", 3),
+    "r72l5": ("sxrear=72 sxhops=8 sxloss=5", 3),
+    "front0": ("sxfront=0", 3),
+    "front25": ("sxfront=25", 3),
+    "delay5": ("sxdelay=5", 3),
+    "delay10": ("sxdelay=10", 3),
 }
 
 
