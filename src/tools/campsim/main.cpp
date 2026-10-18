@@ -194,7 +194,6 @@ static int gEndGameResult = 0;
 static CRITICAL_SECTION gVuLock;
 
 static volatile LONG gPumpRun = 1;
-static bool gDetLock = false;   // det=1 (see the campaign loop)
 
 static DWORD WINAPI CampsimVuPump(LPVOID)
 {
@@ -3132,12 +3131,12 @@ static void ApplyKnobs(int argc, char **argv)
         }
         else if (!strcmp(key, "det"))
         {
-            // det=1: same seed, same war -- the VU pump only runs between campaign steps, and the ATM gets a build budget (atmbudget=20 unless set)
+            // det=1: replayable seeds -- for now the ATM build budget (atmbudget=20 unless set). Same seed, two runs: identical to ~h45-65
+            // (stock: part at h1). Holding the VU pump off during a step made it worse (part at h1), so it is not done.
             extern int g_nAtmBuildBudget;
-            gDetLock = atoi(val) != 0;
-            if (gDetLock && g_nAtmBuildBudget <= 0)
+            if (atoi(val) != 0 && g_nAtmBuildBudget <= 0)
                 g_nAtmBuildBudget = 20;
-            printf("KNOB deterministic = %d (atmbudget %d)\n", gDetLock ? 1 : 0, g_nAtmBuildBudget);
+            printf("KNOB deterministic: atmbudget %d\n", g_nAtmBuildBudget);
         }
         else if (!strcmp(key, "atmbudget"))
         {
@@ -4143,14 +4142,6 @@ int main(int argc, char **argv)
         // 2606-2741) with a fixed 1-campaign-minute step.
         while (TheCampaign.CurrentTime < target && (!gEndGame || gNoEnd))
         {
-            // det=1: the pump thread may only drain the VU queue between steps, not in the middle of one (it otherwise
-            // handles messages whenever the scheduler lets it, so the same seed plays a different war under load)
-            struct DetLock
-            {
-                bool on;
-                DetLock(bool b) : on(b) { if (on) EnterCriticalSection(&gVuLock); }
-                ~DetLock() { if (on) LeaveCriticalSection(&gVuLock); }
-            } detLock(gDetLock);
             DWORD t0 = GetTickCount();
             if (gMainThread)
                 gMainThread->Update(0);
