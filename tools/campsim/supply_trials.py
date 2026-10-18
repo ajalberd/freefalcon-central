@@ -140,8 +140,9 @@ ARMS = {
     "P_convB10": (SMODEL + " sxconvoyhit=2:10", 12),
     "P_h": ("", 12),
     # round 13 (China-supply fix in): the follow-up ideas and the map model, exact pairs against P_S, 6 seeds
-    "P_rail": (SMODEL + " rail=1", 13),                                      # 1: trains carry supply to the railheads
-    "P_rail_bridge10": (SMODEL + " rail=1 blowlim=bridge:6:10 blowat=48", 13),
+    # 1: trains on every line (the cfg already runs one on the Pyongbu Line), China's from Shenyang / Dandong too, twice the load
+    "P_rail": (SMODEL + " raillines=Gyeongbu,Gyeongui,Hambuk,Honam,Kangwon,Khasan,Manpo,Meiji,Pukbunaeryuk,Pyongbu,Pyongdok,Pyongra,Pyongui,Shendan,Shenji railload=240", 13),
+    "P_rail_bridgeRear": (SMODEL + " raillines=Gyeongbu,Gyeongui,Hambuk,Honam,Kangwon,Khasan,Manpo,Meiji,Pukbunaeryuk,Pyongbu,Pyongdok,Pyongra,Pyongui,Shendan,Shenji railload=240 blowsel=bridge:6:10:10:1 blowat=48", 13),
     "P_att3": (SMODEL + " sxattackuse=3", 13),                               # 3: attacking uses 3x the supply
     "P_pocket": (SMODEL + " sxpocket=12", 13),                               # 4: cut off 12 h -> morale falls, surrender
     "P_bridgeRear": (SMODEL + " blowsel=bridge:6:10:10:1 blowat=48", 13),    # 5: supply-line bridges behind the front (11th-20th nearest)
