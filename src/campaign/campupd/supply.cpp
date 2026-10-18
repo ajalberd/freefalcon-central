@@ -537,11 +537,10 @@ static void SxDeliverArrived(int who)
 
         Unit u = (Unit)vuDatabase->Find(gSxPending[i].id);
 
-        if (u and u->GetTeam() not_eq who)
-        {
-            i++;
-            continue;
-        }
+        // delivered at the first supply pass after it arrives, whoever's pass it is. (It used to wait for the pass of the battalion's own
+        // team -- but with chinaown China is supplied in the North's pass and has none of its own, so Chinese deliveries never arrived:
+        // campsim model S, China's median supply 16% by day 8.)
+        (void)who;
 
         // (a battalion wiped out while its convoy was on the road is still in the database with no vehicles)
         if (u and u->IsBattalion() and not u->IsDead() and u->GetTotalVehicles() > 0)
