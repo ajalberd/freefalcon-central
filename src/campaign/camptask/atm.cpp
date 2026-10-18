@@ -524,6 +524,8 @@ int AirTaskingManagerClass::Save(FILE *file)
     return retval;
 }
 
+int g_nAtmBuildBudget = 0;
+
 int AirTaskingManagerClass::Task(void)
 {
     ListNode lp, pp;
@@ -531,6 +533,7 @@ int AirTaskingManagerClass::Task(void)
     Package pc;
     int res;
     DWORD task_time = GetTickCount();
+    int builds = 0;
 
     // Don't do this if we're not active, or not owned by this machine
     if (not(TeamInfo[owner]->flags bitand TEAM_ACTIVE) or not IsLocal())
@@ -599,8 +602,14 @@ int AirTaskingManagerClass::Task(void)
           continue;*/
         // END REMOVE
 
-        if (GetTickCount() - task_time > 200)
+        // campsim (atmbudget=N, 0 = stock): at most N builds per call instead of 200 ms of wall clock, so the same seed replays the same war
+        // whatever the machine's load (stock: two runs of one seed part at hour 1)
+        extern int g_nAtmBuildBudget;
+
+        if (g_nAtmBuildBudget > 0 ? builds >= g_nAtmBuildBudget : GetTickCount() - task_time > 200)
             return 0;
+
+        builds++;
 
 #ifdef DEBUG_TIMING
         DWORD time = GetTickCount();
