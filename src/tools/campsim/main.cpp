@@ -194,6 +194,7 @@ static int gEndGameResult = 0;
 static CRITICAL_SECTION gVuLock;
 
 static volatile LONG gPumpRun = 1;
+static bool gDetLock = false;   // det=1 (see the campaign loop)
 
 static DWORD WINAPI CampsimVuPump(LPVOID)
 {
@@ -3129,6 +3130,15 @@ static void ApplyKnobs(int argc, char **argv)
             g_bNeutralNoUse = atoi(val) != 0;
             printf("KNOB a team at war with nobody uses no battalion supply = %d\n", g_bNeutralNoUse ? 1 : 0);
         }
+        else if (!strcmp(key, "det"))
+        {
+            // det=1: same seed, same war -- the VU pump only runs between campaign steps, and the ATM gets a build budget (atmbudget=20 unless set)
+            extern int g_nAtmBuildBudget;
+            gDetLock = atoi(val) != 0;
+            if (gDetLock && g_nAtmBuildBudget <= 0)
+                g_nAtmBuildBudget = 20;
+            printf("KNOB deterministic = %d (atmbudget %d)\n", gDetLock ? 1 : 0, g_nAtmBuildBudget);
+        }
         else if (!strcmp(key, "atmbudget"))
         {
             extern int g_nAtmBuildBudget;
@@ -3670,7 +3680,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "neutralnouse") and strcmp(key, "turnmode") and strcmp(key, "teambar") and strcmp(key, "neutralhold") and strcmp(key, "atmbudget") and strcmp(key, "chinaown") and strcmp(key, "initindep") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "neutralnouse") and strcmp(key, "turnmode") and strcmp(key, "teambar") and strcmp(key, "neutralhold") and strcmp(key, "atmbudget") and strcmp(key, "det") and strcmp(key, "chinaown") and strcmp(key, "initindep") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';
@@ -4133,6 +4143,14 @@ int main(int argc, char **argv)
         // 2606-2741) with a fixed 1-campaign-minute step.
         while (TheCampaign.CurrentTime < target && (!gEndGame || gNoEnd))
         {
+            // det=1: the pump thread may only drain the VU queue between steps, not in the middle of one (it otherwise
+            // handles messages whenever the scheduler lets it, so the same seed plays a different war under load)
+            struct DetLock
+            {
+                bool on;
+                DetLock(bool b) : on(b) { if (on) EnterCriticalSection(&gVuLock); }
+                ~DetLock() { if (on) LeaveCriticalSection(&gVuLock); }
+            } detLock(gDetLock);
             DWORD t0 = GetTickCount();
             if (gMainThread)
                 gMainThread->Update(0);
