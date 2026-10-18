@@ -563,6 +563,11 @@ int BattalionClass::Handle(VuFullUpdateEvent *event)
 // under half supply and is tasked as reserve only until the North's pool has refilled it, about 30 hours later.
 bool g_bNeutralNoUse = false;
 
+// campsim experiment (neutralhold=1, off = stock): a battalion of a team that is at war with nobody stays where it is. Stock: neutral China's own
+// tasking, with no front to measure from, hands out reserve orders on its inland secondaries -- campsim: 79 of 86 battalions staged on the Yalu
+// were 100+ km back inland by hour 24, so every staging was undone before China joined.
+bool g_bNeutralHold = false;
+
 static bool TeamAtWarWithAnyone(int team)
 {
     for (int i = 0; i < NUM_TEAMS; i++)
@@ -600,6 +605,13 @@ int BattalionClass::MoveUnit(CampaignTime time)
 
         if (RailMoveRider(this, &ret))
             return ret;
+    }
+
+    if (g_bNeutralHold and not TeamAtWarWithAnyone(GetTeam()))
+    {
+        SetMoving(0);
+        SetLastCheck(GetLastCheck() + CampaignMinutes);
+        return 0;
     }
 
     // Check if we have a valid objective
