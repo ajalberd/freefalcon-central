@@ -175,6 +175,11 @@ ARMS = {
     "P_M_convN15": ("sxrear=72 sxhops=12 sxdelay=10 sxwheeled=1 teambar=1:40,2:40,3:40,5:30,6:15 sxmap=1 sxmapreach=50 sxmapship=50 sxmapair=10 sxconvoyhit=6:15", 15),
     "P_M_depotB10": ("sxrear=72 sxhops=12 sxdelay=10 sxwheeled=1 teambar=1:40,2:40,3:40,5:30,6:15 sxmap=1 sxmapreach=50 sxmapship=50 sxmapair=10 blowlim=depot:2:10 blowlim=armybase:2:10 blowat=72", 15),
     "P_M_convB10": ("sxrear=72 sxhops=12 sxdelay=10 sxwheeled=1 teambar=1:40,2:40,3:40,5:30,6:15 sxmap=1 sxmapreach=50 sxmapship=50 sxmapair=10 sxconvoyhit=2:10", 15),
+    # round 16: posture follows supply (sxposture=P:R) -- a team consolidates while more than P% of its front battalions are starved
+    "P_post30": (SMODEL + " sxposture=30:15", 16),
+    "P_post40": (SMODEL + " sxposture=40:25", 16),
+    "P_post50": (SMODEL + " sxposture=50:35", 16),
+    "P_post40_bar15": (SMODEL + " sxposture=40:25 teambar=1:15,2:15,3:15,5:15,6:15", 16),
 }
 
 

@@ -660,6 +660,13 @@ static void GtmLog(int hour)
                        gSxMapDiag[t][2], gSxMapDiag[t][3], gSxMapDiag[t][4], gSxMapDiag[t][5], gSxPocketDiag[t][0], gSxPocketDiag[t][1],
                        gSxPocketDiag[t][2]);
 
+            extern int gSxPostureFrontPct[NUM_TEAMS], gSxPostureStalls[NUM_TEAMS];
+            extern bool gSxPostureStalled[NUM_TEAMS];
+            printf("SXPOSTURE h=%d starved front: Blue %d%%%s (stalls %d), China %d%%%s (%d), North %d%%%s (%d)\n", hour,
+                   gSxPostureFrontPct[2], gSxPostureStalled[2] ? " STALLED" : "", gSxPostureStalls[2],
+                   gSxPostureFrontPct[5], gSxPostureStalled[5] ? " STALLED" : "", gSxPostureStalls[5],
+                   gSxPostureFrontPct[6], gSxPostureStalled[6] ? " STALLED" : "", gSxPostureStalls[6]);
+
             extern int gSxConvoyLost[NUM_TEAMS];
             printf("SXCONVOY h=%d supply lost to convoy interdiction: Blue %d, North %d (cumulative)\n", hour, gSxConvoyLost[2], gSxConvoyLost[6]);
         }
@@ -3234,6 +3241,17 @@ static void ApplyKnobs(int argc, char **argv)
                 g_bSupplyStocks = true;
             printf("KNOB %s = %d\n", key, v);
         }
+        else if (!strcmp(key, "sxposture"))
+        {
+            // sxposture=P[:R] (team.cpp SelectGroundAction): consolidate while more than P% of front battalions are under 50% supply,
+            // resume at R% (default P - 15)
+            extern int g_nSxPostureHi, g_nSxPostureLo;
+            g_nSxPostureLo = -1;
+            sscanf(val, "%d:%d", &g_nSxPostureHi, &g_nSxPostureLo);
+            if (g_nSxPostureLo < 0)
+                g_nSxPostureLo = g_nSxPostureHi - 15;
+            printf("KNOB sxposture: consolidate above %d%% of front battalions starved, resume at %d%%\n", g_nSxPostureHi, g_nSxPostureLo);
+        }
         else if (!strcmp(key, "sxconvoyhit"))
         {
             extern int g_nSxConvoyTeam, g_nSxConvoyHit;
@@ -3805,7 +3823,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "blowlim") and strcmp(key, "blowsel") and strcmp(key, "sxconvoyhit") and strcmp(key, "sxattackuse") and strcmp(key, "sxpocket") and strcmp(key, "sxmap") and strcmp(key, "sxmapreach") and strcmp(key, "sxmapship") and strcmp(key, "sxmapair") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "neutralnouse") and strcmp(key, "turnmode") and strcmp(key, "teambar") and strcmp(key, "neutralhold") and strcmp(key, "atmbudget") and strcmp(key, "det") and strcmp(key, "dethash") and strcmp(key, "sxown") and strcmp(key, "sxrear") and strcmp(key, "sxhops") and strcmp(key, "sxloss") and strcmp(key, "sxrail") and strcmp(key, "sxfront") and strcmp(key, "sxdelay") and strcmp(key, "sxwheeled") and strcmp(key, "sxnocity") and strcmp(key, "chinaown") and strcmp(key, "initindep") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "blowlim") and strcmp(key, "blowsel") and strcmp(key, "sxconvoyhit") and strcmp(key, "sxattackuse") and strcmp(key, "sxpocket") and strcmp(key, "sxmap") and strcmp(key, "sxmapreach") and strcmp(key, "sxmapship") and strcmp(key, "sxmapair") and strcmp(key, "sxposture") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "neutralnouse") and strcmp(key, "turnmode") and strcmp(key, "teambar") and strcmp(key, "neutralhold") and strcmp(key, "atmbudget") and strcmp(key, "det") and strcmp(key, "dethash") and strcmp(key, "sxown") and strcmp(key, "sxrear") and strcmp(key, "sxhops") and strcmp(key, "sxloss") and strcmp(key, "sxrail") and strcmp(key, "sxfront") and strcmp(key, "sxdelay") and strcmp(key, "sxwheeled") and strcmp(key, "sxnocity") and strcmp(key, "chinaown") and strcmp(key, "initindep") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';

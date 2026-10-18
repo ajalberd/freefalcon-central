@@ -1295,6 +1295,59 @@ void TeamClass::SelectGroundAction(void)
     if (not(flags bitand TEAM_ACTIVE) or not IsLocal())
         return;
 
+    // campsim supply research (sxposture=P:R, off = 0): a team whose front battalions are more than P% under 50% supply ends its offensive
+    // and consolidates, and may start one again only when that share is back to R% or less. The supply brake otherwise works unit by unit
+    // (the GTM gives no capture orders under 50%) while the team stays "on the offensive" -- campsim model S: Blue offensive 86% of the
+    // time, capture orders down from 71 to 26-37 battalions on days 4-6 with half its battalions starved.
+    {
+        extern int g_nSxPostureHi, g_nSxPostureLo;
+        extern int gSxPostureFrontPct[NUM_TEAMS], gSxPostureStalls[NUM_TEAMS];
+        extern bool gSxPostureStalled[NUM_TEAMS];
+
+        if (g_nSxPostureHi > 0)
+        {
+            int front = 0, starved = 0;
+            VuListIterator uit(AllUnitList);
+
+            for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+            {
+                if (not u->IsBattalion() or u->GetTeam() not_eq who or u->IsDead())
+                    continue;
+
+                Objective uo = u->GetUnitObjective();
+
+                if (not uo or not(uo->IsFrontline() or uo->IsSecondline() or uo->IsNearfront()))
+                    continue;
+
+                front++;
+                starved += u->GetUnitSupply() < 50;
+            }
+
+            const int pct = front ? 100 * starved / front : 0;
+            bool &stalled = gSxPostureStalled[who % NUM_TEAMS];
+            gSxPostureFrontPct[who % NUM_TEAMS] = pct;
+
+            if (not stalled and front >= 10 and pct > g_nSxPostureHi)
+                stalled = true, gSxPostureStalls[who % NUM_TEAMS]++;
+            else if (stalled and pct <= g_nSxPostureLo)
+                stalled = false;
+
+            if (stalled)
+            {
+                if (groundAction.actionType == GACTION_OFFENSIVE or groundAction.actionType == GACTION_MINOROFFENSIVE)
+                {
+                    groundAction.actionType = GACTION_CONSOLIDATE;
+                    groundAction.actionPoints = 0;
+                    groundAction.actionTimeout = TheCampaign.CurrentTime;
+                    MakeTeamDirty(DIRTY_GROUND_ACTION, SEND_EVENTUALLY);
+                }
+
+                if (groundAction.actionType == GACTION_CONSOLIDATE)
+                    return; // no new offensive until resupplied
+            }
+        }
+    }
+
     // #FORCE_DEFENSIVE (trigger script): the team holds a defensive action until the time runs out, whatever its initiative
     extern CampaignTime g_ForcedDefensiveUntil[NUM_TEAMS];
 
@@ -2308,6 +2361,11 @@ int g_nTeamOffenseBar[NUM_TEAMS] = {};
 // #FORCE_DEFENSIVE <team> <hours> (trigger script): the team stays on the defensive until this time. With shared offensives (turnmode 4)
 // nothing else ever puts a team on the defensive -- campsim h_bar/h_is: Blue defensive 0 hours in all seeds, China's entry included.
 CampaignTime g_ForcedDefensiveUntil[NUM_TEAMS] = {};
+
+// sxposture=P:R (see SelectGroundAction)
+int g_nSxPostureHi = 0, g_nSxPostureLo = 0;
+int gSxPostureFrontPct[NUM_TEAMS] = {0}, gSxPostureStalls[NUM_TEAMS] = {0};
+bool gSxPostureStalled[NUM_TEAMS] = {false};
 
 void ForceTeamDefensive(int team, int hours)
 {
