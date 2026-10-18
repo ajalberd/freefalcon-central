@@ -2,8 +2,8 @@
 
 Question: what would make supply change the war -- give it ebb and flow, and give the player decisions (strikes, interdiction, protecting
 their own lines) -- instead of being a number that stays near 90%? Campsim only, LTCG build; every mechanism is a new switch, off by default;
-the baseline is the `h_bar` configuration (CAMPAIGN-CHINA-EXPERIMENTS.md). 3 seeds per arm, 10-day runs, campaigns end at a win condition.
-Harness: `tools/campsim/supply_trials.py run|report|daily [round]`, results in `tools/campsim/supply/results.jsonl` (rounds 1-10, 243 runs).
+the baseline is the `h_bar` configuration (CAMPAIGN-CHINA-EXPERIMENTS.md). 3 seeds per arm (6 in the paired round 12), 10-day runs, campaigns end at a win condition.
+Harness: `tools/campsim/supply_trials.py run|report|daily [round]`, results in `tools/campsim/supply/results.jsonl` (rounds 1-12, 291 runs); exact same-seed pairs: `tools/campsim/supply_paired.py`.
 Nothing here touches the game exe, the install's save0 / cfg, h_bar's settings, existing switches or the trigger scripts.
 
 ## The answer
@@ -11,9 +11,10 @@ Nothing here touches the game exe, the install's save0 / cfg, h_bar's settings, 
 **Supply never matters today because it has no geography: every city, depot, army base and port behind the front is a source (126
 logistics hubs plus 361 cities), captured ones work at once, and resupply outruns use -- Blue battalions spend 2.1% of their hours under 50%
 supply. Give supply a reach and a travel time and it starts to shape the war: Blue's offensive culminates on days 3-5 deep in the North,
-the North's front starves as its lines lengthen, and the war ends -- every one of 9 runs of the combined model was a Blue win on days 6-9,
-against 5 of 18 for the h_bar baseline. The player's strikes then matter, but only a few clearly: blowing bridges the army must cross
-loses wars, and letting the enemy wreck one's own bridges does too; hitting depots is about a day faster, within the noise.**
+the North's front starves as its lines lengthen, and the war ends. In exact same-seed pairs (section 4) model S won 6 of 6 wars on days 6-10 where the h_bar baseline won 0 of 6. The
+player's choices then matter mainly through *lines*: blowing the bridges your army must cross, or letting the enemy cut your bridges or
+convoys, delays the win in 5 of 6 paired wars and loses one; which enemy target you hit (depots, factories, convoys) makes no consistent
+difference.**
 
 ### Ranked recommendations
 
@@ -22,34 +23,35 @@ loses wars, and letting the enemy wreck one's own bridges does too; hitting depo
 | 1 | **Logistics reach**: captured depots work after 72 h, sources at most 12 links away, 10% loss per road node (`sxrear=72 sxhops=12 sxloss=10`) | Blue's spearhead supply falls to 44-79% on days 3-5 (up to 76 battalions under 50%); starved battalions stop taking capture orders (1.8% of their hours vs 20.8%) and the offensive culminates | When to push, when to wait for the depots to move up | strong: every reach arm, 30 runs |
 | 2 | **Blue's offensive bar 40 instead of 50 with (1)** (`teambar=1:40,2:40,3:40,5:30,6:15`) | Supply now brakes Blue instead of the bar, so Blue recovers after the setback: `R_bar40` all 3 seeds advance, stall on days 3-5 and come back (seed 2: 1449 -> 1401 -> 1587 objectives), 2 Blue wins | -- | moderate: 3 runs, plus 9 of model S |
 | 3 | **Convoy time** (`sxdelay=10`, 1 h per link) | Long lines refill slowly: the North's front starves to 27-46% by day 7-8 in most seeds as Blue pushes it back from its depots | A convoy on the road can be hit (`sxconvoyhit`, below) | moderate |
-| **S** | **(1)+(2)+(3) together** (`sxrear=72 sxhops=12 sxloss=10 sxdelay=10` + bar 40) | **9 of 9 Blue wins, h138-224 (mean h188)**; stall on days 3-5, the North's front starves in seeds 1-2 (28-43% by day 7; seed 3 stays near 80%), Blue's share 60-62% | All of the above | strong for "the war ends", weak for anything finer |
+| **S** | **(1)+(2)+(3) together** (`sxrear=72 sxhops=12 sxloss=10 sxdelay=10` + bar 40) | **9 of 9 Blue wins in rounds 7-10 (h138-224), 6 of 6 in the paired round 12 (h138-234; h_bar 0 of 6)**; stall on days 3-5, the North's front starves in seeds 1-2 (28-43% by day 7; seed 3 stays near 80%), Blue's share 60-62% | All of the above | strong: 15 runs, 6 exact pairs against h_bar |
 | 4 | **Logistics hubs only** (`sxnocity=1`) with S | Sharpens it for both sides (Blue spearhead 43-61% on day 5, North front 34-57%); 3/3 Blue wins, mean h177 | Depots and ports become the only targets that matter | 3 runs |
 
-**Strikes on model S** (held destroyed from h48 -- from h72 for strikes on Blue; "10" = the 10 of the type nearest the front,
-`blowlim=TYPE:TEAM:10`; "all" = every one, `blow=TYPE:TEAM:hold`). No strike: 9/9 wins, mean h188 (138-224).
+**The player's choices on model S, exact same-seed pairs** (round 12, 6 seeds, `det=1`; each war is identical to its unstruck twin until the
+strike starts -- h49 for strikes from h48, h73 for strikes from h72, hour 3-5 for convoy interdiction -- so every difference is caused by the
+strike; "10" = the 10 objectives of the type nearest the front, `blowlim=TYPE:TEAM:10`). Model S alone: 6/6 Blue wins, h138-234.
 
-| Strike | Blue wins | Mean win hour (range) | Reading |
-|---|---|---|---|
-| North's depots + army bases, 10 | 6/6 | 164 (126-193) | about a day faster -- inside the run-to-run spread |
-| ... all, from h48 / from h96 | 3/3 / 3/3 | 165 / 159 | the same; a late campaign still pays |
-| North's factories, 10 / all | 3/3 / 2/3 | 170 / 152 | no clear gain |
-| North's ports, 5 / all | 3/3 / 3/3 | 170 / 154 | no clear gain |
-| **North's bridges, 10 / all** | **2/3 / 1/3** | 199 / 195 | **loses wars: Blue has to cross them** (its share falls to 53-55% with all bridges down) |
-| **The North hits Blue's bridges, 10 / all** | **2/3 / 0/3** | 191 / -- | **loses wars: protect your bridges** (Blue 52-56% with all down) |
-| The North hits Blue's depots + army bases, 10 / all | 2/3 / 3/3 | 210 / 196 | slower, one war lost with 10 |
-| Convoy interdiction of the North, 5% / 15% per hour on the road (`sxconvoyhit=6:5`, `6:15`) | 3/3 / 2/3 | 185 / 146 | no clear gain -- the North's front already starves |
-| The North interdicts Blue's convoys, 10% per hour (`sxconvoyhit=2:10`) | 2/3 | 201 | costs Blue: spearhead supply 49-59% on day 5, one war lost |
+| Choice | Blue wins | Win hour vs the same war unstruck | Blue share | Reading |
+|---|---|---|---|---|
+| **Blue blows the North's 10 front bridges** | 5/6 | **later in 5 of 6**, +23 h on average | -1.9 | **backfires**: Blue has to cross them |
+| **The North blows 10 of Blue's bridges** | 5/6 | **later in 5 of 6**, +14 h | -2.0 | **protect your bridges** |
+| **The North interdicts Blue's convoys** (10% per hour on the road) | 5/6 | **later in 5 of 6**, +43 h | -1.0 | **protect your convoys** -- the biggest effect |
+| Blue interdicts the North's convoys (15%/h) | 6/6 | earlier in 2, later in 4, -4 h | +0.1 | no consistent effect: the North's front already starves |
+| Blue hits the North's 10 depots + army bases | 6/6 | earlier in 4, later in 2, +0 h | -0.5 | no consistent effect |
+| Blue hits the North's 10 factories | 6/6 | earlier in 3, later in 3, -0 h | -0.4 | no effect |
+| (h_bar baseline instead of model S) | 0/6 | -- | -7.1 | model S is what ends the war |
 
-So the decision the model gives the player is mostly about *lines*: which bridges to leave standing for one's own advance, and defending
-one's bridges and convoys. Which enemy target to hit (depots vs factories vs ports vs convoys) is a day at most -- not resolvable with 3-9
-runs per arm, and probably not a big lever on its own.
+So the decision the model gives the player is about *lines*: which bridges to leave standing for one's own advance, and spending effort
+to defend one's bridges and convoys. Strikes on the enemy's rear (depots, factories, convoys) change the war as much as chance does.
+Earlier 3-seed rounds (7-10, before exact replays) pointed the same way: every bridge strike and the North on Blue's bridges lost wars
+(1/3 and 0/3 with all bridges held down), the rest sat inside the run-to-run spread.
 
-**Runs worth viewing** (Campaign Lab, `tools/campsim/runs/`; all checked present and complete):
+**Runs worth viewing** (Campaign Lab, `tools/campsim/runs/`; checked present and complete):
 - `chdd-sx-R_bar40-s2.jsonl` -- the arc: 1449 objectives on day 3, spearhead supply down to 52%, back to 1401 by day 6, resupply, 1587 by
   day 10 (no winner at 240 h).
-- `chdd-sx-S9-s2.jsonl` -- model S: Blue stalls on days 3-5 (spearhead 62%), the North's front starves (56% -> 43%), Blue wins at h187.
-- `chdd-sx-S_bridgeB10-s3.jsonl` next to `chdd-sx-S9-s3.jsonl` -- the North blows 10 of Blue's bridges from h72: no winner at 240 h
-  (Blue 55%), where the same seed without the strike was a Blue win at h224 (a different run, not an exact replay -- see section 5).
+- `chdd-sx-P_S-s3.jsonl` and `chdd-sx-P_bridgeB10-s3.jsonl` -- the same war, frame for frame, until hour 73, when the North blows 10 of
+  Blue's bridges: unstruck, Blue wins at h234; struck, no winner at 240 h (Blue 55%).
+- `chdd-sx-P_S-s5.jsonl` and `chdd-sx-P_convB10-s5.jsonl` -- the North interdicting Blue's convoys from hour 4: the win moves from h138 to h240.
+  `chdd-sx-P_h-s5.jsonl` is the same seed under plain h_bar: no winner, Blue 51%.
 
 **Not recommended:** `usemult=4` (both sides starve, the war freezes at 46-52%); `sxfront` (engaged units get less: symmetric attrition,
 the North's front starves as much as Blue's); `initsupply` (supply-weighted initiative made Blue's comeback rarer: 0 wins in 9 runs with the reach rules);
@@ -61,9 +63,9 @@ with truncating float rounding (`_controlfp(_RC_CHOP)`) that campsim's main-thre
 still far back in China (10% supply at 150-250 km from a source), because they draw on the North's sources -- the China phase needs a look
 under any reach rule.
 
-**Caveats:** 3 seeds per arm; the same seed run twice in the harness ends a day or more apart (model S seeds 1-3: h138 / h144, h187 / h154,
-h224 / h210), so differences under about a day are noise. Strikes are objectives held destroyed, not flown missions. Nothing here has been
-tried in the game.
+**Caveats:** after a strike the two wars drift apart chaotically, so a single pair says little -- read the direction across the 6 seeds.
+Rounds 1-10 were run before replays were exact and are 3-seed samples. Strikes are objectives held destroyed, not flown missions.
+Nothing here has been tried in the game.
 
 **Next steps if this goes forward:** (a) convoys as entities the ATM can find and strike (the `sxdelay` queue is where they would live);
 (b) the rail network as the cheap artery from the Chinese border and from Pusan; (c) a player-facing supply view (spearhead supply, depot
@@ -151,21 +153,24 @@ Blue's own advance, not scripted. Daily Blue objectives, `r72h12` seed 2: 1239 -
 after the setback, under the bar, so it keeps consolidating while the North (bar 15) attacks. Tying initiative to supply (`initsupply`) did
 not help; lowering Blue's bar to 40 did (recommendation 2).
 
-## 4. Determinism (campsim `det=1`)
+## 4. Determinism (campsim `det=1`) -- verified
 
-`det=1` (campsim only): the ATM works to a build budget instead of 200 ms of wall clock; the campaign thread does no campaign work (its
-message handlers drew on their own per-thread `rand()`); no background VU pump; `rand()` re-seeded when the tick loop starts; main-thread
-`GetTickCount` / `timeGetTime` become a per-call counter (import-table patch).
+`det=1` (campsim only, off by default) makes a seed replay the same war:
+1. the ATM works to a build budget (20 per call) instead of 200 ms of wall clock;
+2. the campaign thread does no campaign work and there is no background VU pump -- message handlers drew on their own per-thread `rand()`,
+   so which thread got to a message (a matter of scheduling) changed the war; the main thread drains the queue itself;
+3. `rand()` is re-seeded when the tick loop starts; main-thread `GetTickCount` / `timeGetTime` become a per-call counter;
+4. **C++ allocations come from a private heap without Windows' randomised low-fragmentation heap, zeroed** -- the last two leaks were reads
+   of uninitialised memory (2 of 8 solo runs parted at minute 21 by one extra North Korean flight) and address-dependent behaviour (the
+   ATM's "no aircraft free" count drifted by h60).
+A `dethash=M` switch prints per-minute state hashes (units, flights, objectives, ATM lists) to find where two runs part.
 
-Verified: the same seed run twice, one after the other on an idle machine, gave identical unit states for all 50 hours compared in 5 of 7
-pairs (baseline; `sxdelay=10`; reach; `sxwheeled`; full model S once); 4 of 6 simultaneous launches of one seed were identical over 5 days.
-Not achieved: the other two solo pairs (Blue bar 40; model S on a 6-day run) parted at hour 1, and runs inside the 9-way harness do not
-replay (model S seed 2: h187 once, h154 the next time). Stock campsim parts at hour 1 every time. The remaining source was not found; a
-startup race is left (it shows in the first campaign hour, e.g. event 7 firing at minute 35 vs 45). **So the comparisons in this report are
-3-seed samples, not exact same-seed pairs**, and only effects larger than the ~1-1.5 day run-to-run spread are claimed.
+Verified: 16 runs of one seed (10 one after another, 6 at once) identical over a day; 8 runs (4 normal exe, 4 with ASLR off) identical over
+6 days; and in the 9-way harness, **each of 6 twin pairs (model S and h_bar, seeds 1-3) identical frame for frame for the whole war
+(152-242 hourly frames)**. In round 12 every strike arm is identical to its unstruck twin up to the strike hour. Stock campsim parts at hour 1.
 
 ## 5. Notes
 
-- `blow=` keeps its original syntax; the player-sized strike is the new `blowlim=TYPE:TEAM:N` (round 9 was run with an interim syntax,
+- `blow=` keeps its original syntax; the player-sized strike is the new `blowlim=TYPE:TEAM:N` (rounds 9-10 were run with an interim syntax,
   `blow=TYPE:TEAM:hold:N`, before it was moved to the new key; `S_depot10_rep` with `blowlim` reproduces it within the noise).
 - During round 9 every running campsim process on the machine was force-stopped to kill runs started on a stale exe.
