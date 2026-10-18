@@ -82,6 +82,15 @@ ARMS = {
     "d10_depotN": ("sxdelay=10 blow=depot:6:hold blow=armybase:6:hold blowat=48", 5),
     "d10_bridgeN": ("sxdelay=10 blow=bridge:6:hold blowat=48", 5),
     "d10_factN": ("sxdelay=10 blow=factory:6:hold blowat=48", 5),
+    # round 6: supply by truck (stock routes it on Foot, round a blown bridge) -- does bridge interdiction bite then?
+    "b6": ("", 6),
+    "w": ("sxwheeled=1", 6),
+    "w_bridgeN": ("sxwheeled=1 blow=bridge:6:hold blowat=48", 6),
+    "w_d10": ("sxwheeled=1 sxdelay=10", 6),
+    "w_d10_bridgeN": ("sxwheeled=1 sxdelay=10 blow=bridge:6:hold blowat=48", 6),
+    "w_R_bridgeN": ("sxwheeled=1 sxrear=72 sxhops=12 sxloss=10 blow=bridge:6:hold blowat=48", 6),
+    "w_bridgeB": ("sxwheeled=1 blow=bridge:2:hold blowat=72", 6),
+    "w_d10_bridgeB": ("sxwheeled=1 sxdelay=10 blow=bridge:2:hold blowat=72", 6),
 }
 
 

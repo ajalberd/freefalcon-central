@@ -478,6 +478,7 @@ void AddSupply(Objective o, int supply, int fuel)
 // distance -- captured sources count at once, so an advance is never far from a source.
 int g_nSxOwn = 0, g_nSxRearH = 0, g_nSxHops = 0, g_nSxLoss = -1, g_nSxRail = -1;
 int g_nSxFront = -1;              // sxfront=P (see SupplyUnits): engaged battalions get P% of a delivery; -1 = off
+int g_nSxWheeled = 0;             // sxwheeled=1 (see SendSupply): supply routes as Wheeled, not Foot
 int gSxFrontCut[NUM_TEAMS] = {0}; // deliveries cut that way
 
 // sxdelay=H: a battalion's delivery arrives H hours per 10 objective links of its route after it is sent (a convoy is on the road),
@@ -680,7 +681,11 @@ int SendSupply(Objective s, Objective d, int *supply, int *fuel)
     if (not *supply and not *fuel)
         return 0;
 
-    if (GetObjectivePath(&path, s, d, Foot, s->GetTeam(), PATH_MARINE) < 1)
+    // sxwheeled=1: supply moves by truck. Stock routes it on Foot, which walks round a blown bridge -- campsim: with all 250 of the
+    // North's bridges held down from hour 48 its front stayed 85-98% supplied.
+    extern int g_nSxWheeled;
+
+    if (GetObjectivePath(&path, s, d, g_nSxWheeled ? Wheeled : Foot, s->GetTeam(), PATH_MARINE) < 1)
     {
         gSupplyPath[team][SUPPATH_NO_PATH]++;
         return 0;
