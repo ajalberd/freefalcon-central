@@ -168,11 +168,24 @@
 // Event #10
 // Combined forces go on defensive
 // 
+// (2026-10-18: only when Blue itself is not attacking, its initiative is down to 45 and the North or China is attacking. Stock fired whenever
+// the North attacked; with shared offensives both sides attack at once and events 9/10 flipped 11-64 times in 10 days.)
 #IF_EVENT_PLAYED 9
+#IF_ON_OFFENSIVE 2
+#ELSE
+#IF_INITIATIVE 2 L 45
 #IF_ON_OFFENSIVE 6
 #PLAY_MOVIE 107
 #DO_EVENT 10
 #RESET_EVENT 9
+#ELSE
+#IF_ON_OFFENSIVE 5
+#PLAY_MOVIE 107
+#DO_EVENT 10
+#RESET_EVENT 9
+#ENDIF
+#ENDIF
+#ENDIF
 #ENDIF
 #ENDIF
 // 
