@@ -26,6 +26,7 @@ HBAR = ("usecfg=1 tri=chn_appr2 alliedcounter=1:8:80 noprod=1 prodsup=0.75 usemu
         "turnmode=4 teambar=1:50,2:50,3:50,5:30,6:15 det=1")
 lock = threading.Lock()
 launch = threading.Lock()
+SMODEL = "sxrear=72 sxhops=12 sxloss=10 sxdelay=10 sxwheeled=1 teambar=1:40,2:40,3:40,5:30,6:15"
 
 # arm -> (extra knobs, round)
 ARMS = {
@@ -91,6 +92,24 @@ ARMS = {
     "w_R_bridgeN": ("sxwheeled=1 sxrear=72 sxhops=12 sxloss=10 blow=bridge:6:hold blowat=48", 6),
     "w_bridgeB": ("sxwheeled=1 blow=bridge:2:hold blowat=72", 6),
     "w_d10_bridgeB": ("sxwheeled=1 sxdelay=10 blow=bridge:2:hold blowat=72", 6),
+    # round 7: the player's choices on the candidate model S = reach (depots after 72 h, 12 links, 10%/node) + convoy time + Blue bar 40,
+    # with supply by truck: which strike, and when
+    "S": (SMODEL, 7),
+    "S_depotN": (SMODEL + " blow=depot:6:hold blow=armybase:6:hold blowat=48", 7),
+    "S_depotN96": (SMODEL + " blow=depot:6:hold blow=armybase:6:hold blowat=96", 7),
+    "S_bridgeN": (SMODEL + " blow=bridge:6:hold blowat=48", 7),
+    "S_factN": (SMODEL + " blow=factory:6:hold blowat=48", 7),
+    "S_portN": (SMODEL + " blow=port:6:hold blowat=48", 7),
+    "S_bridgeB": (SMODEL + " blow=bridge:2:hold blowat=72", 7),
+    "S_depotB": (SMODEL + " blow=depot:2:hold blow=armybase:2:hold blowat=72", 7),
+    # round 8: logistics hubs only (no city is a supply source), so supply has to travel over roads and bridges
+    "nc": ("sxnocity=1", 8),
+    "nc_bridgeN": ("sxnocity=1 sxwheeled=1 blow=bridge:6:hold blowat=48", 8),
+    "N": (SMODEL + " sxnocity=1", 8),
+    "N_bridgeN": (SMODEL + " sxnocity=1 blow=bridge:6:hold blowat=48", 8),
+    "N_depotN": (SMODEL + " sxnocity=1 blow=depot:6:hold blow=armybase:6:hold blowat=48", 8),
+    "N_bridgeB": (SMODEL + " sxnocity=1 blow=bridge:2:hold blowat=72", 8),
+    "N_depotB": (SMODEL + " sxnocity=1 blow=depot:2:hold blow=armybase:2:hold blowat=72", 8),
 }
 
 

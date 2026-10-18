@@ -537,9 +537,14 @@ static CampaignTime gSxSince[MAX_CAMP_ENTITIES];
 static bool gSxInit = false;
 int gSxDiag[NUM_TEAMS][4] = {{0}}; // searches, no source in reach, refused (owner / too recent), total hops of found sources
 
+// sxnocity=1: cities are no supply source -- only depots, army bases and ports. Stock counts every city behind the front, so a source
+// is always a few links away and no bridge or road strike ever sits between a unit and its supply (campsim: all 250 of the North's
+// bridges held down, its front still 93-98% supplied, by truck or on foot).
+int g_nSxNoCity = 0;
+
 static bool SxActive(void)
 {
-    return g_nSxOwn or g_nSxRearH > 0 or g_nSxHops > 0;
+    return g_nSxOwn or g_nSxRearH > 0 or g_nSxHops > 0 or g_nSxNoCity;
 }
 
 // ownership history: when did the current owner take each objective (0 = held since the start)
@@ -566,6 +571,9 @@ static void SxTrackOwners(void)
 static bool SxSourceOk(Objective c, int who)
 {
     if (not c->IsSupplySource())
+        return false;
+
+    if (g_nSxNoCity and c->GetType() == TYPE_CITY)
         return false;
 
     if (g_nSxOwn and c->GetTeam() not_eq who)
