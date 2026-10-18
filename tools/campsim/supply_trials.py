@@ -118,6 +118,9 @@ def analyse(arm, seed):
         last = [x for x in sx if x[0] == t]
         if last:
             m["sx_t%s" % t] = [int(last[-1][1]), int(last[-1][2]), int(last[-1][3]), float(last[-1][4])]
+    m["blue_objs_daily"] = [min(fr, key=lambda q: abs(q["t"] / 60 - h))["s"][2][4] for h in range(0, int(fr[-1]["t"] / 60) + 1, 24)]
+    m["north_front_daily"] = [edge_supply(min(fr, key=lambda q: abs(q["t"] / 60 - h)), (5, 6), False) for h in range(0, int(fr[-1]["t"] / 60) + 1, 24)]
+    m["blue_spear_daily"] = [edge_supply(min(fr, key=lambda q: abs(q["t"] / 60 - h)), (1, 2, 3), True) for h in range(0, int(fr[-1]["t"] / 60) + 1, 24)]
     m["sig"] = hashlib.md5(json.dumps(fr[-1]["u"]).encode()).hexdigest()[:8]
     return m
 
@@ -198,6 +201,27 @@ def main():
         print("queue: %d runs, %d at a time" % (len(items), PAR), flush=True)
         with ThreadPoolExecutor(max_workers=PAR) as ex:
             list(ex.map(lambda a: run_one(*a), items))
+    elif cmd == "reanalyse":   # recompute the metrics of finished runs (results.jsonl rewritten)
+        rows = [json.loads(l) for l in open(RES)]
+        out = []
+        for r in rows:
+            try:
+                m = analyse(r["arm"], r["seed"])
+                m["wall_s"] = r.get("wall_s")
+                out.append(m)
+            except Exception:
+                out.append(r)
+        open(RES, "w").write("".join(json.dumps(m) + "\n" for m in out))
+        print("reanalysed", len(out))
+    elif cmd == "daily":       # Blue objectives per day, per arm and seed
+        rows = load()
+        for arm, (knobs, r) in ARMS.items():
+            if rnd and r != rnd:
+                continue
+            for s in SEEDS:
+                x = rows.get((arm, s))
+                if x and x.get("blue_objs_daily"):
+                    print("%-14s %d objs %s | spear %s | north front %s" % (arm, s, x["blue_objs_daily"], x.get("blue_spear_daily"), x.get("north_front_daily")))
     else:
         report(rnd)
 

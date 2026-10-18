@@ -523,7 +523,8 @@ static void SxDeliverArrived(int who)
             continue;
         }
 
-        if (u)
+        // (a battalion wiped out while its convoy was on the road is still in the database with no vehicles)
+        if (u and u->IsBattalion() and not u->IsDead() and u->GetTotalVehicles() > 0)
             SupplyUnit(u, gSxPending[i].sneed, gSxPending[i].s, gSxPending[i].fneed, gSxPending[i].f);
 
         gSxPending[i] = gSxPending.back();
