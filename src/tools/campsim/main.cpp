@@ -16,6 +16,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <new>
 #include <stdarg.h>
 
 #include "f4find.h"
@@ -4013,6 +4014,49 @@ static void DetPatchClock(void)
     printf("DET clock: %d import(s) patched\n", patched);
 }
 
+// det=1: every C++ allocation comes back zeroed. The heap hands out blocks in a randomised order (Windows' low-fragmentation heap), so
+// a read of memory the engine never initialised saw different leftovers from run to run -- campsim: 2 of 8 solo runs of one seed parted at
+// minute 21 by one extra North Korean flight. Set before anything is allocated in main (static constructors run with it off).
+static bool gDetZeroNew = false;
+
+void *operator new(size_t n)
+{
+    void *p = malloc(n ? n : 1);
+
+    if (!p)
+        throw std::bad_alloc();
+
+    if (gDetZeroNew)
+        memset(p, 0, n);
+
+    return p;
+}
+
+void *operator new[](size_t n)
+{
+    return operator new(n);
+}
+
+void operator delete(void *p) noexcept
+{
+    free(p);
+}
+
+void operator delete[](void *p) noexcept
+{
+    free(p);
+}
+
+void operator delete(void *p, size_t) noexcept
+{
+    free(p);
+}
+
+void operator delete[](void *p, size_t) noexcept
+{
+    free(p);
+}
+
 // dethash=M: for the first M campaign minutes print DETHASH lines (units / flights / objectives / ATM lists), so two runs of one seed can be
 // diffed down to the minute and the component where they part
 static int gDetHashMin = 0;
@@ -4070,7 +4114,7 @@ int main(int argc, char **argv)
 {
     for (int a = 1; a < argc; a++)
         if (!strcmp(argv[a], "det=1"))
-            DetPatchClock();
+            DetPatchClock(), gDetZeroNew = true;
         else if (!strncmp(argv[a], "dethash=", 8))
             gDetHashMin = atoi(argv[a] + 8);
 
