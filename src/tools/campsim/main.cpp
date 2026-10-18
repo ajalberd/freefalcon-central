@@ -3770,7 +3770,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "blowlim") and strcmp(key, "sxconvoyhit") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "neutralnouse") and strcmp(key, "turnmode") and strcmp(key, "teambar") and strcmp(key, "neutralhold") and strcmp(key, "atmbudget") and strcmp(key, "det") and strcmp(key, "sxown") and strcmp(key, "sxrear") and strcmp(key, "sxhops") and strcmp(key, "sxloss") and strcmp(key, "sxrail") and strcmp(key, "sxfront") and strcmp(key, "sxdelay") and strcmp(key, "sxwheeled") and strcmp(key, "sxnocity") and strcmp(key, "chinaown") and strcmp(key, "initindep") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "blowlim") and strcmp(key, "sxconvoyhit") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "neutralnouse") and strcmp(key, "turnmode") and strcmp(key, "teambar") and strcmp(key, "neutralhold") and strcmp(key, "atmbudget") and strcmp(key, "det") and strcmp(key, "dethash") and strcmp(key, "sxown") and strcmp(key, "sxrear") and strcmp(key, "sxhops") and strcmp(key, "sxloss") and strcmp(key, "sxrail") and strcmp(key, "sxfront") and strcmp(key, "sxdelay") and strcmp(key, "sxwheeled") and strcmp(key, "sxnocity") and strcmp(key, "chinaown") and strcmp(key, "initindep") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';
@@ -4013,11 +4013,66 @@ static void DetPatchClock(void)
     printf("DET clock: %d import(s) patched\n", patched);
 }
 
+// dethash=M: for the first M campaign minutes print DETHASH lines (units / flights / objectives / ATM lists), so two runs of one seed can be
+// diffed down to the minute and the component where they part
+static int gDetHashMin = 0;
+
+static unsigned long long DetMix(unsigned long long h, unsigned long long v)
+{
+    return (h ^ v) * 1099511628211ULL;
+}
+
+static void DetHash(int minute)
+{
+    unsigned long long hu = 1469598103934665603ULL, hf = hu, ho = hu;
+    unsigned long long creators = 0;
+    int nu = 0, nf = 0;
+    VuListIterator uit(AllUnitList);
+
+    for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+    {
+        GridIndex x, y;
+        u->GetLocation(&x, &y);
+        unsigned long long &h = u->IsFlight() ? hf : hu;
+        (u->IsFlight() ? nf : nu)++;
+        h = DetMix(h, u->Id().num_);
+        h = DetMix(h, (unsigned long long)x * 4096 + y);
+        h = DetMix(h, u->GetUnitSupply());
+        h = DetMix(h, u->GetTotalVehicles());
+        h = DetMix(h, u->GetUnitOrders());
+        h = DetMix(h, u->GetUnitObjectiveID().num_);
+        creators = DetMix(creators, u->Id().creator_.value_);
+    }
+
+    VuListIterator oit(AllObjList);
+
+    for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+    {
+        ho = DetMix(ho, o->GetCampID());
+        ho = DetMix(ho, o->GetTeam());
+        ho = DetMix(ho, o->GetObjectiveStatus());
+    }
+
+    int req[NUM_TEAMS] = {0}, pk[NUM_TEAMS] = {0};
+
+    for (int t = 0; t < NUM_TEAMS; t++)
+        if (TeamInfo[t] && TeamInfo[t]->atm)
+        {
+            req[t] = TeamInfo[t]->atm->requestList ? CountList(TeamInfo[t]->atm->requestList) : -1;
+            pk[t] = TeamInfo[t]->atm->packageList ? TeamInfo[t]->atm->packageList->Count() : -1;
+        }
+
+    printf("DETHASH m=%d units %d %016llx flights %d %016llx objs %016llx creators %016llx atm req %d/%d pkg %d/%d\n", minute, nu, hu, nf, hf, ho,
+           creators, req[2], req[6], pk[2], pk[6]);
+}
+
 int main(int argc, char **argv)
 {
     for (int a = 1; a < argc; a++)
         if (!strcmp(argv[a], "det=1"))
             DetPatchClock();
+        else if (!strncmp(argv[a], "dethash=", 8))
+            gDetHashMin = atoi(argv[a] + 8);
 
     InitializeCriticalSection(&gVuLock);
     // Buffered: unbuffered, every printf fragment was its own WriteFile -- 20% of the run's wall
@@ -4320,6 +4375,9 @@ int main(int argc, char **argv)
         // 2606-2741) with a fixed 1-campaign-minute step.
         while (TheCampaign.CurrentTime < target && (!gEndGame || gNoEnd))
         {
+            if (iter < gDetHashMin)
+                DetHash(iter);
+
             DWORD t0 = GetTickCount();
             if (gMainThread)
                 gMainThread->Update(0);
