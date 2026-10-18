@@ -1371,6 +1371,27 @@ int ReadScriptedTriggerFile(char* filename)
 
                 continue;
             }
+            else if (strncmp(token, "#FORCE_DEFENSIVE", 16) == 0)
+            {
+                // #FORCE_DEFENSIVE <team> <hours>: the team stays on the defensive for that long (team.cpp)
+                extern void ForceTeamDefensive(int team, int hours);
+                int hours;
+
+                if (sptr = strchr(token, ' '))
+                    sptr++;
+
+                team = atoi(sptr);
+
+                if (sptr = strchr(sptr, ' '))
+                    sptr++;
+
+                hours = atoi(sptr);
+
+                if (TeamInfo[team])
+                    ForceTeamDefensive(team, hours);
+
+                continue;
+            }
             else if (strncmp(token, "#RESET_EVENT", 12) == 0)
             {
                 if (sptr = strchr(token, ' '))

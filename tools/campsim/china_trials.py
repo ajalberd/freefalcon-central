@@ -61,6 +61,10 @@ ARMS = {
     "h_is": ("chdd", "chinaown=1 neutralnouse=1 neutralhold=1 initindep=1 turnmode=4", 5),
     "h_bar": ("chdd", "chinaown=1 neutralnouse=1 neutralhold=1 initindep=1 turnmode=4 teambar=1:50,2:50,3:50,5:30,6:15", 5),
     "h_bar50": ("chdd", "chinaown=1 neutralnouse=1 neutralhold=1 initindep=1 turnmode=4 teambar=1:50,2:50,3:50,5:50,6:50", 5),
+    # round 6: h_bar plus a China-entry pause -- #FORCE_DEFENSIVE holds the US, ROK and Japan on the defensive for N hours when China joins
+    "p36": ("chdd", "chinaown=1 neutralnouse=1 neutralhold=1 initindep=1 turnmode=4 teambar=1:50,2:50,3:50,5:30,6:15 tri=chn_appr2_fd36", 6),
+    "p48": ("chdd", "chinaown=1 neutralnouse=1 neutralhold=1 initindep=1 turnmode=4 teambar=1:50,2:50,3:50,5:30,6:15 tri=chn_appr2_fd48", 6),
+    "p72": ("chdd", "chinaown=1 neutralnouse=1 neutralhold=1 initindep=1 turnmode=4 teambar=1:50,2:50,3:50,5:30,6:15 tri=chn_appr2_fd72", 6),
 }
 
 

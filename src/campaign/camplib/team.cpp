@@ -1295,6 +1295,23 @@ void TeamClass::SelectGroundAction(void)
     if (not(flags bitand TEAM_ACTIVE) or not IsLocal())
         return;
 
+    // #FORCE_DEFENSIVE (trigger script): the team holds a defensive action until the time runs out, whatever its initiative
+    extern CampaignTime g_ForcedDefensiveUntil[NUM_TEAMS];
+
+    if (TheCampaign.CurrentTime < g_ForcedDefensiveUntil[who % NUM_TEAMS])
+    {
+        if (groundAction.actionType not_eq GACTION_DEFENSIVE or groundAction.actionTimeout < g_ForcedDefensiveUntil[who % NUM_TEAMS])
+        {
+            groundAction.actionType = GACTION_DEFENSIVE;
+            groundAction.actionTime = TheCampaign.CurrentTime;
+            groundAction.actionTimeout = g_ForcedDefensiveUntil[who % NUM_TEAMS];
+            groundAction.actionPoints = 0;
+            MakeTeamDirty(DIRTY_GROUND_ACTION, SEND_EVENTUALLY);
+        }
+
+        return;
+    }
+
     // A.S. begin, 2001-12-09
 
     if (NewInitiativePoints) // New trigers for new initiative point system
@@ -2287,6 +2304,16 @@ bool g_bChinaOwn = false;
 int g_nTurnMode = 0;
 // campsim experiment (teambar=): per-team initiative bar for starting an offensive (0 = g_nCounterAttackInitiative, else stock 50/55)
 int g_nTeamOffenseBar[NUM_TEAMS] = {};
+
+// #FORCE_DEFENSIVE <team> <hours> (trigger script): the team stays on the defensive until this time. With shared offensives (turnmode 4)
+// nothing else ever puts a team on the defensive -- campsim h_bar/h_is: Blue defensive 0 hours in all seeds, China's entry included.
+CampaignTime g_ForcedDefensiveUntil[NUM_TEAMS] = {};
+
+void ForceTeamDefensive(int team, int hours)
+{
+    if (team > 0 and team < NUM_TEAMS)
+        g_ForcedDefensiveUntil[team] = TheCampaign.CurrentTime + hours * CampaignHours;
+}
 extern int gInitDiag[8][12];
 
 static void NewInitiativeIndependent(void)
