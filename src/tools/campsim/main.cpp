@@ -3225,8 +3225,7 @@ static void ApplyKnobs(int argc, char **argv)
             *p = v;
             if (p == &g_nSxMap && v)
                 g_bSupplyStocks = true;
-            printf("KNOB %s = %d
-", key, v);
+            printf("KNOB %s = %d\n", key, v);
         }
         else if (!strcmp(key, "sxconvoyhit"))
         {
