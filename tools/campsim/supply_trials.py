@@ -21,7 +21,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "supply")
 RES = os.path.join(OUT, "results.jsonl")
 PAR = int(os.environ.get("TRIAL_JOBS", "9"))
-SEEDS = (1, 2, 3)
+SEEDS = tuple(int(x) for x in os.environ.get("TRIAL_SEEDS", "1,2,3").split(","))
 HBAR = ("usecfg=1 tri=chn_appr2 alliedcounter=1:8:80 noprod=1 prodsup=0.75 usemult=2 chinaown=1 neutralnouse=1 neutralhold=1 initindep=1 "
         "turnmode=4 teambar=1:50,2:50,3:50,5:30,6:15 det=1")
 lock = threading.Lock()
@@ -125,6 +125,20 @@ ARMS = {
     "S_convN15": (SMODEL + " sxconvoyhit=6:15", 10),
     "S_convB10": (SMODEL + " sxconvoyhit=2:10", 10),
     "S_depot10_rep": (SMODEL + " blowlim=depot:6:10 blowlim=armybase:6:10 blowat=48", 10),  # the new key reproduces round 9?
+    # round 11 (zeroed allocations under det=1): exact replays -- each must match its twin frame for frame
+    "det_S_a": (SMODEL, 11),
+    "det_S_b": (SMODEL, 11),
+    "det_h_a": ("", 11),
+    "det_h_b": ("", 11),
+    # round 12: paired same-seed comparisons on model S (6 seeds), each arm against "P_S" of the same seed
+    "P_S": (SMODEL, 12),
+    "P_depot10": (SMODEL + " blowlim=depot:6:10 blowlim=armybase:6:10 blowat=48", 12),
+    "P_fact10": (SMODEL + " blowlim=factory:6:10 blowat=48", 12),
+    "P_bridge10": (SMODEL + " blowlim=bridge:6:10 blowat=48", 12),
+    "P_bridgeB10": (SMODEL + " blowlim=bridge:2:10 blowat=72", 12),
+    "P_convN15": (SMODEL + " sxconvoyhit=6:15", 12),
+    "P_convB10": (SMODEL + " sxconvoyhit=2:10", 12),
+    "P_h": ("", 12),
 }
 
 
