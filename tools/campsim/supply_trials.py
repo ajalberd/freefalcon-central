@@ -112,12 +112,19 @@ ARMS = {
     "N_depotB": (SMODEL + " sxnocity=1 blow=depot:2:hold blow=armybase:2:hold blowat=72", 8),
     # round 9: player-sized strikes on model S (blow=TYPE:TEAM:hold:N -- the N of the type nearest the enemy, held down)
     "S9": (SMODEL, 9),
-    "S_depot10": (SMODEL + " blow=depot:6:hold:10 blow=armybase:6:hold:10 blowat=48", 9),
-    "S_bridge10": (SMODEL + " blow=bridge:6:hold:10 blowat=48", 9),
-    "S_port5": (SMODEL + " blow=port:6:hold:5 blowat=48", 9),
-    "S_fact10": (SMODEL + " blow=factory:6:hold:10 blowat=48", 9),
-    "S_bridgeB10": (SMODEL + " blow=bridge:2:hold:10 blowat=72", 9),
-    "S_depotB10": (SMODEL + " blow=depot:2:hold:10 blow=armybase:2:hold:10 blowat=72", 9),
+    "S_depot10": (SMODEL + " blowlim=depot:6:10 blowlim=armybase:6:10 blowat=48", 9),
+    "S_bridge10": (SMODEL + " blowlim=bridge:6:10 blowat=48", 9),
+    "S_port5": (SMODEL + " blowlim=port:6:5 blowat=48", 9),
+    "S_fact10": (SMODEL + " blowlim=factory:6:10 blowat=48", 9),
+    "S_bridgeB10": (SMODEL + " blowlim=bridge:2:10 blowat=72", 9),
+    "S_depotB10": (SMODEL + " blowlim=depot:2:10 blowlim=armybase:2:10 blowat=72", 9),
+    # round 10: determinism check (S again, vs S9), and convoy interdiction (sxconvoyhit=T:P, with sxdelay): the player's sorties on the
+    # North's lines, or the North's on Blue's
+    "S_rep": (SMODEL, 10),
+    "S_convN5": (SMODEL + " sxconvoyhit=6:5", 10),
+    "S_convN15": (SMODEL + " sxconvoyhit=6:15", 10),
+    "S_convB10": (SMODEL + " sxconvoyhit=2:10", 10),
+    "S_depot10_rep": (SMODEL + " blowlim=depot:6:10 blowlim=armybase:6:10 blowat=48", 10),  # the new key reproduces round 9?
 }
 
 

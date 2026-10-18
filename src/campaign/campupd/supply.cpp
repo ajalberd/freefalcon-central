@@ -496,10 +496,29 @@ int gSxDelayed[NUM_TEAMS] = {0}; // deliveries queued, cumulative
 
 void SupplyUnit(Unit u, int sneed, int supply, int fneed, int fuel);
 
+// sxconvoyhit=T:P (with sxdelay): team T's convoys on the road lose P% per hour in transit -- the enemy's interdiction sorties along its
+// lines (the player's choice of where to send them). 0 = off.
+int g_nSxConvoyTeam = 0, g_nSxConvoyHit = 0;
+int gSxConvoyLost[NUM_TEAMS] = {0}; // supply points lost that way, cumulative
+
 static void SxQueueDelivery(Unit u, int sneed, int s, int fneed, int f)
 {
     SxPending p;
     p.id = u->Id();
+
+    if (g_nSxConvoyHit > 0 and u->GetTeam() == g_nSxConvoyTeam)
+    {
+        const int hours = gSxLastHops * g_nSxDelay / 10;
+        float keep = 1.0F;
+
+        for (int h = 0; h < hours; h++)
+            keep *= (100 - g_nSxConvoyHit) / 100.0F;
+
+        gSxConvoyLost[u->GetTeam() % NUM_TEAMS] += s - FloatToInt32(s * keep);
+        s = FloatToInt32(s * keep);
+        f = FloatToInt32(f * keep);
+    }
+
     p.sneed = sneed, p.s = s, p.fneed = fneed, p.f = f;
     p.at = TheCampaign.CurrentTime + (CampaignTime)gSxLastHops * g_nSxDelay * CampaignHours / 10;
     gSxPending.push_back(p);
