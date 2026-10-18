@@ -59,6 +59,21 @@ ARMS = {
     "front25": ("sxfront=25", 3),
     "delay5": ("sxdelay=5", 3),
     "delay10": ("sxdelay=10", 3),
+    # round 4: supply-weighted initiative (an existing switch) so a resupplied Blue can take the initiative back; and the player's strike choices,
+    # held down from hour 48 (blow=...:hold), with and without the reach rules
+    "b4": ("", 4),
+    "is": ("initsupply=1", 4),
+    "R": ("sxrear=72 sxhops=12 sxloss=10", 4),
+    "R_is": ("sxrear=72 sxhops=12 sxloss=10 initsupply=1", 4),
+    "R48_is": ("sxrear=48 sxhops=8 sxloss=10 initsupply=1", 4),
+    "b_bridgeN": ("blow=bridge:6:hold blowat=48", 4),
+    "b_depotN": ("blow=depot:6:hold blow=armybase:6:hold blowat=48", 4),
+    "R_is_bridgeN": ("sxrear=72 sxhops=12 sxloss=10 initsupply=1 blow=bridge:6:hold blowat=48", 4),
+    "R_is_depotN": ("sxrear=72 sxhops=12 sxloss=10 initsupply=1 blow=depot:6:hold blow=armybase:6:hold blowat=48", 4),
+    "R_is_factN": ("sxrear=72 sxhops=12 sxloss=10 initsupply=1 blow=factory:6:hold blowat=48", 4),
+    "R_is_bridgeB": ("sxrear=72 sxhops=12 sxloss=10 initsupply=1 blow=bridge:2:hold blowat=72", 4),
+    "d5": ("sxdelay=5", 4),
+    "d10": ("sxdelay=10", 4),
 }
 
 
