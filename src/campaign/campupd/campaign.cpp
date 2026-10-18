@@ -2530,6 +2530,9 @@ void SetCampaignStartupMode(void)
 }
 
 int gCampTime = 0;
+// campsim det=1: the campaign thread dispatches no VU messages (campsim's main loop does, in order). Message handlers call rand(), whose
+// state is per thread, so which thread got to a message -- a matter of scheduling -- changed the war.
+bool g_bCampThreadNoDispatch = false;
 int gAveCampTime = 0;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2608,7 +2611,8 @@ unsigned int __stdcall HandleCampaignThread(void)
 #if CAP_DISPATCH
         // sfr: theres a duplicate call at the end. I think this one should be removed
         // 20 ms at most
-        TheCampaign.vuThread->Update(20);
+        if (not g_bCampThreadNoDispatch)
+            TheCampaign.vuThread->Update(20);
 #else
         TheCampaign.vuThread->Update();
 #endif
@@ -2642,7 +2646,8 @@ unsigned int __stdcall HandleCampaignThread(void)
             // sfr: placed this one inside cs like the others
             CampEnterCriticalSection();
 #if CAP_DISPATCH
-            TheCampaign.vuThread->Update(-1);
+            if (not g_bCampThreadNoDispatch)
+                TheCampaign.vuThread->Update(-1);
 #else
             TheCampaign.vuThread->Update();
 #endif
@@ -2728,7 +2733,8 @@ unsigned int __stdcall HandleCampaignThread(void)
             CampEnterCriticalSection();
 #if CAP_DISPATCH
             // 20 ms at most
-            TheCampaign.vuThread->Update(20);
+            if (not g_bCampThreadNoDispatch)
+                TheCampaign.vuThread->Update(20);
 #else
             TheCampaign.vuThread->Update();
 #endif

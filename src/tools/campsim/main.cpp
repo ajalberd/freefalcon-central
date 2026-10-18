@@ -3936,6 +3936,14 @@ int main(int argc, char **argv)
             if (!strncmp(argv[a], "simroot=", 8))
                 strcpy(gTdfSimRoot, argv[a] + 8);
 
+        // det=1 must act before the campaign thread starts (see campaign.cpp g_bCampThreadNoDispatch)
+        for (int a = 7; a < argc; a++)
+            if (!strcmp(argv[a], "det=1"))
+            {
+                extern bool g_bCampThreadNoDispatch;
+                g_bCampThreadNoDispatch = true;
+            }
+
         sprintf(tmp, "%s/Zips", FalconDataDirectory);
         ResAddPath(gTdfSimRoot[0] ? gTdfSimRoot : tmp, FALSE);
 
