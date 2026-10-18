@@ -3,7 +3,7 @@
 Question: what would make supply change the war -- give it ebb and flow, and give the player decisions (strikes, interdiction, protecting
 their own lines) -- instead of being a number that stays near 90%? Campsim only, LTCG build; every mechanism is a new switch, off by default;
 the baseline is the `h_bar` configuration (CAMPAIGN-CHINA-EXPERIMENTS.md). 3 seeds per arm, 10-day runs, campaigns end at a win condition.
-Harness: `tools/campsim/supply_trials.py run|report|daily [round]`, results in `tools/campsim/supply/results.jsonl` (rounds 1-9, 222 runs).
+Harness: `tools/campsim/supply_trials.py run|report|daily [round]`, results in `tools/campsim/supply/results.jsonl` (rounds 1-9, 228 runs).
 Nothing here touches the game exe, the install's save0 / cfg, h_bar's settings or the trigger scripts.
 
 ## The answer
