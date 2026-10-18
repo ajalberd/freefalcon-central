@@ -4146,6 +4146,14 @@ int main(int argc, char **argv)
             }
         }
 
+        // det=1: whatever rand() calls the startup made (they depend on which thread handled which message), the war starts from the seed
+        {
+            extern bool g_bCampThreadNoDispatch;
+
+            if (g_bCampThreadNoDispatch)
+                CampsimSetSeed(seed);
+        }
+
         // Mirrors HandleCampaignThread's per-iteration body (campaign.cpp:
         // 2606-2741) with a fixed 1-campaign-minute step.
         while (TheCampaign.CurrentTime < target && (!gEndGame || gNoEnd))
