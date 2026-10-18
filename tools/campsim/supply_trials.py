@@ -167,6 +167,14 @@ ARMS = {
     "P_map50_convN15": (SMODEL + " sxmap=1 sxmapreach=50 sxmapship=50 sxconvoyhit=6:15", 14),
     "P_map50_convB10": (SMODEL + " sxmap=1 sxmapreach=50 sxmapship=50 sxconvoyhit=2:10", 14),
     "P_map50_depotB10": (SMODEL + " sxmap=1 sxmapreach=50 sxmapship=50 blowlim=depot:2:10 blowlim=armybase:2:10 blowat=72", 14),
+    # round 15: the map model with the stock 2% node loss (model S's 10% compounds over long shipping routes), and the strikes on it
+    "P_M": ("sxrear=72 sxhops=12 sxdelay=10 sxwheeled=1 teambar=1:40,2:40,3:40,5:30,6:15 sxmap=1 sxmapreach=50 sxmapship=50 sxmapair=10", 15),
+    "P_M_depot10": ("sxrear=72 sxhops=12 sxdelay=10 sxwheeled=1 teambar=1:40,2:40,3:40,5:30,6:15 sxmap=1 sxmapreach=50 sxmapship=50 sxmapair=10 blowlim=depot:6:10 blowlim=armybase:6:10 blowat=48", 15),
+    "P_M_fact10": ("sxrear=72 sxhops=12 sxdelay=10 sxwheeled=1 teambar=1:40,2:40,3:40,5:30,6:15 sxmap=1 sxmapreach=50 sxmapship=50 sxmapair=10 blowlim=factory:6:10 blowat=48", 15),
+    "P_M_bridgeRear": ("sxrear=72 sxhops=12 sxdelay=10 sxwheeled=1 teambar=1:40,2:40,3:40,5:30,6:15 sxmap=1 sxmapreach=50 sxmapship=50 sxmapair=10 blowsel=bridge:6:10:10:1 blowat=48", 15),
+    "P_M_convN15": ("sxrear=72 sxhops=12 sxdelay=10 sxwheeled=1 teambar=1:40,2:40,3:40,5:30,6:15 sxmap=1 sxmapreach=50 sxmapship=50 sxmapair=10 sxconvoyhit=6:15", 15),
+    "P_M_depotB10": ("sxrear=72 sxhops=12 sxdelay=10 sxwheeled=1 teambar=1:40,2:40,3:40,5:30,6:15 sxmap=1 sxmapreach=50 sxmapship=50 sxmapair=10 blowlim=depot:2:10 blowlim=armybase:2:10 blowat=72", 15),
+    "P_M_convB10": ("sxrear=72 sxhops=12 sxdelay=10 sxwheeled=1 teambar=1:40,2:40,3:40,5:30,6:15 sxmap=1 sxmapreach=50 sxmapship=50 sxmapair=10 sxconvoyhit=2:10", 15),
 }
 
 
