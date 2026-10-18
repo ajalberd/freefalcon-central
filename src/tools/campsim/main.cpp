@@ -2630,12 +2630,17 @@ static void ApplyBlow(int hour)
         if (gBlowLimit[i] > 0 && !r.done)
         {
             std::vector<std::pair<float, int>> cand;
-            std::vector<std::pair<GridIndex, GridIndex>> enemy;
+            std::vector<std::pair<GridIndex, GridIndex>> enemy, where;
             VuListIterator eit(AllObjList);
 
             for (Objective o = GetFirstObjective(&eit); o; o = GetNextObjective(&eit))
                 if (BlowMatches(r, o))
+                {
+                    GridIndex x, y;
+                    o->GetLocation(&x, &y);
                     cand.push_back(std::make_pair(0.0f, (int)o->GetCampID()));
+                    where.push_back(std::make_pair(x, y));
+                }
 
             VuListIterator fit(AllObjList);
             int myTeam = r.team >= 0 ? r.team : 6;
@@ -2648,11 +2653,10 @@ static void ApplyBlow(int hour)
                     enemy.push_back(std::make_pair(x, y));
                 }
 
-            for (auto &c : cand)
+            for (size_t ci = 0; ci < cand.size(); ci++)
             {
-                Objective o = GetObjectiveByID(c.second);
-                GridIndex x, y;
-                o->GetLocation(&x, &y);
+                auto &c = cand[ci];
+                GridIndex x = where[ci].first, y = where[ci].second;
                 float best = 1e9f;
 
                 for (auto &e : enemy)
