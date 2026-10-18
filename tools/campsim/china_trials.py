@@ -47,6 +47,20 @@ ARMS = {
     "f_base": ("chfr", "", 2),                                       # ground battalions 70-150 km inside the North at the start
     "f_nn": ("chfr", "neutralnouse=1", 2),
     "f_nn_shared": ("chfr", "neutralnouse=1 turnmode=4", 2),
+    # round 3: China a team of its own, now with tasking on the North's objectives and the North's supply pool
+    "o_own": ("chdd", "chinaown=1 neutralnouse=1", 3),
+    "o_own_shared": ("chdd", "chinaown=1 neutralnouse=1 turnmode=4", 3),
+    "o_own_is": ("chdd", "chinaown=1 neutralnouse=1 initindep=1 turnmode=4", 3),
+    "o_own_is_join1": ("chdd", "chinaown=1 neutralnouse=1 initindep=1 turnmode=4 tri=chn_join1", 3),
+    "o_own_is_join0": ("chdd", "chinaown=1 neutralnouse=1 initindep=1 turnmode=4 tri=chn_join0", 3),
+    "o_own_is_front": ("chfr", "chinaown=1 neutralnouse=1 initindep=1 turnmode=4", 3),
+    # round 4: per-team offensive bars (cfg CounterAttackInitiative 15 lets everyone attack at 15; under shared offensives Blue never stops)
+    "o_bar": ("chdd", "chinaown=1 neutralnouse=1 initindep=1 turnmode=4 teambar=1:50,2:50,3:50,5:30,6:15", 4),   # Blue 50, China 30, DPRK 15
+    "o_bar50": ("chdd", "chinaown=1 neutralnouse=1 initindep=1 turnmode=4 teambar=1:50,2:50,3:50,5:50,6:50", 4),  # stock bar for all
+    # round 5: neutralhold -- neutral China stays on the Yalu until it joins (rounds 1-4: its own tasking walked 79 of 86 battalions ~100 km inland by hour 24)
+    "h_is": ("chdd", "chinaown=1 neutralnouse=1 neutralhold=1 initindep=1 turnmode=4", 5),
+    "h_bar": ("chdd", "chinaown=1 neutralnouse=1 neutralhold=1 initindep=1 turnmode=4 teambar=1:50,2:50,3:50,5:30,6:15", 5),
+    "h_bar50": ("chdd", "chinaown=1 neutralnouse=1 neutralhold=1 initindep=1 turnmode=4 teambar=1:50,2:50,3:50,5:50,6:50", 5),
 }
 
 
