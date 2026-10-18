@@ -1318,9 +1318,11 @@ void TeamClass::SelectGroundAction(void)
     // defending side whose initiative reaches it may counterattack -- at most once per action timeout -- and
     // the counterattack is a full offensive (a minor offensive only secures and defends, it never captures).
     extern int g_nCounterAttackInitiative;
+    extern int g_nTeamOffenseBar[NUM_TEAMS];
     static CampaignTime counterReady[NUM_TEAMS];
-    const int caMin = g_nCounterAttackInitiative > 0 ? g_nCounterAttackInitiative : MIN_COUNTER_ATTACK_INITIATIVE;
-    const int fullMin = g_nCounterAttackInitiative > 0 ? caMin : MIN_FULL_OFFENSIVE_INITIATIVE;
+    const int teamBar = g_nTeamOffenseBar[who % NUM_TEAMS] > 0 ? g_nTeamOffenseBar[who % NUM_TEAMS] : g_nCounterAttackInitiative;
+    const int caMin = teamBar > 0 ? teamBar : MIN_COUNTER_ATTACK_INITIATIVE;
+    const int fullMin = teamBar > 0 ? caMin : MIN_FULL_OFFENSIVE_INITIATIVE;
 
     const bool allies = groundAction.actionType == GACTION_DEFENSIVE and AlliedStrikeReady(who);
     bool held = false;
@@ -1351,7 +1353,7 @@ void TeamClass::SelectGroundAction(void)
 
 
     if (groundAction.actionType == GACTION_DEFENSIVE and
-        ((g_nCounterAttackInitiative > 0 and initiative >= caMin and TheCampaign.CurrentTime >= counterReady[who % NUM_TEAMS]) or
+        ((teamBar > 0 and initiative >= caMin and TheCampaign.CurrentTime >= counterReady[who % NUM_TEAMS]) or
          (allies and TheCampaign.CurrentTime >= alliedUntil[who % NUM_TEAMS] + g_nAlliedCounterRestH * CampaignHours)) and
         not held)
     {
@@ -2283,6 +2285,8 @@ static int EffectiveGroundVehicles(Team t)
 bool g_bInitIndependent = false;
 bool g_bChinaOwn = false;
 int g_nTurnMode = 0;
+// campsim experiment (teambar=): per-team initiative bar for starting an offensive (0 = g_nCounterAttackInitiative, else stock 50/55)
+int g_nTeamOffenseBar[NUM_TEAMS] = {};
 extern int gInitDiag[8][12];
 
 static void NewInitiativeIndependent(void)
