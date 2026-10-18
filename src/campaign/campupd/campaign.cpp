@@ -2626,6 +2626,14 @@ unsigned int __stdcall HandleCampaignThread(void)
             TheCampaign.Flags xor_eq CAMP_SUSPEND_REQUEST;
         }
 
+        // campsim det=1: the thread does no campaign work at all (campsim ticks the campaign itself; how far this thread got before
+        // campsim suspended it depended on the machine's load)
+        if (g_bCampThreadNoDispatch)
+        {
+            Sleep(1);
+            continue;
+        }
+
         //START_PROFILE("CA SENDDATA");
         // Send any data that's been requested of us.
         SendRequestedData();
