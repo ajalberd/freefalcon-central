@@ -190,6 +190,7 @@ static void FillStores(int who)
 // a further share per link. Battalions draw from their nearest store as with stocks=1. So a factory feeds its region first, the front is
 // fed only through the network, and a bombed factory, depot or bridge empties the stores behind it.
 int g_nSxMap = 0, g_nSxMapAirPct = 30;
+int g_nSxMapReach = 25, g_nSxMapShipPct = 25; // sxmapreach= links a short store looks for a donor; sxmapship= most a shipment moves, % of capacity
 int gSxMapDiag[NUM_TEAMS][6] = {{0}}; // deposited locally, to the pool, shipments, shipped, arrived, short stores with no donor in reach
 struct SxProd
 {
@@ -201,7 +202,7 @@ static int NodeSupplyLoss(Objective c, int type);
 extern costtype GetObjectiveMovementCost(Objective o, Objective t, int neighbor, MoveType type, Team team, int flags);
 extern int g_nSxConvoyTeam, g_nSxConvoyHit;
 
-static Objective SxNearestStore(Objective p)
+static Objective SxNearestStore(Objective p, bool withRoom = true)
 {
     GridIndex px, py;
     p->GetLocation(&px, &py);
@@ -213,6 +214,14 @@ static Objective SxNearestStore(Objective p)
     {
         if (not IsStoreObj(o) or o->GetTeam() not_eq p->GetTeam())
             continue;
+
+        if (withRoom)
+        {
+            StoreSync(o);
+
+            if (gStoreSup[o->GetCampID()] >= (float)StoreCap(o) * o->GetObjectiveStatus() / 100.0F - 1.0F)
+                continue; // full: the next nearest
+        }
 
         GridIndex x, y;
         o->GetLocation(&x, &y);
@@ -292,7 +301,7 @@ static void SxMapShip(int who)
         {
             Objective cur = q[h];
 
-            if (depth[h] >= 25)
+            if (depth[h] >= g_nSxMapReach)
                 continue;
 
             for (int n = 0; n < cur->static_data.links; n++)
@@ -334,7 +343,7 @@ static void SxMapShip(int who)
         float amt = gStoreSup[did] - StoreCap(donor) * 0.5F;
         const float want = bcap * 0.8F - gStoreSup[bid];
         amt = amt < want ? amt : want;
-        amt = amt < bcap * 0.25F ? amt : bcap * 0.25F;
+        amt = amt < bcap * g_nSxMapShipPct / 100.0F ? amt : bcap * g_nSxMapShipPct / 100.0F;
 
         if (amt <= 0)
             continue;
@@ -1460,7 +1469,7 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                     if (stockUnit)
                     {
                         Objective st = o ? FindNearestSupplyStore(o) : NULL;
-                        SxPocket(unit, st != NULL);
+                        SxPocket(unit, st != NULL or (o and FindNearestSupplySource(o) != NULL));
 
                         if (not st)
                         {
@@ -1526,7 +1535,7 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                     else
                     {
                     s = o ? (SxActive() ? SxFindSource(o, who) : FindNearestSupplySource(o)) : NULL;
-                    SxPocket(unit, s != NULL);
+                    SxPocket(unit, s != NULL or (o and FindNearestSupplySource(o) != NULL));
 
                     if (o and s)
                     {

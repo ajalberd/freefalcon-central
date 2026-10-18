@@ -45,8 +45,10 @@ def main():
         if dw:
             better = sum(1 for d in dw if d < 0)
             worse = sum(1 for d in dw if d > 0)
-            print("  => Blue wins %d/%d; win hour %+.0f h on average (earlier in %d seeds, later in %d); share %+.1f points on average" % (
-                wins, len(dw), sum(dw) / len(dw), better, worse, sum(ds) / len(ds)))
+            base_wins = sum(1 for s in seeds if rows.get((base, s)) and rows[(base, s)]["endgame"] == 17 and (arm, s) in rows)
+            print("  => Blue wins %d/%d (base %d); win hour %+.0f h on average (earlier in %d seeds, later in %d); share %+.1f points on average, "
+                  "lower in %d of %d seeds" % (wins, len(dw), base_wins, sum(dw) / len(dw), better, worse, sum(ds) / len(ds),
+                                                sum(1 for d in ds if d < -0.5), len(ds)))
 
 
 if __name__ == "__main__":

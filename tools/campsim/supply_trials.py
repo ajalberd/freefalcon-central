@@ -156,6 +156,17 @@ ARMS = {
     "P_map_convN15": (SMODEL + " sxmap=1 sxconvoyhit=6:15", 13),             # 2: the few convoys (shipments) of the North hit
     "P_map_convB10": (SMODEL + " sxmap=1 sxconvoyhit=2:10", 13),             # 2: Blue's shipments hit
     "P_hmap": ("sxmap=1", 13),                                               # the map model on plain h_bar
+    # round 14: softer attack use, pockets as true encirclement, the map model with a 50-link shipping reach and 50% shipments (+ rail)
+    "P_att2": (SMODEL + " sxattackuse=2", 14),
+    "P_pocket2": (SMODEL + " sxpocket=12", 14),
+    "P_map50": (SMODEL + " sxmap=1 sxmapreach=50 sxmapship=50", 14),
+    "P_map50_rail": (SMODEL + " sxmap=1 sxmapreach=50 sxmapship=50 raillines=Gyeongbu,Gyeongui,Hambuk,Honam,Kangwon,Khasan,Manpo,Meiji,Pukbunaeryuk,Pyongbu,Pyongdok,Pyongra,Pyongui,Shendan,Shenji railload=240", 14),
+    "P_map50_fact10": (SMODEL + " sxmap=1 sxmapreach=50 sxmapship=50 blowlim=factory:6:10 blowat=48", 14),
+    "P_map50_depot10": (SMODEL + " sxmap=1 sxmapreach=50 sxmapship=50 blowlim=depot:6:10 blowlim=armybase:6:10 blowat=48", 14),
+    "P_map50_bridgeRear": (SMODEL + " sxmap=1 sxmapreach=50 sxmapship=50 blowsel=bridge:6:10:10:1 blowat=48", 14),
+    "P_map50_convN15": (SMODEL + " sxmap=1 sxmapreach=50 sxmapship=50 sxconvoyhit=6:15", 14),
+    "P_map50_convB10": (SMODEL + " sxmap=1 sxmapreach=50 sxmapship=50 sxconvoyhit=2:10", 14),
+    "P_map50_depotB10": (SMODEL + " sxmap=1 sxmapreach=50 sxmapship=50 blowlim=depot:2:10 blowlim=armybase:2:10 blowat=72", 14),
 }
 
 
