@@ -1,11 +1,68 @@
 # Supply research: making supply shape the Korea war (campsim, 2026-10-18)
 
-Question: what would make supply change the war -- give it ebb and flow, and give the player decisions (strikes, interdiction, protecting his
-own lines) -- instead of being a number that stays near 90%? Campsim only, LTCG build; every mechanism is a new switch, off by default; the
-baseline is the `h_bar` configuration (CAMPAIGN-CHINA-EXPERIMENTS.md). 3 seeds per arm, 10-day runs, campaigns end at a win condition.
-Harness: `tools/campsim/supply_trials.py run|report|daily [round]`, results in `tools/campsim/supply/results.jsonl` (rounds 1-4).
+Question: what would make supply change the war -- give it ebb and flow, and give the player decisions (strikes, interdiction, protecting
+their own lines) -- instead of being a number that stays near 90%? Campsim only, LTCG build; every mechanism is a new switch, off by default;
+the baseline is the `h_bar` configuration (CAMPAIGN-CHINA-EXPERIMENTS.md). 3 seeds per arm, 10-day runs, campaigns end at a win condition.
+Harness: `tools/campsim/supply_trials.py run|report|daily [round]`, results in `tools/campsim/supply/results.jsonl` (rounds 1-9, 222 runs).
+Nothing here touches the game exe, the install's save0 / cfg, h_bar's settings or the trigger scripts.
 
-ROUND4_PLACEHOLDER
+## The answer
+
+**Supply never matters today because it has no geography: 126 supply sources (every city behind the front counts), captured ones work at
+once, and resupply outruns use -- Blue battalions spend 2.2% of their hours under 50% supply. Give supply a reach and a travel time, and it
+starts to shape the war: Blue's offensive culminates on days 3-5 deep in the North, the North's front starves as its lines lengthen, and the
+player's strikes acquire real, sometimes opposite, values.**
+
+### Ranked recommendations
+
+| # | Mechanism (switches) | What it does to the war | What it gives the player |
+|---|---|---|---|
+| 1 | **Logistics reach**: captured depots work after 72 h, sources at most 12 links away, 10% loss per road node (`sxrear=72 sxhops=12 sxloss=10`) | Blue's spearhead supply falls to 44-79% on days 3-5 (up to 76 battalions under 50%) and its offensive culminates; the ground war stops being a one-way slide | Deciding when to push and when to wait for the depots to move up |
+| 2 | **Blue's offensive bar 40 instead of 50 when (1) is on** (`teambar=1:40,2:40,3:40,5:30,6:15`) | Supply now does the braking the bar did; Blue recovers after the setback. `R_bar40`: all 3 seeds advance, stall on days 3-5, come back (seed 2: 1449 -> 1401 -> 1587 objectives), 2 Blue wins (h184, h238) | -- |
+| 3 | **Convoy time** (`sxdelay=10`, 1 h per link) | Long lines refill slowly: the North's front starves to 27-46% by day 7-8 in most seeds (27-32% with convoy time alone, `w_d10`) as Blue pushes it back from its depots; with (1)+(2) Blue wins 3/3 on days 8-9 (h188-220) | A target in transit: interdiction of convoys (not built -- next step) |
+| 4 | **Logistics hubs only** (`sxnocity=1`: depots, army bases, ports are sources; cities are not) | Sharpens (1)-(3) for both sides (Blue spearhead 43-61% on day 5, North front 34-57% by days 5-7); Blue wins 3/3 earlier (h148-208) | Depots and ports become the targets that matter |
+| 5 | Strikes priced by the model (`blow=TYPE:TEAM:hold:N`, the N nearest the front) | see below | A real choice of target, and a reason to defend one's own |
+
+Model **S** = (1)+(2)+(3) (`sxrear=72 sxhops=12 sxloss=10 sxdelay=10 teambar=1:40,2:40,3:40,5:30,6:15`; `sxwheeled=1` makes no difference):
+Blue wins 3/3 in each of two batches (h201-220; h138-224), stalling on days 3-5 while the North's front starves.
+
+**Strikes on model S, player-sized (10 objectives nearest the front, held down), Blue win hour per seed (no strike: 138 / 187 / 224):**
+
+| Strike | Seeds 1 / 2 / 3 | Reading |
+|---|---|---|
+| North's depots + army bases (from h48) | 127 / 169 / 184 | **faster in every seed** (-11, -18, -40 h) -- the best target |
+| North's factories | 115 / 174 / 220 | faster in every seed, less (-23, -13, -4 h) |
+| North's ports | 153 / 198 / 160 | mixed |
+| **North's bridges** | none / 192 / 205 | **counter-productive**: a blown bridge is one Blue must cross to advance |
+| The North hits Blue's bridges (from h72) | 184 / 198 / none | **costs Blue** -- one war not won, the others later: protect your lines |
+| The North hits Blue's depots + army bases | none / 198 / 222 | costs Blue one war |
+
+With every objective of a type held down (an upper bound): depots + army bases from h48 -> 3/3 wins at h112-205; the same from h96 ->
+h143-191 (late still pays); bridges -> 1 win in 3; the North on Blue's bridges -> 0 wins in 3 (Blue 52-56%).
+
+**Runs worth viewing** (Campaign Lab, `tools/campsim/runs/`):
+- `chdd-sx-R_bar40-s2.jsonl` -- the arc: advance to 1449 objectives on day 3, spearhead supply 52%, fall back to 1401 by day 6, resupply,
+  1587 by day 10.
+- `chdd-sx-S9-s2.jsonl` -- model S: Blue stalls on days 3-5 (spearhead 62%), the North's front starves (56% -> 43%), Blue wins at h187.
+- `chdd-sx-S_bridgeB10-s3.jsonl` next to `chdd-sx-S9-s3.jsonl` -- the North blows 10 of Blue's bridges from h72: Blue never wins (55%)
+  where the same war without the strike ends in a Blue win at h224.
+
+**Not recommended:** `usemult=4` (both sides starve, the war freezes at 46-52%); `sxfront` (engaged units get less: symmetric attrition,
+the North's front starves as much as Blue's); `initsupply` (supply-weighted initiative made Blue's comeback rarer); `sxown`, `sxrear`
+alone, `sxrail`, `sxwheeled` (no effect while every city is a source -- supply barely travels).
+
+**Engine findings along the way:** supply convoys are routed on Foot (`SendSupply`), so they walk round a blown bridge; the source search
+(`FindNearestSupplySource`) never checks who owns the source; rail objectives are almost never on a supply route (rail as an artery needs
+the rail network, not these nodes); the GTM already takes capture orders from units under 50% supply and shots already scale with supply --
+the effects of low supply exist, low supply just never happens.
+
+**Caveats:** 3 seeds per arm and the war varies a lot between seeds (Blue's win hour in model S: 138-224); differences under about a day
+are inside the noise, which is why the strike table reads per seed. Strikes are modelled as objectives held destroyed (`blow`), not as
+flown missions. Determinism is partial (section 4). Nothing here has been tried in the game.
+
+**Next steps if this goes forward:** (a) convoys as entities the ATM can find and strike (the `sxdelay` queue is where they would live);
+(b) the rail network as the cheap artery from the Chinese border and from Pusan; (c) a player-facing supply view (spearhead supply, depot
+reach) so the culmination is visible; (d) repeat the S + strike rows with 6+ seeds before porting anything.
 
 ## 1. Why supply does nothing today (measured)
 
@@ -39,6 +96,9 @@ shaping it (CAMPAIGN-SUPPLY-SPREAD.md, CAMPAIGN-STRIKE-EXPERIMENTS.md). This rou
 | `sxloss=P` / `sxrail=P` | base supply loss per road / rail node on the way, % (stock 2) |
 | `sxfront=P` | a battalion engaged with the enemy gets P% of a delivery (convoys do not reach a unit under fire) |
 | `sxdelay=H` | a delivery arrives H hours per 10 links after it is sent (the convoy is on the road) |
+| `sxwheeled=1` | supply is routed as trucks (stock: on Foot, round blown bridges) |
+| `sxnocity=1` | cities are no supply source; only depots, army bases and ports |
+| `blow=TYPE:TEAM:hold:N` | (campsim strike tool) hold down only the N objectives of the type nearest the enemy |
 | (existing) `usemult`, `initsupply`, `blow=TYPE:TEAM:hold` + `blowat` | consumption multiplier; initiative counts supply-weighted ground strength; a strike campaign held down from an hour |
 
 ## 3. Results, rounds 1-3 (3 seeds each; Blue share of objectives at the end; baseline 56-61%)
