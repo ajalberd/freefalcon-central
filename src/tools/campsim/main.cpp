@@ -4032,7 +4032,14 @@ int main(int argc, char **argv)
     STEP("radar data");
 
     InitVU();
-    CreateThread(NULL, 0, CampsimVuPump, NULL, 0, NULL);
+    {
+        // det=1: no background pump -- messages it handled during loading drew on its own rand() and raced the loading thread, so the
+        // first hour of the war changed with the machine's load. The main thread drains the queue after loading instead.
+        extern bool g_bCampThreadNoDispatch;
+
+        if (!g_bCampThreadNoDispatch)
+            CreateThread(NULL, 0, CampsimVuPump, NULL, 0, NULL);
+    }
     STEP("VU");
 
     if (!LoadTactics("Falcon4"))
@@ -4081,6 +4088,14 @@ int main(int argc, char **argv)
     }
 
     STEP("campaign loaded");
+
+    {
+        extern bool g_bCampThreadNoDispatch;
+
+        if (g_bCampThreadNoDispatch && gMainThread)
+            for (int i = 0; i < 10; i++)
+                gMainThread->Update(0);
+    }
 
     StoresAudit("loaded");
     ApplyNewGame(argc, argv, savefile);
