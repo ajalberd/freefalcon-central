@@ -74,6 +74,14 @@ ARMS = {
     "R_is_bridgeB": ("sxrear=72 sxhops=12 sxloss=10 initsupply=1 blow=bridge:2:hold blowat=72", 4),
     "d5": ("sxdelay=5", 4),
     "d10": ("sxdelay=10", 4),
+    # round 5: the comeback (Blue's bar 40 instead of 50), reach + convoy time together, and strikes under convoy time
+    "R_bar40": ("sxrear=72 sxhops=12 sxloss=10 teambar=1:40,2:40,3:40,5:30,6:15", 5),
+    "R_bar40_is": ("sxrear=72 sxhops=12 sxloss=10 initsupply=1 teambar=1:40,2:40,3:40,5:30,6:15", 5),
+    "R_d10": ("sxrear=72 sxhops=12 sxloss=10 sxdelay=10", 5),
+    "R_d10_bar40": ("sxrear=72 sxhops=12 sxloss=10 sxdelay=10 teambar=1:40,2:40,3:40,5:30,6:15", 5),
+    "d10_depotN": ("sxdelay=10 blow=depot:6:hold blow=armybase:6:hold blowat=48", 5),
+    "d10_bridgeN": ("sxdelay=10 blow=bridge:6:hold blowat=48", 5),
+    "d10_factN": ("sxdelay=10 blow=factory:6:hold blowat=48", 5),
 }
 
 
