@@ -53,4 +53,5 @@ without any scripted help. In seed 1 Blue's air war kept its initiative above 50
   the offensive at once; event 10 should require Blue not to be attacking (`#IF_ON_OFFENSIVE 2 / #ELSE / #IF_ON_OFFENSIVE 6`). Not patched yet.
 - A non-forced China shock: `#SHIFT_INITIATIVE` from Blue to China at the join with the `h_bar` bars (decays by half per recalculation, may be too brief).
 - Chinese logistics of their own, Chinese air as its own team, Russia (team 4) as its own team; more seeds before any of this moves into the game exe.
-- Timeline objective rows (`o`) are empty, so objective ownership over time comes only from the team stats.
+- Timeline objective rows (`o`) are change-only: each frame lists the objectives that changed hands since the last one ([id, team, status]); ownership at any
+  time is the meta line's start owner plus those changes (see `tools/campsim/supply_reach.py`). China's capture count can be tracked that way.

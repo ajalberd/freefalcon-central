@@ -638,6 +638,19 @@ static void GtmLog(int hour)
                    "(cumulative)\n", hour, t, gNavalDiag[t][0], gNavalDiag[t][1], gNavalDiag[t][2],
                    gNavalDiag[t][3], gNavalDiag[t][6], gNavalDiag[t][4], gNavalDiag[t][5]);
 
+        // supply research (sx* knobs, supply.cpp): source searches, none in reach, refused (owner / too recently taken), mean links to the source
+        {
+            extern int gSxDiag[NUM_TEAMS][4];
+
+            for (int t : {2, 6})
+            {
+                int *d = gSxDiag[t];
+                int found = d[0] - d[1] - d[2];
+                printf("SXDIAG h=%d team %d searches %d, no source in reach %d, refused %d, mean links %.1f (cumulative)\n", hour, t, d[0], d[1],
+                       d[2], found > 0 ? (float)d[3] / found : 0.0f);
+            }
+        }
+
         // ALERT flights rejected for too few aircraft: how many they had vs how many the request wanted
         extern int gAlertVeh[8][2][8];
 
@@ -3144,6 +3157,16 @@ static void ApplyKnobs(int argc, char **argv)
             g_nAtmBuildBudget = atoi(val);
             printf("KNOB ATM builds at most %d packages per call instead of 200 ms of wall clock (0 = stock)\n", g_nAtmBuildBudget);
         }
+        else if (!strcmp(key, "sxown") || !strcmp(key, "sxrear") || !strcmp(key, "sxhops") || !strcmp(key, "sxloss") || !strcmp(key, "sxrail"))
+        {
+            // supply research switches (supply.cpp, top of SxFindSource)
+            extern int g_nSxOwn, g_nSxRearH, g_nSxHops, g_nSxLoss, g_nSxRail;
+            int v = atoi(val);
+            int *p = !strcmp(key, "sxown") ? &g_nSxOwn : !strcmp(key, "sxrear") ? &g_nSxRearH : !strcmp(key, "sxhops") ? &g_nSxHops
+                   : !strcmp(key, "sxloss") ? &g_nSxLoss : &g_nSxRail;
+            *p = v;
+            printf("KNOB %s = %d\n", key, v);
+        }
         else if (!strcmp(key, "neutralhold"))
         {
             extern bool g_bNeutralHold;
@@ -3679,7 +3702,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "neutralnouse") and strcmp(key, "turnmode") and strcmp(key, "teambar") and strcmp(key, "neutralhold") and strcmp(key, "atmbudget") and strcmp(key, "det") and strcmp(key, "chinaown") and strcmp(key, "initindep") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "neutralnouse") and strcmp(key, "turnmode") and strcmp(key, "teambar") and strcmp(key, "neutralhold") and strcmp(key, "atmbudget") and strcmp(key, "det") and strcmp(key, "sxown") and strcmp(key, "sxrear") and strcmp(key, "sxhops") and strcmp(key, "sxloss") and strcmp(key, "sxrail") and strcmp(key, "chinaown") and strcmp(key, "initindep") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';

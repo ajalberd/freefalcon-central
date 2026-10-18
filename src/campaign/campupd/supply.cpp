@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <string.h>
+#include <utility>
+#include <vector>
 #include "cmpglobl.h"
 #include "listadt.h"
 #include "f4vu.h"
@@ -464,12 +467,133 @@ void AddSupply(Objective o, int supply, int fuel)
 // half is applied at search time instead (2026-09-27): GetObjectiveMovementCost (path.cpp) scales
 // the ground cost of entering a damaged node with the same bridge-vs-road weighting, so the planner
 // now routes around what this function makes expensive to use. Knob: PathDamageCost.
+// ---------------------------------------------------------------------------------------------------------------------------------
+// campsim supply research (2026-10-18), every switch off by default (main.cpp knobs sx*):
+//   sxown=1     a unit draws only on supply sources its own team holds (stock: the search never looks at the owner)
+//   sxrear=H    a source taken in the last H hours is no source yet (depots follow an advance after a delay; 9999 = home sources only)
+//   sxhops=N    a source further than N objective links is out of reach -- the unit gets nothing (cut off / over-extended)
+//   sxloss=P    base loss per road / junction / bridge node, % (stock 2)
+//   sxrail=P    base loss per railroad node, % (stock 2): rail as the cheap artery
+// campsim measured (supply_reach.py, h_bar seed 1): 126 sources, ~70% of battalions within 25 km of one, supply 84-100% at any
+// distance -- captured sources count at once, so an advance is never far from a source.
+int g_nSxOwn = 0, g_nSxRearH = 0, g_nSxHops = 0, g_nSxLoss = -1, g_nSxRail = -1;
+static uchar gSxOwner[MAX_CAMP_ENTITIES];
+static CampaignTime gSxSince[MAX_CAMP_ENTITIES];
+static bool gSxInit = false;
+int gSxDiag[NUM_TEAMS][4] = {{0}}; // searches, no source in reach, refused (owner / too recent), total hops of found sources
+
+static bool SxActive(void)
+{
+    return g_nSxOwn or g_nSxRearH > 0 or g_nSxHops > 0;
+}
+
+// ownership history: when did the current owner take each objective (0 = held since the start)
+static void SxTrackOwners(void)
+{
+    VuListIterator oit(AllObjList);
+
+    for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+    {
+        const int id = o->GetCampID();
+
+        if (id < 0 or id >= MAX_CAMP_ENTITIES)
+            continue;
+
+        if (not gSxInit)
+            gSxOwner[id] = o->GetTeam(), gSxSince[id] = 0;
+        else if (gSxOwner[id] not_eq o->GetTeam())
+            gSxOwner[id] = o->GetTeam(), gSxSince[id] = TheCampaign.CurrentTime;
+    }
+
+    gSxInit = true;
+}
+
+static bool SxSourceOk(Objective c, int who)
+{
+    if (not c->IsSupplySource())
+        return false;
+
+    if (g_nSxOwn and c->GetTeam() not_eq who)
+        return false;
+
+    if (g_nSxRearH > 0)
+    {
+        const int id = c->GetCampID();
+
+        if (id >= 0 and id < MAX_CAMP_ENTITIES and gSxSince[id] and
+            TheCampaign.CurrentTime - gSxSince[id] < (CampaignTime)g_nSxRearH * CampaignHours)
+            return false;
+    }
+
+    return true;
+}
+
+extern costtype GetObjectiveMovementCost(Objective o, Objective t, int neighbor, MoveType type, Team team, int flags);
+
+// FindNearestSupplySource (find.cpp) with the sx rules: breadth-first over objective links, depth counted
+static Objective SxFindSource(Objective o, int who)
+{
+    static uchar seen[MAX_CAMP_ENTITIES];
+    std::vector<std::pair<Objective, int>> q;
+    size_t head = 0;
+    bool refused = false;
+
+    memset(seen, 0, sizeof(seen));
+    q.push_back(std::make_pair(o, 0));
+    seen[o->GetCampID()] = 1;
+    gSxDiag[who % NUM_TEAMS][0]++;
+
+    while (head < q.size())
+    {
+        Objective cur = q[head].first;
+        const int depth = q[head].second;
+        head++;
+
+        if (g_nSxHops > 0 and depth >= g_nSxHops)
+            continue;
+
+        for (int n = 0; n < cur->static_data.links; n++)
+        {
+            Objective c = cur->GetNeighbor(n);
+
+            if (not c or seen[c->GetCampID()])
+                continue;
+
+            seen[c->GetCampID()] = 1;
+
+            if (GetObjectiveMovementCost(cur, NULL, n, Wheeled, (uchar)who, PATH_MARINE) >= 250)
+                continue;
+
+            if (SxSourceOk(c, who))
+            {
+                gSxDiag[who % NUM_TEAMS][3] += depth + 1;
+                return c;
+            }
+
+            if (c->IsSupplySource())
+                refused = true;
+
+            q.push_back(std::make_pair(c, depth + 1));
+        }
+    }
+
+    gSxDiag[who % NUM_TEAMS][refused ? 2 : 1]++;
+    return NULL;
+}
+
 static int NodeSupplyLoss(Objective c, int type)
 {
     extern int g_nSupplyInterdiction;
 
     // Stock behaviour, and still the floor: the field is read in case anything ever does write it.
-    int l = c->GetObjectiveSupplyLosses() + 2; // Automatic loss rate of 2% per objective
+    int base = 2; // Automatic loss rate of 2% per objective
+
+    if (type == TYPE_RAILROAD and g_nSxRail >= 0)
+        base = g_nSxRail;
+    else if (type not_eq TYPE_RAILROAD and g_nSxLoss >= 0)
+        base = g_nSxLoss;
+
+    int l = c->GetObjectiveSupplyLosses() + base;
 
     if (g_nSupplyInterdiction <= 0)
         return l;
@@ -638,6 +762,9 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
 
     if (not TeamInfo[who] or not(TeamInfo[who]->flags bitand TEAM_ACTIVE))
         return 0;
+
+    if (SxActive())
+        SxTrackOwners();
 
     sratio = fratio = rratio = 0.0F;
 
@@ -1045,7 +1172,7 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                     }
                     else
                     {
-                    s = o ? FindNearestSupplySource(o) : NULL;
+                    s = o ? (SxActive() ? SxFindSource(o, who) : FindNearestSupplySource(o)) : NULL;
 
                     if (o and s)
                     {
