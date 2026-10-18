@@ -652,6 +652,14 @@ static void GtmLog(int hour)
                        hour, t, d[0], d[1], d[2], found > 0 ? (float)d[3] / found : 0.0f, gSxFrontCut[t]);
             }
 
+            extern int gSxMapDiag[NUM_TEAMS][6], gSxPocketDiag[NUM_TEAMS][3];
+
+            for (int t : {2, 6})
+                printf("SXMAP h=%d team %d deposited %d, to pool %d, shipments %d, shipped %d, arrived %d, short stores no donor %d | "
+                       "pockets: cut-off passes %d, morale hits %d, surrenders %d (cumulative)\n", hour, t, gSxMapDiag[t][0], gSxMapDiag[t][1],
+                       gSxMapDiag[t][2], gSxMapDiag[t][3], gSxMapDiag[t][4], gSxMapDiag[t][5], gSxPocketDiag[t][0], gSxPocketDiag[t][1],
+                       gSxPocketDiag[t][2]);
+
             extern int gSxConvoyLost[NUM_TEAMS];
             printf("SXCONVOY h=%d supply lost to convoy interdiction: Blue %d, North %d (cumulative)\n", hour, gSxConvoyLost[2], gSxConvoyLost[6]);
         }
@@ -2604,6 +2612,7 @@ static BlowRule gBlow[32];
 static int gBlowN;
 static int gBlowLimit[32];          // blow=TYPE:TEAM:hold:N -- only N objectives (0 = all)
 static std::set<int> gBlowPicked[32];
+static int gBlowSkip[32];           // blowsel: skip the SKIP nearest the enemy first
 
 static int BlowMatches(const BlowRule &r, Objective o)
 {
@@ -2671,7 +2680,7 @@ static void ApplyBlow(int hour)
 
             std::sort(cand.begin(), cand.end());
 
-            for (int k = 0; k < (int)cand.size() && k < gBlowLimit[i]; k++)
+            for (int k = gBlowSkip[i]; k < (int)cand.size() && k < gBlowSkip[i] + gBlowLimit[i]; k++)
                 gBlowPicked[i].insert(cand[k].second);
         }
 
@@ -3206,6 +3215,19 @@ static void ApplyKnobs(int argc, char **argv)
                 g_nAtmBuildBudget = 20;
             printf("KNOB deterministic: atmbudget %d\n", g_nAtmBuildBudget);
         }
+        else if (!strcmp(key, "sxattackuse") || !strcmp(key, "sxpocket") || !strcmp(key, "sxmap"))
+        {
+            // supply research round 2 (supply.cpp): offensive consumption, pockets, the supply map (sxmap implies regional stores)
+            extern int g_nSxAttackUse, g_nSxPocketH, g_nSxMap;
+            extern bool g_bSupplyStocks;
+            int v = atoi(val);
+            int *p = !strcmp(key, "sxattackuse") ? &g_nSxAttackUse : !strcmp(key, "sxpocket") ? &g_nSxPocketH : &g_nSxMap;
+            *p = v;
+            if (p == &g_nSxMap && v)
+                g_bSupplyStocks = true;
+            printf("KNOB %s = %d
+", key, v);
+        }
         else if (!strcmp(key, "sxconvoyhit"))
         {
             extern int g_nSxConvoyTeam, g_nSxConvoyHit;
@@ -3308,14 +3330,19 @@ static void ApplyKnobs(int argc, char **argv)
             gBlowAt = atoi(val);
             printf("KNOB blow rules start at hour %d\n", gBlowAt);
         }
-        else if (!strcmp(key, "blow") || !strcmp(key, "blowlim"))
+        else if (!strcmp(key, "blow") || !strcmp(key, "blowlim") || !strcmp(key, "blowsel"))
         {
             char tn[32] = "", tm[16] = "", hd[16] = "";
             int lim = 0;
 
             // blowlim=TYPE:TEAM:N (new, 2026-10-18): held down, only the N objectives of the type nearest the enemy. blow= is unchanged.
+            int skip = 0, hold1 = 1;
+
             if (!strcmp(key, "blowlim"))
                 sscanf(val, "%31[^:]:%15[^:]:%d", tn, tm, &lim), strcpy(hd, "hold");
+            // blowsel=TYPE:TEAM:SKIP:N:HOLD (new): skip the SKIP nearest the enemy, take the next N; HOLD 0 = struck once, then repairable
+            else if (!strcmp(key, "blowsel"))
+                sscanf(val, "%31[^:]:%15[^:]:%d:%d:%d", tn, tm, &skip, &lim, &hold1), strcpy(hd, hold1 ? "hold" : "once");
             else
                 sscanf(val, "%31[^:]:%15[^:]:%15s", tn, tm, hd);
             int team = !strcmp(tm, "red") ? -1 : atoi(tm), hold = !strcmp(hd, "hold");
@@ -3337,6 +3364,7 @@ static void ApplyKnobs(int argc, char **argv)
                 {
                     gBlow[gBlowN].type = names[k].t, gBlow[gBlowN].team = team, gBlow[gBlowN].hold = hold, gBlow[gBlowN].done = 0;
                     gBlowLimit[gBlowN] = lim;
+                    gBlowSkip[gBlowN] = skip;
                     gBlowN++;
                     found++;
                 }
@@ -3771,7 +3799,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "blowlim") and strcmp(key, "sxconvoyhit") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "neutralnouse") and strcmp(key, "turnmode") and strcmp(key, "teambar") and strcmp(key, "neutralhold") and strcmp(key, "atmbudget") and strcmp(key, "det") and strcmp(key, "dethash") and strcmp(key, "sxown") and strcmp(key, "sxrear") and strcmp(key, "sxhops") and strcmp(key, "sxloss") and strcmp(key, "sxrail") and strcmp(key, "sxfront") and strcmp(key, "sxdelay") and strcmp(key, "sxwheeled") and strcmp(key, "sxnocity") and strcmp(key, "chinaown") and strcmp(key, "initindep") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "blowlim") and strcmp(key, "blowsel") and strcmp(key, "sxconvoyhit") and strcmp(key, "sxattackuse") and strcmp(key, "sxpocket") and strcmp(key, "sxmap") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "neutralnouse") and strcmp(key, "turnmode") and strcmp(key, "teambar") and strcmp(key, "neutralhold") and strcmp(key, "atmbudget") and strcmp(key, "det") and strcmp(key, "dethash") and strcmp(key, "sxown") and strcmp(key, "sxrear") and strcmp(key, "sxhops") and strcmp(key, "sxloss") and strcmp(key, "sxrail") and strcmp(key, "sxfront") and strcmp(key, "sxdelay") and strcmp(key, "sxwheeled") and strcmp(key, "sxnocity") and strcmp(key, "chinaown") and strcmp(key, "initindep") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';

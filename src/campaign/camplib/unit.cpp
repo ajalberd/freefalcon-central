@@ -5042,8 +5042,10 @@ int UnitClass::CollectWeapons(uchar* dam, MoveType m, short w[], uchar wc[],
 
     if (IsBattalion())
     {
-        extern int g_nSupplyUseMult;
-        sup = GetUnitSupply() - (GetUnitSupply() - sup) * g_nSupplyUseMult;
+        extern int g_nSupplyUseMult, g_nSxAttackUse;
+        // sxattackuse=M (campsim research, off = 0): a battalion on capture orders uses M times as much
+        const int mult = g_nSupplyUseMult * ((g_nSxAttackUse > 1 and GetUnitOrders() == GORD_CAPTURE) ? g_nSxAttackUse : 1);
+        sup = GetUnitSupply() - (GetUnitSupply() - sup) * mult;
     }
 
     if (sup < 0)

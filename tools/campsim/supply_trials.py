@@ -139,6 +139,22 @@ ARMS = {
     "P_convN15": (SMODEL + " sxconvoyhit=6:15", 12),
     "P_convB10": (SMODEL + " sxconvoyhit=2:10", 12),
     "P_h": ("", 12),
+    # round 13 (China-supply fix in): the follow-up ideas and the map model, exact pairs against P_S, 6 seeds
+    "P_rail": (SMODEL + " rail=1", 13),                                      # 1: trains carry supply to the railheads
+    "P_rail_bridge10": (SMODEL + " rail=1 blowlim=bridge:6:10 blowat=48", 13),
+    "P_att3": (SMODEL + " sxattackuse=3", 13),                               # 3: attacking uses 3x the supply
+    "P_pocket": (SMODEL + " sxpocket=12", 13),                               # 4: cut off 12 h -> morale falls, surrender
+    "P_bridgeRear": (SMODEL + " blowsel=bridge:6:10:10:1 blowat=48", 13),    # 5: supply-line bridges behind the front (11th-20th nearest)
+    "P_bridgeOnce": (SMODEL + " blowsel=bridge:6:0:10:0 blowat=48", 13),     # 5: front bridges struck once, then repaired
+    "P_bar15": (SMODEL + " teambar=1:15,2:15,3:15,5:15,6:15", 13),           # 7: supply alone sets the rhythm (cfg bar 15 for all)
+    "P_bar50": (SMODEL + " teambar=1:50,2:50,3:50,5:30,6:15", 13),           # 7: the h_bar bars kept
+    "P_map": (SMODEL + " sxmap=1", 13),                                      # map model: producers -> stores -> shipments -> units
+    "P_map_fact10": (SMODEL + " sxmap=1 blowlim=factory:6:10 blowat=48", 13),
+    "P_map_depot10": (SMODEL + " sxmap=1 blowlim=depot:6:10 blowlim=armybase:6:10 blowat=48", 13),
+    "P_map_bridgeRear": (SMODEL + " sxmap=1 blowsel=bridge:6:10:10:1 blowat=48", 13),
+    "P_map_convN15": (SMODEL + " sxmap=1 sxconvoyhit=6:15", 13),             # 2: the few convoys (shipments) of the North hit
+    "P_map_convB10": (SMODEL + " sxmap=1 sxconvoyhit=2:10", 13),             # 2: Blue's shipments hit
+    "P_hmap": ("sxmap=1", 13),                                               # the map model on plain h_bar
 }
 
 

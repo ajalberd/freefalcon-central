@@ -181,6 +181,192 @@ static void FillStores(int who)
     gStoreDiag[who][6] += (int)usedF;
 }
 
+// ---------------------------------------------------------------------------------------------------------------------------------
+// sxmap=1 (campsim supply research, off by default; implies the regional stores above): a supply MAP. A producer (factory, port, and
+// depots / army bases where they produce) puts its output into the nearest store of its team -- not into one national pool -- keeping
+// SxMapAirPct% back for the squadrons' pool; whatever a full store cannot take goes to the pool too. Every production call each store
+// under half full is refilled from the nearest store with stock to spare, found by walking its own team's objective links: the shipment
+// loses each road / junction / rail / bridge node's supply loss on the way (damage included -- SupplyInterdiction), and with sxconvoyhit
+// a further share per link. Battalions draw from their nearest store as with stocks=1. So a factory feeds its region first, the front is
+// fed only through the network, and a bombed factory, depot or bridge empties the stores behind it.
+int g_nSxMap = 0, g_nSxMapAirPct = 30;
+int gSxMapDiag[NUM_TEAMS][6] = {{0}}; // deposited locally, to the pool, shipments, shipped, arrived, short stores with no donor in reach
+struct SxProd
+{
+    Objective o;
+    float s;
+};
+static std::vector<SxProd> gSxProd;
+static int NodeSupplyLoss(Objective c, int type);
+extern costtype GetObjectiveMovementCost(Objective o, Objective t, int neighbor, MoveType type, Team team, int flags);
+extern int g_nSxConvoyTeam, g_nSxConvoyHit;
+
+static Objective SxNearestStore(Objective p)
+{
+    GridIndex px, py;
+    p->GetLocation(&px, &py);
+    Objective best = NULL;
+    float bd = 1e30F;
+    VuListIterator oit(AllObjList);
+
+    for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+    {
+        if (not IsStoreObj(o) or o->GetTeam() not_eq p->GetTeam())
+            continue;
+
+        GridIndex x, y;
+        o->GetLocation(&x, &y);
+        const float d = (float)((x - px) * (x - px) + (y - py) * (y - py));
+
+        if (d < bd)
+            bd = d, best = o;
+    }
+
+    return best;
+}
+
+// production of this call -> stores (factor turns a producer's data rate into what the pool formula would have produced)
+static void SxMapDeposit(int who, float factor)
+{
+    int toPool = 0;
+
+    for (const SxProd &p : gSxProd)
+    {
+        if (p.o->GetTeam() not_eq who)
+            continue;
+
+        float amt = p.s * factor;
+        float air = amt * g_nSxMapAirPct / 100.0F;
+        amt -= air;
+        toPool += FloatToInt32(air);
+        Objective st = SxNearestStore(p.o);
+
+        if (st)
+        {
+            StoreSync(st);
+            const int id = st->GetCampID();
+            const float room = (float)StoreCap(st) * st->GetObjectiveStatus() / 100.0F - gStoreSup[id];
+            const float put = amt < room ? (room > 0 ? amt : 0) : room;
+            gStoreSup[id] += put;
+            gStoreFuel[id] += put;
+            gSxMapDiag[who][0] += FloatToInt32(put);
+            amt -= put;
+        }
+
+        toPool += FloatToInt32(amt);
+    }
+
+    TeamInfo[who]->SetSupplyAvail(TeamInfo[who]->GetSupplyAvail() + toPool);
+    gSxMapDiag[who][1] += toPool;
+}
+
+// short stores are refilled from the nearest store with stock to spare, over the team's own objective links
+static void SxMapShip(int who)
+{
+    static int parent[MAX_CAMP_ENTITIES];
+    static Objective objOf[MAX_CAMP_ENTITIES];
+    static uchar seen[MAX_CAMP_ENTITIES];
+    VuListIterator oit(AllObjList);
+
+    for (Objective b = GetFirstObjective(&oit); b; b = GetNextObjective(&oit))
+    {
+        if (not IsStoreObj(b) or b->GetTeam() not_eq who)
+            continue;
+
+        StoreSync(b);
+        const int bid = b->GetCampID(), bcap = StoreCap(b);
+
+        if (gStoreSup[bid] >= bcap * 0.5F)
+            continue;
+
+        // breadth-first from the short store to the nearest store holding more than 60% of its capacity
+        memset(seen, 0, sizeof(seen));
+        std::vector<Objective> q;
+        std::vector<int> depth;
+        q.push_back(b), depth.push_back(0);
+        seen[bid] = 1;
+        parent[bid] = -1;
+        Objective donor = NULL;
+
+        for (size_t h = 0; h < q.size() and not donor; h++)
+        {
+            Objective cur = q[h];
+
+            if (depth[h] >= 25)
+                continue;
+
+            for (int n = 0; n < cur->static_data.links; n++)
+            {
+                Objective c = cur->GetNeighbor(n);
+
+                if (not c or seen[c->GetCampID()] or c->GetTeam() not_eq who)
+                    continue;
+
+                if (GetObjectiveMovementCost(cur, NULL, n, Wheeled, (Team)who, PATH_MARINE) >= 250)
+                    continue;
+
+                seen[c->GetCampID()] = 1;
+                parent[c->GetCampID()] = cur->GetCampID();
+                objOf[c->GetCampID()] = c;
+
+                if (IsStoreObj(c))
+                {
+                    StoreSync(c);
+
+                    if (gStoreSup[c->GetCampID()] > StoreCap(c) * 0.6F)
+                    {
+                        donor = c;
+                        break;
+                    }
+                }
+
+                q.push_back(c), depth.push_back(depth[h] + 1);
+            }
+        }
+
+        if (not donor)
+        {
+            gSxMapDiag[who][5]++;
+            continue;
+        }
+
+        const int did = donor->GetCampID();
+        float amt = gStoreSup[did] - StoreCap(donor) * 0.5F;
+        const float want = bcap * 0.8F - gStoreSup[bid];
+        amt = amt < want ? amt : want;
+        amt = amt < bcap * 0.25F ? amt : bcap * 0.25F;
+
+        if (amt <= 0)
+            continue;
+
+        gStoreSup[did] -= amt;
+        gStoreFuel[did] = gStoreFuel[did] > amt ? gStoreFuel[did] - amt : 0;
+
+        // the route back from the donor to the short store
+        float keep = 1.0F;
+        int links = 0;
+
+        for (int id = parent[did]; id >= 0 and id not_eq bid; id = parent[id], links++)
+        {
+            Objective c = objOf[id];
+            int type = c ? c->GetType() : 0;
+
+            if (c and (type == TYPE_ROAD or type == TYPE_INTERSECT or type == TYPE_RAILROAD or type == TYPE_BRIDGE))
+                keep *= (100 - NodeSupplyLoss(c, type)) / 100.0F;
+        }
+
+        if (g_nSxConvoyHit > 0 and who == g_nSxConvoyTeam)
+            for (int k = 0; k < links; k++)
+                keep *= (100 - g_nSxConvoyHit) / 100.0F;
+
+        gStoreSup[bid] += amt * keep;
+        gStoreFuel[bid] += amt * keep;
+        gSxMapDiag[who][2]++;
+        gSxMapDiag[who][3] += FloatToInt32(amt);
+        gSxMapDiag[who][4] += FloatToInt32(amt * keep);
+    }
+}
+
 // campsim: a team's stores now
 void StoreStats(int team, int *count, int *stockS, int *capS, int *stockF, int *low)
 {
@@ -256,9 +442,15 @@ int ProduceSupplies(CampaignTime deltaTime)
                 {
                     who = o->GetTeam();
 
-                    supply[who] += FloatToInt32((
-                        s *
-                        DataRateModSup)); // A.S.  2001-12-09 DataRateModification for supply and fuel only
+                    if (g_nSxMap) // sxmap: this producer's output goes to its nearest store (SxMapDeposit), not the national pool
+                    {
+                        SxProd sp = {o, s * DataRateModSup};
+                        gSxProd.push_back(sp);
+                    }
+                    else
+                        supply[who] += FloatToInt32((
+                            s *
+                            DataRateModSup)); // A.S.  2001-12-09 DataRateModification for supply and fuel only
                     replacements[who] += FloatToInt32((
                         s *
                         DataRateModRepl)); // A.S.  2001-12-09 DataRateModification for replacements only
@@ -415,10 +607,16 @@ int ProduceSupplies(CampaignTime deltaTime)
         TeamInfo[who]->SetFuelAvail(fuel[who]);
         TeamInfo[who]->SetReplacementsAvail(replacements[who]);
 
-        if (g_bSupplyStocks)
+        if (g_nSxMap)
+        {
+            SxMapDeposit(who, rate * actionBonus / 5.0F);
+            SxMapShip(who);
+        }
+        else if (g_bSupplyStocks)
             FillStores(who);
     }
 
+    gSxProd.clear();
     return 1;
 }
 
@@ -477,6 +675,63 @@ void AddSupply(Objective o, int supply, int fuel)
 // campsim measured (supply_reach.py, h_bar seed 1): 126 sources, ~70% of battalions within 25 km of one, supply 84-100% at any
 // distance -- captured sources count at once, so an advance is never far from a source.
 int g_nSxOwn = 0, g_nSxRearH = 0, g_nSxHops = 0, g_nSxLoss = -1, g_nSxRail = -1;
+int g_nSxAttackUse = 0;           // sxattackuse=M (unit.cpp, battalio.cpp): battalions on capture orders use M times the supply
+// sxpocket=H: a battalion that has found no reachable supply source for H hours (surrounded, or its lines cut) loses 15 morale a supply
+// pass, and surrenders (is removed) when its morale falls under 10. Stock: a cut-off unit just keeps what it had.
+int g_nSxPocketH = 0;
+int gSxPocketDiag[NUM_TEAMS][3] = {{0}}; // cut-off passes, morale hits, surrenders (cumulative)
+static CampaignTime gSxCutSince[MAX_CAMP_ENTITIES];
+static std::vector<VU_ID> gSxSurrender;
+
+static void SxPocket(Unit u, bool found)
+{
+    if (g_nSxPocketH <= 0 or not u->IsBattalion())
+        return;
+
+    const int id = u->GetCampID();
+
+    if (id < 0 or id >= MAX_CAMP_ENTITIES)
+        return;
+
+    if (found)
+    {
+        gSxCutSince[id] = 0;
+        return;
+    }
+
+    const int t = u->GetTeam() % NUM_TEAMS;
+    gSxPocketDiag[t][0]++;
+
+    if (not gSxCutSince[id])
+        gSxCutSince[id] = TheCampaign.CurrentTime;
+
+    if (TheCampaign.CurrentTime - gSxCutSince[id] < (CampaignTime)g_nSxPocketH * CampaignHours)
+        return;
+
+    const int m = u->GetUnitMorale() - 15;
+    u->SetUnitMorale(m > 0 ? m : 0);
+    gSxPocketDiag[t][1]++;
+
+    if (m < 10)
+        gSxSurrender.push_back(u->Id());
+}
+
+static void SxSurrenders(void)
+{
+    for (const VU_ID &id : gSxSurrender)
+    {
+        Unit u = (Unit)vuDatabase->Find(id);
+
+        if (u and not u->IsDead())
+        {
+            gSxPocketDiag[u->GetTeam() % NUM_TEAMS][2]++;
+            u->KillUnit();
+        }
+    }
+
+    gSxSurrender.clear();
+}
+
 int g_nSxFront = -1;              // sxfront=P (see SupplyUnits): engaged battalions get P% of a delivery; -1 = off
 int g_nSxWheeled = 0;             // sxwheeled=1 (see SendSupply): supply routes as Wheeled, not Foot
 int gSxFrontCut[NUM_TEAMS] = {0}; // deliveries cut that way
@@ -1205,6 +1460,7 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                     if (stockUnit)
                     {
                         Objective st = o ? FindNearestSupplyStore(o) : NULL;
+                        SxPocket(unit, st != NULL);
 
                         if (not st)
                         {
@@ -1270,6 +1526,7 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                     else
                     {
                     s = o ? (SxActive() ? SxFindSource(o, who) : FindNearestSupplySource(o)) : NULL;
+                    SxPocket(unit, s != NULL);
 
                     if (o and s)
                     {
@@ -1307,6 +1564,8 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
             unit = GetNextUnit(&myit);
         }
     }
+
+    SxSurrenders();
 
     if (NoTypeBonusRepl)
     {
