@@ -2598,6 +2598,8 @@ static void ReplSplitLog(int hour)
 struct BlowRule { int type; int team; int hold; int done; };
 static BlowRule gBlow[32];
 static int gBlowN;
+static int gBlowLimit[32];          // blow=TYPE:TEAM:hold:N -- only N objectives (0 = all)
+static std::set<int> gBlowPicked[32];
 
 static int BlowMatches(const BlowRule &r, Objective o)
 {
@@ -2624,12 +2626,56 @@ static void ApplyBlow(int hour)
         if (r.done && !r.hold)
             continue;
 
+        // blow=TYPE:TEAM:hold:N -- a player-sized strike: only the N objectives of the type nearest the enemy, picked when the strike starts
+        if (gBlowLimit[i] > 0 && !r.done)
+        {
+            std::vector<std::pair<float, int>> cand;
+            std::vector<std::pair<GridIndex, GridIndex>> enemy;
+            VuListIterator eit(AllObjList);
+
+            for (Objective o = GetFirstObjective(&eit); o; o = GetNextObjective(&eit))
+                if (BlowMatches(r, o))
+                    cand.push_back(std::make_pair(0.0f, (int)o->GetCampID()));
+
+            VuListIterator fit(AllObjList);
+            int myTeam = r.team >= 0 ? r.team : 6;
+
+            for (Objective o = GetFirstObjective(&fit); o; o = GetNextObjective(&fit))
+                if (o->GetTeam() != myTeam && GetTTRelations(myTeam, o->GetTeam()) == War && o->IsSecondary())
+                {
+                    GridIndex x, y;
+                    o->GetLocation(&x, &y);
+                    enemy.push_back(std::make_pair(x, y));
+                }
+
+            for (auto &c : cand)
+            {
+                Objective o = GetObjectiveByID(c.second);
+                GridIndex x, y;
+                o->GetLocation(&x, &y);
+                float best = 1e9f;
+
+                for (auto &e : enemy)
+                    best = min(best, (float)((x - e.first) * (x - e.first) + (y - e.second) * (y - e.second)));
+
+                c.first = best;
+            }
+
+            std::sort(cand.begin(), cand.end());
+
+            for (int k = 0; k < (int)cand.size() && k < gBlowLimit[i]; k++)
+                gBlowPicked[i].insert(cand[k].second);
+        }
+
         int n = 0, rate = 0, feats = 0;
         VuListIterator oit(AllObjList);
 
         for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
         {
             if (!BlowMatches(r, o))
+                continue;
+
+            if (gBlowLimit[i] > 0 && !gBlowPicked[i].count((int)o->GetCampID()))
                 continue;
 
             for (int f = 0; f < o->GetTotalFeatures(); f++)
@@ -3251,7 +3297,8 @@ static void ApplyKnobs(int argc, char **argv)
         else if (!strcmp(key, "blow"))
         {
             char tn[32] = "", tm[16] = "", hd[16] = "";
-            sscanf(val, "%31[^:]:%15[^:]:%15s", tn, tm, hd);
+            int lim = 0;
+            sscanf(val, "%31[^:]:%15[^:]:%15[^:]:%d", tn, tm, hd, &lim);
             int team = !strcmp(tm, "red") ? -1 : atoi(tm), hold = !strcmp(hd, "hold");
             static const struct { const char *n; int t; } names[] = {
                 {"factory", TYPE_FACTORY}, {"refinery", TYPE_REFINERY}, {"power", TYPE_POWERPLANT}, {"depot", TYPE_DEPOT},
@@ -3270,6 +3317,7 @@ static void ApplyKnobs(int argc, char **argv)
                 if (want && gBlowN < 32)
                 {
                     gBlow[gBlowN].type = names[k].t, gBlow[gBlowN].team = team, gBlow[gBlowN].hold = hold, gBlow[gBlowN].done = 0;
+                    gBlowLimit[gBlowN] = lim;
                     gBlowN++;
                     found++;
                 }

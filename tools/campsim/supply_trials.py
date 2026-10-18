@@ -110,6 +110,14 @@ ARMS = {
     "N_depotN": (SMODEL + " sxnocity=1 blow=depot:6:hold blow=armybase:6:hold blowat=48", 8),
     "N_bridgeB": (SMODEL + " sxnocity=1 blow=bridge:2:hold blowat=72", 8),
     "N_depotB": (SMODEL + " sxnocity=1 blow=depot:2:hold blow=armybase:2:hold blowat=72", 8),
+    # round 9: player-sized strikes on model S (blow=TYPE:TEAM:hold:N -- the N of the type nearest the enemy, held down)
+    "S9": (SMODEL, 9),
+    "S_depot10": (SMODEL + " blow=depot:6:hold:10 blow=armybase:6:hold:10 blowat=48", 9),
+    "S_bridge10": (SMODEL + " blow=bridge:6:hold:10 blowat=48", 9),
+    "S_port5": (SMODEL + " blow=port:6:hold:5 blowat=48", 9),
+    "S_fact10": (SMODEL + " blow=factory:6:hold:10 blowat=48", 9),
+    "S_bridgeB10": (SMODEL + " blow=bridge:2:hold:10 blowat=72", 9),
+    "S_depotB10": (SMODEL + " blow=depot:2:hold:10 blow=armybase:2:hold:10 blowat=72", 9),
 }
 
 
