@@ -40,6 +40,13 @@ ARMS = {
     "loss5": ("sxloss=5", 1),                  # every road node costs 5% (stock 2)
     "loss5r0": ("sxloss=5 sxrail=0", 1),       # ... but rail is free: rail as the artery
     "home_loss5r0": ("sxrear=9999 sxloss=5 sxrail=0", 1),
+    # round 2 (det clock build): can anything starve a spearhead? extremes first
+    "b2": ("", 2),
+    "loss10": ("sxloss=10", 2),
+    "loss10r1": ("sxloss=10 sxrail=1", 2),
+    "home_h8_l10": ("sxrear=9999 sxhops=8 sxloss=10", 2),
+    "use4": ("usemult=4", 2),
+    "use4_home_l10": ("usemult=4 sxrear=9999 sxloss=10", 2),
 }
 
 

@@ -477,6 +477,59 @@ void AddSupply(Objective o, int supply, int fuel)
 // campsim measured (supply_reach.py, h_bar seed 1): 126 sources, ~70% of battalions within 25 km of one, supply 84-100% at any
 // distance -- captured sources count at once, so an advance is never far from a source.
 int g_nSxOwn = 0, g_nSxRearH = 0, g_nSxHops = 0, g_nSxLoss = -1, g_nSxRail = -1;
+int g_nSxFront = -1;              // sxfront=P (see SupplyUnits): engaged battalions get P% of a delivery; -1 = off
+int gSxFrontCut[NUM_TEAMS] = {0}; // deliveries cut that way
+
+// sxdelay=H: a battalion's delivery arrives H hours per 10 objective links of its route after it is sent (a convoy is on the road),
+// so the far end of a long line refills slowly. 0 = stock (instant).
+int g_nSxDelay = 0;
+static int gSxLastHops = 0; // set by SendSupply
+struct SxPending
+{
+    VU_ID id;
+    int sneed, s, fneed, f;
+    CampaignTime at;
+};
+static std::vector<SxPending> gSxPending;
+int gSxDelayed[NUM_TEAMS] = {0}; // deliveries queued, cumulative
+
+void SupplyUnit(Unit u, int sneed, int supply, int fneed, int fuel);
+
+static void SxQueueDelivery(Unit u, int sneed, int s, int fneed, int f)
+{
+    SxPending p;
+    p.id = u->Id();
+    p.sneed = sneed, p.s = s, p.fneed = fneed, p.f = f;
+    p.at = TheCampaign.CurrentTime + (CampaignTime)gSxLastHops * g_nSxDelay * CampaignHours / 10;
+    gSxPending.push_back(p);
+    gSxDelayed[u->GetTeam() % NUM_TEAMS]++;
+}
+
+static void SxDeliverArrived(int who)
+{
+    for (size_t i = 0; i < gSxPending.size();)
+    {
+        if (gSxPending[i].at > TheCampaign.CurrentTime)
+        {
+            i++;
+            continue;
+        }
+
+        Unit u = (Unit)vuDatabase->Find(gSxPending[i].id);
+
+        if (u and u->GetTeam() not_eq who)
+        {
+            i++;
+            continue;
+        }
+
+        if (u)
+            SupplyUnit(u, gSxPending[i].sneed, gSxPending[i].s, gSxPending[i].fneed, gSxPending[i].f);
+
+        gSxPending[i] = gSxPending.back();
+        gSxPending.pop_back();
+    }
+}
 static uchar gSxOwner[MAX_CAMP_ENTITIES];
 static CampaignTime gSxSince[MAX_CAMP_ENTITIES];
 static bool gSxInit = false;
@@ -634,6 +687,7 @@ int SendSupply(Objective s, Objective d, int *supply, int *fuel)
 
     gSupplyPath[team][SUPPATH_TRIPS]++;
     gSupplyPath[team][SUPPATH_HOPS] += path.GetLength();
+    gSxLastHops = path.GetLength();
 
     c = s;
     loss = 0;
@@ -765,6 +819,8 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
 
     if (SxActive())
         SxTrackOwners();
+
+    SxDeliverArrived(who);
 
     sratio = fratio = rratio = 0.0F;
 
@@ -995,6 +1051,15 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                 fuel = FloatToInt32(unit->GetUnitFuelNeed(FALSE) * fratio *
                                     typeBonus);
 
+                // sxfront=P: a battalion engaged with the enemy gets only P% of its delivery (convoys do not reach a unit under fire).
+                // campsim: resupply outruns use (Blue battalions under 50% supply 2.2% of unit-hours, median low point 80%).
+                if (g_nSxFront >= 0 and g_nSxFront < 100 and unit->IsBattalion() and (unit->Engaged() or unit->Combat()))
+                {
+                    supply = supply * g_nSxFront / 100;
+                    fuel = fuel * g_nSxFront / 100;
+                    gSxFrontCut[who % NUM_TEAMS]++;
+                }
+
                 // g_bSupplyStocks: a battalion asks its regional store for up to MAX_SUPPLY_RATIO of what it is short of (x typeBonus)
                 const bool stockUnit = g_bSupplyStocks and unit->IsBattalion();
 
@@ -1187,7 +1252,10 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
 
                         if (SendSupply(s, o, &gots, &gotf))
                         {
-                            SupplyUnit(unit, supply, gots, fuel, gotf);
+                            if (g_nSxDelay > 0 and unit->IsBattalion())
+                                SxQueueDelivery(unit, supply, gots, fuel, gotf);
+                            else
+                                SupplyUnit(unit, supply, gots, fuel, gotf);
                             gSupplyDiag[who][SUPDIAG_GOT_SUPPLY] += gots;
                             gSupplyDiag[who][SUPDIAG_GOT_FUEL] += gotf;
                             // campsim: supply received by battalions [0] vs squadrons [1]
