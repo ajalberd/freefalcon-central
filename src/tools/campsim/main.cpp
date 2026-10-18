@@ -4018,13 +4018,42 @@ static void DetPatchClock(void)
 // a read of memory the engine never initialised saw different leftovers from run to run -- campsim: 2 of 8 solo runs of one seed parted at
 // minute 21 by one extra North Korean flight. Set before anything is allocated in main (static constructors run with it off).
 static bool gDetZeroNew = false;
+// det=1 also moves C++ allocations to a private heap made with HEAP_NO_SERIALIZE (serialised here by our own lock), on which Windows
+// never turns on the low-fragmentation heap -- whose randomised placement made addresses, and so anything ordered or decided by an
+// address, differ between runs of one seed. Blocks keep a header saying which heap they came from (static constructors allocate first).
+static HANDLE gDetHeap = NULL;
+static CRITICAL_SECTION gDetHeapLock;
+
+struct DetHdr
+{
+    size_t det;
+    size_t pad;
+};
 
 void *operator new(size_t n)
 {
-    void *p = malloc(n ? n : 1);
+    void *p;
 
-    if (!p)
+    if (gDetHeap)
+    {
+        EnterCriticalSection(&gDetHeapLock);
+        DetHdr *h = (DetHdr *)HeapAlloc(gDetHeap, HEAP_NO_SERIALIZE | HEAP_ZERO_MEMORY, n + sizeof(DetHdr));
+        LeaveCriticalSection(&gDetHeapLock);
+
+        if (!h)
+            throw std::bad_alloc();
+
+        h->det = 1;
+        return h + 1;
+    }
+
+    DetHdr *h = (DetHdr *)malloc(n + sizeof(DetHdr));
+
+    if (!h)
         throw std::bad_alloc();
+
+    h->det = 0;
+    p = h + 1;
 
     if (gDetZeroNew)
         memset(p, 0, n);
@@ -4037,24 +4066,47 @@ void *operator new[](size_t n)
     return operator new(n);
 }
 
+static void DetFree(void *p)
+{
+    if (!p)
+        return;
+
+    DetHdr *h = (DetHdr *)p - 1;
+
+    if (h->det)
+    {
+        EnterCriticalSection(&gDetHeapLock);
+        HeapFree(gDetHeap, HEAP_NO_SERIALIZE, h);
+        LeaveCriticalSection(&gDetHeapLock);
+    }
+    else
+        free(h);
+}
+
 void operator delete(void *p) noexcept
 {
-    free(p);
+    DetFree(p);
 }
 
 void operator delete[](void *p) noexcept
 {
-    free(p);
+    DetFree(p);
 }
 
 void operator delete(void *p, size_t) noexcept
 {
-    free(p);
+    DetFree(p);
 }
 
 void operator delete[](void *p, size_t) noexcept
 {
-    free(p);
+    DetFree(p);
+}
+
+static void DetHeapStart(void)
+{
+    InitializeCriticalSection(&gDetHeapLock);
+    gDetHeap = HeapCreate(HEAP_NO_SERIALIZE, 64 << 20, 0);
 }
 
 // dethash=M: for the first M campaign minutes print DETHASH lines (units / flights / objectives / ATM lists), so two runs of one seed can be
@@ -4114,7 +4166,7 @@ int main(int argc, char **argv)
 {
     for (int a = 1; a < argc; a++)
         if (!strcmp(argv[a], "det=1"))
-            DetPatchClock(), gDetZeroNew = true;
+            DetPatchClock(), gDetZeroNew = true, DetHeapStart();
         else if (!strncmp(argv[a], "dethash=", 8))
             gDetHashMin = atoi(argv[a] + 8);
 
