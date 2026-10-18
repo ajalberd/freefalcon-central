@@ -3893,8 +3893,64 @@ static int ApplyTheater(int argc, char **argv, const char *slashdir)
     return 1;
 }
 
+// det=1: on the main thread GetTickCount / timeGetTime return a counter that advances 1 ms per call, so every wall-clock budget left in
+// the engine (a VU session resend every 2 s, the player-flight lookup every 5 s, ...) runs off the call sequence rather than the
+// machine's load. Other threads keep the real clock. Patched in campsim.exe's import table, which every linked library shares.
+static DWORD gDetMainTid = 0;
+static volatile LONG gDetClock = 1000;
+static DWORD(WINAPI *gRealTick)(void) = NULL;
+
+static DWORD WINAPI DetTickCount(void)
+{
+    if (GetCurrentThreadId() == gDetMainTid)
+        return (DWORD)InterlockedIncrement(&gDetClock);
+
+    return gRealTick ? gRealTick() : 0;
+}
+
+static void DetPatchClock(void)
+{
+    HMODULE exe = GetModuleHandle(NULL);
+    BYTE *base = (BYTE *)exe;
+    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    IMAGE_DATA_DIRECTORY dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    int patched = 0;
+
+    gDetMainTid = GetCurrentThreadId();
+    gRealTick = (DWORD(WINAPI *)(void))GetProcAddress(GetModuleHandleA("kernel32.dll"), "GetTickCount");
+
+    for (IMAGE_IMPORT_DESCRIPTOR *d = (IMAGE_IMPORT_DESCRIPTOR *)(base + dir.VirtualAddress); dir.VirtualAddress && d->Name; d++)
+    {
+        IMAGE_THUNK_DATA *names = (IMAGE_THUNK_DATA *)(base + (d->OriginalFirstThunk ? d->OriginalFirstThunk : d->FirstThunk));
+        IMAGE_THUNK_DATA *funcs = (IMAGE_THUNK_DATA *)(base + d->FirstThunk);
+
+        for (; names->u1.AddressOfData; names++, funcs++)
+        {
+            if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal))
+                continue;
+
+            const char *fn = (const char *)((IMAGE_IMPORT_BY_NAME *)(base + names->u1.AddressOfData))->Name;
+
+            if (strcmp(fn, "GetTickCount") && strcmp(fn, "timeGetTime"))
+                continue;
+
+            DWORD old;
+            VirtualProtect(&funcs->u1.Function, sizeof(funcs->u1.Function), PAGE_READWRITE, &old);
+            funcs->u1.Function = (ULONG_PTR)DetTickCount;
+            VirtualProtect(&funcs->u1.Function, sizeof(funcs->u1.Function), old, &old);
+            patched++;
+        }
+    }
+
+    printf("DET clock: %d import(s) patched\n", patched);
+}
+
 int main(int argc, char **argv)
 {
+    for (int a = 1; a < argc; a++)
+        if (!strcmp(argv[a], "det=1"))
+            DetPatchClock();
+
     InitializeCriticalSection(&gVuLock);
     // Buffered: unbuffered, every printf fragment was its own WriteFile -- 20% of the run's wall
     // time (the per-hour logs print in pieces). The hourly progress line, STEP, EVENT and the
