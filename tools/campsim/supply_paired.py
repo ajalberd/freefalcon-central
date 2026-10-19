@@ -11,8 +11,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RES = os.path.join(HERE, "supply", "results.jsonl")
 
 
-def sigs(arm, seed):
-    p = os.path.join(HERE, "runs", "chdd-sx-%s-s%d.jsonl" % (arm, seed))
+def sigs(arm, seed, run=None):
+    p = os.path.join(HERE, "runs", (run or "chdd-sx-%s-s%d" % (arm, seed)) + ".jsonl")
     return [hashlib.md5(json.dumps(json.loads(l)["u"]).encode()).hexdigest() for l in open(p) if l.startswith('{"t"')]
 
 
@@ -32,20 +32,20 @@ def main():
             x, b = rows.get((arm, s)), rows.get((base, s))
             if not x or not b:
                 continue
-            ax, bx = sigs(arm, s), sigs(base, s)
+            ax, bx = sigs(arm, s, x.get("run")), sigs(base, s, b.get("run"))
             part = next((i for i, (p, q) in enumerate(zip(ax, bx)) if p != q), None)
-            wx = x["end_h"] if x["endgame"] == 17 else 240.0
-            wb = b["end_h"] if b["endgame"] == 17 else 240.0
-            wins += x["endgame"] == 17
+            wx = x["end_h"] if x.get("blue_win", x["endgame"] == 17) else 240.0
+            wb = b["end_h"] if b.get("blue_win", b["endgame"] == 17) else 240.0
+            wins += x.get("blue_win", x["endgame"] == 17)
             dw.append(wx - wb)
             ds.append(x["share_end"] - b["share_end"])
             print("  seed %d  wars part at h%-4s | %s %-6s vs %-6s (%+5.0f h) | Blue share %.1f vs %.1f (%+.1f)" % (
-                s, part if part is not None else "-", arm, ("h%.0f" % wx) if x["endgame"] == 17 else "none", ("h%.0f" % wb) if b["endgame"] == 17 else "none",
+                s, part if part is not None else "-", arm, ("h%.0f" % wx) if x.get("blue_win", x["endgame"] == 17) else "none", ("h%.0f" % wb) if b.get("blue_win", b["endgame"] == 17) else "none",
                 wx - wb, x["share_end"], b["share_end"], ds[-1]))
         if dw:
             better = sum(1 for d in dw if d < 0)
             worse = sum(1 for d in dw if d > 0)
-            base_wins = sum(1 for s in seeds if rows.get((base, s)) and rows[(base, s)]["endgame"] == 17 and (arm, s) in rows)
+            base_wins = sum(1 for s in seeds if rows.get((base, s)) and rows[(base, s)].get("blue_win", rows[(base, s)]["endgame"] == 17) and (arm, s) in rows)
             print("  => Blue wins %d/%d (base %d); win hour %+.0f h on average (earlier in %d seeds, later in %d); share %+.1f points on average, "
                   "lower in %d of %d seeds" % (wins, len(dw), base_wins, sum(dw) / len(dw), better, worse, sum(ds) / len(ds),
                                                 sum(1 for d in ds if d < -0.5), len(ds)))

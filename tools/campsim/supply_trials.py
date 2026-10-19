@@ -27,6 +27,20 @@ HBAR = ("usecfg=1 tri=chn_appr2 alliedcounter=1:8:80 noprod=1 prodsup=0.75 usemu
 lock = threading.Lock()
 launch = threading.Lock()
 SMODEL = "sxrear=72 sxhops=12 sxloss=10 sxdelay=10 sxwheeled=1 teambar=1:40,2:40,3:40,5:30,6:15"
+# campaigns: key -> (save, theater stem, base settings, endgame event that is a Blue / Israeli win). An arm is (knobs, round) for chdd, or
+# (knobs, round, campaign key). The base for the stock campaigns is just the cfg + deterministic replay.
+GEN = "usecfg=1 det=1"
+CAMPS = {"chdd": ("chdd", "", HBAR, 17), "k1": ("save1", "", GEN, 17), "k2": ("save2", "", GEN, 17), "i2": ("save2", "Israel2007", GEN, 6)}
+RAIL = ("raillines=Gyeongbu,Gyeongui,Hambuk,Honam,Kangwon,Khasan,Manpo,Meiji,Pukbunaeryuk,Pyongbu,Pyongdok,Pyongra,Pyongui,Shendan,Shenji "
+        "railload=240")
+# the light package: no hard reach, 5% per road node, convoy time, captured stores usable after 12 h and from 50% status
+LIGHT = "sxloss=5 sxdelay=10 sxrear=12 sxsrcmin=50 sxwheeled=1"
+BAR15 = "teambar=1:15,2:15,3:15,5:15,6:15"
+
+
+def camp(arm):
+    a = ARMS[arm]
+    return CAMPS[a[2] if len(a) > 2 else "chdd"]
 
 # arm -> (extra knobs, round)
 ARMS = {
@@ -195,11 +209,39 @@ ARMS = {
     "P_scorch60": (SMODEL.replace("sxrear=72", "sxscorch=60 sxsrcmin=50"), 18),
     "P_scorch80": (SMODEL.replace("sxrear=72", "sxscorch=80 sxsrcmin=50"), 18),
     "P_srcmin50": (SMODEL.replace("sxrear=72", "sxsrcmin=50"), 18),   # status gate only (bombed sources stop counting)
+    # round 19: sxrear alone on plain h_bar (paired against P_h), and with hubs only (no city is a source)
+    "L_rear12": ("sxrear=12", 19),
+    "L_rear72": ("sxrear=72", 19),
+    "L_rear12_nocity": ("sxrear=12 sxnocity=1", 19),
+    "L_rear72_nocity": ("sxrear=72 sxnocity=1", 19),
+    # round 20: the light package (no hard reach) on Korea chdd, against P_h / P_S12; variants drop or add one piece
+    "LP": (LIGHT + " " + BAR15 + " " + RAIL, 20),
+    "LP_bar40": (LIGHT + " teambar=1:40,2:40,3:40,5:30,6:15 " + RAIL, 20),
+    "LP_hbar": (LIGHT + " " + RAIL, 20),                     # h_bar's bars kept
+    "LP_norail": (LIGHT + " " + BAR15, 20),
+    "LP_nodelay": (LIGHT.replace("sxdelay=10 ", "") + " " + BAR15 + " " + RAIL, 20),
+    "LP_loss10": (LIGHT.replace("sxloss=5", "sxloss=10") + " " + BAR15 + " " + RAIL, 20),
+    "LP_hops12": (LIGHT + " sxhops=12 " + BAR15 + " " + RAIL, 20),
+    "LP_post40": (LIGHT + " " + BAR15 + " " + RAIL + " sxposture=40:25", 20),
+    # round 21: the other campaigns -- stock settings, + shared offensives, + the light package (Korea also with rail)
+    "K1_gen": ("", 21, "k1"),
+    "K1_t4": ("turnmode=4", 21, "k1"),
+    "K1_light": ("turnmode=4 " + LIGHT + " " + RAIL, 21, "k1"),
+    "K1_light_norail": ("turnmode=4 " + LIGHT, 21, "k1"),
+    "K2_gen": ("", 21, "k2"),
+    "K2_t4": ("turnmode=4", 21, "k2"),
+    "K2_light": ("turnmode=4 " + LIGHT + " " + RAIL, 21, "k2"),
+    "K2_light_norail": ("turnmode=4 " + LIGHT, 21, "k2"),
+    "I2_gen": ("", 21, "i2"),
+    "I2_t4": ("turnmode=4", 21, "i2"),
+    "I2_light": ("turnmode=4 " + LIGHT, 21, "i2"),
+    "I2_light_t0": (LIGHT, 21, "i2"),                        # the package without shared offensives
 }
 
 
 def runname(arm, seed):
-    return "chdd-sx-%s-s%d" % (arm, seed)
+    save, th, _, _ = camp(arm)
+    return "%s%s-sx-%s-s%d" % (save, "-" + th if th else "", arm, seed)
 
 
 def frames(path):
@@ -228,6 +270,8 @@ def analyse(arm, seed):
     ev = {int(a): int(c) / 60.0 for a, c in re.findall(r"EVENT (\d+) FIRED at min (\d+)", log)}
     res = re.findall(r"RESULT seed=\d+ endgame=(\d+) engine=\d+ campaign_h=([\d.]+)", log)
     m = {"arm": arm, "seed": seed, "endgame": int(res[-1][0]) if res else None, "end_h": float(res[-1][1]) if res else round(fr[-1]["t"] / 60, 1)}
+    m["run"] = runname(arm, seed)
+    m["blue_win"] = m["endgame"] == camp(arm)[3]
     share = lambda f: 100.0 * f["s"][2][4] / max(1, f["s"][2][4] + f["s"][6][4] + f["s"][5][4])
     m["share_end"] = round(share(fr[-1]), 1)
     peak = max(fr, key=lambda f: f["s"][2][4])
@@ -266,10 +310,11 @@ def run_one(arm, seed):
         if os.path.exists(RES) and any(json.loads(l)["arm"] == arm and json.loads(l)["seed"] == seed for l in open(RES)):
             return
     knobs = ARMS[arm][0]
+    save, th, base, _ = camp(arm)
     name = runname(arm, seed)
     logp = os.path.join(HERE, "runs", name + ".log")
-    cmd = [sys.executable, os.path.join(HERE, "run_batch.py"), "--save", "chdd", "--days", "10", "--seeds", str(seed), "--jobs", "1",
-           "--tag", "sx-" + arm, "--set"] + (HBAR + " " + knobs).split()
+    cmd = [sys.executable, os.path.join(HERE, "run_batch.py"), "--save", save, "--days", "10", "--seeds", str(seed), "--jobs", "1",
+           "--tag", "sx-" + arm] + (["--theater", th] if th else []) + ["--set"] + (base + " " + knobs).split()
     t0 = time.time()
     with launch:  # one startup at a time: release once this run is in its tick loop
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=HERE)
@@ -311,7 +356,7 @@ def f0(v):
 def report(rnd=None):
     rows = load()
     print("arm            seed | end      share(d vs base) peak@h drop | China in, Blue off%/init after | Blue spearhead supply d3/d5/d7 (low<50 d5) | North front d3/d5/d7 | SX t2 [search, out of reach, refused, links]")
-    for arm, (knobs, r) in ARMS.items():
+    for arm, (knobs, r, *_) in ARMS.items():
         if rnd and r != rnd:
             continue
         for s in SEEDS:
@@ -333,7 +378,7 @@ def main():
     rnd = int(sys.argv[2]) if len(sys.argv) > 2 else None
     os.makedirs(OUT, exist_ok=True)
     if cmd == "run":
-        items = [(a, s) for s in SEEDS for a, (_, r) in ARMS.items() if not rnd or r == rnd]
+        items = [(a, s) for s in SEEDS for a, (_, r, *_) in ARMS.items() if not rnd or r == rnd]
         print("queue: %d runs, %d at a time" % (len(items), PAR), flush=True)
         with ThreadPoolExecutor(max_workers=PAR) as ex:
             list(ex.map(lambda a: run_one(*a), items))
@@ -351,7 +396,7 @@ def main():
         print("reanalysed", len(out))
     elif cmd == "daily":       # Blue objectives per day, per arm and seed
         rows = load()
-        for arm, (knobs, r) in ARMS.items():
+        for arm, (knobs, r, *_) in ARMS.items():
             if rnd and r != rnd:
                 continue
             for s in SEEDS:

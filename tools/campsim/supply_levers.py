@@ -28,8 +28,8 @@ def main():
             if a != arm or not b:
                 continue
             n += 1
-            wins += x["endgame"] == 17
-            bw += b["endgame"] == 17
+            wins += x.get("blue_win", x["endgame"] == 17)
+            bw += b.get("blue_win", b["endgame"] == 17)
             for k, _ in KEYS:
                 if x.get(k) is not None and b.get(k) is not None:
                     diffs[k].append(x[k] - b[k])
