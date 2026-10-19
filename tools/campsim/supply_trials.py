@@ -180,6 +180,17 @@ ARMS = {
     "P_post40": (SMODEL + " sxposture=40:25", 16),
     "P_post50": (SMODEL + " sxposture=50:35", 16),
     "P_post40_bar15": (SMODEL + " sxposture=40:25 teambar=1:15,2:15,3:15,5:15,6:15", 16),
+    # round 17: the global levers one at a time on plain h_bar (paired against P_h) -- what lowers a unit's supply, and where
+    "L_ratio25": ("maxratio=0.25", 17),          # a delivery covers at most 25% of the shortfall (stock 50%)
+    "L_ratio10": ("maxratio=0.1", 17),
+    "L_intOff120": ("gndsupoff=120", 17),        # attacking units resupplied every 2 h (stock 20 min)
+    "L_intAll": ("gndsupoff=180 gndsupdef=360", 17),
+    "L_use3": ("usemult=3", 17),                 # (base is 2)
+    "L_prod40": ("prodsup=0.4", 17),             # production (base 0.75)
+    "L_loss5": ("sxloss=5", 17),                 # 5% per road node (stock 2%): distance costs
+    "L_nocity": ("sxnocity=1", 17),              # only depots / army bases / ports are sources: fewer, further sources
+    "L_nocity_loss5": ("sxnocity=1 sxloss=5", 17),
+    "P_S12": (SMODEL.replace("sxrear=72", "sxrear=12"), 17),   # model S with captured depots usable after 12 h (vs P_S)
 }
 
 

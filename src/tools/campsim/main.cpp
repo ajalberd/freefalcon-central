@@ -4161,6 +4161,85 @@ static void DetHeapStart(void)
     gDetHeap = HeapCreate(HEAP_NO_SERIALIZE, 64 << 20, 0);
 }
 
+// DEPOTREPAIR: depots and army bases that change hands -- their status when taken, and how long until the new owner has them at 100%
+// (RepairObjectives). Captured supply stores are where an advance resupplies from, so this is the engine's own "sxrear".
+struct DepotTrack
+{
+    int owner, capH, capStatus, fullH, endStatus;
+};
+static std::map<int, DepotTrack> gDepot;
+static std::vector<std::pair<int, DepotTrack>> gDepotDone; // (capturing team, record) of stores captured and then lost again or at end
+
+static void DepotRepairTick(int hour)
+{
+    VuListIterator oit(AllObjList);
+
+    for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+    {
+        if (o->GetType() != TYPE_DEPOT && o->GetType() != TYPE_ARMYBASE)
+            continue;
+
+        const int id = o->GetCampID(), team = o->GetTeam(), st = o->GetObjectiveStatus();
+        auto it = gDepot.find(id);
+
+        if (it == gDepot.end())
+        {
+            DepotTrack d = {team, -1, st, -1, st};
+            gDepot[id] = d;
+            continue;
+        }
+
+        DepotTrack &d = it->second;
+
+        if (d.owner != team)
+        {
+            if (d.capH >= 0)
+                gDepotDone.push_back(std::make_pair(d.owner, d));
+            d.owner = team, d.capH = hour, d.capStatus = st, d.fullH = st >= 100 ? hour : -1;
+        }
+        else if (d.capH >= 0 && d.fullH < 0 && st >= 100)
+            d.fullH = hour;
+
+        d.endStatus = st;
+    }
+}
+
+static void DepotRepairReport(void)
+{
+    for (auto &kv : gDepot)
+        if (kv.second.capH >= 0)
+            gDepotDone.push_back(std::make_pair(kv.second.owner, kv.second));
+
+    for (int t : {2, 6, 5})
+    {
+        std::vector<int> cap, hrs;
+        int n = 0, never = 0, full0 = 0;
+
+        for (auto &p : gDepotDone)
+        {
+            if (p.first != t)
+                continue;
+
+            n++;
+            cap.push_back(p.second.capStatus);
+
+            if (p.second.capStatus >= 100)
+                full0++;
+            else if (p.second.fullH >= 0)
+                hrs.push_back(p.second.fullH - p.second.capH);
+            else
+                never++;
+        }
+
+        std::sort(cap.begin(), cap.end());
+        std::sort(hrs.begin(), hrs.end());
+        printf("DEPOTREPAIR team %d: %d depots / army bases taken; status when taken median %d%%; intact when taken %d; repaired to 100%% "
+               "%d (median %d h, slowest %d h); still damaged when lost again or at the end %d\n",
+               t, n, cap.empty() ? 0 : cap[cap.size() / 2], full0, (int)hrs.size(), hrs.empty() ? 0 : hrs[hrs.size() / 2],
+               hrs.empty() ? 0 : hrs.back(), never);
+    }
+}
+
 // dethash=M: for the first M campaign minutes print DETHASH lines (units / flights / objectives / ATM lists), so two runs of one seed can be
 // diffed down to the minute and the component where they part
 static int gDetHashMin = 0;
@@ -4584,6 +4663,9 @@ int main(int argc, char **argv)
                 fflush(stdout);
             }
 
+            if ((iter % 60) == 0)
+                DepotRepairTick(iter / 60);
+
             if ((iter % 60) == 0 || gEndGame)
             {
                 CampaignTime t = TheCampaign.CurrentTime;
@@ -4767,6 +4849,8 @@ int main(int argc, char **argv)
             printf("SAVECAM %s -> %d\n", gSaveCam, ok);
             fflush(stdout);
         }
+
+        DepotRepairReport();
 
         printf("RESULT seed=%u endgame=%d engine=%d campaign_h=%.1f "
                "wall_s=%.0f\n",
