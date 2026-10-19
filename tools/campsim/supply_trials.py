@@ -278,6 +278,11 @@ ARMS = {
     "CF_B0": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15", 26),
     "CF_B1": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 sxconvoys=6", 26),
     "CF_B1_4": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 sxconvoys=4", 26),
+    # round 27: rail on (bar 45 + light); rail bridge objectives, cut penalties (transload 12 h / 50%, 4 h detrain on open track)
+    "RB_0": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 " + RAIL, 27),
+    "RB_obj": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 " + RAIL + " railbridgeobjs=1", 27),
+    "RB_pen": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 " + RAIL + " railcut=12:50 raildetrain=240", 27),
+    "RB_both": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 " + RAIL + " railbridgeobjs=1 railcut=12:50 raildetrain=240", 27),
 }
 
 
