@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <utility>
 #include <vector>
 #include "cmpglobl.h"
@@ -864,6 +865,23 @@ static void SxConvoyTick(int who)
             }
             else if (TheCampaign.CurrentTime - c.born > 72 * CampaignHours)
             {
+                // campsim: why it stalled -- first 60 per run
+                static int logged = 0;
+
+                if (logged++ < 60)
+                {
+                    GridIndex ux, uy;
+                    cv->GetUnitDestination(&ux, &uy);
+                    Objective dobj = (Objective)vuDatabase->Find(c.destObj);
+                    const int start2 = (c.sx - c.dx) * (c.sx - c.dx) + (c.sy - c.dy) * (c.sy - c.dy);
+                    printf("SXSTALL team %d: %d km from destination (started %d km away), moving %d, objective %s, unit destination %s "
+                           "(%d,%d vs %d,%d), destination owner %d, player-held %d\n",
+                           who, (int)sqrtf((float)d2), (int)sqrtf((float)start2), cv->Moving() ? 1 : 0,
+                           cv->GetUnitObjectiveID() == c.destObj ? "kept" : (cv->GetUnitObjectiveID() == FalconNullId ? "cleared" : "changed"),
+                           (ux == c.dx and uy == c.dy) ? "kept" : "changed", ux, uy, c.dx, c.dy, dobj ? dobj->GetTeam() : -1,
+                           cv->PlayerHeld() ? 1 : 0);
+                }
+
                 gSxConvDiag[t][3]++, gSxConvDiag[t][6] += c.cargo;
                 cv->KillUnit();
                 done = true;
