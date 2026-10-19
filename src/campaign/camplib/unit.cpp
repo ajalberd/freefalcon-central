@@ -2790,13 +2790,15 @@ void UnitClass::KillUnit(void)
 // Flag setting stuff
 // =========================
 
+int gQuietUnitDeath = 0; // (supply.cpp) a unit removed as bookkeeping -- a convoy column that arrived -- gets no 'destroyed' news
+
 void UnitClass::SetDead(int d)
 {
     // Start the death timeout clock
     SetLastCheck(TheCampaign.CurrentTime);
 
     // If we just died, send a CampUI 'destroyed' message to everyone here
-    if (not(unit_flags bitand U_DEAD) and d and
+    if (not(unit_flags bitand U_DEAD) and d and not gQuietUnitDeath and
         (IsBattalion() or IsTaskForce()))
     {
         FalconCampEventMessage* newEvent =

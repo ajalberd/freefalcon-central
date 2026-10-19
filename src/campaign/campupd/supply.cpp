@@ -831,6 +831,15 @@ static void SxConvoySpawn(int who)
     gSxConvPending.clear();
 }
 
+// a column that arrived (or gave up) leaves without a 'unit destroyed' news item
+static void SxConvoyRemove(Unit cv)
+{
+    extern int gQuietUnitDeath;
+    gQuietUnitDeath = 1;
+    cv->KillUnit();
+    gQuietUnitDeath = 0;
+}
+
 static void SxConvoyTick(int who)
 {
     for (size_t i = 0; i < gSxConvoys.size();)
@@ -945,7 +954,7 @@ static void SxConvoyTick(int who)
                 gSxConvDiag[t][1]++;
                 gSxConvDiag[t][5] += FloatToInt32(c.cargo * (scale > 1.0F ? 1.0F : scale));
                 gSxConvDiag[t][6] += c.cargo - FloatToInt32(c.cargo * (scale > 1.0F ? 1.0F : scale));
-                cv->KillUnit();
+                SxConvoyRemove(cv);
                 done = true;
             }
             else if (TheCampaign.CurrentTime - c.born > 72 * CampaignHours)
@@ -968,7 +977,7 @@ static void SxConvoyTick(int who)
                 }
 
                 gSxConvDiag[t][3]++, gSxConvDiag[t][6] += c.cargo;
-                cv->KillUnit();
+                SxConvoyRemove(cv);
                 done = true;
             }
         }
