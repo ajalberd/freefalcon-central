@@ -725,6 +725,161 @@ static void SxPocket(Unit u, bool found)
         gSxSurrender.push_back(u->Id());
 }
 
+// ---------------------------------------------------------------------------------------------------------------------------------
+// sxconvoys=N (campsim supply research, off = 0): REAL convoys. A delivery whose road route is N or more objective links long is not
+// handed over by bookkeeping: the deliveries of one supply pass from the same source to the same destination objective are loaded on a
+// truck column -- a Supply battalion (the rail trains' class) owned by the sending team -- that drives the route as an ordinary ground
+// unit. Moving on roads it draws the enemy's interdiction like any other column (gndunit.cpp files AMIS_INT requests along a march), so
+// it can be seen, found and hit, in 2D and in 3D. Within 3 km of its destination it hands each battalion its share, scaled by the trucks
+// still running, and disbands; destroyed, its cargo is lost; not there after 72 h, it is written off (stalled). At most 60 columns per
+// team are on the road; beyond that deliveries stay bookkeeping.
+int g_nSxConvoys = 0;
+int gSxConvDiag[NUM_TEAMS][8] = {{0}}; // spawned, arrived, destroyed, stalled, cargo sent, cargo delivered, cargo lost, over the cap
+void SupplyUnit(Unit u, int sneed, int supply, int fneed, int fuel);
+
+struct SxConvItem
+{
+    VU_ID unit;
+    int sneed, s, fneed, f;
+};
+
+struct SxConvoy
+{
+    VU_ID id;
+    int pass;              // the supply pass (team) that sent it
+    GridIndex sx, sy, dx, dy;
+    VU_ID srcOwnerObj, destObj;
+    int full, cargo;
+    CampaignTime born;
+    std::vector<SxConvItem> items;
+};
+
+static std::vector<SxConvoy> gSxConvoys;
+static std::vector<SxConvoy> gSxConvPending; // this pass, grouped by (source, destination)
+
+static void SxConvoyAdd(Objective s, Objective o, Unit u, int pass, int sneed, int sg, int fneed, int fg)
+{
+    for (SxConvoy &c : gSxConvPending)
+        if (c.srcOwnerObj == s->Id() and c.destObj == o->Id())
+        {
+            SxConvItem it = {u->Id(), sneed, sg, fneed, fg};
+            c.items.push_back(it);
+            c.cargo += sg + fg;
+            return;
+        }
+
+    SxConvoy c;
+    s->GetLocation(&c.sx, &c.sy);
+    o->GetLocation(&c.dx, &c.dy);
+    c.srcOwnerObj = s->Id(), c.destObj = o->Id(), c.pass = pass, c.full = 0, c.cargo = sg + fg, c.born = TheCampaign.CurrentTime;
+    SxConvItem it = {u->Id(), sneed, sg, fneed, fg};
+    c.items.push_back(it);
+    gSxConvPending.push_back(c);
+}
+
+static void SxConvoyHandOver(SxConvoy &c, float scale)
+{
+    for (const SxConvItem &it : c.items)
+    {
+        Unit u = (Unit)vuDatabase->Find(it.unit);
+
+        if (u and u->IsBattalion() and not u->IsDead() and u->GetTotalVehicles() > 0)
+            SupplyUnit(u, it.sneed, FloatToInt32(it.s * scale), it.fneed, FloatToInt32(it.f * scale));
+    }
+}
+
+static void SxConvoySpawn(int who)
+{
+    int active = 0;
+
+    for (const SxConvoy &c : gSxConvoys)
+        active += c.pass == who;
+
+    for (SxConvoy &c : gSxConvPending)
+    {
+        Objective src = (Objective)vuDatabase->Find(c.srcOwnerObj);
+        Unit cv = (active < 60 and src) ? NewUnit(DOMAIN_LAND, TYPE_BATTALION, STYPE_UNIT_SUPPLY, 1, NULL) : NULL;
+
+        if (not cv)
+        {
+            SxConvoyHandOver(c, 1.0F); // over the cap (or no Supply class): bookkeeping as before
+            gSxConvDiag[who % NUM_TEAMS][7]++;
+            continue;
+        }
+
+        cv->SetOwner(src->GetOwner());
+        cv->BuildElements(); // NewUnit sized the roster for team 0 -- rebuild it for the owner (railnet.cpp SpawnTrain)
+        cv->ResetLocations(c.sx, c.sy);
+        cv->ResetDestinations(c.dx, c.dy);
+        cv->SetUnitOrders(GORD_RESERVE, c.destObj);
+        cv->SetPlayerHeld(1); // keeps the destination: MoveUnit re-tasks a unit whose objective does not suit its orders
+        cv->SetScripted(1);   // and the ground tasking manager leaves it alone
+        cv->SetUnitDestination(c.dx, c.dy);
+        c.id = cv->Id();
+        c.full = cv->GetFullstrengthVehicles() > 0 ? cv->GetFullstrengthVehicles() : 1;
+        gSxConvoys.push_back(c);
+        active++;
+        gSxConvDiag[who % NUM_TEAMS][0]++;
+        gSxConvDiag[who % NUM_TEAMS][4] += c.cargo;
+    }
+
+    gSxConvPending.clear();
+}
+
+static void SxConvoyTick(int who)
+{
+    for (size_t i = 0; i < gSxConvoys.size();)
+    {
+        SxConvoy &c = gSxConvoys[i];
+
+        if (c.pass not_eq who)
+        {
+            i++;
+            continue;
+        }
+
+        Unit cv = (Unit)vuDatabase->Find(c.id);
+        const int t = who % NUM_TEAMS;
+        bool done = false;
+
+        if (not cv or cv->IsDead() or cv->GetTotalVehicles() <= 0)
+        {
+            gSxConvDiag[t][2]++, gSxConvDiag[t][6] += c.cargo, done = true;
+        }
+        else
+        {
+            GridIndex x, y;
+            cv->GetLocation(&x, &y);
+            const int d2 = (x - c.dx) * (x - c.dx) + (y - c.dy) * (y - c.dy);
+
+            if (d2 <= 9)
+            {
+                const float scale = (float)cv->GetTotalVehicles() / c.full;
+                SxConvoyHandOver(c, scale > 1.0F ? 1.0F : scale);
+                gSxConvDiag[t][1]++;
+                gSxConvDiag[t][5] += FloatToInt32(c.cargo * (scale > 1.0F ? 1.0F : scale));
+                gSxConvDiag[t][6] += c.cargo - FloatToInt32(c.cargo * (scale > 1.0F ? 1.0F : scale));
+                cv->KillUnit();
+                done = true;
+            }
+            else if (TheCampaign.CurrentTime - c.born > 72 * CampaignHours)
+            {
+                gSxConvDiag[t][3]++, gSxConvDiag[t][6] += c.cargo;
+                cv->KillUnit();
+                done = true;
+            }
+        }
+
+        if (done)
+        {
+            gSxConvoys[i] = gSxConvoys.back();
+            gSxConvoys.pop_back();
+        }
+        else
+            i++;
+    }
+}
+
 static void SxSurrenders(void)
 {
     for (const VU_ID &id : gSxSurrender)
@@ -1145,6 +1300,7 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
         SxTrackOwners();
 
     SxDeliverArrived(who);
+    SxConvoyTick(who);
 
     sratio = fratio = rratio = 0.0F;
 
@@ -1578,7 +1734,9 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
 
                         if (SendSupply(s, o, &gots, &gotf))
                         {
-                            if (g_nSxDelay > 0 and unit->IsBattalion())
+                            if (g_nSxConvoys > 0 and unit->IsBattalion() and gSxLastHops >= g_nSxConvoys)
+                                SxConvoyAdd(s, o, unit, who, supply, gots, fuel, gotf);
+                            else if (g_nSxDelay > 0 and unit->IsBattalion())
                                 SxQueueDelivery(unit, supply, gots, fuel, gotf);
                             else
                                 SupplyUnit(unit, supply, gots, fuel, gotf);
@@ -1603,6 +1761,7 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
     }
 
     SxSurrenders();
+    SxConvoySpawn(who);
 
     if (NoTypeBonusRepl)
     {
