@@ -323,6 +323,11 @@ float GetMovementCost(GridIndex x, GridIndex y, MoveType move, int flags,
     float cost;
     Objective o;
 
+    // A cell off the theater grid (a battalion saved at 0,0 with destination -1,-1: stock save1's unit 4414)
+    // is open water to GetCover; GetRoad below does not check, and read far out of bounds.
+    if (x < 0 or x >= Map_Max_X or y < 0 or y >= Map_Max_Y)
+        return CostTable[Water][move];
+
     cost = CostTable[GetCover(x, y)][move];
 
     switch (move)
