@@ -6,6 +6,53 @@ the baseline is the `h_bar` configuration (CAMPAIGN-CHINA-EXPERIMENTS.md). 3 see
 Harness: `tools/campsim/supply_trials.py run|report|daily [round]`, results in `tools/campsim/supply/results.jsonl` (rounds 1-15, 520+ runs); exact same-seed pairs: `tools/campsim/supply_paired.py`; maps: `supply_view.py`.
 Nothing here touches the game exe, the install's save0 / cfg, h_bar's settings, existing switches or the trigger scripts.
 
+## Latest (2026-10-20, rounds 16-22): what decides the outcome is the initiative bar, not supply
+
+**The controls overturn the outcome claims below.** Run with identical bars and rail, the supply rules change *where and when units run
+dry* but not *who wins*:
+
+| Exact pairs, 6 seeds, Korea chdd | Blue wins | Blue share vs the paired war | Blue spearhead supply d3 / d5 | Blue bns under 50% (d5) |
+|---|---|---|---|---|
+| h_bar (Blue bar 50) | 0/6 | -- | -- | -- |
+| **Model S's supply rules, h_bar's bars kept** (`P_bar50` vs h_bar) | 1/6 | **-1.8** | -13 / -22 | +44 |
+| **Only the bars lowered to 15** (`L_bar15` vs h_bar) | 4/6 | **+5.6, higher in 6 of 6** | -- | -- |
+| Bars 15 + rail on all lines, no supply rules (`L_bar15_rail`) | 6/6 | +7.0, higher in 6 of 6 | +2 / +4 | +3 |
+| **Light package** (5%/node, convoy time, captured depots after 12 h, 50% status gate, bars 15, rail) vs the same bars + rail without the supply rules | 6/6 vs 6/6 | **+0.2** | **-8 / -7** | **+9** |
+
+So model S's "+3.9, 3 of 6" (and every other outcome gain credited to supply above) came from lowering Blue's offensive bar from 50 to
+40 or 15. Bar 15 alone already gives +5.6 and 4 of 6 wins; rail on all lines adds the rest (6 of 6, +7.0). This matches the first
+supply study (CAMPAIGN-SUPPLY-SPREAD.md): supply levers change the supply units feel, not who holds what.
+
+**What the supply rules do give** (they are still the way to make the war *feel* supplied): spearheads that run down as they advance
+(-8 points on day 3 with the light package, -22 on day 5 with model S's rules), more starved battalions (+9 to +44), and the North's front
+starving as it is pushed back (-5 to -10). The map model is still the only place the player's target choice mattered in 6 of 6 pairs.
+
+**The global levers** (round 17, one at a time on h_bar): consumption, resupply interval, production and the share of the shortfall a
+delivery covers (at 10%) cut units' supply by 15-24 points by day 5-7 -- on both sides about equally, so the outcome barely moves. 5% loss
+per road node was the only lever with an outcome effect alone (+5.4, 4 of 6).
+
+**Other findings, rounds 16-22:**
+- `sxrear`: inside model S, 12 h beats 72 h (6/6 wins vs 3/6, +4.0); alone on h_bar it is a small lever (+0.1 to +2.6).
+- Captured depots and army bases are taken 85-100% intact (median 100%), and the few damaged ones are almost never repaired within the
+  war (0-6 reach 100%, after 167-194 h), so the engine has no natural repair delay. Scorching captured stores (`sxscorch`) makes them
+  effectively never come back -- not a useful delay. A source status gate (`sxsrcmin=50`) inside model S: 5/6 wins, +2.9.
+- Posture follows supply (`sxposture`, front battalions counted by position): Blue stalls around h70-125 and the campaign shows it as
+  consolidating; outcome -0.4 to -1.6.
+- The hard 12-link reach (`sxhops`) is not needed: the light package without it plays like model S with `sxrear=12` (-0.6).
+
+**Other campaigns (round 21, exact pairs, 6 seeds):**
+- **Korea save2** (stock settings, a Blue win in 35-53 h): every arm still ends in a Blue win (6/6). Shared offensives and the light
+  package both make the war last longer (win 30-33 h later on average) at +1.5 to +2.0 share.
+- **Israel 2012 (save2)** -- event 6 = Israel holds to day 10 or takes its objectives, 7 = the Arabs win: stock 3 of 6 held; shared
+  offensives (`turnmode=4`) 0 of 6, the Arabs winning earlier (h108-178) -- shared offensives hurt the defender here; the light package on
+  top of shared offensives 2 of 6 and Israel's share higher in 6 of 6 (+4.0); the light package without shared offensives 1 of 6 (+2.0).
+- **Korea save1 does not load in campsim at all** (stock settings included): a battalion's position is read off the terrain grid while
+  the save loads (`GetCover` in `GetMovementCost`, Path.cpp:333, from `BattalionClass` construction). A save or engine bug outside this work.
+
+**Recommendation, revised:** choose the bars on what they do -- they decide the war. Treat the supply switches as feel and pacing (the
+light package without the hard reach is the cheapest that gives culmination and starvation), rail on all lines as a Blue-favouring
+balance lever, and the map model as the route to player choice. Check shared offensives per theater: in Israel they hurt the defender.
+
 ## The answer
 
 **Supply never matters today because it has no geography: every city, depot, army base and port behind the front is a source (126 hubs
