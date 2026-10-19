@@ -253,6 +253,17 @@ ARMS = {
     "B45_light": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15", 23),
     "B50": ("teambar=1:50,2:50,3:50,5:30,6:15", 23),
     "B50_light": (LIGHT + " teambar=1:50,2:50,3:50,5:30,6:15", 23),
+    # round 24: can the player's choices turn bar 45 + light (2/6 Blue wins)? Target-priority sliders (objpri, Blue's teams) and direct strikes
+    "O_pol": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 objpri=pol:100", 24),
+    "O_depot": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 objpri=depot:100,armybase:100", 24),
+    "O_prod": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 objpri=prod:100", 24),
+    "O_roads": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 objpri=roads:100", 24),
+    "O_supply": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 objpri=pol:100,prod:100,depot:100,armybase:100,roads:100", 24),
+    "O_supplyonly": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 objpri=pol:100,prod:100,depot:100,armybase:100,roads:100,airbase:0,airstrip:0,radar:0", 24),
+    "O_depot10": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 blowlim=depot:6:10 blowlim=armybase:6:10 blowat=48", 24),
+    "O_fact10": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 blowlim=factory:6:10 blowat=48", 24),
+    "O_convN15": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 sxconvoyhit=6:15", 24),
+    "O_supply_nolight": ("teambar=1:45,2:45,3:45,5:30,6:15 objpri=pol:100,prod:100,depot:100,armybase:100,roads:100", 24),
 }
 
 
