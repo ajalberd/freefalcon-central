@@ -302,6 +302,13 @@ ARMS = {
     "SL_s50p50": ("startsup=6:50 prodcut=6:50", 30),         # start at 50% and make half the supply
     "SL_s30p50": ("startsup=6:30 prodcut=6:50", 30),
     "SL_port": ("portcargo=24", 30),                         # ports produce only after a tanker/cargo ship docks
+    # round 31: (a) every DPRK power station (power + nuclear plants) knocked out at hour 0 -- held down / struck once then repaired;
+    # (b) initiative weighted by supply -- overall (1) or overall x the front's mean (2), alone and with a 50% start
+    "PW_hold": ("blow=grid:6:hold blowat=0", 31),
+    "PW_once": ("blow=grid:6:once blowat=0", 31),
+    "IS_1": ("initsupply=1", 31),
+    "IS_2": ("initsupply=2", 31),
+    "IS_2_s50": ("initsupply=2 startsup=6:50", 31),
 }
 
 

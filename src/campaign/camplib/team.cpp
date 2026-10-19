@@ -2361,14 +2361,47 @@ bool g_bInitSupply = false;
 // of the war, whatever its ground lead; a ground-weighted blend tests whether that is what stops Blue's offensive.
 int g_nInitWG = 5, g_nInitWA = 4, g_nInitWL = 1;
 
+int g_nInitSupplyMode = 1; // campsim initsupply=N: 1 = vehicles x supply; 2 = that, times the mean supply of the battalions within 30 km of
+                           // an enemy objective (a starved front costs initiative even while the rear is full)
+
 static int EffectiveGroundVehicles(Team t)
 {
-    float sum = 0.0F;
+    float sum = 0.0F, front = 0.0F;
+    int nFront = 0;
     VuListIterator uit(AllUnitList);
 
     for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
-        if (u->IsBattalion() and u->GetTeam() == t)
-            sum += u->GetTotalVehicles() * (u->GetUnitSupply() / 100.0F);
+    {
+        if (not u->IsBattalion() or u->GetTeam() not_eq t)
+            continue;
+
+        sum += u->GetTotalVehicles() * (u->GetUnitSupply() / 100.0F);
+
+        if (g_nInitSupplyMode >= 2)
+        {
+            GridIndex x, y, ox, oy;
+            u->GetLocation(&x, &y);
+            VuListIterator oit(AllObjList);
+
+            for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+            {
+                if (GetTTRelations(o->GetTeam(), t) not_eq War)
+                    continue;
+
+                o->GetLocation(&ox, &oy);
+
+                if ((ox - x) * (ox - x) + (oy - y) * (oy - y) <= 900)
+                {
+                    front += u->GetUnitSupply();
+                    nFront++;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (g_nInitSupplyMode >= 2 and nFront > 0)
+        sum *= front / nFront / 100.0F;
 
     return FloatToInt32(sum) + 1;
 }

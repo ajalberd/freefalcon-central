@@ -3380,8 +3380,10 @@ static void ApplyKnobs(int argc, char **argv)
         else if (!strcmp(key, "initsupply"))
         {
             extern bool g_bInitSupply;
+            extern int g_nInitSupplyMode;
             g_bInitSupply = atoi(val) != 0;
-            printf("KNOB initiative counts supply-weighted ground vehicles = %d\n", g_bInitSupply ? 1 : 0);
+            g_nInitSupplyMode = atoi(val);
+            printf("KNOB initiative counts supply-weighted ground vehicles = %d (2 = also times the front's mean supply)\n", g_nInitSupplyMode);
         }
         else if (!strcmp(key, "strikeshock"))
         {
@@ -3422,13 +3424,14 @@ static void ApplyKnobs(int argc, char **argv)
             static const struct { const char *n; int t; } names[] = {
                 {"factory", TYPE_FACTORY}, {"refinery", TYPE_REFINERY}, {"power", TYPE_POWERPLANT}, {"depot", TYPE_DEPOT},
                 {"port", TYPE_PORT}, {"armybase", TYPE_ARMYBASE}, {"bridge", TYPE_BRIDGE}, {"road", TYPE_ROAD},
-                {"railroad", TYPE_RAILROAD}, {"airbase", TYPE_AIRBASE}};
+                {"railroad", TYPE_RAILROAD}, {"airbase", TYPE_AIRBASE}, {"nuclear", TYPE_NUCLEAR}};
             int found = 0;
             bool prod = !strcmp(tn, "producers") || !strcmp(tn, "all");
 
             for (int k = 0; k < (int)(sizeof(names) / sizeof(names[0])); k++)
             {
                 bool want = !strcmp(tn, names[k].n) ||
+                            (!strcmp(tn, "grid") && (names[k].t == TYPE_POWERPLANT || names[k].t == TYPE_NUCLEAR)) || // what FindNearestFriendlyPowerStation takes
                             (prod && (names[k].t == TYPE_FACTORY || names[k].t == TYPE_REFINERY || names[k].t == TYPE_DEPOT ||
                                       names[k].t == TYPE_PORT || names[k].t == TYPE_ARMYBASE)) ||
                             (!strcmp(tn, "all") && names[k].t == TYPE_POWERPLANT);
