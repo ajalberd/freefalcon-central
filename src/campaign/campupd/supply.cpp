@@ -406,6 +406,8 @@ void StoreStats(int team, int *count, int *stockS, int *capS, int *stockF, int *
 
 // This function collects supply from all producers and adds it to the team's totals.
 // This should be called by the Campaign Master only
+extern int g_nProdCutTeam, g_nProdCutPct;
+
 int ProduceSupplies(CampaignTime deltaTime)
 {
     Objective o;
@@ -596,6 +598,11 @@ int ProduceSupplies(CampaignTime deltaTime)
         gFuelFromProduction[who] += fuel[who];
         gReplacmentsFromProduction[who] += replacements[who];
 #endif
+        // ProdCutTeam/ProdCutPct: one team's factories, ports (and stores, when they produce) make this
+        // share of their supply; fuel and replacements as before
+        if (g_nProdCutTeam > 0 and who == g_nProdCutTeam and g_nProdCutPct >= 0 and g_nProdCutPct not_eq 100)
+            supply[who] = supply[who] * g_nProdCutPct / 100;
+
         gSupplyDiag[who][SUPDIAG_PROD_SUPPLY] += supply[who];
         gSupplyDiag[who][SUPDIAG_PROD_FUEL] += fuel[who];
         gSupplyDiag[who][SUPDIAG_PROD_REPL] += replacements[who];

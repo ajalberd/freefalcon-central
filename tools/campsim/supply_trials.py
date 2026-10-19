@@ -288,6 +288,13 @@ ARMS = {
     "RP_obj": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 " + RAIL + " railbridgeobjs=1", 28),
     "RP_pen": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 " + RAIL + " railcut=12:50 raildetrain=240", 28),
     "RP_both": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 " + RAIL + " railbridgeobjs=1 railcut=12:50 raildetrain=240", 28),
+    # round 29: back to basics -- the North's supply production. Base = the h_bar campaign as campsim runs it (stores do not
+    # produce, DataRateModSup 0.75); "game" = as the installed game produces (stores produce, Falcon4.AII DataRateModSup 1.5)
+    "PC_0": ("", 29),
+    "PC_game": ("noprod=0 prodsup=1.5", 29),
+    "PC_75": ("prodcut=6:75", 29),
+    "PC_50": ("prodcut=6:50", 29),
+    "PC_25": ("prodcut=6:25", 29),
 }
 
 

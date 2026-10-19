@@ -3115,6 +3115,12 @@ static void ApplyKnobs(int argc, char **argv)
             g_bStoresNoProd = atoi(val) != 0;
             printf("KNOB g_bStoresNoProd = %d\n", (int)g_bStoresNoProd);
         }
+        else if (!strcmp(key, "prodcut"))
+        {
+            extern int g_nProdCutTeam, g_nProdCutPct;
+            sscanf(val, "%d:%d", &g_nProdCutTeam, &g_nProdCutPct);
+            printf("KNOB prodcut: team %d makes %d%% of its supply production\n", g_nProdCutTeam, g_nProdCutPct);
+        }
         else if (!strcmp(key, "usemult"))
         {
             extern int g_nSupplyUseMult;

@@ -739,6 +739,8 @@ bool g_bGridPathPartial = true; // campaign: a ground unit follows the partial r
 bool g_bReserveHold = true; // campaign: a reserve battalion on one of our objectives away from the front keeps it (stock: kicked off any non-secondary objective, it fell back 3 links again and again, burning supply)
 bool g_bSupplyStocks = false; // campaign experiment: depots and army bases hold regional stocks of supply and fuel that battalions draw down and the national pool refills; they stop producing unless StoresProduce
 bool g_bStoresProduce = false; // campaign experiment (with SupplyStocks): depots and army bases keep producing into the pool as well
+int g_nProdCutTeam = 0; // campaign experiment: this team (1-7; 0 = none) makes ProdCutPct % of the supply its factories, ports and stores would. "ProdCutTeam".
+int g_nProdCutPct = 100; // campaign experiment: see ProdCutTeam. "ProdCutPct".
 int g_nStoreCapPct = 100; // campaign experiment (SupplyStocks): a store holds this percent of its class DataRate in supply points (and the same in fuel)
 int g_nStoreFillPct = 10; // campaign experiment (SupplyStocks): most a store takes from the pool per production call, percent of its capacity
 bool g_bAirliftRunway = true; // campaign: an airlift landing is credited only if the airbase it lands at has a runway that is not destroyed (stock: credited anyway)
@@ -2365,6 +2367,8 @@ static ConfigOption<int> IntOpts[] = {
     {"RailCutTransloadH", &g_nRailCutTransloadH}, // Artscout - 2026: hours to truck a trainload across a cut
     {"RailCutTransloadPct", &g_nRailCutTransloadPct}, // Artscout - 2026: share of it that crosses
     {"RailTrackDetrainMin", &g_nRailTrackDetrainMin}, // Artscout - 2026: detrain minutes on open track
+    {"ProdCutTeam", &g_nProdCutTeam}, // campaign experiment: team whose supply production is cut
+    {"ProdCutPct", &g_nProdCutPct}, // ... to this %
     {"RailTroopTransferMin", &g_nRailTroopTransferMin}, // Artscout - 2026: line change minutes
     {"RailTroopSavePct", &g_nRailTroopSavePct}, // Artscout - 2026: time rail must save
     {"RailTroopStandoffKm", &g_nRailTroopStandoffKm}, // Artscout - 2026: troop stop distance from the enemy
