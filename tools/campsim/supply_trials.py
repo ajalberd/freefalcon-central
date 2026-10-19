@@ -240,6 +240,19 @@ ARMS = {
     "L_bar15": (BAR15, 22),                                  # only the bars changed (vs P_h)
     "L_bar15_rail": (BAR15 + " " + RAIL, 22),                # bars + rail, no supply rules
     "LP_nosx": (BAR15 + " " + RAIL + " sxwheeled=1", 22),    # = LP without the supply rules
+    # round 23: Blue's offensive bar 25-50 (China 30, North 15), with and without the light supply rules, no rail boost
+    "B25": ("teambar=1:25,2:25,3:25,5:30,6:15", 23),
+    "B25_light": (LIGHT + " teambar=1:25,2:25,3:25,5:30,6:15", 23),
+    "B30": ("teambar=1:30,2:30,3:30,5:30,6:15", 23),
+    "B30_light": (LIGHT + " teambar=1:30,2:30,3:30,5:30,6:15", 23),
+    "B35": ("teambar=1:35,2:35,3:35,5:30,6:15", 23),
+    "B35_light": (LIGHT + " teambar=1:35,2:35,3:35,5:30,6:15", 23),
+    "B40": ("teambar=1:40,2:40,3:40,5:30,6:15", 23),
+    "B40_light": (LIGHT + " teambar=1:40,2:40,3:40,5:30,6:15", 23),
+    "B45": ("teambar=1:45,2:45,3:45,5:30,6:15", 23),
+    "B45_light": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15", 23),
+    "B50": ("teambar=1:50,2:50,3:50,5:30,6:15", 23),
+    "B50_light": (LIGHT + " teambar=1:50,2:50,3:50,5:30,6:15", 23),
 }
 
 
