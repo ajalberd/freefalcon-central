@@ -3127,6 +3127,12 @@ static void ApplyKnobs(int argc, char **argv)
             sscanf(val, "%d:%d", &g_nProdCutTeam, &g_nProdCutPct);
             printf("KNOB prodcut: team %d makes %d%% of its supply production\n", g_nProdCutTeam, g_nProdCutPct);
         }
+        else if (!strcmp(key, "useteam"))
+        {
+            extern int g_nSupplyUseTeam, g_nSupplyUseTeamMult;
+            sscanf(val, "%d:%d", &g_nSupplyUseTeam, &g_nSupplyUseTeamMult);
+            printf("KNOB useteam: team %d uses %dx the supply moving and firing\n", g_nSupplyUseTeam, g_nSupplyUseTeamMult);
+        }
         else if (!strcmp(key, "portcargo"))
         {
             extern int g_nPortCargoHours;
@@ -3147,11 +3153,15 @@ static void ApplyKnobs(int argc, char **argv)
         }
         else if (!strcmp(key, "startsup"))
         {
-            int pct = atoi(val), n = 0;
+            // startsup=PCT (every battalion) or startsup=TEAM:PCT (that team's)
+            int team = 0, pct = atoi(val), n = 0;
+            const char *colon = strchr(val, ':');
+            if (colon)
+                team = atoi(val), pct = atoi(colon + 1);
             VuListIterator uit(AllUnitList);
             for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
-                if (u->IsBattalion()) { u->SetUnitSupply(pct); n++; }
-            printf("KNOB startsup = %d on %d battalions\n", pct, n);
+                if (u->IsBattalion() and (team == 0 or u->GetTeam() == team)) { u->SetUnitSupply(pct); n++; }
+            printf("KNOB startsup = %d on %d battalions (team %d, 0 = all)\n", pct, n, team);
         }
         else if (!strcmp(key, "stocks"))
         {

@@ -80,6 +80,7 @@ static uchar gStoreOwner[MAX_CAMP_ENTITIES], gStoreInit[MAX_CAMP_ENTITIES];
 int gStoreDiag[NUM_TEAMS][8] = {{0}};
 // campsim experiment knobs (not in the cfg): battalion supply consumption multiplier, and the level stores start at, percent of capacity
 int g_nSupplyUseMult = 1, g_nStoreStartPct = 100;
+int g_nSupplyUseTeam = 0, g_nSupplyUseTeamMult = 1; // campsim useteam=TEAM:MULT: that team's battalions use MULT x the supply moving and firing
 // campsim experiment knob (not in the cfg): depots and army bases are storage only, they do not produce (BMS 4.37 has no army bases and one depot at rate 1)
 bool g_bStoresNoProd = false;
 // campsim diagnostic: the first resupply of each battalion that found no store: grid x, y, team, reason (1 no friendly objective near it, 2 no

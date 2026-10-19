@@ -295,6 +295,13 @@ ARMS = {
     "PC_75": ("prodcut=6:75", 29),
     "PC_50": ("prodcut=6:50", 29),
     "PC_25": ("prodcut=6:25", 29),
+    # round 30: simple levers to have the North low on supply by the time China joins (h_bar; base = PC_0 of round 29)
+    "SL_s50": ("startsup=6:50", 30),                         # North battalions start the war at 50% supply
+    "SL_s30": ("startsup=6:30", 30),
+    "SL_u3": ("useteam=6:3", 30),                            # North battalions use 3x the supply moving and firing
+    "SL_s50p50": ("startsup=6:50 prodcut=6:50", 30),         # start at 50% and make half the supply
+    "SL_s30p50": ("startsup=6:30 prodcut=6:50", 30),
+    "SL_port": ("portcargo=24", 30),                         # ports produce only after a tanker/cargo ship docks
 }
 
 

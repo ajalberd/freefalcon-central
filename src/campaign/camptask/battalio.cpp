@@ -1109,8 +1109,8 @@ int BattalionClass::MoveUnit(CampaignTime time)
             {
                 // RV - Biker - Reduce supply at higher rate
                 //supply--;
-                extern int g_nSupplyUseMult, g_nSxAttackUse;
-                int use = 2 * g_nSupplyUseMult * ((g_nSxAttackUse > 1 and GetUnitOrders() == GORD_CAPTURE) ? g_nSxAttackUse : 1); // sxattackuse
+                extern int g_nSupplyUseMult, g_nSxAttackUse, g_nSupplyUseTeam, g_nSupplyUseTeamMult;
+                int use = 2 * g_nSupplyUseMult * (GetTeam() == g_nSupplyUseTeam ? g_nSupplyUseTeamMult : 1) * ((g_nSxAttackUse > 1 and GetUnitOrders() == GORD_CAPTURE) ? g_nSxAttackUse : 1); // sxattackuse
                 supply = (supply > use) ? supply - use : 0;
                 gSupplyUse[GetTeam() % 8][0] += use;
                 gSupplyUseGround[GetTeam() % NUM_TEAMS] += (float)use * GetTotalVehicles() / 100.0F;
@@ -1158,8 +1158,8 @@ int BattalionClass::MoveUnit(CampaignTime time)
 
             if (GetMoveTime() > 3 * DEG_TO_SEC * SEC_TO_MSEC and supply > 2 and (not g_bNeutralNoUse or TeamAtWarWithAnyone(GetTeam())))
             {
-                extern int g_nSupplyUseMult, g_nSxAttackUse;
-                int use = 2 * g_nSupplyUseMult * ((g_nSxAttackUse > 1 and GetUnitOrders() == GORD_CAPTURE) ? g_nSxAttackUse : 1); // sxattackuse
+                extern int g_nSupplyUseMult, g_nSxAttackUse, g_nSupplyUseTeam, g_nSupplyUseTeamMult;
+                int use = 2 * g_nSupplyUseMult * (GetTeam() == g_nSupplyUseTeam ? g_nSupplyUseTeamMult : 1) * ((g_nSxAttackUse > 1 and GetUnitOrders() == GORD_CAPTURE) ? g_nSxAttackUse : 1); // sxattackuse
                 supply = (supply > use) ? supply - use : 0;
                 gSupplyUse[GetTeam() % 8][3] += use;
                 gSupplyUseGround[GetTeam() % NUM_TEAMS] += (float)use * GetTotalVehicles() / 100.0F;
