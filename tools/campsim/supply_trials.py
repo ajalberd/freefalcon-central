@@ -191,6 +191,10 @@ ARMS = {
     "L_nocity": ("sxnocity=1", 17),              # only depots / army bases / ports are sources: fewer, further sources
     "L_nocity_loss5": ("sxnocity=1 sxloss=5", 17),
     "P_S12": (SMODEL.replace("sxrear=72", "sxrear=12"), 17),   # model S with captured depots usable after 12 h (vs P_S)
+    # round 18: the delay comes from repair, not a timer -- stores wrecked when lost (sxscorch), sources count from 50% status (sxsrcmin)
+    "P_scorch60": (SMODEL.replace("sxrear=72", "sxscorch=60 sxsrcmin=50"), 18),
+    "P_scorch80": (SMODEL.replace("sxrear=72", "sxscorch=80 sxsrcmin=50"), 18),
+    "P_srcmin50": (SMODEL.replace("sxrear=72", "sxsrcmin=50"), 18),   # status gate only (bombed sources stop counting)
 }
 
 

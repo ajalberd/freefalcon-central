@@ -823,10 +823,32 @@ int gSxDiag[NUM_TEAMS][4] = {{0}}; // searches, no source in reach, refused (own
 // is always a few links away and no bridge or road strike ever sits between a unit and its supply (campsim: all 250 of the North's
 // bridges held down, its front still 93-98% supplied, by truck or on foot).
 int g_nSxNoCity = 0;
+// sxscorch=P: when a depot, army base or port changes hands, P% of its features are destroyed (the loser blows it on the way out), and
+// sxsrcmin=S: a source counts only at S% status or more -- so a captured depot comes on line as the engine's own repair (one feature per
+// repair interval, ObjectiveClass::Repair) brings it back. campsim measured: depots / army bases are taken 85-100% intact and the few
+// damaged ones are almost never repaired within the war, so the engine has no natural delay of its own.
+int g_nSxScorch = 0, g_nSxSrcMin = 0;
+int gSxScorched[NUM_TEAMS] = {0}; // stores scorched, by the team that lost them
 
 static bool SxActive(void)
 {
-    return g_nSxOwn or g_nSxRearH > 0 or g_nSxHops > 0 or g_nSxNoCity;
+    return g_nSxOwn or g_nSxRearH > 0 or g_nSxHops > 0 or g_nSxNoCity or g_nSxScorch > 0 or g_nSxSrcMin > 0;
+}
+
+static void SxScorch(Objective o, int loser)
+{
+    const int t = o->GetType();
+
+    if (g_nSxScorch <= 0 or not(t == TYPE_DEPOT or t == TYPE_ARMYBASE or t == TYPE_PORT))
+        return;
+
+    const int n = o->GetTotalFeatures(), k = (n * g_nSxScorch + 99) / 100;
+
+    for (int f = 0; f < k and f < n; f++)
+        o->SetFeatureStatus(f, VIS_DESTROYED);
+
+    o->ResetObjectiveStatus();
+    gSxScorched[loser % NUM_TEAMS]++;
 }
 
 // ownership history: when did the current owner take each objective (0 = held since the start)
@@ -844,7 +866,10 @@ static void SxTrackOwners(void)
         if (not gSxInit)
             gSxOwner[id] = o->GetTeam(), gSxSince[id] = 0;
         else if (gSxOwner[id] not_eq o->GetTeam())
+        {
+            SxScorch(o, gSxOwner[id]);
             gSxOwner[id] = o->GetTeam(), gSxSince[id] = TheCampaign.CurrentTime;
+        }
     }
 
     gSxInit = true;
@@ -856,6 +881,9 @@ static bool SxSourceOk(Objective c, int who)
         return false;
 
     if (g_nSxNoCity and c->GetType() == TYPE_CITY)
+        return false;
+
+    if (g_nSxSrcMin > 0 and c->GetObjectiveStatus() < g_nSxSrcMin)
         return false;
 
     if (g_nSxOwn and c->GetTeam() not_eq who)
