@@ -29,6 +29,7 @@ void ReadSpecialCampaignData(char* scenario);
 // ========================
 
 uchar max_veh[5] = {8, 12, 12, 16, 16};
+extern int g_nStartSupplyTeam, g_nStartSupplyPct;
 
 void AdjustCampaignOptions(void)
 {
@@ -214,7 +215,14 @@ void AdjustForceRatios(void)
         // Resupply to the team's supply level
         if (u->Real() and
             (u->GetDomain() == DOMAIN_LAND or u->GetDomain() == DOMAIN_SEA))
+        {
             u->SetUnitSupply(TeamInfo[u->GetTeam()]->startStats.supplyLevel);
+
+            // StartSupplyTeam/StartSupplyPct: that team's battalions begin a new campaign short of supply
+            // (campsim 2026-10-19: the North at 50% has run its stocks down by the time China joins)
+            if (g_nStartSupplyTeam > 0 and u->GetTeam() == g_nStartSupplyTeam and u->IsBattalion())
+                u->SetUnitSupply(g_nStartSupplyPct);
+        }
         else if (u->IsSquadron())
         {
             UnitClassDataType* uc = u->GetUnitClassData();
