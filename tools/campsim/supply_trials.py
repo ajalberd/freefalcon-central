@@ -271,6 +271,13 @@ ARMS = {
     "CV_B0": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15", 25),
     "CV_B1": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 sxconvoys=6", 25),
     "CV_B1_4": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 sxconvoys=4", 25),
+    # round 26: round 25 again with columns that keep their route, divert when the destination falls, and rally (no stalls); same build
+    "CF_A0": ("", 26),
+    "CF_A1": ("sxconvoys=6", 26),
+    "CF_A1_4": ("sxconvoys=4", 26),
+    "CF_B0": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15", 26),
+    "CF_B1": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 sxconvoys=6", 26),
+    "CF_B1_4": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 sxconvoys=4", 26),
 }
 
 
