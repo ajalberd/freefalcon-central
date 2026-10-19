@@ -5,6 +5,8 @@
 // ***************************************************************************
 
 #include <ciso646>
+#include <utility>
+#include <vector>
 #include <io.h>
 #include <stdio.h>
 #include <fcntl.h>
@@ -1306,7 +1308,20 @@ void TeamClass::SelectGroundAction(void)
 
         if (g_nSxPostureHi > 0)
         {
+            // front battalions by position: within 30 km of an enemy-held objective (by orders would miss exactly the starved ones --
+            // the GTM sends a battalion under 50% supply to a reserve objective in the rear)
             int front = 0, starved = 0;
+            std::vector<std::pair<GridIndex, GridIndex>> enemy;
+            VuListIterator oit(AllObjList);
+
+            for (Objective eo = GetFirstObjective(&oit); eo; eo = GetNextObjective(&oit))
+                if (eo->IsSecondary() and eo->GetTeam() not_eq who and GetTTRelations(who, eo->GetTeam()) == War)
+                {
+                    GridIndex ex, ey;
+                    eo->GetLocation(&ex, &ey);
+                    enemy.push_back(std::make_pair(ex, ey));
+                }
+
             VuListIterator uit(AllUnitList);
 
             for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
@@ -1314,9 +1329,18 @@ void TeamClass::SelectGroundAction(void)
                 if (not u->IsBattalion() or u->GetTeam() not_eq who or u->IsDead())
                     continue;
 
-                Objective uo = u->GetUnitObjective();
+                GridIndex ux, uy;
+                u->GetLocation(&ux, &uy);
+                bool near = false;
 
-                if (not uo or not(uo->IsFrontline() or uo->IsSecondline() or uo->IsNearfront()))
+                for (const auto &e : enemy)
+                    if ((ux - e.first) * (ux - e.first) + (uy - e.second) * (uy - e.second) <= 30 * 30)
+                    {
+                        near = true;
+                        break;
+                    }
+
+                if (not near)
                     continue;
 
                 front++;
