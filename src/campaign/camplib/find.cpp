@@ -30,6 +30,7 @@
 #include "uiwin.h"
 #include "atcbrain.h"
 #include "flight.h"
+#include "railnet.h"
 
 // =====================================
 // Campaign - Globals defines
@@ -1144,6 +1145,14 @@ Objective FindNearestObjective(GridIndex X, GridIndex Y, float* last,
 
     while (o not_eq NULL)
     {
+        // A rail bridge objective (railnet.cpp) is nobody's nearest objective: what owns or
+        // holds a point, a unit's location, a road crossing are the theater's own objectives.
+        if (o->GetType() == TYPE_BRIDGE and RailIsBridgeObjective(o->Id()))
+        {
+            o = (Objective)myit.GetNext();
+            continue;
+        }
+
         o->GetLocation(&x, &y);
         ds = (float)DistSqu(X, Y, x, y);
 
