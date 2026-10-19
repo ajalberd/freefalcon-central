@@ -36,6 +36,10 @@ extern int g_nRailRailheadKm;
 extern bool g_bRailBridgeCuts;
 extern int g_nRailBridgeBindKm;
 extern int g_nRailBridgeMinM;
+extern int g_nRailCutTransloadH;
+extern int g_nRailCutTransloadPct;
+extern int g_nRailTrackDetrainMin;
+extern bool g_bRailBridgeObjs;
 extern char FalconTerrainDataDir[];
 
 namespace
@@ -57,6 +61,7 @@ struct Span
     VU_ID obj;     // FalconNullId = nothing close enough
     float bindFt;  // how far that objective is from the middle of the span
     bool down;     // last seen at 0% or with a destroyed span
+    bool spawned;  // obj is a rail bridge objective made for this span (RailBridgeObjs)
 };
 
 // A route in sim feet: x north, y east (the sim's own axes), s = distance
@@ -89,7 +94,21 @@ struct Train
     bool stranded;        // a dropped bridge between it and every hub: no deliveries
     bool halted;          // no run long enough left (logged once); parked where it stood
     float adoptS;         // >= 0: just picked up at this point on the line, not yet running
+    bool transload;       // its railhead is a dropped bridge with friendly track beyond (RailCutTransloadH)
+    float sBeyond;        // the railhead the line would have without the cut
 };
+
+// A trainload unloaded at a dropped bridge and on its way across by truck (RailCutTransloadH).
+// Drawn from the pools when it is handed over. Not saved, like the trains' timetables.
+struct Transload
+{
+    double due;   // game seconds
+    int team;
+    float x, y;   // the railhead beyond the bridge
+    int load;
+    std::string route;
+};
+std::vector<Transload> g_transloads;
 
 // vuxGameTime in seconds, as a double: the cycle maths subtract times, and an
 // unsigned millisecond clock would wrap on "now - how far into the cycle".
@@ -127,6 +146,7 @@ bool LoadRoutes()
     g_loadedDir = FalconTerrainDataDir;
     g_routes.clear();
     g_trains.clear();
+    g_transloads.clear();
     g_bridgesBound = false;
     g_routeGen++;
 
@@ -213,7 +233,7 @@ bool LoadRoutes()
 
                 if (r.s[j] - r.s[i] >= minFt)
                 {
-                    Span sp = {r.s[i], r.s[j], FalconNullId, 0.0F, false};
+                    Span sp = {r.s[i], r.s[j], FalconNullId, 0.0F, false, false};
                     r.bridges.push_back(sp);
                 }
 
@@ -812,6 +832,256 @@ Unit SpawnTrain(const Route &r, const Termini &tm)
     return u;
 }
 
+// ---------------------------------------------------------------- rail bridge objectives
+
+// RailBridgeObjs: a rail bridge with no bridge objective near enough to stand for it gets one of
+// its own, so it can be struck like any bridge (and repaired, and cut the line when down). It
+// copies the theater's bridge class that lies most nearly along the track and is closest in
+// length, at the grid cell of the span's middle; it has no links (not part of the road net), and
+// its owner follows the nearest other objective. It is not in the theater's objective file, so
+// it is made afresh on every load: its damage is kept in the save beside the objective deltas
+// (RailSaveBridgeObjs), never in them -- an id a later load does not know would stop the delta
+// reader for every objective after it.
+struct BridgeObj
+{
+    VU_ID id;
+    int route, span;
+};
+std::vector<BridgeObj> g_bridgeObjs; // under g_lock
+
+struct SavedBridgeObj
+{
+    std::string route;
+    int span;
+    std::vector<int> features;
+};
+std::vector<SavedBridgeObj> g_bridgeObjsSaved; // read from the save, applied when they are made
+double g_bridgeObjOwnersAt = -1.0;
+
+bool IsBridgeObj(VU_ID id)
+{
+    for (const BridgeObj &b : g_bridgeObjs)
+        if (b.id == id)
+            return true;
+
+    return false;
+}
+
+// The nearest objective that is not one of ours.
+Objective NearestRealObjective(float x, float y)
+{
+    Objective best = nullptr;
+    float bd = 1e30F;
+    VuListIterator it(AllObjList);
+
+    for (Objective o = GetFirstObjective(&it); o; o = GetNextObjective(&it))
+    {
+        const float d = (o->XPos() - x) * (o->XPos() - x) + (o->YPos() - y) * (o->YPos() - y);
+
+        if (d < bd and not IsBridgeObj(o->Id()))
+        {
+            bd = d;
+            best = o;
+        }
+    }
+
+    return best;
+}
+
+void SpawnBridgeObjs()
+{
+    // Made already, and still there (a new campaign in the same theater frees them).
+    {
+        std::lock_guard<std::mutex> hold(g_lock);
+
+        if (not g_bridgeObjs.empty() and vuDatabase->Find(g_bridgeObjs[0].id))
+            return;
+
+        for (Route &r : g_routes)
+            for (Span &sp : r.bridges)
+                if (sp.spawned)
+                    sp.obj = FalconNullId, sp.spawned = false, sp.down = false;
+
+        g_bridgeObjs.clear();
+    }
+
+    // The theater's bridge classes: the axis through the two features furthest apart.
+    struct Proto
+    {
+        int type;
+        float heading, len; // radians in [0, pi), feet
+    };
+    std::vector<Proto> protos;
+    {
+        VuListIterator it(AllObjList);
+
+        for (Objective o = GetFirstObjective(&it); o; o = GetNextObjective(&it))
+        {
+            if (o->GetType() not_eq TYPE_BRIDGE)
+                continue;
+
+            bool seen = false;
+
+            for (const Proto &p : protos)
+                seen = seen or p.type == o->Type();
+
+            if (seen or o->GetTotalFeatures() < 2)
+                continue;
+
+            float bx = 0, by = 0, best = -1.0F;
+
+            for (int a = 0; a < o->GetTotalFeatures(); a++)
+                for (int b = a + 1; b < o->GetTotalFeatures(); b++)
+                {
+                    float ax, ay, az, cx, cy, cz;
+                    o->GetFeatureOffset(a, &ax, &ay, &az);
+                    o->GetFeatureOffset(b, &cx, &cy, &cz);
+                    const float d = hypotf(cx - ax, cy - ay);
+
+                    if (d > best)
+                        best = d, bx = cx - ax, by = cy - ay;
+                }
+
+            float h = atan2f(by, bx);
+
+            while (h < 0.0F)
+                h += 3.14159265F;
+
+            while (h >= 3.14159265F)
+                h -= 3.14159265F;
+
+            Proto p = {o->Type(), h, best};
+            protos.push_back(p);
+        }
+    }
+
+    if (protos.empty())
+    {
+        Log("rail: RailBridgeObjs -- the theater has no bridge class to copy; none made");
+        return;
+    }
+
+    int made = 0, restored = 0;
+    std::lock_guard<std::mutex> hold(g_lock);
+
+    for (int ri = 0; ri < (int)g_routes.size(); ri++)
+    {
+        Route &r = g_routes[ri];
+
+        for (int k = 0; k < (int)r.bridges.size(); k++)
+        {
+            Span &sp = r.bridges[k];
+
+            if (sp.obj not_eq FalconNullId)
+                continue;
+
+            float ax, ay, bx, by, mx, my, yaw;
+            PointAt(r, sp.s0, &ax, &ay, &yaw);
+            PointAt(r, sp.s1, &bx, &by, &yaw);
+            PointAt(r, 0.5F * (sp.s0 + sp.s1), &mx, &my, &yaw);
+            float h = atan2f(by - ay, bx - ax);
+
+            while (h < 0.0F)
+                h += 3.14159265F;
+
+            while (h >= 3.14159265F)
+                h -= 3.14159265F;
+
+            const float len = sp.s1 - sp.s0 > 1.0F ? sp.s1 - sp.s0 : 1.0F;
+            const Proto *pick = nullptr;
+            float bestScore = 1e30F;
+
+            for (const Proto &p : protos)
+            {
+                float dh = fabsf(p.heading - h);
+                dh = dh > 1.5708F ? 3.14159265F - dh : dh;
+                const float score = dh * 57.2958F + 20.0F * fabsf(logf((p.len > 1.0F ? p.len : 1.0F) / len));
+
+                if (score < bestScore)
+                    bestScore = score, pick = &p;
+            }
+
+            Objective nearObj = NearestRealObjective(mx, my);
+
+            if (not nearObj)
+                continue;
+
+            Objective o = new ObjectiveClass(pick->type);
+            o->SetSendCreate(VuEntity::VU_SC_DONT_SEND);
+
+            if (vuDatabase->Insert(o) not_eq VU_SUCCESS)
+            {
+                delete o;
+                continue;
+            }
+
+            o->SetLocation(GridOf(my), GridOf(mx));
+            o->SetOwner(nearObj->GetOwner());
+            o->SetObjectiveOldown(nearObj->GetOwner());
+            o->SetObjectiveParent(nearObj->GetObjectiveParentID() == FalconNullId ? nearObj->Id() : nearObj->GetObjectiveParentID());
+            o->SetAggregate(1);
+            o->UpdateObjectiveLists();
+
+            for (const SavedBridgeObj &s : g_bridgeObjsSaved)
+            {
+                if (s.route not_eq r.name or s.span not_eq k)
+                    continue;
+
+                for (int f = 0; f < (int)s.features.size() and f < o->GetTotalFeatures(); f++)
+                    o->SetFeatureStatus(f, s.features[f]);
+
+                restored++;
+            }
+
+            sp.obj = o->Id();
+            sp.spawned = true;
+            sp.bindFt = hypotf(o->XPos() - mx, o->YPos() - my);
+            BridgeObj b = {o->Id(), ri, k};
+            g_bridgeObjs.push_back(b);
+            made++;
+        }
+    }
+
+    g_bridgeObjsSaved.clear();
+
+    if (made)
+    {
+        RebuildObjectiveLists();
+        RebuildParentsList();
+    }
+
+    Log("rail: RailBridgeObjs -- made %d rail bridge objectives (%d bridge classes to copy from), "
+        "%d with damage from the save",
+        made, (int)protos.size(), restored);
+}
+
+// Each campaign hour: a rail bridge objective belongs to whoever holds the nearest other objective.
+void BridgeObjOwners(double now)
+{
+    if (g_bridgeObjs.empty() or (g_bridgeObjOwnersAt >= 0.0 and now - g_bridgeObjOwnersAt < 3600.0))
+        return;
+
+    g_bridgeObjOwnersAt = now;
+    std::vector<BridgeObj> objs;
+    {
+        std::lock_guard<std::mutex> hold(g_lock);
+        objs = g_bridgeObjs;
+    }
+
+    for (const BridgeObj &b : objs)
+    {
+        Objective o = (Objective)vuDatabase->Find(b.id);
+
+        if (not o)
+            continue;
+
+        Objective nearObj = NearestRealObjective(o->XPos(), o->YPos());
+
+        if (nearObj and nearObj->GetOwner() not_eq o->GetOwner())
+            o->SetOwner(nearObj->GetOwner());
+    }
+}
+
 // ---------------------------------------------------------------- supply
 
 // A trainload for the railhead: when a train finishes an outbound run it hands supply and fuel
@@ -821,6 +1091,8 @@ Unit SpawnTrain(const Route &r, const Termini &tm)
 // intact-node loss (2%, as NodeSupplyLoss) instead of a road journey through every node and
 // bridge on the way. A train killed on the way never arrives, and a damaged one carries what its
 // surviving cars can (the load scales with vehicles left).
+void DeliverAt(const char *route, const char *what, int team, float hx, float hy, int load);
+
 void MaybeDeliver(const Route &r, Train &t, Unit train, double now)
 {
     if (g_nRailTrainLoad <= 0)
@@ -854,12 +1126,40 @@ void MaybeDeliver(const Route &r, Train &t, Unit train, double now)
     const int left = train->GetTotalVehicles();
     const float strength = full > 0 ? (float)left / (float)full : 1.0F;
     const int load = (int)(g_nRailTrainLoad * strength);
+    float hx, hy, yaw;
+
+    // The line is cut at a bridge with friendly track beyond: unloaded at the bridge, the load
+    // goes on by truck -- late, and only what the trucks can take.
+    if (g_nRailCutTransloadH > 0 and t.transload)
+    {
+        const int pct = g_nRailCutTransloadPct < 0 ? 0 : (g_nRailCutTransloadPct > 100 ? 100 : g_nRailCutTransloadPct);
+        Transload tl;
+        tl.due = arrived + g_nRailCutTransloadH * 3600.0;
+        tl.team = team;
+        PointAt(r, t.sBeyond, &tl.x, &tl.y, &yaw);
+        tl.load = load * pct / 100;
+        tl.route = r.name;
+        g_transloads.push_back(tl);
+        Log("rail: %s -- train %d unloaded at a dropped bridge (%d of %d cars): %d of its %d goes on by "
+            "truck, due at the railhead beyond in %d h",
+            r.name.c_str(), train->GetCampID(), left, full, tl.load, load, g_nRailCutTransloadH);
+        return;
+    }
+
+    PointAt(r, t.sFront, &hx, &hy, &yaw);
+    char what[96];
+    sprintf_s(what, "train %d reached the railhead (%d of %d cars)", train->GetCampID(), left, full);
+    DeliverAt(r.name.c_str(), what, team, hx, hy, load);
+}
+
+// Hand `load` of supply and of fuel from the team's national pools to its battalions within
+// RailRailheadKm of (hx, hy), nearest first, each up to what it is short of, less 2% in transit.
+void DeliverAt(const char *route, const char *what, int team, float hx, float hy, int load)
+{
     int supply = load < (int)TeamInfo[team]->GetSupplyAvail() ? load : (int)TeamInfo[team]->GetSupplyAvail();
     int fuel = load < (int)TeamInfo[team]->GetFuelAvail() ? load : (int)TeamInfo[team]->GetFuelAvail();
 
     // Who is near the railhead and short of something, nearest first.
-    float hx, hy, yaw;
-    PointAt(r, t.sFront, &hx, &hy, &yaw);
     const float reach = (g_nRailRailheadKm > 0 ? g_nRailRailheadKm : 1) * GRID_SIZE_FT;
 
     struct Need
@@ -912,9 +1212,9 @@ void MaybeDeliver(const Route &r, Train &t, Unit train, double now)
     TeamInfo[team]->SetSupplyAvail(TeamInfo[team]->GetSupplyAvail() - gaveS);
     TeamInfo[team]->SetFuelAvail(TeamInfo[team]->GetFuelAvail() - gaveF);
 
-    Log("rail: %s -- train %d reached the railhead (%d of %d cars): %d supply, %d fuel to %d "
+    Log("rail: %s -- %s: %d supply, %d fuel to %d "
         "unit(s) within %d km; %d short of something there; pools now %d / %d",
-        r.name.c_str(), train->GetCampID(), left, full, gaveS, gaveF, units, g_nRailRailheadKm,
+        route, what, gaveS, gaveF, units, g_nRailRailheadKm,
         (int)needs.size(), (int)TeamInfo[team]->GetSupplyAvail(),
         (int)TeamInfo[team]->GetFuelAvail());
 }
@@ -1016,6 +1316,28 @@ void RailCampaignTick(int startup)
 
     if (not g_bridgesBound)
         BindBridges();
+
+    if (g_bRailBridgeObjs and g_bRailBridgeCuts)
+    {
+        SpawnBridgeObjs();
+        BridgeObjOwners(now);
+    }
+
+    // Trainloads trucked across a cut that are due now (RailCutTransloadH).
+    for (size_t i = 0; i < g_transloads.size();)
+    {
+        if (g_transloads[i].due > now)
+        {
+            i++;
+            continue;
+        }
+
+        const Transload tl = g_transloads[i];
+        g_transloads.erase(g_transloads.begin() + i);
+
+        if (TeamInfo[tl.team])
+            DeliverAt(tl.route.c_str(), "trucks from a dropped bridge reached the railhead beyond", tl.team, tl.x, tl.y, tl.load);
+    }
 
     // Which bridges are down right now, per route; say so when that changes.
     std::vector<std::vector<char>> downs(g_routes.size());
@@ -1281,6 +1603,23 @@ void RailCampaignTick(int startup)
             // Did it reach the railhead since the last look? Checked on the timetable it has been
             // running, before the ends move and the cycle is re-based. A stranded train (a
             // dropped bridge between it and every hub) carries nothing.
+            // Cut at a bridge with friendly track beyond it: where the railhead would be without
+            // the cut, for the trucks (RailCutTransloadH).
+            t.transload = false;
+
+            if (g_nRailCutTransloadH > 0 and tm.frontAtCut)
+            {
+                const std::vector<char> open(down.size(), 0);
+                const Termini whole = FindTermini(r, tm.team, sNow, open);
+                const float dir = tm.sFront >= tm.sRear ? 1.0F : -1.0F;
+
+                if (whole.ok and (whole.sFront - tm.sFront) * dir > 2.0F * CUT_STANDOFF_FT)
+                {
+                    t.transload = true;
+                    t.sBeyond = whole.sFront;
+                }
+            }
+
             if (t.running and not t.stranded)
                 MaybeDeliver(r, t, u, now);
             else
@@ -2310,13 +2649,16 @@ bool RailMoveRider(UnitClass *u, int *ret)
             rd->sx = x;
             rd->sy = y;
             rd->tArrive = now;
-            rd->tRelease = now + LoadSec();
+            // On open track, with no ramps or sidings, unloading takes longer than at a station
+            // (RailTrackDetrainMin); the battalion is held where it stopped until it is off.
+            const double detrain = g_nRailTrackDetrainMin > 0 ? g_nRailTrackDetrainMin * 60.0 : LoadSec();
+            rd->tRelease = now + detrain;
             g_tstats.stopped++;
             Log("rail: troops -- battalion %d: the line ahead is cut or hostile; detrains at (%.0f, %.0f), "
-                "%.0f km short of its stop",
+                "%.0f km short of its stop, off in %.1f h",
                 u->GetCampID(), y / GRID_SIZE_FT, x / GRID_SIZE_FT,
                 hypotf(NodeSample(rd->steps.back().node).x - x, NodeSample(rd->steps.back().node).y - y) /
-                    GRID_SIZE_FT);
+                    GRID_SIZE_FT, detrain / 3600.0);
         }
     }
 
@@ -2769,4 +3111,112 @@ void RailWaveTick(double now)
         "%d still on the way",
         g_mobStats.groups, g_mobStats.battalions, g_mobStats.arrived,
         g_mobStats.arrived ? g_mobStats.hoursSum / g_mobStats.arrived : 0.0, g_mobStats.timedOut, (int)g_mob.size());
+}
+
+// ---------------------------------------------------------------- rail bridge objectives: saves
+
+bool RailIsBridgeObjective(const VU_ID &id)
+{
+    std::lock_guard<std::mutex> hold(g_lock);
+    return IsBridgeObj(id);
+}
+
+// count, then per objective: route name (length + bytes), span, feature count, feature statuses
+void RailSaveBridgeObjs(char *savefile)
+{
+    std::vector<unsigned char> buf;
+    auto put = [&buf](const void *p, size_t n) { buf.insert(buf.end(), (const unsigned char *)p, (const unsigned char *)p + n); };
+    int count = 0;
+    {
+        std::lock_guard<std::mutex> hold(g_lock);
+
+        for (const BridgeObj &b : g_bridgeObjs)
+        {
+            Objective o = (Objective)vuDatabase->Find(b.id);
+
+            if (not o)
+                continue;
+
+            const std::string &name = g_routes[b.route].name;
+            const int len = (int)name.size(), nf = o->GetTotalFeatures();
+            put(&len, sizeof len);
+            put(name.data(), len);
+            put(&b.span, sizeof b.span);
+            put(&nf, sizeof nf);
+
+            for (int f = 0; f < nf; f++)
+            {
+                const unsigned char st = (unsigned char)o->GetFeatureStatus(f);
+                put(&st, 1);
+            }
+
+            count++;
+        }
+    }
+
+    FILE *fp = OpenCampFile(savefile, "rbo", "wb");
+
+    if (not fp)
+        return;
+
+    fwrite(&count, sizeof count, 1, fp);
+
+    if (not buf.empty())
+        fwrite(buf.data(), buf.size(), 1, fp);
+
+    CloseCampFile(fp);
+}
+
+void RailLoadBridgeObjs(char *savefile)
+{
+    std::vector<SavedBridgeObj> saved;
+    CampaignData cd = ReadCampFile(savefile, "rbo");
+
+    if (cd.dataSize > 0)
+    {
+        const unsigned char *p = (const unsigned char *)cd.data, *end = p + cd.dataSize;
+        auto get = [&p, end](void *out, size_t n) {
+            if (p + n > end)
+                return false;
+            memcpy(out, p, n);
+            p += n;
+            return true;
+        };
+        int count = 0;
+        get(&count, sizeof count);
+
+        for (int i = 0; i < count; i++)
+        {
+            SavedBridgeObj s;
+            int len = 0, nf = 0;
+
+            if (not get(&len, sizeof len) or len < 0 or len > 256)
+                break;
+
+            s.route.assign((const char *)p, p + len <= end ? len : 0);
+            p += len;
+
+            if (not get(&s.span, sizeof s.span) or not get(&nf, sizeof nf) or nf < 0 or nf > 255)
+                break;
+
+            for (int f = 0; f < nf; f++)
+            {
+                unsigned char st = 0;
+
+                if (not get(&st, 1))
+                    break;
+
+                s.features.push_back(st);
+            }
+
+            saved.push_back(s);
+        }
+    }
+
+    if (cd.data)
+        delete[] cd.data;
+
+    std::lock_guard<std::mutex> hold(g_lock);
+    g_bridgeObjsSaved = saved;
+    g_bridgeObjs.clear(); // the load's own objectives come next: make ours afresh
 }

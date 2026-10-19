@@ -38,6 +38,7 @@
 #include "otwdrive.h"
 #include "simfiltr.h"
 #include "classtbl.h"
+#include "railnet.h"
 #include "uiwin.h"
 #include "tacan.h"
 #include "persist.h"
@@ -3021,6 +3022,8 @@ int LoadBaseObjectives(char *scenario)
 
 int LoadObjectiveDeltas(char *savefile)
 {
+    RailLoadBridgeObjs(savefile); // Artscout - 2026: rail bridge objectives' damage, applied when they are made (railnet.cpp)
+
     long csize;
     uchar /* *data,*/ *data_ptr;
 
@@ -3145,6 +3148,7 @@ void SaveObjectiveDeltas(char *savefile)
     fwrite(cbuffer, csize, 1, fp);
     delete cbuffer;
     CloseCampFile(fp);
+    RailSaveBridgeObjs(savefile); // Artscout - 2026: rail bridge objectives' damage (railnet.cpp)
 }
 
 int BestRepairFeature(Objective o, int *hours)
@@ -3514,7 +3518,7 @@ int EncodeObjectiveDeltas(VU_BYTE **stream, FalconSessionEntity *owner)
             {
                 o = (Objective)ent;
 
-                if (o->HasDelta())
+                if (o->HasDelta() and not RailIsBridgeObjective(o->Id())) // made at load, not in the theater (railnet.cpp)
                 {
                     size += sizeof(VU_ID) + o->SaveSize(1);
                     count++;
@@ -3540,7 +3544,7 @@ int EncodeObjectiveDeltas(VU_BYTE **stream, FalconSessionEntity *owner)
             {
                 o = (Objective)ent;
 
-                if (o->HasDelta())
+                if (o->HasDelta() and not RailIsBridgeObjective(o->Id())) // made at load, not in the theater (railnet.cpp)
                 {
                     vuid = o->Id();
                     memcpy(buf, &vuid, sizeof(VU_ID));

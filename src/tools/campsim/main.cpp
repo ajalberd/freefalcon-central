@@ -3593,6 +3593,24 @@ static void ApplyKnobs(int argc, char **argv)
             g_nRailTrainLoad = atoi(val);
             printf("KNOB g_nRailTrainLoad = %d\n", g_nRailTrainLoad);
         }
+        else if (!strcmp(key, "railcut"))
+        {
+            extern int g_nRailCutTransloadH, g_nRailCutTransloadPct;
+            sscanf(val, "%d:%d", &g_nRailCutTransloadH, &g_nRailCutTransloadPct);
+            printf("KNOB g_nRailCutTransloadH = %d, g_nRailCutTransloadPct = %d\n", g_nRailCutTransloadH, g_nRailCutTransloadPct);
+        }
+        else if (!strcmp(key, "railbridgeobjs"))
+        {
+            extern bool g_bRailBridgeObjs;
+            g_bRailBridgeObjs = atoi(val) not_eq 0;
+            printf("KNOB g_bRailBridgeObjs = %d\n", g_bRailBridgeObjs ? 1 : 0);
+        }
+        else if (!strcmp(key, "raildetrain"))
+        {
+            extern int g_nRailTrackDetrainMin;
+            g_nRailTrackDetrainMin = atoi(val);
+            printf("KNOB g_nRailTrackDetrainMin = %d\n", g_nRailTrackDetrainMin);
+        }
         else if (!strcmp(key, "towncost"))
         {
             extern float g_fEnemyTownPathCost;

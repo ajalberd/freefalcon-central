@@ -16,6 +16,7 @@
 // Off unless g_bRailTrains is set. See RAIL.md.
 
 class UnitClass;
+class VU_ID;
 
 // The "Train" unit class: land / unit / battalion / STYPE_UNIT_SUPPLY / this sptype. A copy of
 // the 16-KrAz Supply battalion (class 77) appended to the theater's FALCON4.ct and FALCON4.UCD,
@@ -26,6 +27,13 @@ class UnitClass;
 // routes, adopt or spawn one train per configured route, and move its termini
 // as the front moves.
 void RailCampaignTick(int startup);
+
+// RailBridgeObjs: objectives made at load for rail bridges with none near enough. They are not in
+// the theater's objective file, so EncodeObjectiveDeltas leaves them out, and their damage goes
+// into the save as its own record ("rbo").
+bool RailIsBridgeObjective(const VU_ID &id);
+void RailSaveBridgeObjs(char *savefile);
+void RailLoadBridgeObjs(char *savefile);
 
 // BattalionClass::MoveUnit for a train. Returns what MoveUnit returns.
 int RailMoveTrain(UnitClass *u);

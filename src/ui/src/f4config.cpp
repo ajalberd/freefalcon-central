@@ -1073,6 +1073,7 @@ int g_nRailTrainLoad = 120; // Artscout - 2026: supply and fuel a full train del
 int g_nRailRailheadKm = 25; // Artscout - 2026: how far from the forward terminus a battalion can be and still draw from an arriving train, km. "RailRailheadKm".
 bool g_bRailBridgeCuts =
     true; // Artscout - 2026: a dropped bridge cuts the railway. Each OSM rail bridge of RailBridgeMinM or longer is bound to the nearest bridge objective within RailBridgeBindKm (Korea has no rail bridges of its own), and is down while that objective is at 0% or has any destroyed feature. A train keeps to its own side; with no enemy beyond, the broken bridge becomes its forward terminus; cut off from every hub, it carries nothing. Repair reopens the line on its own. "RailBridgeCuts".
+bool g_bRailBridgeObjs = false; // Artscout - 2026: a rail bridge of RailBridgeMinM or longer with no bridge objective within RailBridgeBindKm gets an objective of its own at load, copied from the theater's bridge class that lies most nearly along the track, so it can be struck and cut the line. Not linked into the road net; its owner follows the nearest objective; its damage is kept in the save beside the objective deltas. "RailBridgeObjs".
 int g_nRailBridgeBindKm = 2; // Artscout - 2026: how far a bridge objective may be from the middle of a rail bridge and still stand for it, km. "RailBridgeBindKm".
 int g_nRailBridgeMinM = 80; // Artscout - 2026: shortest OSM rail bridge that counts as a river crossing, metres; shorter ones (culverts, overpasses) are ignored. "RailBridgeMinM".
 bool g_bRailTrack =
@@ -1086,6 +1087,9 @@ int g_nRailTroopMinKm = 40; // Artscout - 2026: trips shorter than this (straigh
 int g_nRailTroopRoadKph = 9; // Artscout - 2026: the road march speed the decision assumes, km/h, on a road 1.3x the straight line. 9 is the median speed of moving China/DPRK battalions in campsim (Escalation save, 6 seeds). "RailTroopRoadKph".
 int g_nRailTroopWalkKm = 10; // Artscout - 2026: farthest a battalion walks to a line, and from the line to its destination, km. "RailTroopWalkKm".
 int g_nRailTroopLoadMin = 45; // Artscout - 2026: minutes to entrain, and again to detrain. "RailTroopLoadMin".
+int g_nRailCutTransloadH = 0; // Artscout - 2026: a freight train whose line is cut at a dropped bridge, with friendly track beyond it, unloads at the bridge and its load goes on by truck: it reaches the battalions at the railhead beyond the bridge this many hours later, RailCutTransloadPct of it. 0 = off (the railhead is the bridge, and nothing goes beyond it). "RailCutTransloadH".
+int g_nRailCutTransloadPct = 50; // Artscout - 2026: share of a trainload that crosses a cut by truck. "RailCutTransloadPct".
+int g_nRailTrackDetrainMin = 0; // Artscout - 2026: minutes for a troop train stopped short (a bridge dropped or the line turned hostile ahead) to detrain on open track, held where it stopped; 0 = RailTroopLoadMin, as at a station. "RailTrackDetrainMin".
 int g_nRailTroopTransferMin = 30; // Artscout - 2026: minutes to change lines at a junction. "RailTroopTransferMin".
 int g_nRailTroopSavePct = 25; // Artscout - 2026: the rail journey must take at least this much less time than the road march, percent. "RailTroopSavePct".
 int g_nRailTroopStandoffKm = 20; // Artscout - 2026: troops only detrain where no enemy-held track is within this many km along the line (supply trains use RailFrontStandoff). At 10, 60 of 82 rides per campsim run ended in contact at the stop. "RailTroopStandoffKm".
@@ -1877,6 +1881,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"CampRailLines", &g_bCampRailLines}, // Artscout - 2026: campaign map draws the rail routes
     {"RailMapAllTrains", &g_bRailMapAllTrains}, // Artscout - 2026: mark enemy trains too (test aid)
     {"RailBridgeCuts", &g_bRailBridgeCuts}, // Artscout - 2026: a dropped bridge cuts the railway
+    {"RailBridgeObjs", &g_bRailBridgeObjs}, // Artscout - 2026: rail bridges with no bridge objective get one
     {"RailTrack", &g_bRailTrack}, // Artscout - 2026: draw the track strip in 3D (pilot)
     {"ParticlesLast", &g_bParticlesLast}, // Artscout - 2026: GPU particles after the DX2D quads (clouds over dust)
     {"RailTrackLog", &g_bRailTrackLog}, // Artscout - 2026: log track pieces and ground mismatch
@@ -2357,6 +2362,9 @@ static ConfigOption<int> IntOpts[] = {
     {"RailTroopRoadKph", &g_nRailTroopRoadKph}, // Artscout - 2026: assumed road march speed
     {"RailTroopWalkKm", &g_nRailTroopWalkKm}, // Artscout - 2026: walk to / from the line
     {"RailTroopLoadMin", &g_nRailTroopLoadMin}, // Artscout - 2026: entrain / detrain minutes
+    {"RailCutTransloadH", &g_nRailCutTransloadH}, // Artscout - 2026: hours to truck a trainload across a cut
+    {"RailCutTransloadPct", &g_nRailCutTransloadPct}, // Artscout - 2026: share of it that crosses
+    {"RailTrackDetrainMin", &g_nRailTrackDetrainMin}, // Artscout - 2026: detrain minutes on open track
     {"RailTroopTransferMin", &g_nRailTroopTransferMin}, // Artscout - 2026: line change minutes
     {"RailTroopSavePct", &g_nRailTroopSavePct}, // Artscout - 2026: time rail must save
     {"RailTroopStandoffKm", &g_nRailTroopStandoffKm}, // Artscout - 2026: troop stop distance from the enemy
