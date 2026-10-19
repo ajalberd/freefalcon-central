@@ -32,6 +32,10 @@ void RailCampaignTick(int startup);
 // the theater's objective file, so EncodeObjectiveDeltas leaves them out, and their damage goes
 // into the save as its own record ("rbo").
 bool RailIsBridgeObjective(const VU_ID &id);
+// The nearest objective that is not one of them: a road crossing's bridge is a road bridge, so
+// path costs look past a rail bridge objective that happens to be nearer.
+class ObjectiveClass;
+ObjectiveClass *RailNearestOtherObjective(short x, short y);
 // Its name ("Pyongui Line rail bridge near Sinanju"), kept here instead of the theater's name
 // table: 340 more names would put the Korea table near its 32 KB (short offset) limit on every
 // load. False for any other objective.

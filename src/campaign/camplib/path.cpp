@@ -24,6 +24,7 @@
 #include "gndunit.h"
 #include "aiinput.h"
 #include "gtm.h"
+#include "railnet.h"
 #include "msginc/gndtaskingmsg.h"
 
 void debugprintf(LPSTR dbgFormat, ...)
@@ -341,6 +342,8 @@ float GetMovementCost(GridIndex x, GridIndex y, MoveType move, int flags,
             if (cost > MAX_COST)
             {
                 o = FindNearestObjective(x, y, NULL);
+                if (o and RailIsBridgeObjective(o->Id())) // a rail bridge objective (railnet.cpp) is not this road's bridge
+                    o = RailNearestOtherObjective(x, y);
 
                 // RV - Biker - Loop through ground units to find engineer battalion assigned for repair
                 VuListIterator uit(AllUnitList);

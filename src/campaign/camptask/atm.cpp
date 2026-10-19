@@ -40,6 +40,7 @@
 #include "cmpclass.h"
 #include "falcsess.h"
 #include "classtbl.h"
+#include "railnet.h"
 
 //sfr: added for buffer chks
 #include "invalidbufferexception.h"
@@ -3140,6 +3141,7 @@ int TargetAllSites(Objective po, int action, int team, CampaignTime startTime)
                         requests++;
                     }
                     else if (otarget->GetType() == TYPE_BRIDGE and
+                             not RailIsBridgeObjective(otarget->Id()) and // rail bridges: the player's choice (railnet.cpp)
                              TeamInfo[team]
                                      ->GetGroundAction()
                                      ->actionObjective not_eq po->Id())

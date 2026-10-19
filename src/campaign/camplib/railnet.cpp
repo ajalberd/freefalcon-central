@@ -3163,10 +3163,35 @@ void RailWaveTick(double now)
 
 // ---------------------------------------------------------------- rail bridge objectives: saves
 
+// Under the name lock, not g_lock: path costs ask this, and the rail code may hold g_lock.
 bool RailIsBridgeObjective(const VU_ID &id)
 {
-    std::lock_guard<std::mutex> hold(g_lock);
-    return IsBridgeObj(id);
+    std::lock_guard<std::mutex> hold(g_bridgeNameLock);
+
+    for (const auto &n : g_bridgeNames)
+        if (n.first == id)
+            return true;
+
+    return false;
+}
+
+Objective RailNearestOtherObjective(GridIndex x, GridIndex y)
+{
+    Objective best = nullptr;
+    int bd = 0x7fffffff;
+    VuListIterator it(AllObjList);
+
+    for (Objective o = GetFirstObjective(&it); o; o = GetNextObjective(&it))
+    {
+        GridIndex ox, oy;
+        o->GetLocation(&ox, &oy);
+        const int d = (ox - x) * (ox - x) + (oy - y) * (oy - y);
+
+        if (d < bd and not RailIsBridgeObjective(o->Id()))
+            bd = d, best = o;
+    }
+
+    return best;
 }
 
 // count, then per objective: route name (length + bytes), span, feature count, feature statuses
