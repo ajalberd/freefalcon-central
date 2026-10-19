@@ -165,6 +165,17 @@ class TheaterWorkspace:
             except Exception as exc:
                 cam.objectives, cam.objectives_raw = [], b""
                 cam.objectives_error = self._stream_error(exc)
+                return cam
+
+            # A save's own changes -- owners, damage, supply -- over the borrowed list, so the map
+            # shows the war as saved, not the scenario's first day. (Read-only: the list is not ours.)
+            cam.objectives_deltas = 0
+            if source != name:
+                try:
+                    cam.objectives_deltas = objectives.apply_objective_deltas(
+                        cam.objectives, objectives.decode_objective_deltas(cam.member("obd")))
+                except Exception:
+                    pass
             return cam
 
     def name_table(self):

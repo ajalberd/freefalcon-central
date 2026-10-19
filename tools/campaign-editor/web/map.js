@@ -29,12 +29,14 @@ const KIND_SHAPE = {
 
 // Objective categories, in draw order (later = on top) with their glyph.
 const OBJ_LAYERS = [
-  ['terrain', 'dot'],
+  ['other', 'dot'],
+  ['navigation', 'dot'],
   ['infrastructure', 'tick'],
   ['political', 'square'],
-  ['industry', 'gear'],
-  ['port', 'anchor'],
-  ['military', 'flag'],
+  ['warproduction', 'gear'],
+  ['logistics', 'anchor'],
+  ['ccc', 'flag'],
+  ['army', 'flag'],
   ['airdefence', 'tri'],
   ['airbase', 'runway'],
 ];
@@ -42,8 +44,8 @@ const OBJ_LAYERS = [
 // Zoom below which a layer stops drawing, so a fully zoomed-out map is not
 // 2600 overlapping glyphs.
 const LAYER_MIN_ZOOM = {
-  terrain: 1.6, infrastructure: 1.2, political: 0.45, industry: 0.45,
-  port: 0.3, military: 0.3, airdefence: 0.3, airbase: 0,
+  other: 1.6, navigation: 1.6, infrastructure: 1.2, political: 0.45, warproduction: 0.3,
+  logistics: 0.3, ccc: 0.45, army: 0.3, airdefence: 0.3, airbase: 0,
 };
 
 // falclib/include/f4vu.h, the values that fit in the two bits a feature gets
@@ -105,7 +107,7 @@ const M = {
   view: {scale: 1, ox: 0, oy: 0},
   hiddenTeams: new Set(),
   hiddenKinds: new Set(),
-  hiddenCats: new Set(['terrain']),
+  hiddenCats: new Set(['other']),
   showUnits: true,
   // Units flagged inactive in the save (reinforcements that have not arrived yet).
   // The game does not show them, so the map hides them unless asked.
@@ -200,7 +202,7 @@ function mapReset() {
   M.place = null;
   M.hiddenTeams = new Set();
   M.hiddenKinds = new Set();
-  M.hiddenCats = new Set(['terrain']);
+  M.hiddenCats = new Set(['other']);
 }
 
 async function mapPanel(file) {

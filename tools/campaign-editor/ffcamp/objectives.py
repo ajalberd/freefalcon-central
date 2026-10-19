@@ -54,30 +54,32 @@ TYPE_NAMES = {
     31: "SAM site", 58: "Artillery site",
 }
 
-# Coarse buckets, so the map can offer sensible layer toggles instead of two
-# dozen checkboxes.
+# The in-game campaign map's objective filters (ui/src/common/filters.cpp ObjectiveFilters,
+# _OBTV_*), so the editor's layer toggles group objectives the way the game does. Intersections and
+# artillery sites are not in the game's table; they go with Other and Army.
 CATEGORY_OF_TYPE = {
+    21: "airdefence", 31: "airdefence",
     1: "airbase", 2: "airbase",
-    3: "military", 13: "military", 30: "airdefence", 31: "airdefence",
-    21: "airdefence", 58: "military", 10: "military", 9: "military",
-    7: "industry", 11: "industry", 17: "industry", 20: "industry",
-    25: "industry", 22: "infrastructure",
-    6: "infrastructure", 12: "infrastructure", 15: "infrastructure",
-    18: "infrastructure", 24: "infrastructure", 26: "infrastructure",
-    16: "infrastructure", 23: "infrastructure",
+    3: "army", 13: "army", 30: "army", 58: "army",
+    9: "ccc", 22: "ccc",
+    6: "infrastructure", 23: "infrastructure", 24: "infrastructure",
+    10: "logistics", 19: "logistics",
+    7: "warproduction", 11: "warproduction", 17: "warproduction", 20: "warproduction", 25: "warproduction",
     8: "political", 28: "political", 29: "political",
-    19: "port", 4: "terrain", 5: "terrain", 14: "terrain", 27: "terrain",
+    16: "navigation",
+    4: "other", 5: "other", 12: "other", 14: "other", 15: "other", 18: "other", 26: "other", 27: "other",
 }
 
 CATEGORY_LABELS = {
-    "airbase": "Airbases",
-    "airdefence": "Air defence",
-    "military": "Military",
-    "industry": "Industry",
+    "airdefence": "Air defense",
+    "airbase": "Airfields",
+    "army": "Army",
+    "ccc": "Command and control",
     "infrastructure": "Infrastructure",
-    "political": "Cities and towns",
-    "port": "Ports",
-    "terrain": "Terrain",
+    "logistics": "Logistics (depots, ports)",
+    "warproduction": "War production (factories, power, refineries)",
+    "political": "Political",
+    "navigation": "Navigation",
     "other": "Other",
 }
 
@@ -277,3 +279,46 @@ def encode_objectives(raw, count):
     """Re-wrap a (possibly patched) stream as a `.obj` member."""
     packed = lzss.compress(raw)
     return struct.pack("<hii", count, len(raw), len(packed)) + packed
+
+
+def decode_objective_deltas(section):
+    """Decode a save's `.obd` member into {vu_id: changes}.
+
+    A save carries no objective list of its own, only what changed since the
+    scenario it was started from (`SaveObjectiveDeltas` / `EncodeObjectiveDeltas`):
+    a 32-bit compressed size, then count (i16), expanded size (i32) and an LZSS
+    stream of records -- VU_ID, last_repair (u32), owner, supply, fuel, losses,
+    a feature-status length and that many bytes (`ObjectiveClass::Save(.., 1)`).
+    """
+    if section is None or len(section) < 10:
+        return {}
+    s = entities.Stream(section, 0)
+    s.i32()                       # compressed size
+    count = s.i16()
+    size = s.i32()
+    if size <= 0 or count <= 0:
+        return {}
+    raw = lzss.expand(section[s.pos:], size)
+    body = entities.Stream(raw)
+    out = {}
+    for _ in range(count):
+        try:
+            vid = body.vuid()
+            d = {"lastRepair": body.u32(), "owner": body.u8(), "supply": body.u8(),
+                 "fuel": body.u8(), "losses": body.u8()}
+            d["featureStatus"] = body.bytes_(body.u8())
+        except (EOFError, struct.error):
+            break
+        out[tuple(vid)] = d
+    return out
+
+
+def apply_objective_deltas(objs, deltas):
+    """Lay a save's changes over the scenario's objectives (what LoadObjectiveDeltas does). Returns how many matched."""
+    n = 0
+    for o in objs:
+        d = deltas.get(tuple(o["id"]))
+        if d:
+            o.update(d)
+            n += 1
+    return n
