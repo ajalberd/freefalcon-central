@@ -741,6 +741,7 @@ bool g_bSupplyStocks = false; // campaign experiment: depots and army bases hold
 bool g_bStoresProduce = false; // campaign experiment (with SupplyStocks): depots and army bases keep producing into the pool as well
 int g_nProdCutTeam = 0; // campaign experiment: this team (1-7; 0 = none) makes ProdCutPct % of the supply its factories, ports and stores would. "ProdCutTeam".
 int g_nProdCutPct = 100; // campaign experiment: see ProdCutTeam. "ProdCutPct".
+int g_nPortCargoHours = 0; // campaign experiment: a port or naval base produces supply only if one of its side's tankers, cargo or supply ships docked there in the last this-many hours, and then scaled by the share of those ships still afloat (a side that starts with none gets nothing from its ports); 0 = off. "PortCargoHours".
 int g_nStoreCapPct = 100; // campaign experiment (SupplyStocks): a store holds this percent of its class DataRate in supply points (and the same in fuel)
 int g_nStoreFillPct = 10; // campaign experiment (SupplyStocks): most a store takes from the pool per production call, percent of its capacity
 bool g_bAirliftRunway = true; // campaign: an airlift landing is credited only if the airbase it lands at has a runway that is not destroyed (stock: credited anyway)
@@ -2369,6 +2370,7 @@ static ConfigOption<int> IntOpts[] = {
     {"RailTrackDetrainMin", &g_nRailTrackDetrainMin}, // Artscout - 2026: detrain minutes on open track
     {"ProdCutTeam", &g_nProdCutTeam}, // campaign experiment: team whose supply production is cut
     {"ProdCutPct", &g_nProdCutPct}, // ... to this %
+    {"PortCargoHours", &g_nPortCargoHours}, // campaign experiment: ports produce only after a cargo ship docks
     {"RailTroopTransferMin", &g_nRailTroopTransferMin}, // Artscout - 2026: line change minutes
     {"RailTroopSavePct", &g_nRailTroopSavePct}, // Artscout - 2026: time rail must save
     {"RailTroopStandoffKm", &g_nRailTroopStandoffKm}, // Artscout - 2026: troop stop distance from the enemy

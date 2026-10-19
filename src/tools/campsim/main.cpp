@@ -675,6 +675,12 @@ static void GtmLog(int hour)
                        gSxConvDiag[t][1], gSxConvDiag[t][2], gSxConvDiag[t][3], gSxConvDiag[t][4], gSxConvDiag[t][5], gSxConvDiag[t][6],
                        gSxConvDiag[t][7], gSxConvRerouted[t], gSxConvDiverted[t], gSxConvRallied[t]);
 
+            extern int gPortDiag[NUM_TEAMS][3];
+
+            for (int t : {2, 6})
+                printf("PORTCARGO h=%d team %d port production passes: full %d, scaled by cargo ships lost %d, idle (no docking) %d "
+                       "(cumulative)\n", hour, t, gPortDiag[t][0], gPortDiag[t][1], gPortDiag[t][2]);
+
             extern int gSxConvoyLost[NUM_TEAMS];
             printf("SXCONVOY h=%d supply lost to convoy interdiction: Blue %d, North %d (cumulative)\n", hour, gSxConvoyLost[2], gSxConvoyLost[6]);
         }
@@ -3120,6 +3126,12 @@ static void ApplyKnobs(int argc, char **argv)
             extern int g_nProdCutTeam, g_nProdCutPct;
             sscanf(val, "%d:%d", &g_nProdCutTeam, &g_nProdCutPct);
             printf("KNOB prodcut: team %d makes %d%% of its supply production\n", g_nProdCutTeam, g_nProdCutPct);
+        }
+        else if (!strcmp(key, "portcargo"))
+        {
+            extern int g_nPortCargoHours;
+            g_nPortCargoHours = atoi(val);
+            printf("KNOB g_nPortCargoHours = %d (ports produce only after a cargo ship docks)\n", g_nPortCargoHours);
         }
         else if (!strcmp(key, "usemult"))
         {

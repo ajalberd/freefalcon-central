@@ -406,7 +406,86 @@ void StoreStats(int team, int *count, int *stockS, int *capS, int *stockF, int *
 
 // This function collects supply from all producers and adds it to the team's totals.
 // This should be called by the Campaign Master only
-extern int g_nProdCutTeam, g_nProdCutPct;
+extern int g_nProdCutTeam, g_nProdCutPct, g_nPortCargoHours;
+
+// PortCargoHours: when each port last saw one of its side's tankers, cargo or supply ships dock
+// (navunit.cpp calls SupplyPortDocked), and how many such ships each side started with.
+static std::vector<std::pair<VU_ID, CampaignTime>> gPortDocked;
+static int gPortCargoStart[NUM_TEAMS] = {0}, gPortCargoNow[NUM_TEAMS] = {0};
+static CampaignTime gPortCargoT0 = 0, gPortCargoCounted = 0;
+int gPortDiag[NUM_TEAMS][3] = {{0}}; // campsim: port production passes -- full, scaled by ships lost, idle (no recent docking)
+
+static bool IsCargoShip(Unit u)
+{
+    const int st = u->GetSType();
+    return u->IsTaskForce() and not u->IsDead() and
+           (st == STYPE_UNIT_SEA_TANKER or st == STYPE_UNIT_SEA_TRANSPORT or st == STYPE_UNIT_SEA_SUPPLY);
+}
+
+void SupplyPortDocked(Objective port, Unit ship)
+{
+    if (g_nPortCargoHours <= 0 or not port or not ship or not IsCargoShip(ship))
+        return;
+
+    for (auto &d : gPortDocked)
+        if (d.first == port->Id())
+        {
+            d.second = TheCampaign.CurrentTime;
+            return;
+        }
+
+    gPortDocked.push_back(std::make_pair(port->Id(), TheCampaign.CurrentTime));
+}
+
+// 0..1: this port's share of its output
+static float PortCargoFactor(Objective port)
+{
+    const CampaignTime now = TheCampaign.CurrentTime;
+    const int t = port->GetTeam();
+
+    // The fleet, once per production pass; the starting count at the first pass of a load
+    if (gPortCargoCounted not_eq now)
+    {
+        const bool first = gPortCargoT0 == 0 or now < gPortCargoT0;
+        gPortCargoCounted = now;
+        memset(gPortCargoNow, 0, sizeof(gPortCargoNow));
+        VuListIterator uit(AllUnitList);
+
+        for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+            if (IsCargoShip(u) and u->GetTeam() >= 0 and u->GetTeam() < NUM_TEAMS)
+                gPortCargoNow[u->GetTeam()]++;
+
+        if (first)
+        {
+            gPortCargoT0 = now;
+            gPortDocked.clear();
+            memcpy(gPortCargoStart, gPortCargoNow, sizeof(gPortCargoStart));
+        }
+    }
+
+    if (gPortCargoStart[t] <= 0)
+    {
+        gPortDiag[t][2]++;
+        return 0.0F;
+    }
+
+    // Docked lately? The first PortCargoHours of a load count as docked everywhere.
+    CampaignTime last = gPortCargoT0;
+
+    for (const auto &d : gPortDocked)
+        if (d.first == port->Id())
+            last = d.second;
+
+    if (now - last > (CampaignTime)g_nPortCargoHours * CampaignHours)
+    {
+        gPortDiag[t][2]++;
+        return 0.0F;
+    }
+
+    const float share = (float)gPortCargoNow[t] / (float)gPortCargoStart[t];
+    gPortDiag[t][share >= 1.0F ? 0 : 1]++;
+    return share > 1.0F ? 1.0F : share;
+}
 
 int ProduceSupplies(CampaignTime deltaTime)
 {
@@ -449,6 +528,12 @@ int ProduceSupplies(CampaignTime deltaTime)
                     power = 100;
 
                 s = o->GetObjectiveDataRate() * power / 100;
+
+                // PortCargoHours: a port or naval base produces only if a tanker, cargo or supply ship of its
+                // side has docked there in the last PortCargoHours, and then in proportion to how many of the
+                // side's non-combat ships are still afloat (none at the start: its ports produce nothing)
+                if (type == TYPE_PORT and g_nPortCargoHours > 0 and s)
+                    s = FloatToInt32(s * PortCargoFactor(o));
 
                 if (s)
                 {

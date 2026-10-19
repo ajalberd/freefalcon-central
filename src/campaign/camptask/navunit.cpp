@@ -499,6 +499,8 @@ int gNavalDiag[8][8]; // [4] moves onto a sea-mask land cell, [5] of those with 
 // bending the heading, [6] routes found only on the grid alone (sea mask relaxed)
 extern int g_nNavalTankerFuel;
 
+void SupplyPortDocked(Objective port, Unit ship); // supply.cpp
+
 static int NavalIsSupportShip(TaskForce tf)
 {
     int st = tf->GetSType();
@@ -889,6 +891,8 @@ int TaskForceClass::MoveUnit(CampaignTime time)
 
         if (port and port->GetTeam() == GetTeam())
         {
+            SupplyPortDocked(port, this); // PortCargoHours: this port has seen a cargo ship (supply.cpp)
+
             // Docking resupplies a ship that is low (never lowers one above 100)
             if (GetUnitSupply() < 100)
                 SetUnitSupply(100);
