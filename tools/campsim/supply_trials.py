@@ -309,6 +309,9 @@ ARMS = {
     "IS_1": ("initsupply=1", 31),
     "IS_2": ("initsupply=2", 31),
     "IS_2_s50": ("initsupply=2 startsup=6:50", 31),
+    # round 32: settle the start level -- North battalions at 60% / 70% (50% and 30% are round 30)
+    "SL_s60": ("startsup=6:60", 32),
+    "SL_s70": ("startsup=6:70", 32),
 }
 
 
