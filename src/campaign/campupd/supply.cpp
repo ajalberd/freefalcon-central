@@ -731,8 +731,8 @@ static void SxPocket(Unit u, bool found)
 // truck column -- a Supply battalion (the rail trains' class) owned by the sending team -- that drives the route as an ordinary ground
 // unit. Moving on roads it draws the enemy's interdiction like any other column (gndunit.cpp files AMIS_INT requests along a march), so
 // it can be seen, found and hit, in 2D and in 3D. Within 3 km of its destination it hands each battalion its share, scaled by the trucks
-// still running, and disbands; destroyed, its cargo is lost; not there after 72 h, it is written off (stalled). At most 60 columns per
-// team are on the road; beyond that deliveries stay bookkeeping.
+// still running, and disbands; destroyed, its cargo is lost; not there after 72 h, it is written off (stalled). At most 150 columns per
+// team are on the road; beyond that deliveries stay bookkeeping. Columns do not count in the team's ground strength (team.cpp).
 int g_nSxConvoys = 0;
 int gSxConvDiag[NUM_TEAMS][8] = {{0}}; // spawned, arrived, destroyed, stalled, cargo sent, cargo delivered, cargo lost, over the cap
 void SupplyUnit(Unit u, int sneed, int supply, int fneed, int fuel);
@@ -798,7 +798,7 @@ static void SxConvoySpawn(int who)
     for (SxConvoy &c : gSxConvPending)
     {
         Objective src = (Objective)vuDatabase->Find(c.srcOwnerObj);
-        Unit cv = (active < 60 and src) ? NewUnit(DOMAIN_LAND, TYPE_BATTALION, STYPE_UNIT_SUPPLY, 1, NULL) : NULL;
+        Unit cv = (active < 150 and src) ? NewUnit(DOMAIN_LAND, TYPE_BATTALION, STYPE_UNIT_SUPPLY, 1, NULL) : NULL;
 
         if (not cv)
         {

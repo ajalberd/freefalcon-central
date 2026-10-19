@@ -3045,6 +3045,17 @@ void UpdateTeamStatistics(void)
                 continue;
             }
 
+            extern int g_nSxConvoys;
+
+            // sxconvoys: a supply truck column (scripted Supply battalion, not a train) is not fighting strength -- counting it lifted
+            // Blue's ground vehicles by ~1000 and with them its initiative
+            if (g_nSxConvoys > 0 and u->GetDomain() == DOMAIN_LAND and u->Scripted() and u->GetSType() == STYPE_UNIT_SUPPLY and
+                not u->IsTrain())
+            {
+                u = GetNextUnit(&uit);
+                continue;
+            }
+
             if (u->GetDomain() == DOMAIN_LAND)
             {
                 if (u->GetUnitNormalRole() == GRO_AIRDEFENSE)
