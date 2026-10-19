@@ -40,6 +40,8 @@ extern int g_nRailCutTransloadH;
 extern int g_nRailCutTransloadPct;
 extern int g_nRailTrackDetrainMin;
 extern bool g_bRailBridgeObjs;
+extern short gLastId;      // campbase.cpp: camp id sequence
+extern int gCampIdCeiling; // campbase.cpp: ids from here up kept for rail bridge objectives
 extern char FalconTerrainDataDir[];
 
 namespace
@@ -999,6 +1001,11 @@ void SpawnBridgeObjs()
     }
 
     int made = 0, restored = 0;
+    // Camp ids from the top of the range, kept for these, and the unit id sequence left as it was:
+    // units get the same camp ids with rail bridge objectives as without (campbase.cpp).
+    const short lastId = gLastId;
+    gCampIdCeiling = MAX_CAMP_ENTITIES - 512;
+    int nextCampId = MAX_CAMP_ENTITIES - 1;
     std::vector<std::pair<VU_ID, std::string>> names;
     std::lock_guard<std::mutex> hold(g_lock);
 
@@ -1052,6 +1059,11 @@ void SpawnBridgeObjs()
                 delete o;
                 continue;
             }
+            while (nextCampId >= gCampIdCeiling and GetEntityByCampID(nextCampId))
+                nextCampId--;
+
+            if (nextCampId >= gCampIdCeiling)
+                o->SetCampId((short)nextCampId--);
 
             o->SetLocation(GridOf(my), GridOf(mx));
             o->SetOwner(nearObj->GetOwner());
@@ -1090,6 +1102,7 @@ void SpawnBridgeObjs()
         g_bridgeNames.swap(names);
     }
 
+    gLastId = lastId;
     g_bridgeObjsSaved.clear();
 
     if (made)

@@ -933,13 +933,16 @@ Objective GetEntityObjective(VuEntity* e)
 
 // My global for last assigned id
 short gLastId = 32767;
+// Artscout - 2026: camp ids from here up are kept for objectives made at load (railnet.cpp,
+// RailBridgeObjs), so the ids units are given are the same with them as without.
+int gCampIdCeiling = MAX_CAMP_ENTITIES;
 
 short FindUniqueID()
 {
     CampEntity e;
     short id, eid;
 
-    if (gLastId < MAX_CAMP_ENTITIES - 1)
+    if (gLastId < gCampIdCeiling - 1)
     {
         // simple algorythm to find a unique id
         gLastId++;
@@ -961,7 +964,7 @@ short FindUniqueID()
                 ShiAssert(eid < MAX_CAMP_ENTITIES);
                 CampSearch[eid] = 1;
 
-                if (e->GetCampID() > highest)
+                if (e->GetCampID() > highest and e->GetCampID() < gCampIdCeiling)
                 {
                     gLastId = e->GetCampID();
                     highest = gLastId;
@@ -971,7 +974,7 @@ short FindUniqueID()
             }
         }
 
-        for (id = 1; id < MAX_CAMP_ENTITIES; id++)
+        for (id = 1; id < gCampIdCeiling; id++)
         {
             if (not CampSearch[id])
                 return id;
