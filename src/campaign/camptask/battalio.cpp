@@ -359,6 +359,7 @@ BattalionClass::BattalionClass(VU_BYTE **stream, long *rem)
     GetLocation(&x, &y);
     GetUnitDestination(&nx, &ny);
 
+    {extern short Map_Max_X, Map_Max_Y; fprintf(stderr, "BATT id=%d at %d,%d dest %d,%d\n", (int)GetCampID(), (int)x, (int)y, (int)nx, (int)ny);}
     if ((x not_eq nx) and (y not_eq ny))
     {
         GetUnitGridPath(path, x, y, nx, ny);
