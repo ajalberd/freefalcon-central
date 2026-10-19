@@ -372,6 +372,59 @@ def scan_runs():
     return files, work
 
 
+# Pause / resume every campsim.exe on this machine -- runs started here and runs from the trial scripts
+# alike. A suspended process keeps its place; det=1 runs replay the same either way (their clock is patched),
+# only wall_s grows. Whether one is paused is read from the process itself (psutil: "stopped"), so a restarted
+# Lab still sees and resumes what an earlier one paused, and a second "pause" never stacks suspend counts.
+
+
+def _campsims():
+    try:
+        import psutil
+    except ImportError:
+        return None
+    out = []
+    for p in psutil.process_iter(["name"]):
+        try:
+            if (p.info["name"] or "").lower() == "campsim.exe":
+                out.append(p)
+        except Exception:
+            pass
+    return out
+
+
+def _stopped(p):
+    try:
+        return p.status() == "stopped"
+    except Exception:
+        return False
+
+
+def pause_state():
+    procs = _campsims()
+    if procs is None:
+        return {"error": "psutil is not installed (pip install psutil)"}
+    paused = sum(1 for p in procs if _stopped(p))
+    return {"running": len(procs) - paused, "paused": paused}
+
+
+def pause_all(pause):
+    procs = _campsims()
+    if procs is None:
+        return {"error": "psutil is not installed (pip install psutil)"}
+    done = 0
+    for p in procs:
+        try:
+            if pause != _stopped(p):
+                (p.suspend if pause else p.resume)()
+                done += 1
+        except Exception:
+            pass
+    st = pause_state()
+    st["changed"] = done
+    return st
+
+
 def list_runs():
     files, work = scan_runs()
     now = time.time()
@@ -478,6 +531,8 @@ class H(http.server.SimpleHTTPRequestHandler):
             return self.send_json([n + ".jsonl" for n in (r["name"] for r in list_runs())])
         if path == "/api/runs":
             return self.send_json(list_runs())
+        if path == "/api/pausestate":
+            return self.send_json(pause_state())
         if path == "/api/summary":                     # name=A&name=B[&lite=1]: lite leaves out the curves
             qs = parse_qs(q)
             files = scan_runs()[0] if len(qs.get("name", [])) > 20 else None
@@ -517,6 +572,8 @@ class H(http.server.SimpleHTTPRequestHandler):
             return self.send_json(finish_anim(req))
         if self.path == "/api/run":
             return self.send_json({"started": start_runs(req)})
+        if self.path in ("/api/pauseall", "/api/resumeall"):
+            return self.send_json(pause_all(self.path == "/api/pauseall"))
         if self.path == "/api/cancel":                  # queued runs only; a running one finishes
             j = JOBS.get(req.get("name", ""))
             if j and j["state"] == "queued":

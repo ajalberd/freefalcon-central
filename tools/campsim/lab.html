@@ -54,7 +54,7 @@
   .wrap { overflow-x:auto; }
   @media (max-width: 800px) { main { grid-template-columns: 1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } }
 </style>
-<header><h1>Campaign Lab</h1><span class="dim" id="gameinfo"></span><span style="flex:1"></span><a href="viewer.html" style="color:var(--blue)">map replay</a></header>
+<header><h1>Campaign Lab</h1><span class="dim" id="gameinfo"></span><span style="flex:1"></span><span class="dim" id="pausestate" style="margin-right:8px"></span><button class="small" id="pauseall" title="Suspend every campsim.exe on this machine (Lab and trial-script runs alike)">Pause all</button> <button class="small" id="resumeall" title="Resume every campsim.exe paused here" style="margin-right:12px">Resume all</button><a href="viewer.html" style="color:var(--blue)">map replay</a></header>
 <main>
 <aside>
   <h2>New run</h2>
@@ -134,7 +134,18 @@ async function init() {
   $('gameinfo').textContent = 'game dir ' + s.game;
   $('save').innerHTML = s.saves.map(n => `<option value="${n}" ${n === 'save0.cam' ? 'selected' : ''}>${saveNames[n] ? saveNames[n] + ' (' + n + ')' : n}</option>`).join('');
   refresh(); setInterval(refresh, 3000);
+  pauseRefresh(); setInterval(pauseRefresh, 3000);
 }
+
+// Pause / resume every campsim process (serve.py pause_all): suspended, not killed, so each picks up where it was.
+function showPause(st) {
+  $('pausestate').textContent = st.error ? st.error : `campsim: ${st.running} running, ${st.paused} paused`;
+  $('pauseall').disabled = !!st.error || !st.running;
+  $('resumeall').disabled = !!st.error || !st.paused;
+}
+async function pauseRefresh() { try { showPause(await fetch('api/pausestate').then(r => r.json())); } catch (e) {} }
+$('pauseall').onclick = async () => showPause(await fetch('api/pauseall', { method: 'POST', body: '{}' }).then(r => r.json()));
+$('resumeall').onclick = async () => showPause(await fetch('api/resumeall', { method: 'POST', body: '{}' }).then(r => r.json()));
 
 function knobs() {
   const k = [];
