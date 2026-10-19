@@ -283,6 +283,11 @@ ARMS = {
     "RB_obj": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 " + RAIL + " railbridgeobjs=1", 27),
     "RB_pen": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 " + RAIL + " railcut=12:50 raildetrain=240", 27),
     "RB_both": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 " + RAIL + " railbridgeobjs=1 railcut=12:50 raildetrain=240", 27),
+    # round 28: round 27 again with the rail bridge objectives player-only (no AI strikes) and not standing in for road bridges
+    "RP_0": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 " + RAIL, 28),
+    "RP_obj": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 " + RAIL + " railbridgeobjs=1", 28),
+    "RP_pen": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 " + RAIL + " railcut=12:50 raildetrain=240", 28),
+    "RP_both": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 " + RAIL + " railbridgeobjs=1 railcut=12:50 raildetrain=240", 28),
 }
 
 
