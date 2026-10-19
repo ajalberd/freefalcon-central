@@ -667,12 +667,13 @@ static void GtmLog(int hour)
                    gSxPostureFrontPct[5], gSxPostureStalled[5] ? " STALLED" : "", gSxPostureStalls[5],
                    gSxPostureFrontPct[6], gSxPostureStalled[6] ? " STALLED" : "", gSxPostureStalls[6]);
 
-            extern int gSxConvDiag[NUM_TEAMS][8], gSxConvRerouted[NUM_TEAMS];
+            extern int gSxConvDiag[NUM_TEAMS][8], gSxConvRerouted[NUM_TEAMS], gSxConvDiverted[NUM_TEAMS], gSxConvRallied[NUM_TEAMS];
 
             for (int t : {2, 6})
                 printf("SXCONV h=%d team %d columns spawned %d, arrived %d, destroyed %d, stalled %d | cargo sent %d, delivered %d, lost %d | "
-                       "over the cap %d | put back on route %d (cumulative)\n", hour, t, gSxConvDiag[t][0], gSxConvDiag[t][1], gSxConvDiag[t][2],
-                       gSxConvDiag[t][3], gSxConvDiag[t][4], gSxConvDiag[t][5], gSxConvDiag[t][6], gSxConvDiag[t][7], gSxConvRerouted[t]);
+                       "over the cap %d | put back on route %d, diverted %d, rallied %d (cumulative)\n", hour, t, gSxConvDiag[t][0],
+                       gSxConvDiag[t][1], gSxConvDiag[t][2], gSxConvDiag[t][3], gSxConvDiag[t][4], gSxConvDiag[t][5], gSxConvDiag[t][6],
+                       gSxConvDiag[t][7], gSxConvRerouted[t], gSxConvDiverted[t], gSxConvRallied[t]);
 
             extern int gSxConvoyLost[NUM_TEAMS];
             printf("SXCONVOY h=%d supply lost to convoy interdiction: Blue %d, North %d (cumulative)\n", hour, gSxConvoyLost[2], gSxConvoyLost[6]);

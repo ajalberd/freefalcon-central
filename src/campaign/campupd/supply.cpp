@@ -739,6 +739,7 @@ int gSxConvDiag[NUM_TEAMS][8] = {{0}}; // spawned, arrived, destroyed, stalled, 
 void SupplyUnit(Unit u, int sneed, int supply, int fneed, int fuel);
 extern int gPlayerOrdering;
 int gSxConvRerouted[NUM_TEAMS] = {0}; // columns put back on their route
+int gSxConvDiverted[NUM_TEAMS] = {0}, gSxConvRallied[NUM_TEAMS] = {0}; // destination fell / broken column rallied
 
 struct SxConvItem
 {
@@ -754,7 +755,7 @@ struct SxConvoy
     VU_ID srcOwnerObj, destObj;
     int full, cargo;
     int full_logged = 0;
-    CampaignTime born;
+    CampaignTime born, brokenSince = 0;
     std::vector<SxConvItem> items;
 };
 
@@ -854,7 +855,7 @@ static void SxConvoyTick(int who)
         {
             GridIndex x, y;
             cv->GetLocation(&x, &y);
-            const int d2 = (x - c.dx) * (x - c.dx) + (y - c.dy) * (y - c.dy);
+            int d2 = (x - c.dx) * (x - c.dx) + (y - c.dy) * (y - c.dy);
 
             // campsim: the first time a column loses its hold on its destination, and where it is then (first 60 per run)
             {
@@ -877,6 +878,54 @@ static void SxConvoyTick(int who)
                     c.full_logged = 1;
                 }
             }
+
+            // the destination fell: the column turns for the nearest objective its side still holds
+            Objective dobj = (Objective)vuDatabase->Find(c.destObj);
+
+            if (d2 > 9 and (not dobj or dobj->GetTeam() not_eq cv->GetTeam()))
+            {
+                Objective best = NULL;
+                int bd = 0x7fffffff;
+                VuListIterator oit(AllObjList);
+
+                for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+                {
+                    if (o->GetTeam() not_eq cv->GetTeam())
+                        continue;
+
+                    GridIndex ox, oy;
+                    o->GetLocation(&ox, &oy);
+                    const int od = (ox - c.dx) * (ox - c.dx) + (oy - c.dy) * (oy - c.dy) + (ox - x) * (ox - x) + (oy - y) * (oy - y);
+
+                    if (od < bd)
+                        bd = od, best = o;
+                }
+
+                if (best)
+                {
+                    c.destObj = best->Id();
+                    best->GetLocation(&c.dx, &c.dy);
+                    d2 = (x - c.dx) * (x - c.dx) + (y - c.dy) * (y - c.dy);
+                    cv->SetPlayerHeld(0); // so the re-route below takes it
+                    gSxConvDiverted[t]++;
+                }
+            }
+
+            // a broken column rallies after 6 hours
+            if (cv->Broken())
+            {
+                if (c.brokenSince == 0)
+                    c.brokenSince = TheCampaign.CurrentTime;
+                else if (TheCampaign.CurrentTime - c.brokenSince >= 6 * CampaignHours)
+                {
+                    cv->SetUnitMorale(100);
+                    cv->SetBroken(0);
+                    c.brokenSince = 0;
+                    gSxConvRallied[t]++;
+                }
+            }
+            else
+                c.brokenSince = 0;
 
             // a column that is not broken goes back on its route if anything took it off
             if (d2 > 9 and not cv->Broken() and (not cv->PlayerHeld() or cv->GetUnitObjectiveID() not_eq c.destObj))
