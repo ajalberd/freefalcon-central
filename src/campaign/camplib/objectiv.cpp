@@ -2128,6 +2128,10 @@ _TCHAR *ObjectiveClass::GetName(_TCHAR *name, int size, int mode)
 
     nid = GetObjectiveNameID();
 
+    // A rail bridge objective made at load has its name in railnet.cpp, not the theater's names
+    if (nid == 0 and GetType() == TYPE_BRIDGE and RailBridgeObjectiveName(Id(), name, size))
+        return name;
+
     if (nid == 0)
     {
         p = GetObjectiveParent();

@@ -32,6 +32,10 @@ void RailCampaignTick(int startup);
 // the theater's objective file, so EncodeObjectiveDeltas leaves them out, and their damage goes
 // into the save as its own record ("rbo").
 bool RailIsBridgeObjective(const VU_ID &id);
+// Its name ("Pyongui Line rail bridge near Sinanju"), kept here instead of the theater's name
+// table: 340 more names would put the Korea table near its 32 KB (short offset) limit on every
+// load. False for any other objective.
+bool RailBridgeObjectiveName(const VU_ID &id, char *out, int size);
 void RailSaveBridgeObjs(char *savefile);
 void RailLoadBridgeObjs(char *savefile);
 

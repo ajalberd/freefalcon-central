@@ -856,6 +856,43 @@ struct SavedBridgeObj
     std::vector<int> features;
 };
 std::vector<SavedBridgeObj> g_bridgeObjsSaved; // read from the save, applied when they are made
+
+// Their names, under a lock of their own: ObjectiveClass::GetName asks from any thread, and the
+// rail code calls GetName while it holds g_lock.
+std::mutex g_bridgeNameLock;
+std::vector<std::pair<VU_ID, std::string>> g_bridgeNames;
+
+// "<line> rail bridge near <town>": the nearest city or town within 30 km, else just the line.
+std::string BridgeObjName(const Route &r, float x, float y)
+{
+    Objective best = nullptr;
+    float bd = 30.0F * GRID_SIZE_FT;
+    VuListIterator it(AllObjList);
+
+    for (Objective o = GetFirstObjective(&it); o; o = GetNextObjective(&it))
+    {
+        if (o->GetType() not_eq TYPE_CITY and o->GetType() not_eq TYPE_TOWN)
+            continue;
+
+        const float d = hypotf(o->XPos() - x, o->YPos() - y);
+
+        if (d < bd)
+            bd = d, best = o;
+    }
+
+    std::string name = r.name + " rail bridge";
+
+    if (best)
+    {
+        _TCHAR town[80] = {0};
+        best->GetName(town, 79, FALSE);
+
+        if (town[0])
+            name += std::string(" near ") + town;
+    }
+
+    return name;
+}
 double g_bridgeObjOwnersAt = -1.0;
 
 bool IsBridgeObj(VU_ID id)
@@ -962,6 +999,7 @@ void SpawnBridgeObjs()
     }
 
     int made = 0, restored = 0;
+    std::vector<std::pair<VU_ID, std::string>> names;
     std::lock_guard<std::mutex> hold(g_lock);
 
     for (int ri = 0; ri < (int)g_routes.size(); ri++)
@@ -1038,8 +1076,18 @@ void SpawnBridgeObjs()
             sp.bindFt = hypotf(o->XPos() - mx, o->YPos() - my);
             BridgeObj b = {o->Id(), ri, k};
             g_bridgeObjs.push_back(b);
+            names.push_back(std::make_pair(o->Id(), BridgeObjName(r, mx, my)));
             made++;
         }
+    }
+
+    for (size_t i = 0; i < names.size(); i += 40) // a sample, for the log
+        Log("rail: RailBridgeObjs -- objective %d: %s", ((Objective)vuDatabase->Find(names[i].first))->GetCampID(),
+            names[i].second.c_str());
+
+    {
+        std::lock_guard<std::mutex> holdNames(g_bridgeNameLock);
+        g_bridgeNames.swap(names);
     }
 
     g_bridgeObjsSaved.clear();
@@ -3219,4 +3267,20 @@ void RailLoadBridgeObjs(char *savefile)
     std::lock_guard<std::mutex> hold(g_lock);
     g_bridgeObjsSaved = saved;
     g_bridgeObjs.clear(); // the load's own objectives come next: make ours afresh
+}
+
+bool RailBridgeObjectiveName(const VU_ID &id, char *out, int size)
+{
+    std::lock_guard<std::mutex> hold(g_bridgeNameLock);
+
+    for (const auto &n : g_bridgeNames)
+    {
+        if (n.first == id)
+        {
+            _snprintf_s(out, size, _TRUNCATE, "%s", n.second.c_str());
+            return true;
+        }
+    }
+
+    return false;
 }
