@@ -1351,7 +1351,12 @@ void BattalionClass::SetUnitOrders(int neworders, VU_ID oid)
 {
     if (PlayerHeld() and not gPlayerOrdering)
     {
-        if (g_bPlayerGroundHold and not Broken())
+        // sxconvoys (supply.cpp): a supply column keeps its route unless it breaks -- without this the first AI order re-tasked it
+        // (campsim: 150-270 columns a war never arrived, re-tasked within 0-3 h of setting out)
+        extern int g_nSxConvoys;
+        const bool convoy = g_nSxConvoys > 0 and Scripted() and GetSType() == STYPE_UNIT_SUPPLY and not IsTrain();
+
+        if ((g_bPlayerGroundHold or convoy) and not Broken())
             return;
 
         SetPlayerHeld(0); // broken (or the feature is off): the AI takes it back

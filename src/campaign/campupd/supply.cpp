@@ -737,6 +737,8 @@ static void SxPocket(Unit u, bool found)
 int g_nSxConvoys = 0;
 int gSxConvDiag[NUM_TEAMS][8] = {{0}}; // spawned, arrived, destroyed, stalled, cargo sent, cargo delivered, cargo lost, over the cap
 void SupplyUnit(Unit u, int sneed, int supply, int fneed, int fuel);
+extern int gPlayerOrdering;
+int gSxConvRerouted[NUM_TEAMS] = {0}; // columns put back on their route
 
 struct SxConvItem
 {
@@ -870,9 +872,21 @@ static void SxConvoyTick(int who)
                            who, (int)((TheCampaign.CurrentTime - c.born) / CampaignHours), (int)sqrtf((float)d2), (int)sqrtf((float)start2),
                            (int)sqrtf((float)moved2), cv->PlayerHeld() ? 1 : 0,
                            cv->GetUnitObjectiveID() == c.destObj ? "kept" : (cv->GetUnitObjectiveID() == FalconNullId ? "cleared" : "changed"),
-                           (ux == c.dx and uy == c.dy) ? "kept" : "changed", cv->Moving() ? 1 : 0);
+                           (ux == c.dx and uy == c.dy) ? "kept" : "changed", cv->Moving() ? 1 : 0, cv->Broken() ? 1 : 0, cv->Engaged() ? 1 : 0,
+                           cv->GetUnitMorale(), cv->GetTotalVehicles(), c.full);
                     c.full_logged = 1;
                 }
+            }
+
+            // a column that is not broken goes back on its route if anything took it off
+            if (d2 > 9 and not cv->Broken() and (not cv->PlayerHeld() or cv->GetUnitObjectiveID() not_eq c.destObj))
+            {
+                gPlayerOrdering = 1; // (battalio.cpp) an order the AI may not override
+                cv->SetUnitOrders(GORD_RESERVE, c.destObj);
+                gPlayerOrdering = 0;
+                cv->SetPlayerHeld(1);
+                cv->SetUnitDestination(c.dx, c.dy);
+                gSxConvRerouted[t]++;
             }
 
             if (d2 <= 9)
