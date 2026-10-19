@@ -751,6 +751,7 @@ struct SxConvoy
     GridIndex sx, sy, dx, dy;
     VU_ID srcOwnerObj, destObj;
     int full, cargo;
+    int full_logged = 0;
     CampaignTime born;
     std::vector<SxConvItem> items;
 };
@@ -852,6 +853,27 @@ static void SxConvoyTick(int who)
             GridIndex x, y;
             cv->GetLocation(&x, &y);
             const int d2 = (x - c.dx) * (x - c.dx) + (y - c.dy) * (y - c.dy);
+
+            // campsim: the first time a column loses its hold on its destination, and where it is then (first 60 per run)
+            {
+                static int logged = 0;
+                GridIndex ux, uy;
+                cv->GetUnitDestination(&ux, &uy);
+                const bool lost = not cv->PlayerHeld() or cv->GetUnitObjectiveID() not_eq c.destObj or ux not_eq c.dx or uy not_eq c.dy;
+
+                if (lost and not c.full_logged and logged++ < 60)
+                {
+                    const int start2 = (c.sx - c.dx) * (c.sx - c.dx) + (c.sy - c.dy) * (c.sy - c.dy);
+                    const int moved2 = (x - c.sx) * (x - c.sx) + (y - c.sy) * (y - c.sy);
+                    printf("SXDETOUR team %d after %d h: %d km from destination (started %d, moved %d km), player-held %d, objective %s, "
+                           "destination %s, moving %d\n",
+                           who, (int)((TheCampaign.CurrentTime - c.born) / CampaignHours), (int)sqrtf((float)d2), (int)sqrtf((float)start2),
+                           (int)sqrtf((float)moved2), cv->PlayerHeld() ? 1 : 0,
+                           cv->GetUnitObjectiveID() == c.destObj ? "kept" : (cv->GetUnitObjectiveID() == FalconNullId ? "cleared" : "changed"),
+                           (ux == c.dx and uy == c.dy) ? "kept" : "changed", cv->Moving() ? 1 : 0);
+                    c.full_logged = 1;
+                }
+            }
 
             if (d2 <= 9)
             {
