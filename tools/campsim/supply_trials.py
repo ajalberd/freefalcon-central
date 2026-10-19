@@ -236,6 +236,10 @@ ARMS = {
     "I2_t4": ("turnmode=4", 21, "i2"),
     "I2_light": ("turnmode=4 " + LIGHT, 21, "i2"),
     "I2_light_t0": (LIGHT, 21, "i2"),                        # the package without shared offensives
+    # round 22: controls for the light package -- how much is the bar, how much is supply?
+    "L_bar15": (BAR15, 22),                                  # only the bars changed (vs P_h)
+    "L_bar15_rail": (BAR15 + " " + RAIL, 22),                # bars + rail, no supply rules
+    "LP_nosx": (BAR15 + " " + RAIL + " sxwheeled=1", 22),    # = LP without the supply rules
 }
 
 
