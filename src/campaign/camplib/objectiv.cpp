@@ -3522,7 +3522,7 @@ int EncodeObjectiveDeltas(VU_BYTE **stream, FalconSessionEntity *owner)
             {
                 o = (Objective)ent;
 
-                if (o->HasDelta() and not RailIsBridgeObjective(o->Id())) // made at load, not in the theater (railnet.cpp)
+                if (o->HasDelta() and not (o->GetType() == TYPE_BRIDGE and RailIsBridgeObjective(o->Id()))) // made at load, not in the theater (railnet.cpp)
                 {
                     size += sizeof(VU_ID) + o->SaveSize(1);
                     count++;
@@ -3548,7 +3548,7 @@ int EncodeObjectiveDeltas(VU_BYTE **stream, FalconSessionEntity *owner)
             {
                 o = (Objective)ent;
 
-                if (o->HasDelta() and not RailIsBridgeObjective(o->Id())) // made at load, not in the theater (railnet.cpp)
+                if (o->HasDelta() and not (o->GetType() == TYPE_BRIDGE and RailIsBridgeObjective(o->Id()))) // made at load, not in the theater (railnet.cpp)
                 {
                     vuid = o->Id();
                     memcpy(buf, &vuid, sizeof(VU_ID));

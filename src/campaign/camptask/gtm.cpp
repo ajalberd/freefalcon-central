@@ -580,6 +580,9 @@ static inline bool OwnerOrAlly(int owner, Objective o)
 // Determine if this objective can accept the passed orders
 int GroundTaskingManagerClass::IsValidObjective(int orders, Objective o)
 {
+    if (o and o->GetType() == TYPE_BRIDGE and RailIsBridgeObjective(o->Id())) // no links: unreachable (railnet.cpp)
+        return 0;
+
     if (not o)
         return 0;
 
@@ -676,6 +679,10 @@ int GroundTaskingManagerClass::GetAddBits(Objective o, int to_collect)
     int add_now = to_collect;
 
     if (not o)
+        return 0;
+
+    // A rail bridge objective (railnet.cpp) has no links: no ground unit can be sent to it
+    if (o->GetType() == TYPE_BRIDGE and RailIsBridgeObjective(o->Id()))
         return 0;
 
     if (not o->IsSecondary())
