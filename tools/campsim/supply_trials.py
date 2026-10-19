@@ -264,6 +264,13 @@ ARMS = {
     "O_fact10": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 blowlim=factory:6:10 blowat=48", 24),
     "O_convN15": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 sxconvoyhit=6:15", 24),
     "O_supply_nolight": ("teambar=1:45,2:45,3:45,5:30,6:15 objpri=pol:100,prod:100,depot:100,armybase:100,roads:100", 24),
+    # round 25: real convoys (sxconvoys), A = h_bar (before model S) vs B = Blue bar 45 + the light supply rules (after); fresh baselines, same build
+    "CV_A0": ("", 25),
+    "CV_A1": ("sxconvoys=6", 25),
+    "CV_A1_4": ("sxconvoys=4", 25),
+    "CV_B0": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15", 25),
+    "CV_B1": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 sxconvoys=6", 25),
+    "CV_B1_4": (LIGHT + " teambar=1:45,2:45,3:45,5:30,6:15 sxconvoys=4", 25),
 }
 
 
