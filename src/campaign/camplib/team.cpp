@@ -1331,16 +1331,16 @@ void TeamClass::SelectGroundAction(void)
 
                 GridIndex ux, uy;
                 u->GetLocation(&ux, &uy);
-                bool near = false;
+                bool isNear = false;
 
                 for (const auto &e : enemy)
                     if ((ux - e.first) * (ux - e.first) + (uy - e.second) * (uy - e.second) <= 30 * 30)
                     {
-                        near = true;
+                        isNear = true;
                         break;
                     }
 
-                if (not near)
+                if (not isNear)
                     continue;
 
                 front++;
