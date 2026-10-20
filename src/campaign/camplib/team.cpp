@@ -2179,6 +2179,28 @@ void TeamClass::AddReinforcement(short i)
     // KCK TODO: Impliment a "start time"
     min = (TheCampaign.CurrentTime - 9 * CampaignHours) / CampaignHours;
 
+    // ReinforceHold: a team whose clock is held at all skips this floor -- after a hold longer than 9 h every +1
+    // would leave it short of the minimum and be refused, and the clock would never restart (campsim: Blue held
+    // until Russia joined at h69, then 0 for the rest of the war). Read from the config, so it holds across saves.
+    {
+        extern char g_strReinforceHold[];
+
+        for (const char *p = g_strReinforceHold; *p;)
+        {
+            int t = 0, ev = 0;
+
+            if (sscanf(p, "%d:%d", &t, &ev) == 2 and t == who)
+                min = -0x7fff;
+
+            const char *c = strchr(p, ',');
+
+            if (not c)
+                break;
+
+            p = c + 1;
+        }
+    }
+
     if (reinforcement + i < min)
         return;
 
