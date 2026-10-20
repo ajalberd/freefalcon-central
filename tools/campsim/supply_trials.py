@@ -316,6 +316,10 @@ ARMS = {
     "CF2_0": ("", 33),
     "CF2_s50": ("startsup=6:50", 33),
     "CF2_s50pw": ("startsup=6:50 blow=grid:6:hold blowat=0", 33),
+    # round 34: a partial power campaign on top of the 50% start -- only the N North power stations nearest the front held down
+    # from h0 (all 12 = CF2_s50pw: 6/6, mostly over by day 5). 12 seeds each.
+    "PP_s50g4": ("startsup=6:50 blowlim=grid:6:4 blowat=0", 34),
+    "PP_s50g8": ("startsup=6:50 blowlim=grid:6:8 blowat=0", 34),
 }
 
 
