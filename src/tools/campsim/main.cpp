@@ -721,6 +721,31 @@ static void GtmLog(int hour)
                        "built %d (cumulative)\n", hour, t, cls[c], w[0], w[1], w[2], w[3], w[4]);
             }
 
+        // SQSTATE: every Blue squadron the ATM would not search, and why (atm.cpp rebuilds squadronList from AllAirList,
+        // skipping scripted ones) -- reinforcements that never fly
+        {
+            VuListIterator uit(AllUnitList);
+
+            for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+            {
+                if (u->GetTeam() != 2 || !u->IsSquadron())
+                    continue;
+
+                bool inAir = false;
+                VuListIterator ait(AllAirList);
+
+                for (Unit a = GetFirstUnit(&ait); a && !inAir; a = GetNextUnit(&ait))
+                    inAir = a == u;
+
+                Objective ab = (Objective)vuDatabase->Find(u->GetUnitAirbaseID());
+
+                if (!inAir || u->Scripted() || !ab || u->Inactive())
+                    printf("SQSTATE h=%d team 2 %-10s id %d: in AllAirList %d, scripted %d, inactive %d, dead %d, airbase %s, aircraft %d\n",
+                           hour, GetVehicleName(u->GetVehicleID(0)), u->GetCampID(), inAir ? 1 : 0, u->Scripted() ? 1 : 0,
+                           u->Inactive() ? 1 : 0, u->IsDead() ? 1 : 0, ab ? "ok" : "NONE", u->GetTotalVehicles());
+            }
+        }
+
         // AIRUSE: Blue's aircraft by type -- in its squadrons, and out on flights by mission class (what holds them)
         {
             struct AirUse
