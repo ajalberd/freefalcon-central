@@ -20,6 +20,7 @@
 #include <stdarg.h>
 
 #include "f4find.h"
+#include "vehicle.h" // GetVehicleName (AIRUSE)
 #include "campaign.h"
 #include "camplib.h"
 #include "cmpclass.h"
@@ -746,7 +747,7 @@ static void GtmLog(int hour)
 
                 if (u->IsSquadron() && u->GetUnitClassData())
                 {
-                    AirUse &a = slot(u->GetUnitClassData()->Name);
+                    AirUse &a = slot(GetVehicleName(u->GetVehicleID(0))); // by aircraft type (F-16CG, B-52H ...)
                     a.sq++;
                     a.total += u->GetTotalVehicles();
                 }
@@ -757,7 +758,7 @@ static void GtmLog(int hour)
                     if (!sq || !sq->GetUnitClassData())
                         continue;
 
-                    AirUse &a = slot(sq->GetUnitClassData()->Name);
+                    AirUse &a = slot(GetVehicleName(sq->GetVehicleID(0)));
                     const int m = u->GetUnitMission(), n = u->GetTotalVehicles();
 
                     if (m >= AMIS_BARCAP && m <= AMIS_ESCORT)
