@@ -720,6 +720,23 @@ static void GtmLog(int hour)
                        "built %d (cumulative)\n", hour, t, cls[c], w[0], w[1], w[2], w[3], w[4]);
             }
 
+        // strike-class packages by target type (package.cpp gPkgWhyType): what Blue's strikes go after, and why not
+        extern int gPkgWhyType[8][32][5];
+        static const char *otn[32] = {"?", "airbase", "airstrip", "armybase", "beach", "border", "bridge", "chemical", "city",
+                                      "C2", "depot", "factory", "ford", "fort", "hilltop", "intersect", "navbeacon", "nuclear",
+                                      "pass", "port", "power", "radar", "radiotower", "railterm", "railroad", "refinery",
+                                      "road", "sea", "town", "village", "HARTS", "SAM"};
+
+        for (int t : {2, 6})
+            for (int ty = 0; ty < 32; ty++)
+            {
+                int *w = gPkgWhyType[t][ty];
+
+                if (w[0] + w[1] + w[2] + w[3] + w[4])
+                    printf("STRIKETYPE h=%d team %d %-10s too dangerous %d, no flight %d, could not reach %d, cancelled %d, "
+                           "built %d (cumulative)\n", hour, t, otn[ty], w[0], w[1], w[2], w[3], w[4]);
+            }
+
         // requests no squadron could fill, by the furthest check a squadron of the right role passed (atm.cpp)
         extern int gNoFlightWhy[8][4][11];
 

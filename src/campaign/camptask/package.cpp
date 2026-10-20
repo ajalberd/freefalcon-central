@@ -810,12 +810,22 @@ static int PkgClass(int m)
 
     return -1; // not counted
 }
+// campsim STRIKETYPE: the same outcomes for strike-class packages (class 0) split by the target objective's type
+int gPkgWhyType[8][32][5];
 static void PkgWhy(MissionRequest mis, int k)
 {
     const int c = PkgClass(mis->mission);
 
     if (c >= 0)
         gPkgWhy[mis->who % 8][c][k]++;
+
+    if (c == 0)
+    {
+        CampEntity t = (CampEntity)vuDatabase->Find(mis->targetID);
+
+        if (t and t->IsObjective())
+            gPkgWhyType[mis->who % 8][((Objective)t)->GetType() % 32][k]++;
+    }
 }
 #define PKG_WHY(k) PkgWhy(mis, (k))
 
