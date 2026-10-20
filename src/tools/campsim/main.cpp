@@ -3276,6 +3276,13 @@ static void ApplyKnobs(int argc, char **argv)
             strncpy(g_strReinforceHold, val, 0xff);
             printf("KNOB ReinforceHold \"%s\" (team:event -- reinforcements wait for the event)\n", g_strReinforceHold);
         }
+        else if (!strcmp(key, "reinffwd"))
+        {
+            extern char g_strReinforceForwardTypes[];
+            strncpy(g_strReinforceForwardTypes, val, 0xff);
+            printf("KNOB ReinforceForwardTypes \"%s\" (arriving squadrons of these types go to the most forward airbase)\n",
+                   g_strReinforceForwardTypes);
+        }
         else if (!strcmp(key, "airreinf"))
         {
             extern bool g_bAirReinforcementFix;

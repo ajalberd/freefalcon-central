@@ -748,6 +748,7 @@ int g_nProdCutPct = 100; // campaign experiment: see ProdCutTeam. "ProdCutPct".
 int g_nPortCargoHours = 0; // campaign experiment: a port or naval base produces supply only if one of its side's tankers, cargo or supply ships docked there in the last this-many hours, and then scaled by the share of those ships still afloat (a side that starts with none gets nothing from its ports); 0 = off. "PortCargoHours".
 bool g_bAirReinforcementFix = false; // campaign: an air squadron that arrives as a reinforcement joins the list the ATM tasks from (stock: never -- every air reinforcement sat idle all war), and one with no base gets its side's nearest carrier group, else airbase. "AirReinforcementFix".
 char g_strReinforceHold[0x100] = ""; // campaign: "TEAM:EVENT,..." -- a team's reinforcement clock stands still until that trigger-script event fires (e.g. "2:12": Blue's reinforcements come after Russia joins in chn_appr2), then runs on. "ReinforceHold".
+char g_strReinforceForwardTypes[0x100] = ""; // campaign: aircraft types ("F-16,...", substring of the name) whose arriving reinforcement squadrons are based at their side's most forward airbase (nearest enemy ground, status 50%+). "ReinforceForwardTypes".
 int g_nStartSupplyTeam = 0; // campaign: this team's (1-7; 0 = none) battalions begin a new campaign at StartSupplyPct % supply instead of the team's start level. Applied once, when the campaign starts; saves keep what they have. "StartSupplyTeam".
 int g_nStartSupplyPct = 100; // campaign: see StartSupplyTeam. "StartSupplyPct".
 int g_nStoreCapPct = 100; // campaign experiment (SupplyStocks): a store holds this percent of its class DataRate in supply points (and the same in fuel)
@@ -2558,6 +2559,7 @@ static ConfigOption<char> StringOpts[] = {
     {"AlliedCounterTeams", &g_strAlliedCounterTeams[0]}, // teams that may use the allied counteroffensive / capture
     {"TeamOffenseBars", &g_strTeamOffenseBars[0]}, // campaign: per-team offensive initiative bars
     {"ReinforceHold", &g_strReinforceHold[0]}, // campaign: hold a team's reinforcements until an event
+    {"ReinforceForwardTypes", &g_strReinforceForwardTypes[0]}, // campaign: arriving squadrons of these types go to the most forward airbase
     {"RailWaveCountries", &g_strRailWaveCountries[0]}, // Artscout - 2026: countries that mobilise by rail
     {"SoundDevice", &g_strSoundDevice[0]}, // OpenAL output device substring ("" = default)
     {"ServerName", &g_strServerName[0]},

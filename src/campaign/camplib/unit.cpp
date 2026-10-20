@@ -28,6 +28,7 @@
 #include "loadout.h"
 #include "gndunit.h"
 #include "vehicle.h"
+#include "fflog.h" // FFDebugLog (ReinforceForwardTypes)
 #include "team.h"
 #include "initdata.h"
 #include "f4find.h"
@@ -3263,6 +3264,74 @@ void UnitClass::SetInactive(int f)
 
                         if (best)
                             SetUnitAirbase(best->Id());
+                    }
+                }
+
+                // ReinforceForwardTypes "F-16,...": an arriving squadron flying one of these types is based at its side's
+                // most forward airbase -- the one nearest enemy-held ground, at 50% status or better -- wherever the
+                // front is when it arrives (the data can only name a fixed base)
+                extern char g_strReinforceForwardTypes[];
+
+                if (g_strReinforceForwardTypes[0] and IsSquadron() and GetDomain() == DOMAIN_AIR)
+                {
+                    const char *ac = GetVehicleName(GetVehicleID(0));
+                    bool listed = false;
+                    char buf[0x100];
+                    strncpy(buf, g_strReinforceForwardTypes, sizeof(buf) - 1);
+                    buf[sizeof(buf) - 1] = 0;
+
+                    for (char *tok = strtok(buf, ","); tok and not listed; tok = strtok(NULL, ","))
+                        listed = ac and *tok and strstr(ac, tok);
+
+                    if (listed)
+                    {
+                        Objective best = NULL;
+                        int bd = 0x7fffffff;
+                        VuListIterator oit(AllObjList);
+
+                        for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+                        {
+                            if (o->GetType() not_eq TYPE_AIRBASE or o->GetTeam() not_eq GetTeam() or
+                                o->GetObjectiveStatus() < 50)
+                                continue;
+
+                            GridIndex ox, oy;
+                            o->GetLocation(&ox, &oy);
+                            int d = 0x7fffffff;
+                            VuListIterator eit(AllObjList);
+
+                            for (Objective e = GetFirstObjective(&eit); e; e = GetNextObjective(&eit))
+                            {
+                                if (GetTTRelations(e->GetTeam(), GetTeam()) not_eq War)
+                                    continue;
+
+                                GridIndex ex, ey;
+                                e->GetLocation(&ex, &ey);
+                                const int de = (ex - ox) * (ex - ox) + (ey - oy) * (ey - oy);
+
+                                if (de < d)
+                                    d = de;
+                            }
+
+                            if (d < bd)
+                                bd = d, best = o;
+                        }
+
+                        if (best)
+                        {
+                            GridIndex bx, by;
+                            best->GetLocation(&bx, &by);
+                            SetUnitAirbase(best->Id());
+                            SetLocation(bx, by);
+
+
+                            _TCHAR nm[80] = {0};
+                            best->GetName(nm, 79, FALSE);
+                            char line[200];
+                            sprintf_s(line, "reinforce: %s squadron %d based forward at %s (%d,%d), %d km from enemy ground\n",
+                                      ac ? ac : "?", GetCampID(), nm, bx, by, (int)sqrtf((float)bd));
+                            FFDebugLog(line);
+                        }
                     }
                 }
             }
