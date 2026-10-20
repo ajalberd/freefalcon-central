@@ -1629,7 +1629,16 @@ int gAtmDiag[NUM_TEAMS][24] = {{0}};
 // [0] none had the role, [1] relocating, [2] capabilities, [3] stealth by day, [4] NPC-only, [5] out of range,
 // [6] speed, [7] schedule/time, [8] no aircraft free, [9] airbase slots full, [10] passed everything
 int gNoFlightWhy[8][4][11];
-#define ATMD(r) (gAtmDiag[owner][(r)]++, furthest = (r) == 1 ? furthest : max(furthest, (r) == 0 ? 1 : (r)))
+// campsim BOMBERWHY: the same checks for squadrons whose class is "Bomb" or "Strike Fighter" ([0] bomber, [1] strike
+// fighter; [10] passed every check, [11] then chosen)
+int gHeavyWhy[2][12];
+static int HeavyKind(Squadron sq)
+{
+    UnitClassDataType *uc = sq ? sq->GetUnitClassData() : NULL;
+    return not uc ? -1 : (not strcmp(uc->Name, "Bomb") ? 0 : (not strcmp(uc->Name, "Strike Fighter") ? 1 : -1));
+}
+#define ATMD(r) (gAtmDiag[owner][(r)]++, furthest = (r) == 1 ? furthest : max(furthest, (r) == 0 ? 1 : (r)), \
+                 HeavyKind(sq) >= 0 ? gHeavyWhy[HeavyKind(sq)][(r)]++ : 0)
 
 Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
                                              GridIndex by)
@@ -1910,11 +1919,17 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
 
             furthest = 10; // campsim NOFLIGHT: this squadron passed every check (its score decides)
 
+            if (HeavyKind(sq) >= 0)
+                gHeavyWhy[HeavyKind(sq)][10]++;
+
             if (score <= best)
                 continue;
 
             best = score;
             bs = sq;
+
+            if (HeavyKind(sq) >= 0)
+                gHeavyWhy[HeavyKind(sq)][11]++; // the best so far (may still be beaten)
 
             // We can use this data later
             sb = mis->start_block;

@@ -778,6 +778,20 @@ static void GtmLog(int hour)
                        "other %3d\n", hour, a.name, a.sq, a.total, a.ca, a.st, a.cas, a.oth);
         }
 
+        // BOMBERWHY: why "Bomb" / "Strike Fighter" squadrons are passed over (atm.cpp FindBestAir gHeavyWhy)
+        {
+            extern int gHeavyWhy[2][12];
+            static const char *hk[2] = {"bomber", "strike-fighter"};
+
+            for (int k = 0; k < 2; k++)
+            {
+                int *w = gHeavyWhy[k];
+                printf("BOMBERWHY h=%d %-14s relocating %d, score too low %d, capabilities %d, stealth by day %d, NPC-only %d, "
+                       "range %d, speed %d, schedule %d, no aircraft free %d, airbase %d | passed all %d, best so far %d\n",
+                       hour, hk[k], w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7], w[8], w[9], w[10], w[11]);
+            }
+        }
+
         // strike-class packages by target type (package.cpp gPkgWhyType): what Blue's strikes go after, and why not
         extern int gPkgWhyType[8][32][5];
         static const char *otn[32] = {"?", "airbase", "airstrip", "armybase", "beach", "border", "bridge", "chemical", "city",
