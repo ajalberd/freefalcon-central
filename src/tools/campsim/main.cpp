@@ -775,6 +775,17 @@ static void GtmLog(int hour)
                     AirUse &a = slot(GetVehicleName(u->GetVehicleID(0))); // by aircraft type (F-16CG, B-52H ...)
                     a.sq++;
                     a.total += u->GetTotalVehicles();
+
+                    // HEAVYSQ: the strike fighters and bombers -- did they arrive, and do they have a base?
+                    if (!strcmp(u->GetUnitClassData()->Name, "Bomb") || !strcmp(u->GetUnitClassData()->Name, "Strike Fighter"))
+                    {
+                        GridIndex sx, sy;
+                        u->GetLocation(&sx, &sy);
+                        printf("HEAVYSQ h=%d %-8s camp %d at (%d,%d) inactive %d scripted %d level %d (team at %d) airbase %s, "
+                               "aircraft %d\n", hour, GetVehicleName(u->GetVehicleID(0)), u->GetCampID(), sx, sy, u->Inactive() ? 1 : 0,
+                               u->Scripted() ? 1 : 0, u->GetUnitReinforcementLevel(), TeamInfo[2]->GetReinforcement(),
+                               vuDatabase->Find(((Squadron)u)->GetUnitAirbaseID()) ? "ok" : "NONE", u->GetTotalVehicles());
+                    }
                 }
                 else if (u->IsFlight())
                 {
