@@ -334,6 +334,10 @@ ARMS = {
     "OP_0": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70", 37),
     "OP_p100": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70 objpri=prod:100", 37),
     "OP_p100a40": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70 objpri=prod:100,airbase:40", 37),
+    # round 38: AirReinforcementFix on the China War setup -- arriving air squadrons (F-15C/E, F-117A, F-14D, F/A-18E/F,
+    # B-52H) were never tasked (never re-added to AllAirList). Base and fix on this build; 12 seeds each.
+    "AR_0": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70", 38),
+    "AR_fix": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70 airreinf=1", 38),
 }
 
 
