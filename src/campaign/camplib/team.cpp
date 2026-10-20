@@ -37,6 +37,7 @@
 #include "falcuser.h"
 //sfr: added for checks
 #include "invalidbufferexception.h"
+#include "cmpevent.h" // CampEvents (ReinforceHold)
 // =========================
 // Defines
 // =========================
@@ -2995,6 +2996,31 @@ void AddReinforcements(Team who, int inc)
     if ((inc <= 0) or (TeamInfo[who] == NULL) or
         (not(TeamInfo[who]->flags bitand TEAM_ACTIVE)))
         return;
+
+    // ReinforceHold "TEAM:EVENT,...": the team's reinforcement clock stands still until that trigger-script event has
+    // fired (e.g. "2:12": Blue's reinforcements are sent when Russia joins), then runs as before -- each unit arrives as
+    // many hours after the event as it would have after the war's start.
+    {
+        extern char g_strReinforceHold[];
+        extern EventClass **CampEvents;
+        extern short CE_Events;
+
+        for (const char *p = g_strReinforceHold; *p;)
+        {
+            int t = 0, ev = 0;
+
+            if (sscanf(p, "%d:%d", &t, &ev) == 2 and t == who and ev > 0 and ev < CE_Events and CampEvents and
+                CampEvents[ev] and not CampEvents[ev]->HasFired())
+                return;
+
+            const char *c = strchr(p, ',');
+
+            if (not c)
+                break;
+
+            p = c + 1;
+        }
+    }
 
     TeamInfo[who]->AddReinforcement(inc);
     // Traverse reinforcement list, adding new units

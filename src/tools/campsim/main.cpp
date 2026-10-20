@@ -684,6 +684,20 @@ static void GtmLog(int hour)
 
             extern int gSxConvoyLost[NUM_TEAMS];
             printf("SXCONVOY h=%d supply lost to convoy interdiction: Blue %d, North %d (cumulative)\n", hour, gSxConvoyLost[2], gSxConvoyLost[6]);
+
+            // REINF: each side's reinforcement clock (ReinforceHold stops it) and how many units still wait
+            {
+                int waiting[NUM_TEAMS] = {0};
+                VuListIterator iit(InactiveList);
+
+                for (Unit u = GetFirstUnit(&iit); u; u = GetNextUnit(&iit))
+                    if (u->Inactive() && u->GetTeam() >= 0 && u->GetTeam() < NUM_TEAMS)
+                        waiting[u->GetTeam()]++;
+
+                printf("REINF h=%d clock: Blue %d, China %d, North %d | waiting: Blue %d, China %d, North %d\n", hour,
+                       TeamInfo[2] ? TeamInfo[2]->GetReinforcement() : -1, TeamInfo[5] ? TeamInfo[5]->GetReinforcement() : -1,
+                       TeamInfo[6] ? TeamInfo[6]->GetReinforcement() : -1, waiting[2], waiting[5], waiting[6]);
+            }
         }
 
         // ALERT flights rejected for too few aircraft: how many they had vs how many the request wanted
@@ -3252,6 +3266,12 @@ static void ApplyKnobs(int argc, char **argv)
             extern int g_nProdCutTeam, g_nProdCutPct;
             sscanf(val, "%d:%d", &g_nProdCutTeam, &g_nProdCutPct);
             printf("KNOB prodcut: team %d makes %d%% of its supply production\n", g_nProdCutTeam, g_nProdCutPct);
+        }
+        else if (!strcmp(key, "reinfhold"))
+        {
+            extern char g_strReinforceHold[];
+            strncpy(g_strReinforceHold, val, 0xff);
+            printf("KNOB ReinforceHold \"%s\" (team:event -- reinforcements wait for the event)\n", g_strReinforceHold);
         }
         else if (!strcmp(key, "airreinf"))
         {
