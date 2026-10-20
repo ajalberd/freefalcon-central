@@ -271,6 +271,9 @@ const ROWS = [
   ['Fuel pool', (f,t) => sp(f,t,1)],
   ['Replacement pool', (f,t) => sp(f,t,2)],
   ['Supply sites / capacity per day', (f,t) => sp(f,t,20) ? sp(f,t,20) + ' / ' + sp(f,t,21) : '-', {text:1}],
+  // What the team's producers can make now (after damage, power and captures) against what they could at the start
+  ['Production vs start (supply)', (f,t) => sp(frames[0],t,21) ? Math.round(100 * sp(f,t,21) / sp(frames[0],t,21)) : 0, {pct:1}],
+  ['Production vs start (fuel)', (f,t) => sp(frames[0],t,23) ? Math.round(100 * sp(f,t,23) / sp(frames[0],t,23)) : 0, {pct:1}],
   ['Power stations (status %)', (f,t) => sp(f,t,27) ? sp(f,t,27) + ' (' + sp(f,t,28) + ')' : '-', {text:1}],
   ['Air war'],
   ['Flights airborne', (f,t) => derived(f)[t].fl],
