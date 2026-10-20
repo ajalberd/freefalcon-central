@@ -6,6 +6,26 @@ the baseline is the `h_bar` configuration (CAMPAIGN-CHINA-EXPERIMENTS.md). 3 see
 Harness: `tools/campsim/supply_trials.py run|report|daily [round]`, results in `tools/campsim/supply/results.jsonl` (rounds 1-15, 520+ runs); exact same-seed pairs: `tools/campsim/supply_paired.py`; maps: `supply_view.py`.
 Nothing here touches the game exe, the install's save0 / cfg, h_bar's settings, existing switches or the trigger scripts.
 
+## Latest (2026-10-20, rounds 37-40): idle air reinforcements, Blue's reinforcements after Russia, two forward F-16 squadrons
+
+Why NK factories were not struck: Blue's air reinforcements never flew. A squadron that arrives as a reinforcement was not on
+`AllAirList`, so the ATM never tasked it, and most had no base. Rounds 37-40, 12 seeds each, HBAR + Bar 40 + North at 70%:
+
+| Round / arm | Wins | Median win | Quick (<h130) | Stalls |
+|---|---|---|---|---|
+| 39 HF_0 (no change) | 11 | h151 | 1 | 1 |
+| 38/39 HF_fix (`AirReinforcementFix`) | 12 | h115 | 11 | 0 |
+| 39 HF_hold (Blue's clock waits for Russia) | 7 | h183 | 0 | 5 |
+| 39 HF_f16 (fix + hold + 2 forward F-16 squadrons) | 10 | h184 | 0 | 2 |
+| 40 HF_f16d5 (hold released by Russia or day 5) | 11 | h196 | 0 | 1 |
+| **40 HF_f16d4 (Russia or day 4)** | **12** | **h182** | 0 | 0 |
+
+- Round 37: the priority sliders do not free aircraft. Round 38: the reinforcement fix alone wins fast (median day 4.8), too fast.
+- The hold plus the F-16 wave gives the longer war wanted (dip after China/Russia, then recovery), but seeds 1 and 10 stalled because
+  Russia never joined, so the held reinforcements never came. `ReinforceHold TEAM:EVENT:DAY` also releases on a campaign day; day 4 clears both.
+- The control (same build) reproduces round 39's HF_f16 exactly. Shipped in the Korea China War mod with `AirReinforcementFix 1`,
+  `ReinforceHold "2:12:4"`, `ReinforceForwardTypes "F-16"` and save0.cam = chddf16 (`make_f16_wave.py`).
+
 ## Latest (2026-10-19/20, rounds 23-36): the North short of supply when China joins, and Blue's bar at 40
 
 **Recommendation: Blue's offensive bar 40 (h_bar: 50) and the North's battalions starting at 70% supply** (`teambar=1:40,2:40,3:40,5:30,6:15

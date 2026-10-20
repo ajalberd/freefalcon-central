@@ -6,7 +6,7 @@ Korea save0 (NEW campaigns), on top of Korea Rail War (the campsim tests ran wit
 config\\mods\\*.cfg like the game). Needs FFViper-campaign.exe (branch campsim-gpu, f830facc or later): the cfg keys below
 do not exist in older builds, which ignore them.
 
-  - save0.cam = campaign\\SAVE\\chdd.cam: China's ground battalions staged at Dandong / the Pyongbu line's Yalu crossing
+  - save0.cam = campaign\\SAVE\\chddf16.cam: China's ground battalions staged at Dandong / the Pyongbu line's Yalu crossing
     (make_china_stage.py).
   - save0.tri = chn_appr2.tri: China joins when the ROK holds Sariwon, Hwangju, Anbyon or Wonsan; Blue wins on
     Pyongyang + Wonsan's group (event 17), the North on Seoul or Pusan.
@@ -26,7 +26,7 @@ SAVE = os.path.join(GAME, "campaign", "SAVE")
 MOD = os.path.join(GAME, "MODS", "Korea China War")
 
 CFG = """// Korea China War (JSGME mod): settings for FFViper-campaign.exe, read after FFViper.cfg. Disable the mod in JSGME to remove
-// this file. Settled in campsim, 12 seeds: Blue wins 12/12, median day 6.4; China's entry slows Blue for 2-4 days
+// this file. Settled in campsim, 12 seeds: Blue wins 12/12, median day 7.6; China's entry slows Blue for 2-4 days
 // (tools/campsim SUPPLY-RESEARCH.md "Latest (2026-10-19/20, rounds 23-36)").
 
 // The h_bar campaign (CAMPAIGN-CHINA-EXPERIMENTS.md): China a team of its own, every team its own initiative,
@@ -51,6 +51,13 @@ set g_bStoresNoProd 1
 set g_nSupplyUseMult 2
 set g_nStartSupplyTeam 6
 set g_nStartSupplyPct 70
+
+// Air reinforcements (rounds 37-40): an arriving squadron joins the ATM list (stock: it sat idle all war), Blue's
+// reinforcement clock waits for Russia to join (chn_appr2 event 12) or campaign day 4, and the two extra US F-16
+// squadrons in save0.cam are based at Blue's most forward airbase when they arrive
+set g_bAirReinforcementFix 1
+set g_sReinforceHold "2:12:4"
+set g_sReinforceForwardTypes "F-16"
 """
 
 README = """Korea China War (JSGME mod)
@@ -60,7 +67,8 @@ The Korea campaign (save0, "Tiger Spirit") as tested in campsim for a longer war
 China's army staged at the Yalu, China joining when the ROK reaches Sariwon, Hwangju, Anbyon or Wonsan,
 the North starting the war at 70% supply, and Blue needing less initiative (40) to attack again after
 China's counterpush. In 12 simulated wars Blue won all 12, on day 6.4 at the median, with China's entry
-slowing the advance for 2-4 days before Blue broke through.
+slowing the advance for 2-4 days before Blue broke through. Blue's air reinforcements (stock: idle all
+war) now fly, arrive once Russia joins or on day 4, and include two extra F-16 squadrons at the most forward airbase.
 
 Requirements
   - FFViper-campaign.exe (installed next to FFViper.exe). Start the game with it; FFViper.exe ignores the settings.
@@ -68,7 +76,8 @@ Requirements
   - Start a NEW campaign: the starting supply is applied only when a campaign begins, not to saves.
 
 Files
-  campaign/SAVE/save0.cam     China staged forward (campsim save "chdd")
+  campaign/SAVE/save0.cam     China staged forward (campsim save "chddf16": + 2 US F-16 squadrons
+                              that arrive as reinforcements after Russia joins)
   campaign/SAVE/save0.tri     the China-entry trigger script (campsim "chn_appr2")
   campaign/SAVE/Falcon4.AII   DataRateModSup 0.75 (stock install 1.5)
   config/mods/Korea China War.cfg   the campaign settings
@@ -87,7 +96,7 @@ def main():
     os.makedirs(dst, exist_ok=True)
     os.makedirs(os.path.join(MOD, "config", "mods"), exist_ok=True)
 
-    shutil.copyfile(os.path.join(SAVE, "chdd.cam"), os.path.join(dst, "save0.cam"))
+    shutil.copyfile(os.path.join(SAVE, "chddf16.cam"), os.path.join(dst, "save0.cam"))
     shutil.copyfile(os.path.join(SAVE, "chn_appr2.tri"), os.path.join(dst, "save0.tri"))
 
     aii = open(os.path.join(SAVE, "Falcon4.AII"), encoding="latin-1").read()
