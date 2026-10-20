@@ -720,6 +720,64 @@ static void GtmLog(int hour)
                        "built %d (cumulative)\n", hour, t, cls[c], w[0], w[1], w[2], w[3], w[4]);
             }
 
+        // AIRUSE: Blue's aircraft by type -- in its squadrons, and out on flights by mission class (what holds them)
+        {
+            struct AirUse
+            {
+                char name[24];
+                int sq, total, ca, st, cas, oth;
+            };
+            std::vector<AirUse> au;
+            auto slot = [&au](const char *n) -> AirUse & {
+                for (AirUse &a : au)
+                    if (!strcmp(a.name, n))
+                        return a;
+                AirUse a = {};
+                strncpy(a.name, n, sizeof(a.name) - 1);
+                au.push_back(a);
+                return au.back();
+            };
+            VuListIterator uit(AllUnitList);
+
+            for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+            {
+                if (u->GetTeam() != 2 || u->IsDead())
+                    continue;
+
+                if (u->IsSquadron() && u->GetUnitClassData())
+                {
+                    AirUse &a = slot(u->GetUnitClassData()->Name);
+                    a.sq++;
+                    a.total += u->GetTotalVehicles();
+                }
+                else if (u->IsFlight())
+                {
+                    Unit sq = (Unit)vuDatabase->Find(u->GetUnitSquadronID());
+
+                    if (!sq || !sq->GetUnitClassData())
+                        continue;
+
+                    AirUse &a = slot(sq->GetUnitClassData()->Name);
+                    const int m = u->GetUnitMission(), n = u->GetTotalVehicles();
+
+                    if (m >= AMIS_BARCAP && m <= AMIS_ESCORT)
+                        a.ca += n;
+                    else if (m >= AMIS_SEADSTRIKE && m <= AMIS_STRATBOMB)
+                        a.st += n;
+                    else if (m >= AMIS_FAC && m <= AMIS_BAI)
+                        a.cas += n;
+                    else
+                        a.oth += n;
+                }
+            }
+
+            std::sort(au.begin(), au.end(), [](const AirUse &x, const AirUse &y) { return x.total > y.total; });
+
+            for (const AirUse &a : au)
+                printf("AIRUSE h=%d team 2 %-20s squadrons %2d aircraft %3d | flying: counter-air %3d, strike %3d, CAS/BAI %3d, "
+                       "other %3d\n", hour, a.name, a.sq, a.total, a.ca, a.st, a.cas, a.oth);
+        }
+
         // strike-class packages by target type (package.cpp gPkgWhyType): what Blue's strikes go after, and why not
         extern int gPkgWhyType[8][32][5];
         static const char *otn[32] = {"?", "airbase", "airstrip", "armybase", "beach", "border", "bridge", "chemical", "city",
