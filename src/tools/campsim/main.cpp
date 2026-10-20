@@ -694,9 +694,12 @@ static void GtmLog(int hour)
                     if (u->Inactive() && u->GetTeam() >= 0 && u->GetTeam() < NUM_TEAMS)
                         waiting[u->GetTeam()]++;
 
-                printf("REINF h=%d clock: Blue %d, China %d, North %d | waiting: Blue %d, China %d, North %d\n", hour,
+                extern char g_strReinforceHold[];
+                printf("REINF h=%d clock: Blue %d, China %d, North %d | waiting: Blue %d, China %d, North %d | hold \"%s\", "
+                       "events %d, event 12 fired %d\n", hour,
                        TeamInfo[2] ? TeamInfo[2]->GetReinforcement() : -1, TeamInfo[5] ? TeamInfo[5]->GetReinforcement() : -1,
-                       TeamInfo[6] ? TeamInfo[6]->GetReinforcement() : -1, waiting[2], waiting[5], waiting[6]);
+                       TeamInfo[6] ? TeamInfo[6]->GetReinforcement() : -1, waiting[2], waiting[5], waiting[6], g_strReinforceHold,
+                       (int)CE_Events, (CampEvents && CE_Events > 12 && CampEvents[12]) ? CampEvents[12]->HasFired() : -1);
             }
         }
 
