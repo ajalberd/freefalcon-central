@@ -328,6 +328,12 @@ ARMS = {
     "BR_b40_s50": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:50", 35),
     # round 36: the midpoint -- Blue bar 40 with the North starting at 70% (control: BR_b40, round 35, same build)
     "BR_b40_s70": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70", 36),
+    # round 37: Blue's target priorities on the Korea China War setup (bar 40 + North at 70%) -- Blue strikes North
+    # factories 54 times in 4 days against the North's 301 on the South (STRIKETYPE): no aircraft free, factories at
+    # priority 40 behind airbases 70. Fresh base on this build; 12 seeds each.
+    "OP_0": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70", 37),
+    "OP_p100": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70 objpri=prod:100", 37),
+    "OP_p100a40": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70 objpri=prod:100,airbase:40", 37),
 }
 
 
