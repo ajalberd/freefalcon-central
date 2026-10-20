@@ -3340,6 +3340,8 @@ static void ApplyKnobs(int argc, char **argv)
         {
             // teambar=T:BAR,T:BAR... -- initiative team T needs to start an offensive (overrides CounterAttackInitiative for that team)
             extern int g_nTeamOffenseBar[NUM_TEAMS];
+            extern char g_strTeamOffenseBars[];
+            g_strTeamOffenseBars[0] = 0; // the knob wins over a cfg TeamOffenseBars (usecfg=1)
             for (const char *p = val; *p;)
             {
                 int t = 0, b = 0;

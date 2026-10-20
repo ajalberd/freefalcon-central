@@ -1414,6 +1414,32 @@ void TeamClass::SelectGroundAction(void)
     extern int g_nCounterAttackInitiative;
     extern int g_nTeamOffenseBar[NUM_TEAMS];
     static CampaignTime counterReady[NUM_TEAMS];
+
+    // cfg TeamOffenseBars "T:BAR,..." fills the same table campsim's teambar= does (read once; a listed team overrides)
+    {
+        extern char g_strTeamOffenseBars[];
+        static bool barsRead = false;
+
+        if (not barsRead)
+        {
+            barsRead = true;
+
+            for (const char *p = g_strTeamOffenseBars; *p;)
+            {
+                int t = 0, b = 0;
+
+                if (sscanf(p, "%d:%d", &t, &b) == 2 and t > 0 and t < NUM_TEAMS and b > 0)
+                    g_nTeamOffenseBar[t] = b;
+
+                const char *c = strchr(p, ',');
+
+                if (not c)
+                    break;
+
+                p = c + 1;
+            }
+        }
+    }
     const int teamBar = g_nTeamOffenseBar[who % NUM_TEAMS] > 0 ? g_nTeamOffenseBar[who % NUM_TEAMS] : g_nCounterAttackInitiative;
     const int caMin = teamBar > 0 ? teamBar : MIN_COUNTER_ATTACK_INITIATIVE;
     const int fullMin = teamBar > 0 ? caMin : MIN_FULL_OFFENSIVE_INITIATIVE;

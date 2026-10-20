@@ -737,6 +737,10 @@ bool g_bGtmCaptureFront = true; // campaign: non-secondary enemy objectives on t
 bool g_bSupplyNeedFix = true; // campaign: resupply counts only positive needs, and a squadron's need only its own table's weapon types (stock: off-table stores in reinforcement squadrons stop all battalion resupply)
 bool g_bGridPathPartial = true; // campaign: a ground unit follows the partial route when its grid path search hits its length/node limit (stock: discarded, the unit retries the same far waypoint forever)
 bool g_bReserveHold = true; // campaign: a reserve battalion on one of our objectives away from the front keeps it (stock: kicked off any non-secondary objective, it fell back 3 links again and again, burning supply)
+// Campaign setup proven in campsim (SUPPLY-RESEARCH.md, rounds 23-36); defined where they are used, keyed here.
+extern bool g_bStoresNoProd, g_bChinaOwn, g_bNeutralNoUse, g_bNeutralHold, g_bInitIndependent;
+extern int g_nSupplyUseMult, g_nTurnMode;
+char g_strTeamOffenseBars[0x100] = ""; // campaign: per-team initiative an offensive needs, "T:BAR,T:BAR" (e.g. "1:40,2:40,3:40,5:30,6:15"); a team not listed uses CounterAttackInitiative. "TeamOffenseBars".
 bool g_bSupplyStocks = false; // campaign experiment: depots and army bases hold regional stocks of supply and fuel that battalions draw down and the national pool refills; they stop producing unless StoresProduce
 bool g_bStoresProduce = false; // campaign experiment (with SupplyStocks): depots and army bases keep producing into the pool as well
 int g_nProdCutTeam = 0; // campaign experiment: this team (1-7; 0 = none) makes ProdCutPct % of the supply its factories, ports and stores would. "ProdCutTeam".
@@ -1997,6 +2001,11 @@ static ConfigOption<bool> BoolOpts[] = {
     {"ReserveHold", &g_bReserveHold}, // 1 = reserves stop shuttling back and forth
     {"SupplyStocks", &g_bSupplyStocks}, // 1 = regional stocks in depots and army bases (experiment)
     {"StoresProduce", &g_bStoresProduce}, // 1 = ... and they still produce
+    {"StoresNoProd", &g_bStoresNoProd}, // campaign: depots and army bases do not produce supply (factories and ports do)
+    {"ChinaOwnTeam", &g_bChinaOwn}, // campaign: China stays a team of its own when it joins (not folded into DPRK)
+    {"NeutralNoUse", &g_bNeutralNoUse}, // campaign: a team at war with nobody uses no battalion supply
+    {"NeutralHold", &g_bNeutralHold}, // campaign: battalions of a team at war with nobody hold where they are
+    {"InitIndependent", &g_bInitIndependent}, // campaign: each team gets its own initiative against the coalition at war with it
     {"AirliftRunway", &g_bAirliftRunway}, // 1 = no airlift credit for a landing at an airbase with no working runway
     {"AirliftNeed", &g_bAirliftNeed}, // 1 = airlift credit is capped by the need around the destination
     {"ReplSplitFix", &g_bReplSplitFix}, // 1 = ground units always keep a share of the replacement pool
@@ -2372,6 +2381,8 @@ static ConfigOption<int> IntOpts[] = {
     {"RailTrackDetrainMin", &g_nRailTrackDetrainMin}, // Artscout - 2026: detrain minutes on open track
     {"ProdCutTeam", &g_nProdCutTeam}, // campaign experiment: team whose supply production is cut
     {"ProdCutPct", &g_nProdCutPct}, // ... to this %
+    {"SupplyUseMult", &g_nSupplyUseMult}, // campaign: battalion supply used moving and firing, x this
+    {"TurnMode", &g_nTurnMode}, // campaign: 1 spent offensives release the other side, 4 offensives shared, 8 allied strike needs fit units (bits)
     {"PortCargoHours", &g_nPortCargoHours}, // campaign experiment: ports produce only after a cargo ship docks
     {"StartSupplyTeam", &g_nStartSupplyTeam}, // campaign: team that starts short of supply
     {"StartSupplyPct", &g_nStartSupplyPct}, // ... at this %
@@ -2542,6 +2553,7 @@ static ConfigOption<char> StringOpts[] = {
     {"MasterServerName", &g_strMasterServerName[0]},
     {"RailTrainLines", &g_strRailTrainLines[0]}, // Artscout - 2026: routes that get a train
     {"AlliedCounterTeams", &g_strAlliedCounterTeams[0]}, // teams that may use the allied counteroffensive / capture
+    {"TeamOffenseBars", &g_strTeamOffenseBars[0]}, // campaign: per-team offensive initiative bars
     {"RailWaveCountries", &g_strRailWaveCountries[0]}, // Artscout - 2026: countries that mobilise by rail
     {"SoundDevice", &g_strSoundDevice[0]}, // OpenAL output device substring ("" = default)
     {"ServerName", &g_strServerName[0]},
