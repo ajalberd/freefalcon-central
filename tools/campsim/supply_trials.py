@@ -320,6 +320,12 @@ ARMS = {
     # from h0 (all 12 = CF2_s50pw: 6/6, mostly over by day 5). 12 seeds each.
     "PP_s50g4": ("startsup=6:50 blowlim=grid:6:4 blowat=0", 34),
     "PP_s50g8": ("startsup=6:50 blowlim=grid:6:8 blowat=0", 34),
+    # round 35: the North at 50% (weak when China arrives) + Blue's offensive bar lowered so it can attack again after the
+    # setback (h_bar: 50). 12 seeds each; the bar alone is the control for each.
+    "BR_b45": ("teambar=1:45,2:45,3:45,5:30,6:15", 35),
+    "BR_b45_s50": ("teambar=1:45,2:45,3:45,5:30,6:15 startsup=6:50", 35),
+    "BR_b40": ("teambar=1:40,2:40,3:40,5:30,6:15", 35),
+    "BR_b40_s50": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:50", 35),
 }
 
 
