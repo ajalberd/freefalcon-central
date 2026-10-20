@@ -30,7 +30,7 @@ SMODEL = "sxrear=72 sxhops=12 sxloss=10 sxdelay=10 sxwheeled=1 teambar=1:40,2:40
 # campaigns: key -> (save, theater stem, base settings, endgame event that is a Blue / Israeli win). An arm is (knobs, round) for chdd, or
 # (knobs, round, campaign key). The base for the stock campaigns is just the cfg + deterministic replay.
 GEN = "usecfg=1 det=1"
-CAMPS = {"chdd": ("chdd", "", HBAR, 17), "k1": ("save1", "", GEN, 17), "k2": ("save2", "", GEN, 17), "i2": ("save2", "Israel2007", GEN, 6)}
+CAMPS = {"chdd": ("chdd", "", HBAR, 17), "chddf16": ("chddf16", "", HBAR, 17), "k1": ("save1", "", GEN, 17), "k2": ("save2", "", GEN, 17), "i2": ("save2", "Israel2007", GEN, 6)}
 RAIL = ("raillines=Gyeongbu,Gyeongui,Hambuk,Honam,Kangwon,Khasan,Manpo,Meiji,Pukbunaeryuk,Pyongbu,Pyongdok,Pyongra,Pyongui,Shendan,Shenji "
         "railload=240")
 # the light package: no hard reach, 5% per road node, convoy time, captured stores usable after 12 h and from 50% status
@@ -338,6 +338,12 @@ ARMS = {
     # B-52H) were never tasked (never re-added to AllAirList). Base and fix on this build; 12 seeds each.
     "AR_0": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70", 38),
     "AR_fix": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70 airreinf=1", 38),
+    # round 39: Blue's reinforcements after Russia joins (ReinforceHold 2:12) and 2 extra F-16 squadrons at forward
+    # airbases (chddf16 + ReinforceForwardTypes F-16), on the China War setup with the air reinforcement fix. One build.
+    "HF_0": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70", 39),
+    "HF_fix": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70 airreinf=1", 39),
+    "HF_hold": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70 airreinf=1 reinfhold=2:12", 39),
+    "HF_f16": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70 airreinf=1 reinfhold=2:12 reinffwd=F-16", 39, "chddf16"),
 }
 
 
