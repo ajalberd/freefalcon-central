@@ -312,6 +312,10 @@ ARMS = {
     # round 32: settle the start level -- North battalions at 60% / 70% (50% and 30% are round 30)
     "SL_s60": ("startsup=6:60", 32),
     "SL_s70": ("startsup=6:70", 32),
+    # round 33: confirmation on fresh seeds (TRIAL_SEEDS=7..12), one build: base, the North at 50%, and that plus its power held down
+    "CF2_0": ("", 33),
+    "CF2_s50": ("startsup=6:50", 33),
+    "CF2_s50pw": ("startsup=6:50 blow=grid:6:hold blowat=0", 33),
 }
 
 
