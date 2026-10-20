@@ -3019,7 +3019,7 @@ void AddReinforcements(Team who, int inc)
         (not(TeamInfo[who]->flags bitand TEAM_ACTIVE)))
         return;
 
-    // ReinforceHold "TEAM:EVENT,...": the team's reinforcement clock stands still until that trigger-script event has
+    // ReinforceHold "TEAM:EVENT[:DAY],...": the team's reinforcement clock stands still until that trigger-script event has
     // fired (e.g. "2:12": Blue's reinforcements are sent when Russia joins), then runs as before -- each unit arrives as
     // many hours after the event as it would have after the war's start.
     {
@@ -3029,10 +3029,11 @@ void AddReinforcements(Team who, int inc)
 
         for (const char *p = g_strReinforceHold; *p;)
         {
-            int t = 0, ev = 0;
+            int t = 0, ev = 0, day = 0;
 
-            if (sscanf(p, "%d:%d", &t, &ev) == 2 and t == who and ev > 0 and ev < CE_Events and CampEvents and
-                CampEvents[ev] and not CampEvents[ev]->HasFired())
+            // optional third field: release on this campaign day (as #IF_CAMPAIGN_DAY counts) even if the event never fires
+            if (sscanf(p, "%d:%d:%d", &t, &ev, &day) >= 2 and t == who and ev > 0 and ev < CE_Events and CampEvents and
+                CampEvents[ev] and not CampEvents[ev]->HasFired() and (day <= 0 or TheCampaign.GetCampaignDay() < day))
                 return;
 
             const char *c = strchr(p, ',');
