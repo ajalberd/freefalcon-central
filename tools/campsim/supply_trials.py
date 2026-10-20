@@ -326,6 +326,8 @@ ARMS = {
     "BR_b45_s50": ("teambar=1:45,2:45,3:45,5:30,6:15 startsup=6:50", 35),
     "BR_b40": ("teambar=1:40,2:40,3:40,5:30,6:15", 35),
     "BR_b40_s50": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:50", 35),
+    # round 36: the midpoint -- Blue bar 40 with the North starting at 70% (control: BR_b40, round 35, same build)
+    "BR_b40_s70": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70", 36),
 }
 
 
