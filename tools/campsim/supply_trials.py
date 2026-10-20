@@ -348,6 +348,7 @@ ARMS = {
     # the F-16s never came and China's push won)
     "HF_f16d5": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70 airreinf=1 reinfhold=2:12:5 reinffwd=F-16", 40, "chddf16"),
     "HF_f16d4": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70 airreinf=1 reinfhold=2:12:4 reinffwd=F-16", 40, "chddf16"),
+    "HF_f16r": ("teambar=1:40,2:40,3:40,5:30,6:15 startsup=6:70 airreinf=1 reinfhold=2:12 reinffwd=F-16", 40, "chddf16"),  # HF_f16 on this build
 }
 
 
