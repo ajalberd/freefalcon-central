@@ -3223,6 +3223,48 @@ void UnitClass::SetInactive(int f)
 
                     RealUnitProxList->Insert(this);
                 }
+
+                // AirReinforcementFix: AllAirList's filter refuses inactive units, so a squadron that starts as a
+                // reinforcement was never on it, and the ATM builds its squadron list from AllAirList alone -- every
+                // air reinforcement arrived and never flew (campsim AIRUSE, chdd: F-15C/E, F-117A, F-14D, F/A-18E/F,
+                // B-52H idle all war). Put it on the list as it arrives, and give one with no base the nearest
+                // friendly carrier group (else airbase) to fly from.
+                extern bool g_bAirReinforcementFix;
+
+                if (g_bAirReinforcementFix and GetDomain() == DOMAIN_AIR and AllAirList)
+                {
+                    if (not AllAirList->Find(this))
+                        AllAirList->Insert(this);
+
+                    if (IsSquadron() and not vuDatabase->Find(GetUnitAirbaseID()))
+                    {
+                        GridIndex x, y;
+                        GetLocation(&x, &y);
+                        CampEntity best = NULL;
+                        float bd = 1e30F;
+                        VuListIterator it(AllUnitList);
+
+                        for (Unit u = GetFirstUnit(&it); u; u = GetNextUnit(&it))
+                        {
+                            if (not u->IsTaskForce() or u->GetSType() not_eq STYPE_UNIT_CARRIER or u->IsDead() or
+                                u->GetTeam() not_eq GetTeam())
+                                continue;
+
+                            GridIndex ux, uy;
+                            u->GetLocation(&ux, &uy);
+                            const float d = (float)((ux - x) * (ux - x) + (uy - y) * (uy - y));
+
+                            if (d < bd)
+                                bd = d, best = u;
+                        }
+
+                        if (not best)
+                            best = FindNearestAirbase(x, y);
+
+                        if (best)
+                            SetUnitAirbase(best->Id());
+                    }
+                }
             }
         }
     }

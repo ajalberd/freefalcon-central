@@ -746,6 +746,7 @@ bool g_bStoresProduce = false; // campaign experiment (with SupplyStocks): depot
 int g_nProdCutTeam = 0; // campaign experiment: this team (1-7; 0 = none) makes ProdCutPct % of the supply its factories, ports and stores would. "ProdCutTeam".
 int g_nProdCutPct = 100; // campaign experiment: see ProdCutTeam. "ProdCutPct".
 int g_nPortCargoHours = 0; // campaign experiment: a port or naval base produces supply only if one of its side's tankers, cargo or supply ships docked there in the last this-many hours, and then scaled by the share of those ships still afloat (a side that starts with none gets nothing from its ports); 0 = off. "PortCargoHours".
+bool g_bAirReinforcementFix = false; // campaign: an air squadron that arrives as a reinforcement joins the list the ATM tasks from (stock: never -- every air reinforcement sat idle all war), and one with no base gets its side's nearest carrier group, else airbase. "AirReinforcementFix".
 int g_nStartSupplyTeam = 0; // campaign: this team's (1-7; 0 = none) battalions begin a new campaign at StartSupplyPct % supply instead of the team's start level. Applied once, when the campaign starts; saves keep what they have. "StartSupplyTeam".
 int g_nStartSupplyPct = 100; // campaign: see StartSupplyTeam. "StartSupplyPct".
 int g_nStoreCapPct = 100; // campaign experiment (SupplyStocks): a store holds this percent of its class DataRate in supply points (and the same in fuel)
@@ -2002,6 +2003,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"SupplyStocks", &g_bSupplyStocks}, // 1 = regional stocks in depots and army bases (experiment)
     {"StoresProduce", &g_bStoresProduce}, // 1 = ... and they still produce
     {"StoresNoProd", &g_bStoresNoProd}, // campaign: depots and army bases do not produce supply (factories and ports do)
+    {"AirReinforcementFix", &g_bAirReinforcementFix}, // campaign: air reinforcements get tasked
     {"ChinaOwnTeam", &g_bChinaOwn}, // campaign: China stays a team of its own when it joins (not folded into DPRK)
     {"NeutralNoUse", &g_bNeutralNoUse}, // campaign: a team at war with nobody uses no battalion supply
     {"NeutralHold", &g_bNeutralHold}, // campaign: battalions of a team at war with nobody hold where they are

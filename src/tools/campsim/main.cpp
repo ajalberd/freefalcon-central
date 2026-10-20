@@ -3253,6 +3253,13 @@ static void ApplyKnobs(int argc, char **argv)
             sscanf(val, "%d:%d", &g_nProdCutTeam, &g_nProdCutPct);
             printf("KNOB prodcut: team %d makes %d%% of its supply production\n", g_nProdCutTeam, g_nProdCutPct);
         }
+        else if (!strcmp(key, "airreinf"))
+        {
+            extern bool g_bAirReinforcementFix;
+            g_bAirReinforcementFix = atoi(val) != 0;
+            printf("KNOB g_bAirReinforcementFix = %d (arriving air squadrons get tasked; no base -> nearest carrier)\n",
+                   (int)g_bAirReinforcementFix);
+        }
         else if (!strcmp(key, "useteam"))
         {
             extern int g_nSupplyUseTeam, g_nSupplyUseTeamMult;
