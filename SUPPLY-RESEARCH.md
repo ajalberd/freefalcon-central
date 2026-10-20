@@ -6,7 +6,57 @@ the baseline is the `h_bar` configuration (CAMPAIGN-CHINA-EXPERIMENTS.md). 3 see
 Harness: `tools/campsim/supply_trials.py run|report|daily [round]`, results in `tools/campsim/supply/results.jsonl` (rounds 1-15, 520+ runs); exact same-seed pairs: `tools/campsim/supply_paired.py`; maps: `supply_view.py`.
 Nothing here touches the game exe, the install's save0 / cfg, h_bar's settings, existing switches or the trigger scripts.
 
-## Latest (2026-10-20, rounds 16-22): what decides the outcome is the initiative bar, not supply
+## Latest (2026-10-19/20, rounds 23-36): the North short of supply when China joins, and Blue's bar at 40
+
+**Recommendation: Blue's offensive bar 40 (h_bar: 50) and the North's battalions starting at 70% supply** (`teambar=1:40,2:40,3:40,5:30,6:15
+startsup=6:70`; game cfg `StartSupplyTeam 6` / `StartSupplyPct 70`). 12 seeds: Blue wins 12/12, median h153 (day 6.4), 2 quick wins (< h130),
+no stalls; the North is at 82% supply (front 82%) when China enters, and in about half the wars China's arrival cuts Blue's daily gain to a
+third for 2-4 days before it breaks through. Example to watch: `chdd-sx-BR_b40_s70-s6` (+51 +66 +70 / China h43 / +21 +25 +36 +42 / +73, win h194).
+
+| h_bar campaign, 12 seeds each | Blue wins | median win | quick wins | stalls | North supply at China's entry |
+|---|---|---|---|---|---|
+| bar 50 (h_bar) | 3 | h170 | 0 | 9 | 92 |
+| bar 50, North starts at 50% | 7 | h122 | 4 | 5 | 67-72 |
+| bar 45 / bar 45 + North 50% | 3 / 9 | h169 / h122 | 0 / 5 | 9 / 3 | 92 / 69 |
+| bar 40 | 9 | h185 | 0 | 3 | 92 |
+| **bar 40 + North 70%** | **12** | **h153** | **2** | **0** | **82** |
+| bar 40 + North 50% | 10 | h129 | 6 | 2 | 69 |
+
+What the rounds established, in order:
+
+- **Real convoys (rounds 25-26, `sxconvoys`).** Supply columns as Supply battalions on the road. Round 25's "stalls" were the AI re-tasking
+  them (g_bPlayerGroundHold off clears PlayerHeld): columns now keep their route, divert when the destination falls, rally 6 h after
+  breaking -- stalls 0. The North's cargo loss was mostly stalls: real interdiction takes 4-7% of it, Blue's 2-3%. Columns that arrive leave
+  without a "unit destroyed" news item (`gQuietUnitDeath`). Convoys do not decide the war.
+- **Rail bridges and cut penalties (rounds 27-28).** `RailBridgeObjs` (an objective for each rail bridge with no bridge objective near,
+  player-only targets, names kept in railnet.cpp, damage saved as its own `rbo` record), `RailCutTransloadH/Pct` (a trainload trucked across a
+  dropped bridge), `RailTrackDetrainMin` (troops stopped short take hours to detrain). The penalties hit only the North and China (+5.2 share);
+  the bridge objectives still perturb the war from h6 for an unfound reason -- `tools/campaign-editor/add_rail_bridges.py` (theater data, real
+  heading/length) is the better route. All off by default.
+- **What keeps the North's supply high (round 29).** Production equals use: the pool is spent every pass, battalions sit at 85-97%, none of
+  the 49 factories is lost, its 12 power stations (all nuclear plants) stay at 93-100%. Supply has a ~75% floor even at 25% production --
+  idle rear units use nothing. campsim runs `noprod=1 prodsup=0.75`; **the installed game produces ~2.7x more** (stores produce,
+  Falcon4.AII DataRateModSup 1.5). New switch `ProdCutTeam/ProdCutPct`.
+- **Ports (round 30, `PortCargoHours`).** A port produces only after one of its side's tankers/cargo ships docks, scaled by the share still
+  afloat. The North has 2 tankers and no cargo ships, all on the east coast; no effect on the war (ports are ~16% of its supply).
+- **Simple levers (rounds 30-32).** Starting supply works directly (`startsup=TEAM:PCT`, game `StartSupplyTeam/Pct`); triple use
+  (`useteam=6:3`) starves the front; production cuts barely move supply by China's entry (h49-62).
+- **Power (round 31, blow type `grid` = power + nuclear plants).** All North power held down from h0: front supply 71% by day 2, ~60% from
+  day 4. Struck once and repaired: recovers by day 5. On top of a 50% start: Blue 6/6 but mostly by day 5; 4 or 8 plants: 6/12, 7/12.
+- **Initiative from supply (round 31).** `initsupply=1` (vehicles x supply) and the new `initsupply=2` (x the front's mean supply) do not help.
+- **Six seeds are not enough.** The war is bimodal (quick Blue win or a stall with a deep loss); the 50% start went 5/6 on seeds 1-6 and 2/6 on
+  7-12. Rounds 33+ use 12 seeds.
+- **China's entry is objective-based** (`chn_appr2.tri` event 11: ROK holds Sariwon, Hwangju, Anbyon or Wonsan); a weaker North brings it
+  earlier only because Blue gets there sooner. Kept as is.
+- **The arc comes from Blue's bar, not supply.** Supply levers move wars between "quick win" and "stall"; at bar 40 Blue can resume its
+  offensive after China's push, which is the slowdown-then-breakthrough shape.
+
+**Not in the game yet:** `teambar`, `chinaown`, `initindep`, `neutralhold`, `turnmode` and `noprod` are campsim knobs with no cfg key; only
+`StartSupplyTeam/Pct`, `ProdCutTeam/Pct`, `PortCargoHours`, the rail and convoy switches are. Tools added: `supply_at_join.py` (the North's
+supply when China joins), Campaign Lab Pause all / Resume all, the campaign editor reads a save's objective deltas and groups objectives like
+the in-game map filters. Rounds 23-36 are in `tools/campsim/supply/results.jsonl` and `round*.report`.
+
+## Earlier (2026-10-20, rounds 16-22): what decides the outcome is the initiative bar, not supply
 
 **The controls overturn the outcome claims below.** Run with identical bars and rail, the supply rules change *where and when units run
 dry* but not *who wins*:

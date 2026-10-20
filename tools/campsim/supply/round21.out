@@ -1,0 +1,73 @@
+queue: 72 runs, 9 at a time
+done save1-sx-K1_gen-s1           end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_gen-s1.jsonl'
+done save1-sx-K1_t4-s1            end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_t4-s1.jsonl'
+done save1-sx-K1_light-s1         end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_light-s1.jsonl'
+done save1-sx-K1_light_norail-s1  end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_light_norail-s1.jsonl'
+done save1-sx-K1_gen-s2           end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_gen-s2.jsonl'
+done save1-sx-K1_t4-s2            end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_t4-s2.jsonl'
+done save1-sx-K1_light-s2         end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_light-s2.jsonl'
+done save1-sx-K1_light_norail-s2  end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_light_norail-s2.jsonl'
+done save2-sx-K2_gen-s1           end 17 h45.7 share 52.1
+done save2-sx-K2_gen-s2           end 17 h35.8 share 51.4
+done save2-sx-K2_t4-s1            end 17 h76.2 share 54.4
+done save2-sx-K2_light-s1         end 17 h69.6 share 54.4
+done save2-sx-K2_light_norail-s1  end 17 h96.8 share 55.5
+done save2-sx-K2_t4-s2            end 17 h79.8 share 53.2
+done save2-sx-K2_light_norail-s2  end 17 h43.7 share 52.6
+done save2-sx-K2_light-s2         end 17 h57.2 share 52.8
+done save1-sx-K1_gen-s3           end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_gen-s3.jsonl'
+done save1-sx-K1_t4-s3            end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_t4-s3.jsonl'
+done save1-sx-K1_light-s3         end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_light-s3.jsonl'
+done save1-sx-K1_light_norail-s3  end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_light_norail-s3.jsonl'
+done save2-sx-K2_gen-s3           end 17 h43.7 share 51.8
+done save2-sx-K2_t4-s3            end 17 h73.6 share 53.2
+done save2-Israel2007-sx-I2_light_t0-s1 end 7 h201.6 share 15.8
+done save2-Israel2007-sx-I2_t4-s1 end 7 h149.4 share 11.7
+done save2-Israel2007-sx-I2_light_t0-s2 end 7 h144.2 share 15.6
+done save2-Israel2007-sx-I2_gen-s1 end 6 h231.0 share 9.1
+done save2-sx-K2_light_norail-s3  end 17 h43.5 share 52.0
+done save2-sx-K2_light-s3         end 17 h131.2 share 54.9
+done save1-sx-K1_gen-s4           end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_gen-s4.jsonl'
+done save1-sx-K1_t4-s4            end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_t4-s4.jsonl'
+done save2-Israel2007-sx-I2_t4-s2 end 7 h158.3 share 6.6
+done save1-sx-K1_light-s4         end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_light-s4.jsonl'
+done save1-sx-K1_light_norail-s4  end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_light_norail-s4.jsonl'
+done save2-Israel2007-sx-I2_light-s1 end 6 h231.0 share 15.1
+done save2-Israel2007-sx-I2_gen-s2 end 6 h231.0 share 13.7
+done save2-sx-K2_gen-s4           end 17 h45.7 share 52.1
+done save2-sx-K2_light-s4         end 17 h44.2 share 51.8
+done save2-sx-K2_light_norail-s4  end 17 h69.5 share 55.2
+done save2-sx-K2_t4-s4            end 17 h108.2 share 56.0
+done save2-Israel2007-sx-I2_light-s2 end 6 h231.0 share 13.6
+done save1-sx-K1_gen-s5           end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_gen-s5.jsonl'
+done save1-sx-K1_t4-s5            end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_t4-s5.jsonl'
+done save1-sx-K1_light-s5         end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_light-s5.jsonl'
+done save1-sx-K1_light_norail-s5  end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_light_norail-s5.jsonl'
+done save2-Israel2007-sx-I2_light_t0-s3 end 7 h164.7 share 18.0
+done save2-sx-K2_gen-s5           end 17 h53.1 share 52.5
+done save2-Israel2007-sx-I2_gen-s3 end 6 h231.0 share 13.3
+done save2-Israel2007-sx-I2_t4-s3 end 7 h178.9 share 11.9
+done save2-sx-K2_t4-s5            end 17 h83.2 share 53.9
+done save2-Israel2007-sx-I2_t4-s4 end 7 h108.0 share 11.9
+done save2-sx-K2_light_norail-s5  end 17 h77.8 share 53.9
+done save2-sx-K2_light-s5         end 17 h92.4 share 53.9
+done save1-sx-K1_gen-s6           end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_gen-s6.jsonl'
+done save1-sx-K1_t4-s6            end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_t4-s6.jsonl'
+done save1-sx-K1_light-s6         end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_light-s6.jsonl'
+done save1-sx-K1_light_norail-s6  end None hNone share [Errno 2] No such file or directory: 'C:\\Users\\Andrew\\Downloads\\freefalcon-rail\\tools\\campsim\\runs\\save1-sx-K1_light_norail-s6.jsonl'
+done save2-Israel2007-sx-I2_light-s3 end 7 h217.1 share 11.4
+done save2-sx-K2_t4-s6            end 17 h34.8 share 50.5
+done save2-sx-K2_gen-s6           end 17 h50.5 share 52.2
+done save2-Israel2007-sx-I2_light-s4 end 7 h169.7 share 13.6
+done save2-Israel2007-sx-I2_gen-s4 end 7 h227.2 share 6.5
+done save2-Israel2007-sx-I2_gen-s5 end 7 h122.1 share 24.8
+done save2-sx-K2_light-s6         end 17 h76.9 share 53.5
+done save2-Israel2007-sx-I2_light-s5 end 7 h83.3 share 18.0
+done save2-Israel2007-sx-I2_t4-s5 end 7 h112.6 share 12.8
+done save2-sx-K2_light_norail-s6  end 17 h115.4 share 54.7
+done save2-Israel2007-sx-I2_light_t0-s4 end 6 h231.0 share 17.1
+done save2-Israel2007-sx-I2_light_t0-s5 end 7 h151.2 share 12.9
+done save2-Israel2007-sx-I2_light-s6 end 7 h104.6 share 18.9
+done save2-Israel2007-sx-I2_gen-s6 end 7 h140.1 share 13.1
+done save2-Israel2007-sx-I2_t4-s6 end 7 h139.8 share 11.6
+done save2-Israel2007-sx-I2_light_t0-s6 end 7 h157.2 share 13.2

@@ -4,6 +4,14 @@ Rolling handoff note. Read this first. Keep it short — when something is settl
 down to the one fact a future session would otherwise re-derive, and let the code comments
 and commit messages carry the rest.
 
+## Campaign balance, settled in campsim (2026-10-20, branch campsim-gpu) — not in the game yet
+
+Recommended: Blue offensive bar 40 + the North's battalions starting at 70% supply (12 seeds: Blue 12/12, median day 6.4, China's
+entry slows Blue for 2-4 days). Full record: `SUPPLY-RESEARCH.md` "Latest (2026-10-19/20, rounds 23-36)". Blocker for the game:
+the h_bar setup (`teambar`, `chinaown`, `initindep`, `neutralhold`, `turnmode`, `noprod`) exists only as campsim knobs; the game has
+`StartSupplyTeam/Pct` but no cfg key for the rest. Rail bridge objectives (`RailBridgeObjs`) still perturb the war from h6 -- prefer
+`tools/campaign-editor/add_rail_bridges.py`.
+
 Companion docs:
 
 - `CAMPAIGN-SUPPLY-ENGINE.md` — how supply, production and power actually work.

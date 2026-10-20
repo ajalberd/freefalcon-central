@@ -1,0 +1,13 @@
+queue: 12 runs, 3 at a time
+done chdd-sx-SL_s60-s1            end 17 h147.9 share 63.1
+done chdd-sx-SL_s70-s1            end 17 h208.8 share 61.1
+done chdd-sx-SL_s60-s2            end 0 h240.0 share 54.8
+done chdd-sx-SL_s60-s3            end 17 h131.6 share 60.9
+done chdd-sx-SL_s70-s2            end 17 h222.0 share 62.0
+done chdd-sx-SL_s70-s3            end 17 h144.9 share 64.9
+done chdd-sx-SL_s60-s5            end 17 h99.2 share 59.6
+done chdd-sx-SL_s70-s4            end 17 h137.2 share 62.0
+done chdd-sx-SL_s60-s6            end 14 h137.1 share 46.1
+done chdd-sx-SL_s60-s4            end 0 h240.0 share 50.0
+done chdd-sx-SL_s70-s5            end 0 h240.0 share 53.1
+done chdd-sx-SL_s70-s6            end 0 h240.0 share 53.8
