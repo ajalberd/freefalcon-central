@@ -160,6 +160,39 @@ Result (campsim, `usecfg=1`, seeds 1-3; same build, grid swapped between batches
   audit crashes in `resmgr.c` `_say_error` (stack-buffer overrun) on this build even with the pre-road grid;
   the figures above are from the painter's own report.
 
+## 6b. Two faults the road work exposed (2026-10-31)
+
+Scanning the grid against Korea's (cover, relief, 8-connected land pieces, objectives and units on water,
+link ends) found two more faults, both fixed in the data and kept as tools.
+
+**Inland water speckle** -- `paint_sea_from_3d.py` also painted grey roofs, shaded fields and river mud as
+water: 59,299 inland water cells in 15,298 pieces (Korea 9,329 in 66; 9,397 single-cell), a lattice across
+the Taipei basin, and 147 villages/towns/cities/airbases (Korea: only bridges and ports) on water cells.
+In the ten-day save1/save2 logs 12,680 move failures were between two land cells the grid had cut apart; a 2 km move
+across Taipei failed ~150 times per battalion. `fill_inland_water.py` turns inland water pieces of <= 400
+cells back into land (nearest land byte; a piece holding a bridge or port objective is kept) and then every
+other objective's own cell: land 30.7 % -> 34.8 % of the map, objectives on water 149 -> 0. "No grid path
+between cut land" failures fell from 9,072 to 1,693 per three seeds. Backup `Taiwan.thr.bak-pre-fill`.
+
+**Relief inverted** -- relief (bits 4-5, `ReliefCost` 1.0/1.41/1.73/2.0) in Korea follows the 3D terrain (mean
+elevation by class 671 / 2,439 / 2,398 / 3,975 ft, correlation +0.64). Taiwan's was 4,543 / 2,131 / 1,408 /
+261 ft, correlation -0.35: the coastal plain was the slowest class and the Central Range the fastest.
+`relief_from_3d.py` ranks land cells by 3D mean elevation and cuts them into Korea's class shares (32/44/12/11 %):
+correlation +0.87, class means 239 / 1,151 / 2,202 / 3,881 ft. Backup `Taiwan.thr.bak-pre-relief`.
+
+Judged on map function, not on who wins (the shipped balance is not a reference): after fill + relief the
+grid-path failures are mostly gone. What remains is `no waypoints`, which is the objective **link graph**,
+not the grid -- see below.
+
+**Cover type** -- the Central Range is typed Urban (cover 7: 45 % of land, Korea 1.6 %). It has the same
+defence value as forest and the mean tracked cost per cell equals Korea's (4.76 vs 4.84), so left alone.
+
+**Link graph (not fixed in data yet)** -- units path objective to objective over the link graph before the
+grid. Taiwan: 717 of 1,227 objectives (58 %) have no link (321 villages, 223 bridges, 31 cities, 28 airbases),
+largest connected piece 389 objectives. Korea: 86 of 2,700 (3 %), largest piece 2,528. The engine patch
+`BuildMissingObjectiveLinks` (`cmpclass.cpp`, uncommitted, in no deployed game exe) papers over it at load in
+campsim only; the data should carry proper links.
+
 ## 7. Checklist for another theatre
 
 1. `CAMPSIM_MAPTERRAIN=1` on one of its campaigns: read the enterable %, road %, and objectives on water.
