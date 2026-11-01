@@ -187,11 +187,26 @@ not the grid -- see below.
 **Cover type** -- the Central Range is typed Urban (cover 7: 45 % of land, Korea 1.6 %). It has the same
 defence value as forest and the mean tracked cost per cell equals Korea's (4.76 vs 4.84), so left alone.
 
-**Link graph (not fixed in data yet)** -- units path objective to objective over the link graph before the
-grid. Taiwan: 717 of 1,227 objectives (58 %) have no link (321 villages, 223 bridges, 31 cities, 28 airbases),
-largest connected piece 389 objectives. Korea: 86 of 2,700 (3 %), largest piece 2,528. The engine patch
-`BuildMissingObjectiveLinks` (`cmpclass.cpp`, uncommitted, in no deployed game exe) papers over it at load in
-campsim only; the data should carry proper links.
+**Link graph -- baked into the data (2026-10-31)** -- units path objective to objective over the link graph
+before the grid. Taiwan had 717 of 1,227 objectives (58 %) with no link (321 villages, 223 bridges, 31 cities,
+28 airbases), largest piece 389 objectives; Korea 86 of 2,700 (3 %), largest 2,528. The engine patch
+`BuildMissingObjectiveLinks` (`cmpclass.cpp`, uncommitted, in no deployed game exe) papered over it in
+campsim only. `tools/campaign-editor/bake_objective_links.py` now writes the links into `save0/1/2.cam`
+(only each file's `.obj` member changes; backups `*.cam.bak-prelinks`): every objective gets >= 2 links to its
+cheapest land neighbours within 25 km, spread round the compass, costed per movement type from a Dijkstra on the
+grid with path.cpp's tables (bridges entered straight on); separate pieces join within 60 km where land
+connects. Result: +940 links per file, 1.08 -> 2.61 links/objective (Korea 2.31), new links median 11 km, p90 26,
+max 46 (Korea max 65), ground-graph pieces: mainland 693 objectives, Taiwan island 378, then islands. The
+hand-made cross-strait links (205 / 187 / 172 / 50 km, >90 % water) are air-only (ground costs 255) and were
+left alone.
+
+In campsim the failure counts are unchanged (save1: 1,476 -> 1,449 failures per 100 h) because the load-time
+patch had already given campsim a graph; what changed is that the data is now right for the real game and tools.
+
+**Still open: `no waypoints` is not the link data.** Of 147 failing (unit, destination) pairs in the save1 runs, 100
+have a link-graph route, median 1 hop and cost 69 (limits: 96 hops, objective-path cost 500), so it is not a
+search budget. Those failures come from engine logic in `BuildGroundWP` (objective route vs first-leg grid
+path, enemy-objective handling) and need reason codes logged, not more map work.
 
 ## 7. Checklist for another theatre
 
