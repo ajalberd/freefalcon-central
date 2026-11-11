@@ -57,9 +57,16 @@ def campaign_labels(game):
 
     The titles are TXT_SCENARIO_1..3 from the theater's art/main/lcktxtrc.irc (button 1 loads save0 ...); the theater
     name is the .tdf's `name`. Plain Korea (no theater=) is terrdata/theaterdefinition/korea.tdf and the base art dir.
+
+    Keyed by the theater list's mtime: a theater installed while the Lab is running would otherwise keep labelling its
+    runs as Korea (the list this reads was cached before the install).
     """
-    if game in _LABELS:
-        return _LABELS[game]
+    try:
+        stamp = os.path.getmtime(os.path.join(game, "theater.lst"))
+    except OSError:
+        stamp = 0
+    if (game, stamp) in _LABELS:
+        return _LABELS[(game, stamp)]
     out = {}
     entries = [("", "terrdata/theaterdefinition/korea.tdf")] + [
         (os.path.splitext(os.path.basename(t))[0], t) for _, t in theaters(game)]
@@ -81,7 +88,7 @@ def campaign_labels(game):
         folder = os.path.basename(os.path.dirname(tdf))     # runs name the theater by its folder too (Israel, not Israeli)
         if stem and folder.lower() not in ("theaterdefinition", stem.lower()):
             out[folder] = out[stem]
-    _LABELS[game] = out
+    _LABELS[(game, stamp)] = out
     return out
 
 

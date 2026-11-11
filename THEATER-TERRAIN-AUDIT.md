@@ -203,10 +203,83 @@ left alone.
 In campsim the failure counts are unchanged (save1: 1,476 -> 1,449 failures per 100 h) because the load-time
 patch had already given campsim a graph; what changed is that the data is now right for the real game and tools.
 
-**Still open: `no waypoints` is not the link data.** Of 147 failing (unit, destination) pairs in the save1 runs, 100
-have a link-graph route, median 1 hop and cost 69 (limits: 96 hops, objective-path cost 500), so it is not a
-search budget. Those failures come from engine logic in `BuildGroundWP` (objective route vs first-leg grid
-path, enemy-objective handling) and need reason codes logged, not more map work.
+**`no waypoints` is orders to places a ground unit cannot reach (reason codes, 2026-10-31).** An earlier note here
+said 100 of 147 failing pairs had a 1-hop link route and blamed engine logic; that count used links of every
+type, including the air-only ones, and was wrong. `BuildGroundWP` now classifies each failed objective route
+when campsim sets `gWPFailDiag` (`DiagObjRouteFail` in `gndunit.cpp`; the MOVE log prints the counts, the
+commonest pairs and the first 24 samples). It re-runs the search as a breadth-first walk over ground (road-cost
+< 255) links, then adds the rules of engagement, then broken bridges, then re-searches with the whole node pool.
+In 3 seeds x 3 days of save1 and save2 (about 13,000 failures) it was **code 1, no ground link route even
+ignoring every rule, for 99.5 %**; broken bridges 0.8 % in two seeds; rules of engagement, path buffer and
+search budget 0. Checking the commonest pairs against the grid: **every one of the 8 commonest pairs in save2,
+and 5,379 of 5,618 failures in save1, run between two different land pieces** (water between them): Taiwan's
+units ordered to the Hong Kong airstrip -> airbase pair, China units on Taiwan ordered to the mainland radar
+and villages, objective #892 (a City by Hong Kong) as destination for villages that cannot reach it. The other
+239 are on one land piece (#663/#664 at (442,631) to Towns #223/#224/#235 near (370,500)): ground links to
+add. So the pathing code is behaving; the work is (a) not issuing ground orders across water, or giving those
+units a route (ferry/air transport, or a bridge/ferry objective), and (b) linking the 16 objectives that share a
+land piece with others but have no ground link.
+
+**Who sends units across water, and the fix (2026-10-31).** campsim now tallies each "no waypoints" failure by the
+order the unit holds and the code that last gave it orders (`no-waypoints source` in the MOVE log). In save1 about
+70 % came from `BattalionClass::MoveUnit` `battalio.cpp` (the reserve fall-back), then `Brigade::OrderElement`,
+then the rear-to-front order. Causes: `FindRetreatPath` followed every link including the air-only ones; its start
+objective and the parent-city swap under `g_bReserveHold` could be on another land piece; `FindBestPosition` and
+`NearestFrontObjective` never asked whether the unit could walk there. New switch `g_bRetreatGroundLinks` (default
+on, campsim knob `retreatlinks=0/1`): `FindRetreatPath` skips ground-255 links, and `GroundReachable()` (an objective
+route from the unit's nearest objective) must pass before a fall-back, a parent city, a rear-to-front objective or a
+brigade position is accepted. Taiwan, 3 seeds x 3 days, objective-route failures per 100 h: save1 2,857 -> 569,
+save2 8,070 -> 194. Korea: 165 -> 188 "no waypoints" per 100 h (noise; both tiny), objective-route 44 -> 8.
+
+That exposes the next layer: **first-leg failures** (the grid path from the unit to its first waypoint), 12,000-15,000
+in save1. Replaying them on the grid, 84 % have a path that needs 1,700-3,700 nodes (a detour around a lagoon or
+inlet: 4.5 km as the crow flies, cost 172) while `GroundPathMax` is 800; typical Taiwan neighbour links need a
+median of 133. `gpathmax=2000` in campsim cut save1 "no grid path" from 3,906 to 349 per 100 h and "no waypoints"
+from 7,568 to 3,871 (save2's runs end at different lengths, so its numbers are not comparable). Not yet changed in
+any config. The real fix may be the grid (large inland water left by the 3D sea paint, no crossing) rather than
+the budget.
+
+### 6b. Units on islets, and the land-piece rule (Nov 1)
+
+Where save2's "no grid path" went (`s2fail.py`-style replay of the failing pairs against the land pieces): 9,800
+per 100 h were battalions on a *different land piece* from the target they were handed, 3,700 were targets on
+water cells beside a port or bridge, 650 were one depot. Three causes, three fixes:
+
+- **Engine, `g_bLandPieces` (default on, campsim `landpieces=`):** `campterr.cpp` labels the cover grid's land
+  masses once per theatre load (8-way; a road bit on a water cell is a bridge or port and joins its banks; a
+  unit on a water cell snaps to the nearest piece within 3 cells). `CostToArrive` (the tasker's price) refuses a
+  target on another piece, `GroundReachable` and `SelfTaskObjective` skip one, and `MoveUnit` drops an objective
+  the unit cannot walk to. Assault, airborne, commando, marine and airmobile units are exempt. Stock priced the
+  unit's *nearest* objective as zero cost, so a battalion on a 2-cell speck (Taiwan's air-defence battalion off
+  Taitung, saved on a water cell) was handed the objective across the water and failed every tick.
+- **Grid, `tools/terrain/join_land_gaps.py`:** pieces that hold an objective or battalion and sit within 1-2 water
+  cells of a big land mass are joined (7 pieces, 9 cells in Taiwan: the Fujian strip with China's 5066, the depot
+  #446 strip beside Army base #127, the Kanmen/Huanshan peninsula with 5060 and 4185, ...). Island-to-island joins,
+  harbour channels (port within 3 cells) and bridge-only pieces are left alone. Backup `Taiwan.thr.bak-pre-join`.
+- **Engine, destination on water:** `MoveUnit` now moves a ground unit's destination to the nearest enterable
+  cell when it is a port, bridge or coast water cell (`g_bWaterObjectiveFix`), and a brigade-column follower does
+  the same for the element ahead of it.
+
+Result (save2, `gpathmax=2000`, 3 days, per 100 h of campaign; runs end early by scripted endings, so the hours
+differ): "no grid path" 5,589 -> 117; "no waypoints" 2,947 -> about 2,300 (what is left is all *same* piece:
+27-70 km first legs, and bridge #430's cell).
+
+**The 2,300 were the search pool, not the map.** `AS_DataClass` allocated exactly `MAX_SEARCH` (2,000) nodes, and
+every budget (`GroundPathMax`, `ObjGroundPathMaxSearch`) is capped by the pool, so setting `GroundPathMax` above
+2,000 did nothing (the "4000 is no better" result in section 6 was this). A 30-45 km ground leg over open country
+expands more than 2,000 nodes (the heuristic is below the real cost with roads allowed), so the search returned a
+partial route and `BuildGroundWP` counted it a failure. `asearch.h` now has `AS_POOL_SIZE 16000` (about 1 MB);
+the default budget stays 2,000 for everything that does not ask for more.
+
+**Bridges:** 3 of Taiwan's 356 bridge objectives (#1647, #556, #430) sat on sandbars or open water that no ground
+unit could reach (a road-bit water cell is entered only by an orthogonal step from a cell the unit can stand on).
+`tools/terrain/connect_bridges.py` set the road bit on the 2-cell chain to the shore for each. Backup
+`Taiwan.thr.bak-pre-bridges`.
+
+save2, 6 seeds, 3 days, per 100 h of campaign: with the pool at 16,000 and `gpathmax=4000`, "no grid path" 0 and
+"no waypoints" 276 (from 5,589 and 2,947). `gpathmax=10000` clears the first-leg failures (7) but long legs
+(43-86 km) then run into the 96-step path buffer: 871 "no grid path". 4,000 is the setting to use. Nothing yet run
+in the real game; a game config of 4000 needs the new exe (the old one stays capped at 2,000 by its pool).
 
 ## 7. Checklist for another theatre
 

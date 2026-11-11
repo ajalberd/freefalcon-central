@@ -43,7 +43,7 @@ LOCK = threading.Lock()
 
 def event_titles():
     try:
-        from ffcamp import triggers
+        from ffcamp import campfile, triggers
         with open(TRI, encoding="latin-1") as f:
             return {str(k): v for k, v in triggers.event_titles(f.read().splitlines()).items()}
     except Exception:
@@ -303,7 +303,9 @@ def progress(name):
     try:
         with open(log, "rb") as fh:
             fh.seek(0, 2)
-            fh.seek(max(0, fh.tell() - 4096))
+            # the hourly "[day D HH:MM] h/240 h (N%)" line can be a long way back: campsim prints a few KB of
+            # counters after each one, so a 4 KB tail usually held no line at all and every bar read 0 % / "starting"
+            fh.seek(max(0, fh.tell() - 262144))
             tail = fh.read().decode("latin-1")
     except OSError:
         return None
@@ -312,6 +314,66 @@ def progress(name):
         return {"pct": 0, "clock": "starting"}
     d, hh, mm, _, _, pct = ms[-1]
     return {"pct": float(pct), "clock": "Day %s %s:%s" % (d, hh, mm)}
+
+
+def last_wall_seconds(name):
+    """campsim's own elapsed time, from the last progress line in a run's log."""
+    log = os.path.join("runs", name + ".log")
+    try:
+        with open(log, "rb") as fh:
+            fh.seek(0, 2)
+            fh.seek(max(0, fh.tell() - 262144))
+            tail = fh.read().decode("latin-1")
+    except OSError:
+        return None
+    ms = re.findall(r"wall=(\d+)s", tail)
+    return int(ms[-1]) if ms else None
+
+
+def win_objectives(run):
+    """Objective ids named by the campaign's end-game conditions, with the side that must hold them.
+
+    The viewer draws a dashed ring around each of them, the way the campaign editor marks the
+    objectives that decide the war. A condition that names no objective (a day limit, a draw) is
+    returned with an empty list so callers can ignore it.
+    """
+    from ffcamp import campfile, theater as theater_mod, triggers
+
+    name = run.replace(".jsonl", "")
+    m = re.match(r"(save\d+)-([A-Za-z0-9_]+)", name)
+    if not m:
+        return {"ends": []}
+    save, stem = m.group(1), m.group(2).lower()
+    for th in theater_mod.load_theaters(GAME):
+        base = os.path.basename(th.path).split(".")[0].lower()
+        if (th.name or "").lower() != stem and base != stem:
+            continue
+        cdir = th.campaign_dir(GAME)
+        tri = os.path.join(cdir, save + ".tri")
+        camf = os.path.join(cdir, save + ".cam")
+        if not (os.path.exists(tri) and os.path.exists(camf)):
+            return {"save": save, "theater": th.name, "ends": []}
+        try:
+            cam = campfile.CampaignFile.load(camf)
+            teams = [t.get("name", "") for t in (cam.header.teams or [])]
+            init, body, total = triggers.parse(tri)
+            rows = triggers.endgames(body, teams, lambda i: "obj%d" % int(i))
+        except Exception as exc:                       # a broken script must not break the viewer
+            return {"save": save, "theater": th.name, "ends": [], "error": str(exc)}
+        ends = []
+        for row in rows:
+            text = " and ".join(row.get("conditions") or [])
+            objs = sorted({int(x) for x in re.findall(r"obj(\d+)", text)})
+            if not objs:
+                continue
+            side = None
+            for idx, tname in enumerate(teams):
+                if tname and re.search(r"(^|\W)%s controls" % re.escape(tname), text):
+                    side = idx
+                    break
+            ends.append({"code": row.get("result"), "side": side, "objs": objs, "text": text})
+        return {"save": save, "theater": th.name, "ends": ends}
+    return {"ends": []}
 
 
 def start_runs(req):
@@ -428,6 +490,12 @@ def pause_all(pause):
 def list_runs():
     files, work = scan_runs()
     now = time.time()
+    # labels are cached, but a theater installed while the Lab runs must not stay "Korea" (run_batch keys its own
+    # cache the same way): re-label when theater.lst changes.
+    try:
+        stamp = os.path.getmtime(os.path.join(run_batch.GAME, "theater.lst"))
+    except OSError:
+        stamp = 0
     names = {n for n, f in files.items() if ".jsonl" in f} | set(JOBS)
     newest = {n: max([s.st_mtime for s in files.get(n, {}).values()] or [now]) for n in names}
     out = []
@@ -435,15 +503,35 @@ def list_runs():
         if n.startswith("_"):
             continue
         j, f = JOBS.get(n), files.get(n, {})
-        if n not in _LABELS:
-            _LABELS[n] = run_batch.run_label(run_batch.GAME, n)
+        if n in work:
+            # a run that is going has its files open for writing, and on Windows the directory listing (scandir) reports
+            # their times and sizes late -- 870 s behind for a log written every few seconds -- so the bar read "incomplete"
+            # and flickered. Stat the files themselves.
+            f = dict(f)
+            for e in (".jsonl", ".log"):
+                if e in f:
+                    try:
+                        f[e] = os.stat(os.path.join("runs", n + e))
+                    except OSError:
+                        pass
+        if (n, stamp) not in _LABELS:
+            _LABELS[(n, stamp)] = run_batch.run_label(run_batch.GAME, n)
         busy = n in work and any(now - f[e].st_mtime < LIVE_S for e in (".jsonl", ".log") if e in f)
         state = j["state"] if j else ("running" if busy else "done")
-        row = {"name": n, "state": state, "label": _LABELS[n]}
+        row = {"name": n, "state": state, "label": _LABELS[(n, stamp)]}
         tl, lg = f.get(".jsonl"), f.get(".log")
         row["mtime"] = tl.st_mtime if tl else None
         row["size"] = tl.st_size if tl else 0
-        row["started"] = lg.st_ctime if lg else row["mtime"]  # when the run was launched: the log is created at the start
+        # When the run was launched. The log is created at the start -- but a run that reuses a
+        # log file name keeps the ORIGINAL creation time, so a re-run of save1-Taiwan-s1 looked
+        # like it had started with the batch the day before and sorted to the bottom of the list.
+        # When the creation time is far behind the last write, take campsim's own "wall=Ns" from
+        # the end of the log and count back from it.
+        row["started"] = lg.st_ctime if lg else row["mtime"]
+        if lg and row["mtime"] and row["mtime"] - row["started"] > 900:
+            wall = last_wall_seconds(n)
+            if wall:
+                row["started"] = max(lg.st_ctime, row["mtime"] - wall)
         if state in ("running", "queued"):
             row["progress"] = progress(n)
             if j:
@@ -547,6 +635,9 @@ class H(http.server.SimpleHTTPRequestHandler):
             return self.send_bytes(b, "text/plain", extra=[("X-Next", str(nxt)), ("X-Reset", "1" if reset else "0"),
                                                            ("X-Live", "1" if live(qs["name"][0]) else "0")],
                                    compress=False)
+        if path == "/api/winobjs":                     # run=A: objectives named by the campaign's end conditions
+            qs = parse_qs(q)
+            return self.send_json(win_objectives((qs.get("run") or [""])[0]))
         if path == "/api/saves":
             saves = sorted(os.path.basename(p) for p in glob.glob(os.path.join(SAVE_DIR, "*.cam")))
             kor = run_batch.campaign_labels(run_batch.GAME).get("korea", ("Korea", ["", "", ""]))

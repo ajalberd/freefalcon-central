@@ -97,6 +97,45 @@ The data is fixed by swapping the two entries back inside
 file was already in the package, just under the wrong name — the 16543-byte
 entry is byte-identical to stock.
 
+## Second package: Taiwan FF6-3 (2026-10-25)
+
+`FF6_Taiwan3\TaiwanFF6-3` is the same installer family — `Taiwan 6.exe` and an
+865,633,402-byte `Source.dat` whose MD5 the stub checks
+(`641613b66e4791651d2659d54784da1e`) — and it failed in the same three ways.
+Nothing here is new; it is the evidence that the list above is a property of
+these packages and not of ITO.
+
+**Key.** One `Software\Microprose\Falcon\4.0` at `0x00385a`, patched in place
+into `Taiwan 6 (FreeFalcon).exe` (+4 bytes). That build still aborted before
+extraction — exit code 2, nothing written. All six gates are present: four
+`IfFileExists` on `$INSTDIR` (`FFViper.exe`, `FFViper Config Editor.exe`,
+`terrdata\objects\KoreaObj.Dxh` and `.Dxl`), the `FFVer` read, and the
+"requires FreeFalcon 6.0 or later" comparison. `skip_checks.py` bypassed all
+six into `(no checks).exe`, which installed. Which of the six fired is not
+pinned down; the same-length message rewrite in `installer-patch/README.md` is
+how to find out if it ever matters.
+
+**Install.** `/S /D=C:\FreeFalcon6`, exit 0, 84 s, 20,271 files (3.17 GB). A
+name-by-name comparison against `7z l` of `Source.dat` finds no file missing
+and none extra, and the archive carries only `Theaters\Taiwan` and `ZipsTaiwan`,
+so nothing outside the theater is touched. `theater.lst` gained
+`theaters\Taiwan\Taiwan.tdf`, and `UnInstall_Taiwan.exe` plus the
+`...\Uninstall\Taiwan` key were written.
+
+**Maneuver table.** Same transposition, same silence: `ZipsTaiwan\Simdata.zip`
+held `Sim\ACDATA\BRAIN\mnvrdata.dat` at 12,793 bytes beginning `A#`
+(byte-identical to stock `mnvrdata5.dat`) and no `mnvrdata5.dat`.
+`tools/installer-patch/fix_mnvrdata.py` puts the stock 16,543-byte table in its
+place and keeps the 2002 file under `mnvrdata5.dat`, changing only those two
+entries — names, order and per-entry compression are preserved, original kept
+as `Simdata.zip.bak-mnvrswap`.
+
+Its other Simdata differences are theater content and hang together: the
+package's `radtypes.lst` has 329 slots to stock's 169, and the 52 distinct
+radar types it names all ship inside the package, so the stock radar files it
+omits are simply not referenced. Same for its older `Sim\ACDATA\*.dat` set,
+`formdat.fil` and `actypes.lst`.
+
 ## Order of operations for the next package
 
 1. Patch the installer's registry key, and its prerequisite gates if they trip:
@@ -106,5 +145,6 @@ entry is byte-identical to stock.
 3. After installing, check `theater.lst` actually gained the `.tdf` lines.
 4. Diff the theater's `Zips*/Simdata.zip` against stock `Zips/Simdata.zip` for
    files whose sizes have swapped. `sim/ACDATA/BRAIN/mnvrdata.dat` is the known
-   one; the same package also ships differing `formdat.fil`, `radtypes.lst` and
+   one — `tools/installer-patch/fix_mnvrdata.py` does the swap — and the same
+   package also ships differing `formdat.fil`, `radtypes.lst` and
    `actypes.lst`, which are legitimate theater content rather than mistakes.

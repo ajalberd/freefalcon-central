@@ -773,21 +773,42 @@ STAT_LABELS = {
     "supplyLevel": "Supply level %", "fuelLevel": "Fuel level %",
 }
 
+STAT_KEYS = ("aircraft", "groundVehs", "airDefenseVehs", "ships")
 
-def _team_rows(cam):
+
+def _placeholder_stats(st, cur):
+    """Is this team's saved strength block a placeholder rather than a count?
+
+    The Taiwan conversion (and some stock saves) leave the per-team block at zero,
+    or write percentages into it -- 100 for a full-strength arm, 50 for a half one
+    -- so every value is 100 or less while the army it describes has thousands of
+    vehicles. Those saves get their strengths counted from the unit list instead.
+    """
+    vals = [st[k] for k in STAT_KEYS] + [cur[k] for k in STAT_KEYS]
+    return not vals or all(v <= 100 for v in vals)
+
+
+def _team_rows(cam, derived=None):
     names = [t["name"] for t in (cam.header.teams if cam.header else [])]
     out = []
     for t in teamdata.decode(cam.member("tea")):
         st, cur = t["start"], t["current"]
+        counted = (derived or {}).get(t["who"])
+        filled = False
+        if counted and _placeholder_stats(st, cur):
+            st, cur = dict(st), dict(cur)
+            for k in STAT_KEYS:
+                st[k] = cur[k] = counted[k]
+            filled = True
         # A team that started with nothing is not in this war.
-        if not any(st[k] for k in ("aircraft", "groundVehs", "airDefenseVehs",
-                                   "ships")):
+        elif not any(st[k] for k in STAT_KEYS):
             continue
         out.append({
             "team": t["who"],
             "name": names[t["who"]] if t["who"] < len(names) else
                     "team %d" % t["who"],
             "current": cur, "start": st,
+            "derived": filled,
             "initiative": t["initiative"],
             "supplyAvail": t["supplyAvail"], "fuelAvail": t["fuelAvail"],
             "replacementsAvail": t["replacementsAvail"],
@@ -798,7 +819,8 @@ def _team_rows(cam):
 
 
 def _unit_rollup(ws, name):
-    """Averages over each team's ground units, and objectives held."""
+    """Averages over each team's ground units, objectives held, and the vehicle
+    count the units themselves add up to (for saves whose team block is junk)."""
     cam = ws.units(name)
     ws.objectives(name)
     rows = ws.db.class_rows()
@@ -813,7 +835,8 @@ def _unit_rollup(ws, name):
             drow = utbl.rows[ptr]
         p = per.setdefault(u["owner"], {"battalions": 0, "taskforces": 0,
                                         "squadrons": 0, "_h": [], "_s": [],
-                                        "_m": [], "_f": []})
+                                        "_m": [], "_f": [],
+                                        "_v": dict.fromkeys(STAT_KEYS, 0)})
         p[u["kind"] + ("s" if not u["kind"].endswith("s") else "")] += 1
         h = unit_health(u, drow)
         if h is not None and u["kind"] == "battalion":
@@ -823,13 +846,27 @@ def _unit_rollup(ws, name):
                                 ("fatigue", "_f")):
                 if key in u:
                     p[bucket].append(u[key])
+        # The vehicle count the engine would read off this unit, from its roster:
+        # two bits per slot, sixteen slots (unit_health has the same packing).
+        if drow is not None:
+            have = sum((u.get("roster", 0) >> (2 * i)) & 3 for i in range(16))
+            domain = rows[u["classIndex"]]["classInfo_"][0]
+            cname = (ws.db.class_name(u["classIndex"]) or "").lower()
+            if u["kind"] == "squadron":
+                p["_v"]["aircraft"] += have
+            elif domain == 4:                      # sea
+                p["_v"]["ships"] += have
+            elif "air def" in cname:
+                p["_v"]["airDefenseVehs"] += have
+            elif u["kind"] == "battalion":
+                p["_v"]["groundVehs"] += have
     out = {}
     avg = lambda v: round(sum(v) / len(v)) if v else None
     for team, p in per.items():
         out[team] = {"battalions": p["battalions"], "taskforces": p["taskforces"],
                      "squadrons": p["squadrons"], "health": avg(p["_h"]),
                      "supply": avg(p["_s"]), "morale": avg(p["_m"]),
-                     "fatigue": avg(p["_f"])}
+                     "fatigue": avg(p["_f"]), "vehicles": p["_v"]}
     held = {}
     for o in cam.objectives:
         cat = objectives.CATEGORY_LABELS.get(o["category"], str(o["category"])) \
@@ -842,17 +879,32 @@ def _unit_rollup(ws, name):
     return out, held
 
 
+def _team_rows_for(ws, name, cam):
+    """_team_rows, filling a placeholder strength block from the unit list.
+
+    Taiwan's conversion writes zeroes or percentages into the per-team block, so
+    its saves otherwise show no forces at all; the units themselves are intact.
+    """
+    try:
+        roll, _ = _unit_rollup(ws, name)
+    except Exception:                 # no unit stream: leave the saved numbers
+        roll = {}
+    return _team_rows(cam, {t: v["vehicles"] for t, v in roll.items()
+                             if v.get("vehicles")})
+
+
 def api_progress(q, _body):
     ws = _ws(q)
     name = (q.get("file") or [""])[0]
     cam = ws.campaign(name)
     hdr = cam.header
-    snap = _team_rows(cam)
     try:
         units, held = _unit_rollup(ws, name)
         units_error = None
     except Exception as exc:          # a broken unit stream still has stats
         units, held, units_error = {}, {}, str(exc)
+    snap = _team_rows(cam, {t: v["vehicles"] for t, v in units.items()
+                            if v.get("vehicles")})
     # Who is actually fighting: a team at war (stance 5) with another team in
     # this war. The rest -- China and the CIS in Korea -- are here but neutral.
     present = {t["team"] for t in snap}
@@ -876,7 +928,7 @@ def api_progress(q, _body):
         oh = other.header
         if not oh or oh.fields.get("Scenario", "") != scenario:
             continue
-        rows = _team_rows(other)
+        rows = _team_rows_for(ws, f["file"], other)
         if not rows:
             continue
         # A save whose forces add up to a sliver of what they started with

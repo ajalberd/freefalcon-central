@@ -4,6 +4,22 @@ Rolling handoff note. Read this first. Keep it short — when something is settl
 down to the one fact a future session would otherwise re-derive, and let the code comments
 and commit messages carry the rest.
 
+## Air fuel model (2026-11-09, branch campsim-gpu) — ported into the source, built in campsim, NOT deployed, not committed
+
+Stock FreeFalcon tracks a squadron's fuel but nothing ever tests it, so refineries (and airlift fuel, which is credited from nothing and made
+about as much as a refinery) never limit air power. New cfg keys (all off/stock by default): `AirFuelDays` (squadron stock in days, 0 = off),
+`AirFuelRates` ("TEAM:UNITS,..." fuel one aircraft draws per day; Korea: "2:382,4:1528,5:909,6:668"), `AirFuelAware` (air tasking skips
+squadrons it would refuse), `AirliftFuelPct` ("5:20,6:20" = those teams' airlift landings keep 20% of their fuel credit), `OffFuelCheat`
+(0 = no offensive fuel top-up; stock 1). Code: `squadron.cpp` (cap, top-up pool, `AirFuelOnFor`), `flight.cpp` BuildMission (top-up, refusal),
+`atm.cpp` FindBestAir (aware), `update.cpp` (airlift pct), `team.cpp` (cheat). campsim knobs `airdays airrates airaware airliftfuelpct offfuel`
+and the `AIRFUEL / AIRSPREAD / AIRREFUSE` log lines. Results and the reasoning: `SUPPLY-INVENTORY.md` sections 15-35. The facts that matter:
+a refinery strike alone does nothing (airlift and stocks cover it); 20% airlift + cheat off halves what the North's aircraft do to Blue's
+ground units (384 vs 796 vehicles by h168) but does NOT shorten the war: the win hour is inside the seed spread in every fuel setting. What
+shortens it is North aircraft count (airlift replacements cut: hold 180 -> 127 h) and airbases held down (108 h). The mod lines are in
+`tools/campsim/make_china_war_mod.py`; the installed mod and `FFViper-campaign.exe` are not updated. The fuel runs were made on the
+installed mod stack (Korea Rail War + Korea China War: its save0/.tri/.AII are byte-identical to the China War mod's, and `usecfg=1`
+reads both `config/mods` cfgs, so the China settings applied).
+
 ## Campaign balance, settled in campsim (2026-10-20, branch campsim-gpu) — not in the game yet
 
 Recommended: Blue offensive bar 40 + the North's battalions starting at 70% supply (12 seeds: Blue 12/12, median day 6.4, China's
@@ -36,6 +52,7 @@ here.**
   sun shadows exist (D3D12; the fit box was stale until 2026-09-27); no world shadows. **Cumulus shadows**
   on ground, objects and pit are written and compile but are **not flown** (2026-09-29) — see its section. The "missile shading issue" turned out to be the fin z-fight, not
   lighting — see `OBJECT-RENDERING.md`.
+- `RENDER-LIGHTING.md` also now has **World sun shadows** (`WorldShadow`, default 0, written, shader-compiled offline, NOT built or flown) and opt-in `LinearLighting` / `ObjSpecPowerCap`. First thing next session: build, set `WorldShadow 1`, fly Seoul low at midday, read `[WORLDSHADOW]` and the notes' check list.
 - `TERRAIN-AND-FILTERING.md` — **terrain seams and the flickering ring-edge lines are fixed (2026-10-10)**:
   root cause was stale posts at each LOD ring's outer edge (the strips entering the band were never
   uploaded). Also: linear-light mips and BC-encoded mips for big atlases, the Advanced-page aniso/mip
@@ -1690,3 +1707,87 @@ wrong.) Now `SetUnitSupply(int)` overrides and clamps 0-100, so ships spend ammo
 campsim (`NAVSUP` / `NAVSUPOVER` lines, tools/campsim, 3 days seed 5): after the fix 1-3 ships per side sit at 30-99%,
 none below 30 -- ships fire so rarely that the port rule almost never triggers. A 250 supply also made `CollectWeapons`
 fire 2.5x salvos; that is gone.
+
+## campsim on GPU? Measured: no (2026-10-17, branch campsim-gpu)
+
+Profiled a save0 3-day `usecfg=1` run by sampling the main thread's stack 70 times with
+`cdb -pv` (kernel ETW needs elevation). Share of samples (inclusive):
+
+- `UpdateRealUnits` 71%: `GroundUnitClass::ChooseTarget` 30%, `ChangeUnitLocation` 29%,
+  `BattalionClass::MoveUnit` 20%, `FlightClass::MoveUnit` 14%, detection 10%.
+- **`VuGridIterator::GetNext` 37%**: proximity queries walking `VuGridTree` rows, each row a
+  `std::multimap` (pointer-chasing `++iterator`, `_Min`); hit from ChooseTarget, detection, FindNearestUnit.
+- A* (`ASSearch` + `CostToArrive`) ~16%; `DoCampaignLoop` (ATM/GTM tasking) 26%.
+
+Why a GPU (CUDA on the 5080) does not fit: one tick is a serial, branchy walk over ~1,200-1,800
+units whose results feed straight back (a move changes the grid the next unit queries), all through the
+VU entity database and seeded RNG. Nothing is a wide, uniform, array-shaped job; the objective
+graph is a few thousand nodes, so a GPU A* loses to kernel-launch latency. Porting would also mean
+rewriting the AI, and campsim's point is that it runs the shipped AI.
+
+What does help: (1) runs in parallel (12 logical cores, run_batch `--jobs`); (2) a CPU fix of the proximity
+grid (flat per-cell arrays instead of per-row multimaps) — Amdahl ceiling about 1.6x, realistically 1.3x;
+(3) caching A* paths, up to ~1.15x. Must keep results identical for the same seed.
+
+**Flat proximity rows: done, ~1.6x (2026-10-17, branch `campsim-grid-flat`, worktree `ff-grid-build`, not merged).**
+`VuRedBlackTree` (each `VuGridTree` row) is now a sorted `std::vector<{key, VuEntity*}>` instead of a
+`std::multimap<VU_KEY, VuEntityBin>`: insert at upper_bound, remove the first match in the equal range, the
+key is the one stored at insert (stale after `Move`, as before; `HandleMove` runs before the position
+changes). Refcounts are taken by hand exactly as the map's `VuEntityBin` copies took them (3 per insert,
+measured; 1 per element looked at in Find/Count; none on erase), so entity lifetimes do not move.
+`VuRBIterator` keeps an index plus a change stamp and resyncs if a row changes under it; campsim prints
+`vugrid resyncs=N lost=N` on stderr (always 0 so far). Touches vu2 headers: **Rebuild All**.
+
+Measured, save0 3 days `usecfg=1`, A (old) and B (new) started at the same moment while 8 batch
+runs loaded the box (88% CPU): seed 1 CPU 140.9 s -> 84.6 s, wall 202 -> 128 s; seed 2 CPU 146.9 -> 89.4 s,
+wall 209 -> 136 s. **1.65x CPU, 1.55x wall** (beats the 1.6x guess: ChangeUnitLocation's map inserts and
+erases got cheaper too).
+
+Same results, proved in-process: a verify build kept the old multimap as a shadow of every row and compared
+contents after each insert/erase/purge: ~630,000 checks per run, **0 mismatches**, 0 resyncs, seeds 1-3.
+Equal row contents + no change mid-walk = every proximity query returns the same entities in the same order.
+
+**campsim is not deterministic run to run, even unchanged — so A-vs-B diffs alone cannot prove "identical":**
+- `AirTaskingManagerClass::BuildPackages` stops after 200 ms of **wall clock** (`camptask/atm.cpp:602`).
+  Under load it gets through fewer requests: results depend on how busy the machine is (batch runs in
+  parallel included) and on exe speed. Same exe, seed 2, two runs: trigger lines at min 55 vs 45, ATM counters
+  apart. A faster exe shifts the same counters by ~1 in 10^5 (A vs B, seed 1: `no flight 71284` vs `71283`).
+  A batch should not mix exes, and "same seed, same result" only holds on a quiet machine.
+- Startup sometimes takes a different number of `rand()` draws (`seedrand=12926` vs `24504`, seed 1).
+- Timeline `ad` columns 1-2 (`missionsToFill`/`missionsFilled`) print uninitialised memory for idle ATMs.
+- CHURN/CAPORD caller names and the "reserve fall-backs" line need dbghelp to find `campsim.pdb`
+  (it read 0 while a rebuild was rewriting the pdb).
+Comparator that masks only these: `cmp.py` in the side-session notes folder. Even with the 200 ms cutoff
+off, two runs can drift (seed 2, B' vs the shadow build, same algorithm), which is why the proof above is
+in-process rather than run-against-run.
+
+**Buffered stdout + load-time TimeOfDay fix (merged f0404dc9).** A WPR profile after the grid fix had `printf`
+at 20% of CPU: stdout was `_IONBF`, so each fragment of GtmLog/CapLog/... was a WriteFile. Now a 64 KB buffer;
+the hourly progress line, STEP, EVENT and the watchdog fflush, and the crash filter `_fflush_nolock`s before
+its report (checked with `crashtest=90`). Paired 2-day save0: wall 57.5 -> 43.2 s, CPU 48.5 -> 41.1 s.
+Faster startup exposed a race: `CampaignClass::Decode` loaded CurrentTime but only the campaign thread set
+`TimeOfDay`, so `WeatherClass::Init` could see midnight at a 09:00 save and take the night branch, one rand()
+fewer (the day branch's `min()` macro calls rand() twice). Same seed, different game by load speed. Fixed in
+`cmpclass.cpp`; every load now gives the historical `seedrand=24504` (seed 1).
+
+**LTCG build (715a754d, fa3acb1f): another ~12%, same results.** None of the 66 projects used `/GL`.
+`tools/campsim/build_ltcg.ps1` builds campsim with `ltcg.props` (whole-program + link-time codegen, no .vcxproj
+edits) in its own worktree `..\ff-campsim-ltcg`, so the game build's libs are never recompiled with `/GL`;
+set `CAMPSIM_EXE_DIR` to the path it prints for run_batch. Paired 2-day: CPU 39.9 -> 34.9 s, identical output
+(checked through run_batch too). **PGO** (trained on seed 3) is ~19% but deterministically different from
+minute 20 (DPRK ground vehicles 5557 vs 5556, seed 1): some read in early combat depends on code layout,
+probably uninitialised memory, the same family as the timeline `roe` cell for teams 0/7 (`RoEData[type][stance]`
+indexed by an out-of-range stance, LTCG reads 58 there, the normal build 0).
+
+PGO hunt (rand/srand replica logging every call by source line, plus tagged values; sandbox only). The first
+divergence is not in combat: at 09:04 (t=32640 s) PGO runs battalion 4487's `ChangeUnitLocation` a minute earlier
+and its `TimeToMove` has already dropped 514286 -> 50000, so it is a cell further east; a later shot is at range 4
+not 3, hit chance 18 not 35, a hit becomes a miss. Why the move/engagement timing differs between builds is
+still open (no rand involved; next place to trace: the unit-update scheduler and `BattalionClass::MoveUnit`).
+Stopped there: PGO is only ~7% over LTCG. Found on the way, all results-changing if fixed:
+- **`persist.cpp` reseeds the campaign RNG**: `AddMissCraters`/`AddHulk`/runway craters call `srand(entity id)`
+  for "deterministic" crater placement, so every crater or wreck restarts the global stream from a unit id.
+  After the first combat the seed no longer decides the game; the order of fire messages does.
+- **Rounding mode differs from the game**: `HandleCampaignThread` sets `_controlfp(_RC_CHOP)` for the campaign
+  thread; campsim runs the campaign on its main thread at the default round-to-nearest, so `FloatToInt32`
+  (cvtss2si) rounds where the game truncates (ranges, hit chances, every float->int in campaign code).

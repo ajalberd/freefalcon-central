@@ -234,3 +234,29 @@ implementation that shares no code with this one:
 7z t "ITO2 V4c (FreeFalcon).exe"
 7z l "ITO2 V4c (FreeFalcon).exe"
 ```
+
+## After the install: the theater's own Simdata.zip
+
+A non-Korea theater's zips are attached with `replace == TRUE`, so its
+`Zips<Name>/Simdata.zip` wins over anything loose on disk and a data fix has to
+go inside the zip. Two packages so far ship the 2002 maneuver table under the
+2010 name, which `DigitalBrain::ReadManeuverData` rejects on the first byte —
+silently, in Release:
+
+```bash
+python fix_mnvrdata.py --list "C:\FreeFalcon6\ZipsTaiwan\Simdata.zip"
+python fix_mnvrdata.py "C:\FreeFalcon6\ZipsTaiwan\Simdata.zip"
+```
+
+```
+  C:\FreeFalcon6\ZipsTaiwan\Simdata.zip
+      mnvrdata.dat   12793 -> 16543 bytes (2010 ASCII table)
+      mnvrdata5.dat  12793 bytes (2002 table kept)
+      817 entries, backup Simdata.zip.bak-mnvrswap
+```
+
+It takes the good table from the stock `Zips/Simdata.zip` (or `--stock`) and
+rewrites only those two entries, keeping every other name, its order and its
+compression method; the original stays as `.bak-mnvrswap`, and a second run
+verifies instead of re-patching. Background and the other, legitimate
+differences in these zips are in `THEATER-INSTALLS.md`.

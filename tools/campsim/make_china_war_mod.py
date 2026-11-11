@@ -58,6 +58,16 @@ set g_nStartSupplyPct 70
 set g_bAirReinforcementFix 1
 set g_sReinforceHold "2:12:4"
 set g_sReinforceForwardTypes "F-16"
+
+// Air fuel (SUPPLY-INVENTORY.md sections 31-35): a squadron holds 3 days of fuel, is topped up from the national pool at launch
+// and does not fly when it cannot be, the offensive fuel top-up is off, and the North's and China's airlift landings credit
+// 20% of the fuel they used to (stock: fuel from nothing, as much as the refineries made). Refinery strikes now cost the
+// North air power. Rates are fuel units one aircraft draws per day, measured on Korea Rolling Fire. The 12-seed fuel
+// runs were made on this mod stack (Korea Rail War + Korea China War: save0 and the cfg keys above loaded by campsim's usecfg=1).
+set g_fAirFuelDays 3
+set g_sAirFuelRates "2:382,4:1528,5:909,6:668"
+set g_nOffFuelCheat 0
+set g_sAirliftFuelPct "5:20,6:20"
 """
 
 README = """Korea China War (JSGME mod)
@@ -69,6 +79,11 @@ the North starting the war at 70% supply, and Blue needing less initiative (40) 
 China's counterpush. In 12 simulated wars Blue won all 12, on day 6.4 at the median, with China's entry
 slowing the advance for 2-4 days before Blue broke through. Blue's air reinforcements (stock: idle all
 war) now fly, arrive once Russia joins or on day 4, and include two extra F-16 squadrons at the most forward airbase.
+
+Air fuel: aircraft fuel is now real. Each squadron holds three days of fuel and is refilled from its country's fuel pool when it
+launches; a squadron the pool cannot refill does not fly. The offensive fuel handout is off, and the North's and China's
+airlifts bring a fifth of the fuel they used to. Striking a refinery now costs that country air power: in simulated wars the
+North did about half the damage to Blue's ground units.
 
 Requirements
   - FFViper-campaign.exe (installed next to FFViper.exe). Start the game with it; FFViper.exe ignores the settings.

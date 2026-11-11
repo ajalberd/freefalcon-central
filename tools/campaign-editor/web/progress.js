@@ -110,8 +110,9 @@ function teamCard(t, labels) {
     el('header', {}, [
       el('h3', {}, [el('span', {class: 'swatch',
         style: 'background:' + progressColour(t.team)}), ' ' + t.name]),
-      el('span', {class: 'hint', text: overall === null ? ''
-        : 'forces at ' + overall + '% of their start'}),
+      el('span', {class: 'hint', text: t.derived
+        ? 'strength counted from the unit list (this save keeps no team totals)'
+        : (overall === null ? '' : 'forces at ' + overall + '% of their start')}),
     ]),
     el('div', {class: 'panel-body'}, [
       ...['aircraft', 'groundVehs', 'airDefenseVehs', 'ships', 'airbases']

@@ -68,6 +68,7 @@
     <label><input type="checkbox" id="l-air" checked> flights</label>
     <label><input type="checkbox" id="l-trail" checked> movement trails</label>
     <label><input type="checkbox" id="l-flip" checked> highlight captures</label>
+    <label><input type="checkbox" id="l-win" checked> win objectives</label>
     <label>colour <select id="colormode"><option value="team">team</option><option value="orders">orders</option></select></label>
   </div>
   <h3>Scripted events (click to jump)</h3>
@@ -121,18 +122,22 @@ async function listRuns() {
   const rows = await fetch('api/runs').then(x => x.json()).catch(() => []);
   const r = rows.map(x => x.name + '.jsonl');
   $('runs').innerHTML = rows.map(x => `<option value="${x.name}.jsonl">${x.label ? x.label + '  (' + x.name + ')' : x.name}</option>`).join('');
-  const want = new URLSearchParams(location.search).get('run');   // lab.html "replay" links
+  let want = new URLSearchParams(location.search).get('run');   // lab.html "replay" links; the .jsonl suffix is optional
+  if (want && !want.endsWith('.jsonl')) want += '.jsonl';
   if (want && r.includes(want)) $('runs').value = want;
   if (r.length) load();
 }
 // run names are <save>[-<theater>][-<tag>]-s<seed>[.jsonl]; the theater stem picks the backdrop
 function theaterOf(name) {
-  const m = name.replace(/\.jsonl$/, '').match(/^save\d+-(Israel_Classic|Israel2007|Israeli|Israel|[A-Za-z0-9_]+?)(?:-|$)/);
-  return m && /^(Israel|Israeli|Israel2007|Israel_Classic|korea_2012|korea1980s|eurowar)$/i.test(m[1]) ? m[1] : '';
+  // the token after the save is the theater when it names one; a tag names no backdrop, so the chain below
+  // falls through to backdrop.png. (A hard-coded theater list left every new theater -- Taiwan, 2026-10-25 --
+  // with the Korea map.)
+  const m = name.replace(/\.jsonl$/, '').match(/^save\d+-([A-Za-z0-9_]+)(?:-|$)/);
+  return m && !/^s\d+$/i.test(m[1]) ? m[1] : '';
 }
 function setBackdrop() {
   const th = theater;
-  const tryList = th ? ['backdrop-' + th + '.png', 'backdrop-' + th.replace(/(2007|_Classic|i)$/, '') + '.png'] : ['backdrop.png'];  // the three Israel theaters share terrdata
+  const tryList = th ? ['backdrop-' + th + '.png', 'backdrop-' + th.replace(/(2007|_Classic|i)$/, '') + '.png', 'backdrop.png'] : ['backdrop.png'];  // the three Israel theaters share terrdata
   bg = new Image(); bg.onload = draw;
   let i = 0;
   bg.onerror = () => { if (++i < tryList.length) bg.src = tryList[i]; };
@@ -141,6 +146,7 @@ function setBackdrop() {
 // The timeline comes from api/tail (only complete lines; X-Next = where to continue). A run that is still
 // going (no "final" line yet, X-Live) is polled for the frames appended since, so a replay follows it live.
 let tlNext = 0, tlLive = false, tlToken = 0, ownCur = null;
+let winObjs = new Map();          // objective id -> [{code, side, text}] from the campaign's end conditions
 let unitNames = new Map(), firstSeen = new Map(), hover = null;
 async function fetchTimeline(from) {
   const name = runName.replace(/\.jsonl$/, '');
@@ -168,6 +174,19 @@ function addLines(txt) {
     for (const u of o.u) if (!firstSeen.has(u[0])) firstSeen.set(u[0], [u[5], frames.length]);
     frames.push(o);
   }
+}
+// The objectives the campaign's end conditions name (serve.py parses the .tri), so the replay can ring
+// them the way the campaign editor does. A run whose theater/save has no script simply gets none.
+async function loadWinObjs(name) {
+  winObjs = new Map();
+  try {
+    const w = await fetch('api/winobjs?run=' + encodeURIComponent(name.replace(/[.]jsonl$/, ''))).then(x => x.json());
+    for (const e of (w && w.ends) || []) for (const id of e.objs) {
+      if (!winObjs.has(id)) winObjs.set(id, []);
+      winObjs.get(id).push(e);
+    }
+  } catch (e) { }
+  if (meta) { show(idx); }          // re-render the legend and the rings
 }
 async function follow(token) {
   if (token !== tlToken || fin || !tlLive) return;
@@ -197,7 +216,7 @@ async function load() {
   addLines(got.txt); tlNext = got.next; tlLive = got.live;
   if (!meta || !frames.length) return;
   objById = new Map(meta.objs.map(o => [o[0], o]));
-  theater = theaterOf(runName); setBackdrop(); palette();
+  theater = theaterOf(runName); setBackdrop(); palette(); loadWinObjs(runName);
   document.title = $('runs').selectedOptions[0].textContent.replace(/ +\(.*\)$/, '') + ' - Campaign Sim Viewer';
   // fit the view to the objectives (and add margin)
   // fit to the bulk of the objectives (2nd..98th percentile) so a few far-off ones do not shrink the map
@@ -396,7 +415,8 @@ function show(i) {
   const last = idx === frames.length - 1 && fin && fin.endgame;
   $('banner').style.display = last ? 'block' : 'none';
   if (last) $('banner').textContent = 'Campaign ended: ' + endText() + ' (day ' + (f.t/1440).toFixed(1) + ')';
-  $('legend').innerHTML = ts.map(t => `<span class="sw" style="background:${tcol(t)}"></span>${tname(t)}`).join('<br>');
+  $('legend').innerHTML = ts.map(t => `<span class="sw" style="background:${tcol(t)}"></span>${tname(t)}`).join('<br>') +
+    (winObjs.size ? '<br><span style="color:#9ab">dashed ring: win condition (one per side that must hold it)</span>' : '');
   chart(); draw(); updateTip();
 }
 function resize() { cv.width = cv.clientWidth; cv.height = cv.clientHeight; if (meta) fit(); draw(); }
@@ -433,9 +453,10 @@ function draw() {
     for (const o of meta.objs) {
       const t = f.owners.get(o[0]); if (!t) continue;
       const big = (OT[o[3]] || [])[3];
-      const R = (big ? 26 : 13) * view.s;
+      if (!big && view.s < .9) continue;             // minor objectives only when zoomed in (as their icons)
+      const R = (big ? 17 : 9) * view.s;
       const gr = g.createRadialGradient(X(o[1]), Y(o[2]), 0, X(o[1]), Y(o[2]), R);
-      gr.addColorStop(0, tcol(t) + '30'); gr.addColorStop(1, tcol(t) + '00');
+      gr.addColorStop(0, tcol(t) + '1a'); gr.addColorStop(1, tcol(t) + '00');
       g.fillStyle = gr; g.fillRect(X(o[1]) - R, Y(o[2]) - R, R*2, R*2);
     }
     g.globalCompositeOperation = 'source-over';
@@ -451,6 +472,20 @@ function draw() {
       g.fillStyle = tcol(t); g.strokeStyle = '#000'; g.lineWidth = 1;
       if (shp === 'bridge') { g.strokeStyle = tcol(t); g.lineWidth = 2; g.stroke(); }
       else { g.fill(); g.stroke(); }
+    }
+  }
+  if ($('l-win').checked && winObjs.size) {         // objectives the campaign's end conditions name:
+    const z = Math.max(1, Math.min(2.2, view.s / 1.2));    // one dashed ring per side that must hold it,
+    for (const [wid, roles] of winObjs) {                  // wide enough to clear the icons piled on it
+      const o = objById.get(wid); if (!o) continue;
+      const sides = [...new Set(roles.map(r => r.side).filter(v => v !== null && v !== undefined))];
+      sides.forEach((side, k) => {
+        const r = (17 + k * 5) * z, col = tcol(side);
+        g.beginPath(); g.arc(X(o[1]), Y(o[2]), r, 0, 7);   // faint dark backing so it reads over terrain
+        g.strokeStyle = 'rgba(0,0,0,.30)'; g.lineWidth = 4; g.stroke();
+        g.beginPath(); g.arc(X(o[1]), Y(o[2]), r, 0, 7);
+        g.strokeStyle = col; g.lineWidth = 2; g.setLineDash([5, 4]); g.stroke(); g.setLineDash([]);
+      });
     }
   }
   if ($('l-flip').checked) {                        // objectives captured in this frame ring and fade over 4 frames
