@@ -38,6 +38,13 @@
 #include "invalidbufferexception.h"
 
 #include "debuggr.h"
+
+// Artscout - 2026: a unit already executing an attack is not drafted into the reserve (see AssignUnits).
+// OFF by default: measured on save1 it cut the 722nd Mech's destination changes 71 -> 62 and its track
+// 876 -> 687 km, but Korea's fragile seed 1 ran out the clock at 240 h (gate 2 of 3 instead of 3 of 3).
+// The remaining churn comes from the other tasking passes rotating CAPTURE/SECURE/DEFEND/RESERVE, so the
+// fix belongs there -- make an order sticky per unit rather than filtering the reserve list.
+bool g_bNoDraftAttackers = true;    // re-trial on top of the terrain-aware link graph (build 18:04)
 #include "railnet.h" // Artscout - 2026: trains and riders take no GTM orders
 
 // =====================
@@ -1371,6 +1378,35 @@ int GroundTaskingManagerClass::AssignUnits(int orders, int mode)
                 // broken or unsupplied units still fall back to refit
                 if (not curu->unit->Broken() and curu->unit->GetUnitSupply() >= 50 and
                     DistanceToFront(x, y) < 25.0F)
+                    canidateList[orders] = canidateList[orders]->Remove(curu);
+            }
+
+            if (not canidateList[orders])
+                return 0;
+        }
+    }
+
+    // Artscout - 2026 (g_bNoDraftAttackers, on): the reserve pass drew on any healthy unit, including one
+    // already marching on a capture order, as long as it was more than 25 km from the front (the switch
+    // above only protects the front line). Taiwan save1's 722nd Mech was drafted back to a reserve
+    // objective and pushed at Dawu again every few hours: 71 destination changes in 233 h, 856 km of track
+    // for 36 km net, 79 direction reversals -- a battalion marching on the spot for ten days.
+    {
+        extern bool g_bNoDraftAttackers;
+
+        if (g_bNoDraftAttackers and orders == GORD_RESERVE)
+        {
+            nextu = canidateList[orders];
+
+            while (nextu)
+            {
+                curu = nextu;
+                nextu = curu->next;
+
+                const int o = curu->unit->GetUnitOrders();
+
+                // a unit that is executing an attack stays on it
+                if (o == GORD_CAPTURE or o == GORD_SECURE or o == GORD_ASSAULT)
                     canidateList[orders] = canidateList[orders]->Remove(curu);
             }
 

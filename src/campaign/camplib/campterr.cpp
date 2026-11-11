@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <io.h>
 #include <math.h>
+#include <vector>
 #include "cmpglobl.h"
 #include "campcell.h"
 #include "campterr.h"
@@ -107,6 +108,129 @@ int ShipWater(GridIndex x, GridIndex y)
     return GetCover(x, y) == Water and not SeaMaskLand(x, y);
 }
 
+// Artscout - 2026 (g_bLandPieces, off = stock): label the cover grid's land masses once per theater load.
+// Planning treated "the unit's nearest objective is the target" as zero cost, so a battalion on an islet
+// (Taiwan save2: an air-defence battalion off the east coast, a China battalion on a 2-cell-wide peninsula)
+// was handed the nearest objective across the water and failed the grid path every tick. Ground planning
+// now refuses a target on another piece.
+bool g_bLandPieces = true;
+static unsigned short *TheaterPieces = NULL;
+
+static void FreeLandPieces(void)
+{
+    delete[] TheaterPieces;
+    TheaterPieces = NULL;
+}
+
+static void BuildLandPieces(void)
+{
+    const int w = Map_Max_X, h = Map_Max_Y;
+
+    if (not TheaterCells or w <= 0 or h <= 0)
+        return;
+
+    TheaterPieces = new unsigned short[w * h];
+    memset(TheaterPieces, 0, sizeof(unsigned short) * w * h);
+
+    std::vector<int> stack;
+    int next = 1;
+
+    for (int start = 0; start < w * h; start++)
+    {
+        if (TheaterPieces[start])
+            continue;
+
+        const int sx = start / h, sy = start % h;
+
+        if (GetCover(sx, sy) == Water and not GetRoad(sx, sy))
+            continue;
+
+        const unsigned short label = (unsigned short)(next < 65535 ? next++ : 65535);
+        TheaterPieces[start] = label;
+        stack.push_back(start);
+
+        while (not stack.empty())
+        {
+            const int c = stack.back();
+            stack.pop_back();
+            const int cx = c / h, cy = c % h;
+
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    const int nx = cx + dx, ny = cy + dy;
+
+                    if (nx < 0 or nx >= w or ny < 0 or ny >= h or TheaterPieces[nx * h + ny])
+                        continue;
+
+                    if (GetCover(nx, ny) == Water and not GetRoad(nx, ny))
+                        continue;
+
+                    TheaterPieces[nx * h + ny] = label;
+                    stack.push_back(nx * h + ny);
+                }
+        }
+    }
+}
+
+int LandPiece(GridIndex x, GridIndex y)
+{
+    if (x < 0 or x >= Map_Max_X or y < 0 or y >= Map_Max_Y)
+        return 0;
+
+    if (not TheaterPieces)
+        BuildLandPieces();
+
+    // a water cell with a road bit is a bridge or port, not land to stand on
+    if (not TheaterPieces or GetCover(x, y) == Water)
+        return 0;
+
+    return TheaterPieces[x * Map_Max_Y + y];
+}
+
+// The piece a unit or objective belongs to: its own cell's, or for a cell the grid calls open water (a battalion
+// saved on a coastal water cell -- Taiwan's air-defence battalion off Taitung -- or a port) the first piece found
+// within 3 cells, as the unstick-from-water step would put it.
+static int NearPiece(GridIndex x, GridIndex y)
+{
+    if (x < 0 or x >= Map_Max_X or y < 0 or y >= Map_Max_Y)
+        return 0;
+
+    if (not TheaterPieces)
+        BuildLandPieces();
+
+    if (not TheaterPieces)
+        return 0;
+
+    if (TheaterPieces[x * Map_Max_Y + y])
+        return TheaterPieces[x * Map_Max_Y + y];
+
+    for (int r = 1; r <= 3; r++)
+        for (int iy = -r; iy <= r; iy++)
+            for (int ix = -r; ix <= r; ix++)
+            {
+                if (abs(ix) != r and abs(iy) != r)
+                    continue;
+
+                const int nx = x + ix, ny = y + iy;
+
+                if (nx >= 0 and nx < Map_Max_X and ny >= 0 and ny < Map_Max_Y and TheaterPieces[nx * Map_Max_Y + ny])
+                    return TheaterPieces[nx * Map_Max_Y + ny];
+            }
+
+    return 0;
+}
+
+int GroundSeparated(GridIndex x, GridIndex y, GridIndex xx, GridIndex yy)
+{
+    if (not g_bLandPieces)
+        return 0;
+
+    const int a = NearPiece(x, y), b = NearPiece(xx, yy);
+
+    return a and b and a != b;
+}
+
 void FreeTheaterTerrain(void)
 {
     if (TheaterCells)
@@ -114,6 +238,7 @@ void FreeTheaterTerrain(void)
 
     TheaterCells = NULL;
     FreeSeaMask();
+    FreeLandPieces();
 }
 
 int LoadTheaterTerrain(char *name)

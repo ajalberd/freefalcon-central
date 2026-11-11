@@ -52,9 +52,47 @@
 // Artscout - 2026, campsim diagnostics: per team, landed airlift flights and what they added to the team pools
 // ([0] landings, [1] supply, [2] fuel, [3] replacements). gAirliftOff (campsim noairlift=1) skips the supplies.
 // [4] landings refused (no working runway), [5] landings whose credit the destination's need cut, [6] / [7] supply / replacements
-// the flight would have brought (before the caps).
-int gAirliftDiag[8][8];
+// the flight would have brought (before the caps). [8] fuel the flight would have brought (after the runway / need caps, before AirliftFuelPct).
+int gAirliftDiag[8][9];
 int gAirliftOff;
+// Cfg AirliftFuelPct "TEAM:PCT,...": a landing of a listed team keeps PCT percent of its fuel credit (after the runway / need caps). Stock: a landing
+// credits the team's fuel pool from nothing, which fed the North's air force as much as its refineries did (SUPPLY-INVENTORY.md sections 31-34).
+// The fraction a landing cannot pay out is carried to the next landing, so the total is exact.
+extern char g_strAirliftFuelPct[];
+static int AirliftFuelPct(int team)
+{
+    static int pct[8];
+    static char seen[0x100] = "";
+    static bool first = true;
+
+    if (first or strcmp(seen, g_strAirliftFuelPct))
+    {
+        first = false;
+        strncpy(seen, g_strAirliftFuelPct, sizeof(seen) - 1);
+        seen[sizeof(seen) - 1] = 0;
+
+        for (int i = 0; i < 8; i++)
+            pct[i] = 100;
+
+        for (const char *p = seen; *p;)
+        {
+            int t = 0, v = 100;
+
+            if (sscanf(p, "%d:%d", &t, &v) == 2 and t >= 0 and t < 8)
+                pct[t] = v;
+
+            const char *c = strchr(p, ',');
+
+            if (not c)
+                break;
+
+            p = c + 1;
+        }
+    }
+
+    return pct[team & 7];
+}
+static int sAirliftFuelFrac[8];
 void (*gAirliftHook)(Unit, WayPoint); // campsim: called for every credited airlift landing
 
 #define AIRLIFT_NEED_RADIUS 40.0F // km: battalions this close to the landing airbase count as its need
@@ -629,6 +667,15 @@ int DoWPAction(Flight u)
                         cf = max(0, min(cf, df));
                         cr = max(0, min(cr, dr));
                     }
+                }
+
+                gAirliftDiag[team & 7][8] += cf;
+
+                if (AirliftFuelPct(team) < 100)
+                {
+                    sAirliftFuelFrac[team & 7] += cf * max(0, AirliftFuelPct(team));
+                    cf = sAirliftFuelFrac[team & 7] / 100;
+                    sAirliftFuelFrac[team & 7] %= 100;
                 }
 
                 gAirliftDiag[team & 7][1] += cs;

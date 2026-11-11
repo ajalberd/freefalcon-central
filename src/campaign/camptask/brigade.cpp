@@ -5,6 +5,7 @@
 #include <io.h>
 #include <stdlib.h>
 #include <math.h>
+#include <map>
 #include "cmpglobl.h"
 #include "listadt.h"
 #include "campcell.h"
@@ -19,6 +20,11 @@
 #include "gndunit.h"
 #include "team.h"
 #include "debuggr.h"
+
+// Artscout - 2026: a brigade defending a quiet rear objective is re-tasked to attack after
+// g_brigadeRedeployHours instead of holding the same sector for the whole war (see MoveUnit).
+bool g_bBrigadeRedeploy = true;
+float g_brigadeRedeployHours = 12.0F;
 #include "aiinput.h"
 #include "classtbl.h"
 
@@ -247,6 +253,69 @@ int BrigadeClass::MoveUnit(CampaignTime time)
             }
 
             SetUnitOrders(GORD_RESERVE, o->Id());
+        }
+    }
+
+    // Artscout - 2026 (g_bBrigadeRedeploy, on): a brigade given a defensive sector keeps it for the whole
+    // war -- save1's 98th Infantry Brigade arrived at h88, took Quanzhou (objective 833, ours since h6) and
+    // sat on it at 137/140 vehicles for six more days while the fighting stayed 40 km away. If it has held
+    // one of our objectives behind the front for g_brigadeRedeployHours, give it an enemy objective it can
+    // reach instead, so a quiet sector releases its formation.
+    {
+        extern bool g_bBrigadeRedeploy;
+        extern float g_brigadeRedeployHours;
+        static std::map<unsigned int, CampaignTime> quietSince;
+
+        if (g_bBrigadeRedeploy and o)
+        {
+            GridIndex bx, by;
+            GetLocation(&bx, &by);
+
+            const bool quiet = GetOrders() == GORD_DEFEND and not Broken() and
+                               o->GetTeam() == GetTeam() and DistanceToFront(bx, by) > 30.0F;
+
+            if (quiet)
+            {
+                const unsigned int id = GetCampID();
+                CampaignTime &since = quietSince[id];
+
+                if (not since)
+                    since = TheCampaign.CurrentTime;
+
+                if (TheCampaign.CurrentTime - since >= (CampaignTime)(g_brigadeRedeployHours * CampaignHours))
+                {
+                    // nearest enemy objective this brigade may capture
+                    Objective best = NULL;
+                    float bestD = 140.0F * 140.0F;
+                    VuListIterator oit(AllObjList);
+
+                    for (Objective t = GetFirstObjective(&oit); t; t = GetNextObjective(&oit))
+                    {
+                        if (t->GetTeam() == GetTeam() or not TeamInfo[GetTeam()]->gtm->IsValidObjective(GORD_CAPTURE, t))
+                            continue;
+
+                        GridIndex tx, ty;
+                        t->GetLocation(&tx, &ty);
+                        const float d = (float)DistSqu(bx, by, tx, ty);
+
+                        if (d < bestD)
+                        {
+                            bestD = d;
+                            best = t;
+                        }
+                    }
+
+                    if (best)
+                    {
+                        SetUnitOrders(GORD_CAPTURE, best->Id());
+                        quietSince.erase(id);
+                    }
+                }
+            }
+            else
+            {
+                quietSince.erase(GetCampID());
+            }
         }
     }
 
@@ -917,12 +986,20 @@ void BrigadeClass::DisposeChildren(void)
 
     while (element[0])
     {
-        e = (Unit)vuDatabase->Find(element[0]);
+        VU_ID id = element[0];
+        e = (Unit)vuDatabase->Find(id);
 
         if (e)
             e->KillUnit();
         else
-            RemoveChild(element[0]);
+            RemoveChild(id);
+
+        // KillUnit() detaches the child only when its parent pointer resolves, and returns at once
+        // while FEC_REGENERATING; either way element[0] stayed put and this loop spun forever at
+        // 100 % CPU with the campaign clock stopped (Taiwan save2 at h33 -- TAIWAN-CAMPAIGNS.md).
+        // If the child is still listed, drop it here so the loop always makes progress.
+        if (element[0] == id)
+            RemoveChild(id);
     }
 }
 

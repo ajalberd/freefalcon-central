@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <map>
 #include <utility>
 #include <vector>
 #include "cmpglobl.h"
@@ -27,6 +28,9 @@
 #include "classtbl.h"
 #include "debuggr.h"
 #include "supply.h"
+#include "cuievent.h"
+#include "msginc/campeventmsg.h"
+#include "falcsess.h"
 
 #define MAX_SUPPLIES 60000
 // campsim experiment knob (maxratio=): the most of its need a unit may be sent per resupply cycle (stock 0.5)
@@ -61,7 +65,10 @@ int gSupplyShareG[NUM_TEAMS] = {0};
 // Last distribution ratios (x1000): share of each unit's need the pool could cover, capped at 500.
 int gSupplyRatio[NUM_TEAMS][3] = {{0}};
 int gSupplyPath[NUM_TEAMS][SUPPATH_LAST] = {{0}};
-
+// Battalion resupplies by (source objective, the unit's nearest friendly objective) campaign ids, and the ones where no
+// source was found by that nearest objective (-1: no friendly objective at all); cumulative per team.
+std::map<std::pair<int, int>, int> gSupplyPairs[NUM_TEAMS];
+std::map<int, int> gSupplyNoSource[NUM_TEAMS];
 
 // ====================
 // Regional stocks (g_bSupplyStocks, an experiment, off by default)
@@ -488,6 +495,223 @@ static float PortCargoFactor(Objective port)
     return share > 1.0F ? 1.0F : share;
 }
 
+// Artscout - 2026 (g_bSupplyNews, on): tell the player when a side's supply economy changes tier. A strike on a power plant, a
+// refinery or a factory cluster otherwise shows nowhere -- the buffer inside the units hides it for about two days -- and the
+// enemy's strikes on us are as silent. Three things are watched per side, each with three tiers (0 normal, 1 hurt, 2 crippled):
+//   industry  what the factories, ports, depots and army bases that make supply would turn out against undamaged and fully powered
+//   fuel      the same for refineries
+//   front     mean supply of battalions within 30 km of the front
+// A message is sent when the tier changes (strings 1870-1880 in the campaign's Strings.txt), tells which of power or damage is
+// the cause and puts the blip on the worst-hit object, so the news points at a target. Coming back up needs a higher figure than
+// going down needed, so a flickering plant does not repeat itself; one message per kind and side per NEWS_GAP hours; the first look
+// after a load only sets the tier.
+extern bool g_bSupplyNews;
+int gSupplyNews[NUM_TEAMS][3][3] = {{{0}}}; // campsim: announcements [team][industry, fuel, front][hurt, crippled, recovered]
+#define NEWS_GAP (3 * CampaignHours)
+
+static int NewsTier(int cur, int pct, int downA, int downB, int upA, int upB)
+{
+    if (cur == 1)
+        return pct < downB ? 2 : pct > upA ? 0 : 1;
+
+    if (cur == 2)
+        return pct > upA ? 0 : pct > upB ? 1 : 2;
+
+    return pct < downB ? 2 : pct < downA ? 1 : 0;
+}
+
+static void PostSupplyNews(int fmt, int team, VU_ID id, GridIndex x, GridIndex y, Control owner)
+{
+    FalconCampEventMessage *e = new FalconCampEventMessage(id, FalconLocalGame);
+    e->dataBlock.team = team;
+    e->dataBlock.eventType = FalconCampEventMessage::triggeredEvent;
+    e->dataBlock.data.formatId = fmt;
+    e->dataBlock.data.xLoc = x;
+    e->dataBlock.data.yLoc = y;
+    e->dataBlock.data.owners[0] = owner;
+    SendCampUIMessage(e);
+}
+
+static void SupplyNews(void)
+{
+    static int tier[NUM_TEAMS][3];
+    static CampaignTime posted[NUM_TEAMS][3], seen = 0;
+    static bool primed = false;
+
+    if (not g_bSupplyNews)
+        return;
+
+    const CampaignTime now = Camp_GetCurrentTime();
+
+    if (not primed or now < seen)
+    {
+        for (int t = 0; t < NUM_TEAMS; t++)
+            for (int k = 0; k < 3; k++)
+                tier[t][k] = -1, posted[t][k] = 0;
+
+        primed = true;
+    }
+
+    seen = now;
+
+    float full[NUM_TEAMS][2] = {{0}}, got[NUM_TEAMS][2] = {{0}}, lossPow[NUM_TEAMS][2] = {{0}}, lossDmg[NUM_TEAMS][2] = {{0}};
+    float worstPow[NUM_TEAMS][2] = {{0}}, worstDmg[NUM_TEAMS][2] = {{0}};
+    Objective plantOf[NUM_TEAMS][2] = {{NULL}}, hitOf[NUM_TEAMS][2] = {{NULL}};
+
+    {
+        VuListIterator it(AllObjList);
+
+        for (Objective o = GetFirstObjective(&it); o; o = GetNextObjective(&it))
+        {
+            const int type = o->GetType();
+            int k;
+
+            if (type == TYPE_FACTORY or (type == TYPE_PORT and g_nPortCargoHours <= 0) or
+                ((type == TYPE_ARMYBASE or type == TYPE_DEPOT) and not g_bStoresNoProd and (not g_bSupplyStocks or g_bStoresProduce)))
+                k = 0;
+            else if (type == TYPE_REFINERY)
+                k = 1;
+            else
+                continue;
+
+            const int who = o->GetTeam();
+
+            if (who < 0 or who >= NUM_TEAMS or o->GetObjectiveOldown() != o->GetOwner() or not o->static_data.class_data)
+                continue;
+
+            const float rate = (float)o->static_data.class_data->DataRate, status = (float)o->GetObjectiveStatus();
+            Objective po = NULL;
+            float power = 100.0F;
+
+            if (g_bPowerGrid)
+            {
+                GridIndex x, y;
+                o->GetLocation(&x, &y);
+                po = FindNearestFriendlyPowerStation(AllObjList, o->GetTeam(), x, y);
+                power = po ? (float)po->GetObjectiveStatus() : 0.0F;
+            }
+
+            const float dmg = rate * (100.0F - status) / 100.0F, lost = rate * status / 100.0F * (100.0F - power) / 100.0F;
+            full[who][k] += rate;
+            got[who][k] += rate * status / 100.0F * power / 100.0F;
+            lossDmg[who][k] += dmg;
+            lossPow[who][k] += lost;
+
+            if (dmg > worstDmg[who][k])
+                worstDmg[who][k] = dmg, hitOf[who][k] = o;
+
+            if (lost > worstPow[who][k] and po)
+                worstPow[who][k] = lost, plantOf[who][k] = po;
+        }
+    }
+
+    int frontN[NUM_TEAMS] = {0}, frontSum[NUM_TEAMS] = {0};
+    Unit lowest[NUM_TEAMS] = {NULL};
+
+    {
+        VuListIterator uit(AllUnitList);
+
+        for (Unit u = GetFirstUnit(&uit); u; u = GetNextUnit(&uit))
+        {
+            const int t = u->GetTeam();
+
+            if (t < 0 or t >= NUM_TEAMS or not u->IsBattalion() or u->IsDead() or u->IsTrain())
+                continue;
+
+            GridIndex x, y;
+            u->GetLocation(&x, &y);
+
+            if (DistanceToFront(x, y) > 30.0F)
+                continue;
+
+            frontN[t]++, frontSum[t] += u->GetUnitSupply();
+
+            if (not lowest[t] or u->GetUnitSupply() < lowest[t]->GetUnitSupply())
+                lowest[t] = u;
+        }
+    }
+
+    for (int who = 0; who < NUM_TEAMS; who++)
+    {
+        for (int k = 0; k < 3; k++)
+        {
+            int pct, down[2], up[2];
+            Objective at = NULL;
+            Unit unit = NULL;
+            int fmtHurt, fmtCrip, fmtGood;
+
+            if (k < 2)
+            {
+                if (full[who][k] <= 0.0F)
+                    continue;
+
+                pct = FloatToInt32(100.0F * got[who][k] / full[who][k]);
+                down[0] = 65, down[1] = 30, up[0] = 75, up[1] = 40;
+
+                if (k == 0 and lossPow[who][0] > lossDmg[who][0])
+                    at = plantOf[who][0], fmtHurt = 1870, fmtCrip = 1871;
+                else if (k == 0)
+                    at = hitOf[who][0], fmtHurt = 1872, fmtCrip = 1873;
+                else
+                    at = hitOf[who][1] ? hitOf[who][1] : plantOf[who][1], fmtHurt = 1875, fmtCrip = 1876;
+
+                fmtGood = k == 0 ? 1874 : 1877;
+
+                if (not at)
+                    at = k == 0 ? (hitOf[who][0] ? hitOf[who][0] : plantOf[who][0]) : (plantOf[who][1] ? plantOf[who][1] : hitOf[who][1]);
+            }
+            else
+            {
+                if (frontN[who] < 5)
+                    continue;
+
+                pct = frontSum[who] / frontN[who];
+                down[0] = 50, down[1] = 30, up[0] = 60, up[1] = 40;
+                unit = lowest[who];
+                fmtHurt = 1878, fmtCrip = 1879, fmtGood = 1880;
+            }
+
+            if (tier[who][k] < 0)
+            {
+                tier[who][k] = NewsTier(0, pct, down[0], down[1], up[0], up[1]);
+                continue;
+            }
+
+            const int now_tier = NewsTier(tier[who][k], pct, down[0], down[1], up[0], up[1]);
+
+            if (now_tier == tier[who][k])
+                continue;
+
+            // 2 -> 1 is only a partial recovery; say nothing, but remember it
+            if (now_tier == 1 and tier[who][k] == 2)
+            {
+                tier[who][k] = 1;
+                continue;
+            }
+
+            if (posted[who][k] and now - posted[who][k] < NEWS_GAP)
+                continue;
+
+            const int fmt = now_tier == 0 ? fmtGood : now_tier == 1 ? fmtHurt : fmtCrip;
+            GridIndex x = 0, y = 0;
+
+            if (unit)
+                unit->GetLocation(&x, &y), PostSupplyNews(fmt, who, unit->Id(), x, y, unit->GetOwner());
+            else if (at)
+                at->GetLocation(&x, &y), PostSupplyNews(fmt, who, at->Id(), x, y, at->GetOwner());
+            else
+            {
+                tier[who][k] = now_tier;
+                continue;
+            }
+
+            gSupplyNews[who][k][now_tier == 0 ? 2 : now_tier - 1]++;
+            tier[who][k] = now_tier;
+            posted[who][k] = now;
+        }
+    }
+}
+
 int ProduceSupplies(CampaignTime deltaTime)
 {
     Objective o;
@@ -720,6 +944,7 @@ int ProduceSupplies(CampaignTime deltaTime)
     }
 
     gSxProd.clear();
+    SupplyNews();
     return 1;
 }
 
@@ -1925,6 +2150,14 @@ int SupplyUnits(Team who, CampaignTime deltaTime)
                     {
                     s = o ? (SxActive() ? SxFindSource(o, who) : FindNearestSupplySource(o)) : NULL;
                     SxPocket(unit, s != NULL or (o and FindNearestSupplySource(o) != NULL));
+
+                    if (unit->IsBattalion())
+                    {
+                        if (o and s)
+                            gSupplyPairs[who][std::make_pair((int)s->GetCampID(), (int)o->GetCampID())]++;
+                        else
+                            gSupplyNoSource[who][o ? (int)o->GetCampID() : -1]++;
+                    }
 
                     if (o and s)
                     {

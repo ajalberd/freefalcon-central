@@ -26,6 +26,10 @@
 // ==========================================
 
 #define MAX_SEARCH 2000 // How many locations were willing to scan
+// Artscout - 2026: the search pool, which caps every budget above (GroundPathMax, ObjGroundPathMaxSearch) -- the
+// pool was MAX_SEARCH nodes, so raising GroundPathMax past 2000 did nothing, and a 30-45 km ground leg across
+// open country (campsim save2: 4085, 4044, 4647) used up the pool and returned a partial route every tick.
+#define AS_POOL_SIZE 16000
 #define MAX_DISTANCE 96 // Longest path we'll look for
 #define MAX_NEIGHBORS 8 // How many neighbors we can have
 #define PATH_BITS 4 // How many bits needed per direction (0-8 requires 4 bits)

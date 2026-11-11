@@ -732,6 +732,9 @@ float g_fDragDilutionFactor = 1.0; // JB 010707
 bool g_bRealisticAttrition = false; // JB 010710
 bool g_bGtmReserveFarthest = false; // campaign: the ground AI moves up its rear-most reserves first (stock: closest first)
 bool g_bWaterObjectiveFix = true; // campaign: ground units stop next to (and capture) objectives on water cells (stock: unreachable, units retry forever)
+bool g_bDefendOccupy = false;     // campaign experiments (campsim defendon=1, off = stock): a GORD_DEFEND battalion garrisons the objective's own cell instead of the best cover up to a km away, so a defender is really in the hex an attacker must enter
+float g_fCounterLossKm = 0.0F;    // campaign experiments (campsim counterloss=KM, 0 = stock): when an objective falls, battalions of the losing team still ordered to defend it go back for it (stock evaluates that counter-attack only when orders change, so a defender sits beside the lost town for the rest of the war)
+bool g_bGarrisonBlocks = false;   // campaign experiments (campsim garblock=1, off = stock): an objective cannot be captured while a battalion of its owner stands in its own cell (stock: ownership flips to whoever walks in, so a garrison cannot hold a town)
 bool g_bGtmReserveFix = true; // campaign: reserves are chosen from units still free this cycle (stock: none move up while on the offensive)
 bool g_bGtmCaptureFront = true; // campaign: non-secondary enemy objectives on the front line are capture targets too (stock: only secondaries, so a chain of bridges/junctions can block the way for good)
 bool g_bSupplyNeedFix = true; // campaign: resupply counts only positive needs, and a squadron's need only its own table's weapon types (stock: off-table stores in reinforcement squadrons stop all battalion resupply)
@@ -747,6 +750,11 @@ int g_nProdCutTeam = 0; // campaign experiment: this team (1-7; 0 = none) makes 
 int g_nProdCutPct = 100; // campaign experiment: see ProdCutTeam. "ProdCutPct".
 int g_nPortCargoHours = 0; // campaign experiment: a port or naval base produces supply only if one of its side's tankers, cargo or supply ships docked there in the last this-many hours, and then scaled by the share of those ships still afloat (a side that starts with none gets nothing from its ports); 0 = off. "PortCargoHours".
 bool g_bAirReinforcementFix = false; // campaign: an air squadron that arrives as a reinforcement joins the list the ATM tasks from (stock: never -- every air reinforcement sat idle all war), and one with no base gets its side's nearest carrier group, else airbase. "AirReinforcementFix".
+float g_fAirFuelDays = 0.0f; // campaign: 0 = stock (squadron fuel is tracked but never tested); D > 0 = a squadron holds D days of AirFuelRates fuel, is topped up from the national fuel pool at launch and builds no sortie when it still cannot cover two aircraft. "AirFuelDays".
+char g_strAirFuelRates[0x100] = ""; // campaign: "TEAM:UNITS,..." fuel units one aircraft of that team draws at launch per day (Korea Rolling Fire, measured: "2:382,4:1528,5:909,6:668"); a team not listed has no air fuel model. "AirFuelRates".
+bool g_bAirFuelAware = false; // campaign: air tasking passes over a squadron the fuel model would refuse and gives the request to the next squadron (needs AirFuelDays). "AirFuelAware".
+char g_strAirliftFuelPct[0x100] = ""; // campaign: "TEAM:PCT,..." an airlift landing of that team keeps this percent of its fuel credit (stock 100: fuel from nothing). "AirliftFuelPct".
+extern int g_nOffFuelCheat; // team.cpp: 1 = a ground offensive tops up the attacker's fuel pool and caps the enemy's (stock); 0 = off. "OffFuelCheat".
 char g_strReinforceHold[0x100] = ""; // campaign: "TEAM:EVENT,..." -- a team's reinforcement clock stands still until that trigger-script event fires (e.g. "2:12": Blue's reinforcements come after Russia joins in chn_appr2), then runs on. "ReinforceHold".
 char g_strReinforceForwardTypes[0x100] = ""; // campaign: aircraft types ("F-16,...", substring of the name) whose arriving reinforcement squadrons are based at their side's most forward airbase (nearest enemy ground, status 50%+). "ReinforceForwardTypes".
 int g_nStartSupplyTeam = 0; // campaign: this team's (1-7; 0 = none) battalions begin a new campaign at StartSupplyPct % supply instead of the team's start level. Applied once, when the campaign starts; saves keep what they have. "StartSupplyTeam".
@@ -774,6 +782,7 @@ int g_nCounterAttackInitiative = 0; // campaign: a defending side with at least 
 float g_fEnemyTownPathCost = 4.0f; // campaign: ground route cost multiplier through an enemy town or an objective under an enemy-held parent (stock 4)
 bool g_bGtmKeepCapture = true; // campaign: a battalion keeps a capture order while its target is still a valid one (stock: re-planned every cycle)
 bool g_bSupplyExactLoss = true; // campaign: supply road losses computed once per trip, not truncated per node (stock: small shipments vanish)
+bool g_bSupplyNews = true; // campaign: news line when a side's war industry, fuel output or front-line supply changes tier (strings 1870-1880 in the campaign's Strings.txt; stock: silent)
 bool g_bPlayerGroundHold = false; // Artscout - 2026 (WORK IN PROGRESS, off by default): a battalion the player moves on the campaign map keeps that order until it arrives or breaks. campsim holdtest: some held units stop moving, see WIP-NOTES.md
 bool g_bIFFRWR = false; // JB 010727
 int g_nRelocationWait = 3; // JB 010728
@@ -908,6 +917,14 @@ bool g_bObjFog =
     true; // Artscout - 2026: distance-fog the lit world objects (buildings, vehicles, aircraft) like the terrain. The D3D12 backend only ever fogged the terrain, so distant buildings stood out as black silhouettes on hazed ground whenever their shaded side faced you. 0 = the old unfogged objects.
 bool g_bObjPixelLight =
     true; // Artscout - 2026: evaluate object lighting PER PIXEL instead of per vertex (FF_PIXELLIGHT). The light model does not change; the sun + point/spot lights (and the Blinn-Phong specular) are computed in the pixel shader from the interpolated world normal/position/view vector. Per-vertex Gouraud is what smears a small lamp's colour across whole low-poly panels -- e.g. the F-16's air-intake light (range 3 ft) washing a multi-foot fuselage triangle red. 0 = legacy per-vertex lighting.
+float g_fHorizonFillerMinAlt = 30000.0f; // see FloatOpts "HorizonFillerMinAlt"
+float g_fHorizonHazeMatch = 1.0f; // see FloatOpts "HorizonHazeMatch"
+float g_fLinearLighting = 0.0f; // see FloatOpts "LinearLighting"
+float g_fObjSpecPowerCap = 0.0f; // see FloatOpts "ObjSpecPowerCap"
+bool g_bWorldShadow = false; // see BoolOpts "WorldShadow"
+int g_nWorldShadowRes = 4096; // see IntOpts "WorldShadowRes"
+float g_fWorldShadowReach = 0.0f; // see FloatOpts "WorldShadowReach"
+float g_fWorldShadowStrength = 0.85f; // see FloatOpts "WorldShadowStrength"
 bool g_bPitShadow =
     true; // Artscout - 2026: cockpit sun shadows. The 3D pit BSP is replayed depth-only into a small sun-space shadow map once per flush, and the cockpit branch of the object pixel shader darkens only the SUN term where the pit occludes it (ambient/lamps are untouched). The map is fitted to the pit model's own bounding box in MODEL space, so it is independent of camera and aircraft attitude -- only the sun direction in the pit frame changes it. 0 = no cockpit shadows (the PS returns unshadowed).
 bool g_bCloudShadow =
@@ -1107,6 +1124,8 @@ int g_nRailTroopSavePct = 25; // Artscout - 2026: the rail journey must take at 
 int g_nRailTroopStandoffKm = 20; // Artscout - 2026: troops only detrain where no enemy-held track is within this many km along the line (supply trains use RailFrontStandoff). At 10, 60 of 82 rides per campsim run ended in contact at the stop. "RailTroopStandoffKm".
 int g_nRailTroopContactKm = 5; // Artscout - 2026: a riding battalion gets off when its ground target is this close, km. Farther targets (it picks them at detection range, median 40 km in campsim) do not stop the train. "RailTroopContactKm".
 int g_nRailTroopTrains = 6; // Artscout - 2026: troop trains per side running at once (one battalion each); with all in use, battalions march. "RailTroopTrains".
+bool g_bRailHomeOnly =
+    true; // Artscout - 2026: troop trains only run on track whose original owner is a friend (RailHomeOnly): a side cannot ride the other side's railway even where it has captured the ground. Off = any track the nearest objective of which is not hostile now. "RailHomeOnly".
 bool g_bRailWave =
     false; // Artscout - 2026: when a country in RailWaveCountries is at war, its battalions far from the front go there by rail (railnet.cpp "rail mobilisation"): each hour, as many as there are free wave trains are ordered -- and held, like a player order -- to a friendly objective near a safe railhead RailWaveFrontMinKm..RailWaveFrontMaxKm behind the front, and ride. Off by default; the Rail China Wave mod turns it on (config\mods). "RailWave".
 char g_strRailWaveCountries[0x100] = "5"; // Artscout - 2026: countries that mobilise by rail, comma-separated country numbers (5 PRC, 4 CIS). "RailWaveCountries".
@@ -1115,8 +1134,6 @@ int g_nRailWaveFarKm = 80; // Artscout - 2026: only battalions farther than this
 int g_nRailWaveFrontMinKm = 20; // Artscout - 2026: nearest a mobilisation railhead objective may be to the enemy, km. "RailWaveFrontMinKm".
 int g_nRailWaveFrontMaxKm = 60; // Artscout - 2026: farthest a mobilisation railhead objective may be from the enemy, km. "RailWaveFrontMaxKm".
 int g_nCloudDepthAlpha = 60; // Artscout - 2026: texture alpha, in percent, at which a cumulus puff also writes depth (a second, colour-masked pass in the D3D12 renderer). The puffs are DX2D quads, which never wrote depth, so everything drawn after them showed through: the GPU particles (see ParticlesLast) and, in an external view, your own aircraft (drawn in a later flush). The dense core now occludes them; the soft edge below this alpha still only blends. Objects drawn before the clouds -- other aircraft, ground -- are unaffected: they already sat behind a ~90% opaque puff. 0 = off. "CloudDepthAlpha".
-bool g_bRailHomeOnly =
-    true; // Artscout - 2026: troop trains only run on track whose original owner is a friend (RailHomeOnly): a side cannot ride the other side's railway even where it has captured the ground. Off = any track the nearest objective of which is not hostile now. "RailHomeOnly".
 bool g_bParticlesLast =
     true; // Artscout - 2026: draw the GPU particles (dust, smoke columns, explosions) after the DX2D world quads -- the cumulus puffs, smoke trails and the rail strip -- instead of partway through the scene. Neither writes depth, so whichever draws last paints over the other: with the particles first, a cloud behind a dust plume drew over it. Costs the rarer case, a puff between the eye and the plume. 0 = the old order. "ParticlesLast".
 int g_nPathDamageCost =
@@ -1867,6 +1884,8 @@ static ConfigOption<bool> BoolOpts[] = {
      &g_bAlphaToCoverage}, // Artscout - 2026: alpha-tested object textures (windows, fences, lattices) are cut with alpha-to-coverage instead of a hard discard WHEN the target is multisampled (flat MSAA, or VrMsaaSamples). On by default; 0 = the old hard edge. Restart to apply.
     {"VrHmcsQuad",
      &g_bVrHmcsQuad}, // Artscout - 2026: draw the JHMCS symbology as a head-locked quad layer (the runtime keeps it glued to the head in hard turns) instead of into each eye image. D3D12 VR only. 0 = in-eye (the old way). Restart to apply.
+    {"WorldShadow",
+     &g_bWorldShadow}, // Artscout - 2026: WORLD sun shadows. The frame's object draw lists are replayed depth-only into a camera-centred sun-space map (D3D12 only); buildings, vehicles and aircraft then darken the sun term on the ground and on each other. Written, not yet flown: default OFF. Restart to apply.
     {"CpuTerrainXform",
      &g_bCpuTerrainXform}, // Artscout - 2026: debug: 1 = run the legacy CPU terrain vertex transform + lighting even when GPU terrain draws (it is skipped by default: nothing reads it). Live.
     {"TerrainNoCull",
@@ -2012,6 +2031,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"InitIndependent", &g_bInitIndependent}, // campaign: each team gets its own initiative against the coalition at war with it
     {"AirliftRunway", &g_bAirliftRunway}, // 1 = no airlift credit for a landing at an airbase with no working runway
     {"AirliftNeed", &g_bAirliftNeed}, // 1 = airlift credit is capped by the need around the destination
+    {"AirFuelAware", &g_bAirFuelAware}, // 1 = air tasking skips squadrons the air fuel model would refuse
     {"ReplSplitFix", &g_bReplSplitFix}, // 1 = ground units always keep a share of the replacement pool
     {"SupplySplitShares", &g_bSupplySplitShares}, // 1 = ground and air get separate shares of the supply pool
     {"AlertScramble", &g_bAlertScramble}, // 1 = alert flights scramble against intercepts
@@ -2021,6 +2041,7 @@ static ConfigOption<bool> BoolOpts[] = {
     {"ReserveNoPullback", &g_bReserveNoPullback}, // 1 = idle front-line battalions are not pulled back as reserves
     {"GtmKeepCapture", &g_bGtmKeepCapture}, // 1 = attacking battalions keep their target while it stays valid
     {"SupplyExactLoss", &g_bSupplyExactLoss}, // 1 = small supply shipments are not rounded away on long roads
+    {"SupplyNews", &g_bSupplyNews}, // 1 = news line when war industry, fuel output or front-line supply changes tier
     {"GreyScaleMFD", &g_bGreyScaleMFD},
     {"IFFRWR", &g_bIFFRWR},
     {"3dCockpit", &g_b3dCockpit},
@@ -2126,6 +2147,8 @@ static ConfigOption<bool> BoolOpts[] = {
     {"EnableRandomFailures", &g_bEnableRandomFailures}, // Wombat778 12-11-2003
     {"2DPitWingFOVFix", &g_b2DPitWingFOVFix}, // Wombat778 2-25-2003
     {"OldFontTexelFix", &g_bOldFontTexelFix}, // Wombat778 4-01-04
+    {"HudWheelStartMax", &g_bHudWheelStartMax}, // Artscout - 2026: start every flight with the HUD SYM wheel at full instead of the saved per-pilot value (default 1)
+    {"HudTextTrace", &g_bHudTextTrace}, // Artscout - 2026: DIAGNOSTIC, logs who draws the HUD string "50" (see display.cpp)
     {"HudStrokeFont", &g_bHudStrokeFont}, // Artscout - 2026: BMS-style HUD font from art/ckptart/hudfont (default 1; files absent = stock font)
     {"Filter2DPit", &g_bFilter2DPit}, // Wombat778 3-30-2004
     {"CrackFix", &g_bCrackFix}, // Wombat778 4-02-2004
@@ -2134,9 +2157,6 @@ static ConfigOption<bool> BoolOpts[] = {
     {"CheckFeatureIndex", &g_bCheckFeatureIndex}, // Wombat778 5-15-2004
     {"MachAsiDial", &g_bMachAsiDial}, // Wombat778 7-9-2004
     {"New2DTrackIR", &g_bNew2DTrackIR}, // Wombat778 11-15-2004
-    {"HudWheelStartMax", &g_bHudWheelStartMax}, // Artscout - 2026: start every flight with the HUD SYM wheel at full instead of the saved per-pilot value (default 1)
-    {"HudTextTrace", &g_bHudTextTrace}, // Artscout - 2026: DIAGNOSTIC, logs who draws the HUD string "50" (see display.cpp)
-    {"HudTextTrace", &g_bHudTextTrace}, // Artscout - 2026: DIAGNOSTIC, logs who draws the HUD string "50" (see display.cpp)
     {"Sync2D3DPit", &g_bSync2D3DPit}, // Wombat778 11-17-2004
     {"HudFlir", &g_bHudFlir}, // Artscout - 2026: kill switch for the nav FLIR raster in the 3D-pit HUD zone (default 1)
     {"HudFlirDebug", &g_bHudFlirDebug}, // Artscout - 2026: DIAGNOSTIC, the raw HUD FLIR render target in a screen corner (default 0)
@@ -2426,6 +2446,9 @@ static ConfigOption<int> IntOpts[] = {
     {"GtmReservesPerCycle", &g_nGtmReservesPerCycle}, // reserve units the ground AI moves up per cycle (stock 1)
     {"GtmCaptureMaxKm", &g_nGtmCaptureMaxKm}, // capture targets beyond this distance are not offered (0 = stock)
     {"CaptureInitiative", &g_nCaptureInitiative}, // initiative per captured objective (stock 5)
+    {"AlliedCounterMin", &g_nAlliedCounterMin}, // allied battalions at the front that start a counteroffensive
+    {"AlliedCounterRestHours", &g_nAlliedCounterRestH}, // hours between allied counteroffensives
+    {"AlliedCounterKm", &g_nAlliedCounterKm}, // how near the front counts, km
     {"CounterAttackInitiative", &g_nCounterAttackInitiative}, // a defending side with this much initiative may counterattack (0 = stock)
     {"StoreCapPct", &g_nStoreCapPct}, // SupplyStocks: store capacity, percent of the class DataRate
     {"StoreFillPct", &g_nStoreFillPct}, // SupplyStocks: refill per production call, percent of capacity
@@ -2434,9 +2457,7 @@ static ConfigOption<int> IntOpts[] = {
     {"NavalAI", &g_nNavalAI}, // campaign: 1 = ships sortie, patrol and sail port to port, 0 = old behaviour
     {"NavalTankerFuel", &g_nNavalTankerFuel}, // fuel per docked sea tanker, scaled by missing refinery output (0 = off)
     {"SimToGridFix", &g_nSimToGridFix}, // campaign: 1 = floor the sim->grid conversion (ground units can move again), 0 = old rounding
-    {"AlliedCounterMin", &g_nAlliedCounterMin}, // allied battalions at the front that start a counteroffensive
-    {"AlliedCounterRestHours", &g_nAlliedCounterRestH}, // hours between allied counteroffensives
-    {"AlliedCounterKm", &g_nAlliedCounterKm}, // how near the front counts, km
+    {"OffFuelCheat", &g_nOffFuelCheat}, // campaign: 1 = a ground offensive sets the fuel pools (stock), 0 = it does not
     {"RwrFont", &g_nRwrFont}, // Artscout - 2026 (RWR): -1 = one size below the MFD font, else 0..3
     {"CanopyAttenuation", &g_nCanopyAttenuation}, // Artscout - 2026: extra dB of canopy muffling, 0 = off
     {"PadlockBoxSize", &g_nPadlockBoxSize},
@@ -2489,6 +2510,8 @@ static ConfigOption<int> IntOpts[] = {
     {"HudFlirRes", &g_nHudFlirRes}, // Artscout - 2026: HUD FLIR render target edge, px (default 512, 128..2048)
     {"HitchMs",
      &g_nHitchMs}, // Artscout - 2026: [HITCH] sampler trigger: sample the sim thread's stack while a VR frame has run this many ms (default 40 = spikes only). Set ~14 to profile slow-but-steady frames (samples every 8 ms, up to 6000 lines; 6 samples the whole frame, 14 only its tail). Restart to apply.
+    {"WorldShadowRes",
+     &g_nWorldShadowRes}, // Artscout - 2026: world shadow map edge in texels (512..8192, default 4096, 64 MB at 4096)
     {"VrEyeOverlap",
      &g_nVrEyeOverlap}, // Artscout - 2026: 1 = overlap the eyes: the CPU does not wait for eye 1's GPU work before recording eye 2 (each eye records into its own command allocator and upload-ring slot; the last eye of the frame still waits). Saves ~1-1.5 ms of CPU per frame when the GPU is mostly idle. 0 = the old wait-per-eye (default). Restart to apply.
     {"VrMsaaSamples", &g_nVrMsaaSamples}, // Artscout - 2026: per-eye VR MSAA, 0 = off (default), 2/4/8. Restart to apply.
@@ -2558,6 +2581,8 @@ static ConfigOption<char> StringOpts[] = {
     {"RailTrainLines", &g_strRailTrainLines[0]}, // Artscout - 2026: routes that get a train
     {"AlliedCounterTeams", &g_strAlliedCounterTeams[0]}, // teams that may use the allied counteroffensive / capture
     {"TeamOffenseBars", &g_strTeamOffenseBars[0]}, // campaign: per-team offensive initiative bars
+    {"AirFuelRates", &g_strAirFuelRates[0]}, // campaign: per-team fuel units one aircraft draws per day (with AirFuelDays)
+    {"AirliftFuelPct", &g_strAirliftFuelPct[0]}, // campaign: per-team share of the fuel an airlift landing credits
     {"ReinforceHold", &g_strReinforceHold[0]}, // campaign: hold a team's reinforcements until an event
     {"ReinforceForwardTypes", &g_strReinforceForwardTypes[0]}, // campaign: arriving squadrons of these types go to the most forward airbase
     {"RailWaveCountries", &g_strRailWaveCountries[0]}, // Artscout - 2026: countries that mobilise by rail
@@ -2586,6 +2611,7 @@ static ConfigOption<char> StringOpts[] = {
 
 static ConfigOption<float> FloatOpts[] = {
     {"EnemyTownPathCost", &g_fEnemyTownPathCost}, // ground routes: cost multiplier through enemy towns (stock 4)
+    {"AirFuelDays", &g_fAirFuelDays}, // campaign: days of fuel a squadron holds (0 = stock: air fuel is never tested)
     {"WeatherFrontsPerDay", &g_fWeatherFrontsPerDay}, // Artscout - 2026 (FRONTS)
     {"WeatherNoise", &g_fWeatherNoise}, // Artscout - 2026 (FRONTS)
     {"HmcsHudHalfWidth", &g_fHmcsHudHalfWidth}, // Artscout - 2026: JHMCS HUD blanking box, deg
@@ -2593,6 +2619,9 @@ static ConfigOption<float> FloatOpts[] = {
     {"HmcsHudBottom", &g_fHmcsHudBottom},
     {"HmcsScale", &g_fHmcsScale},         // Artscout - 2026: JHMCS symbology size
     {"HmcsTextScale", &g_fHmcsTextScale}, // Artscout - 2026: JHMCS glyph size
+    {"HudGainMin", &g_fHudGainMin}, // Artscout - 2026: HUD gain at SYM wheel 0, in daylight (default 0.4)
+    {"HudGainMax", &g_fHudGainMax}, // Artscout - 2026: HUD gain at SYM wheel 1, in daylight (default 2.0; 1.0 = old fixed brightness)
+    {"HudGainNight", &g_fHudGainNight}, // Artscout - 2026: HUD gain at SYM wheel 1 in the dark (default 2.0; 1.0 = no night boost)
     {"HudFontScale", &g_fHudFontScale}, // Artscout - 2026: HUD stroke font glyph size (default 0.7 of its 12x19 cell)
     {"MipLodBias", &g_fMipLodBias},
     {"BubbleScale", &g_fBubbleScale}, // Artscout - 2026: local-only multiplier on every non-objective sim bubble (default 1; 0.25..8). Costs CPU, not GPU. [BUBBLE] lines in FFDebug.log show the resulting ranges.
@@ -2603,9 +2632,6 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fSubtitleY}, // Artscout - 2026: radio subtitle first line, viewport NDC (+ = up)
     {"SubtitleLineSpacing",
      &g_fSubtitleLineSpacing}, // Artscout - 2026: line pitch, multiples of the font height
-    {"HudGainMin", &g_fHudGainMin}, // Artscout - 2026: HUD gain at SYM wheel 0, in daylight (default 0.4)
-    {"HudGainMax", &g_fHudGainMax}, // Artscout - 2026: HUD gain at SYM wheel 1, in daylight (default 2.0; 1.0 = old fixed brightness)
-    {"HudGainNight", &g_fHudGainNight}, // Artscout - 2026: HUD gain at SYM wheel 1 in the dark (default 2.0; 1.0 = no night boost)
     {"SubtitleScale",
      &g_fSubtitleScale}, // Artscout - 2026: subtitle glyph scale, 1.0 = the font's native size
     {"VrFpsQuadX", &g_fVrFpsQuadX}, // Artscout - 2026: VR fps quad, m right
@@ -2632,6 +2658,18 @@ static ConfigOption<float> FloatOpts[] = {
      &g_fSunTodDimRef}, // Artscout - 2026: sun fades below this TOD light level (0 = off)
     {"ToneMapExposure",
      &g_fToneMapExposure}, // Artscout - 2026: scene exposure into the GT7 curve (1 = scene white on paper white)
+    {"HorizonFillerMinAlt",
+     &g_fHorizonFillerMinAlt}, // Artscout - 2026: altitude (feet) above which the flat horizon filler is drawn over the dome (it covers a black sliver seen from ~40k ft). Below it the glow-aware dome skirt fills the gap. 0 = always draw it (the old behaviour). Live.
+    {"HorizonHazeMatch",
+     &g_fHorizonHazeMatch}, // Artscout - 2026: 0..1. How far the GROUND haze (terrain/object fog, the horizon filler, the dome's anchor colour) is pulled toward the SKY haze colour, so the horizon is one colour at dawn/dusk instead of a brown strip under a grey-green sky. 1 (default) = fully matched, 0 = the time-of-day table's own ground haze. Live.
+    {"LinearLighting",
+     &g_fLinearLighting}, // Artscout - 2026: 0..1. Sum the sun and ambient light in LINEAR light (decode, add, re-encode) and blend that over the old encoded-space sum, for objects and terrain. Deeper, more contrasty shading and a softer terminator; 0 = off (default). The terrain's TerrainLightGain was tuned for 0, so raise it a little (1.4-1.6) with this on. The cockpit keeps its own look. Live.
+    {"ObjSpecPowerCap",
+     &g_fObjSpecPowerCap}, // Artscout - 2026: cap the Blinn-Phong specular power on objects (0 = no cap). Try 24-48 if roof/glass glints twinkle with head motion. Live.
+    {"WorldShadowReach",
+     &g_fWorldShadowReach}, // Artscout - 2026: half-width (feet) the world shadow map covers around the camera; 0 = automatic (1.6 x altitude, 3000..36000 ft)
+    {"WorldShadowStrength",
+     &g_fWorldShadowStrength}, // Artscout - 2026: how much of the sun a full world shadow removes (default 0.85; the sky light still lights it)
     {"TerrainRingScale",
      &g_fTerrainRingScale}, // Artscout - 2026: widen every terrain LOD ring except the last by this factor (default 1 = stock). 2 doubles the posts per ring at the same spacing: the 4 km posts leave the 150 km view, 2 km posts reach ~100 km. Costs data streaming/tile textures and a little CPU; the GPU terrain pass is ~0.1 ms. Capped by the clipmap window (~2.3x). Restart to apply.
     {"VrHmcsQuadHalfFov",

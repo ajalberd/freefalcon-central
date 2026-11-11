@@ -25,6 +25,8 @@
 #include "classtbl.h"
 #include "aircrft.h"
 #include "falcsess.h"
+#include <map>
+#include <vector>
 
 //sfr: buffer checks
 #include "invalidbufferexception.h"
@@ -61,6 +63,7 @@ extern int gRenameIds;
 
 int RequestAirborneTransport(Unit u);
 int RequestMarineTransport(Unit u);
+int GroundReachable(Unit u, Objective o);
 
 // ==================================
 // Some module globals - to save time
@@ -287,7 +290,93 @@ int GroundUnitClass::DetectOnMove(void)
 
             if (capture)
             {
-                CaptureObjective(o, GetOwner(), this);
+                Team oldTeam = o->GetTeam();
+
+                // campsim experiment (garblock=1, off = stock): a defender in the objective's own cell holds
+                // it. Stock flips the objective to whoever walks in, so a garrison cannot hold a town at all:
+                // measured on save1 with defendon=1 (88% of DEFEND battalions on their objective's cell) the
+                // towns still fell at the stock rate.
+                {
+                    extern bool g_bGarrisonBlocks;
+
+                    if (g_bGarrisonBlocks)
+                    {
+                        GridIndex ox, oy;
+                        int held = 0;
+
+                        o->GetLocation(&ox, &oy);
+
+                        VuListIterator hit(AllUnitList);
+                        Unit h = GetFirstUnit(&hit);
+
+                        while (h and not held)
+                        {
+                            if (h->IsBattalion() and h->GetTeam() == oldTeam and not h->Broken())
+                            {
+                                GridIndex hx, hy;
+
+                                h->GetLocation(&hx, &hy);
+
+                                if (abs((int)hx - (int)ox) <= 1 and abs((int)hy - (int)oy) <= 1)
+                                    held = 1;
+                            }
+
+                            h = GetNextUnit(&hit);
+                        }
+
+                        if (held)
+                            capture = 0;
+                    }
+                }
+
+                if (capture)
+                    CaptureObjective(o, GetOwner(), this);
+
+                if (not capture)
+                {
+                    o = (Objective)detit.GetNext();
+                    continue;
+                }
+
+                // campsim experiment (counterloss=KM, 0 = stock): the defenders of an objective that just
+                // fell go back for it. Stock only re-checks the counter-attack branch in
+                // BattalionClass::PickFinalLocation when a unit's orders change, so a battalion ordered to
+                // defend a town it then loses sits beside it for the rest of the war (save1's 2nd Infantry
+                // at Sunch'ang: captured at h55, ordered to defend, 1 km short; one DPRK battalion retook it
+                // at h71 and the defender was never re-tasked).
+                {
+                    extern float g_fCounterLossKm;
+
+                    if (g_fCounterLossKm > 0.0F)
+                    {
+                        GridIndex ox, oy;
+
+                        o->GetLocation(&ox, &oy);
+
+                        VuListIterator dit(AllUnitList);
+                        Unit def = GetFirstUnit(&dit);
+
+                        while (def)
+                        {
+                            if (def not_eq this and def->IsBattalion() and
+                                    def->GetTeam() == oldTeam and
+                                    def->GetUnitObjectiveID() == o->Id() and
+                                    def->GetUnitOrders() == GORD_DEFEND)
+                            {
+                                GridIndex ux, uy;
+                                const int r = (int)(g_fCounterLossKm + 0.5F);
+
+                                def->GetLocation(&ux, &uy);
+
+                                // campaign cells are 1 km: stay within the knob's range
+                                if (abs((int)ux - (int)ox) <= r and abs((int)uy - (int)oy) <= r)
+                                    def->SetUnitOrders(GORD_CAPTURE, o->Id());
+                            }
+
+                            def = GetNextUnit(&dit);
+                        }
+                    }
+                }
 
                 if (not Parent())
                 {
@@ -962,6 +1051,124 @@ static int PartialObjPathGetsCloser(BasePathClass *p, Objective o, Objective t)
     return Distance(ex, ey, tx, ty) + 5.0F <= Distance(ox, oy, tx, ty);
 }
 
+// campsim only (gWPFailDiag): why the objective route failed, per team. [0] the unit cannot move, [1] no
+// link route even ignoring every rule, [2] rules of engagement close it, [3] a broken bridge closes it,
+// [4] a route exists but is longer than the path buffer, [5] a route exists within the rules and the
+// search still missed it, [6] the search finds it with the whole node pool. The first failures are kept
+// in gWPSample: unit, team, from, to, code, hops, link cost of the first hop, the big-pool result.
+int gWPFailDiag = 0;
+int gWPWhy[8][8] = {{0}};
+int gWPSample[24][8];
+int gWPSampleN = 0;
+int gWPPair[256][7]; // team, from, to, code, tactic, orders, count
+int gWPPairN = 0;
+
+static int ObjRouteHops(Objective o, Objective t, Team team, int stage)
+{
+    std::map<Objective, int> seen;
+    std::vector<Objective> q;
+
+    seen[o] = 0;
+    q.push_back(o);
+
+    for (size_t i = 0; i < q.size(); i++)
+    {
+        Objective c = q[i];
+
+        if (c == t)
+            return seen[c];
+
+        for (int k = 0; k < c->static_data.links; k++)
+        {
+            Objective n = c->GetNeighbor(k);
+
+            if (not n or seen.count(n) or c->GetNeighborCost(k, NoMove) >= 255.0F)
+                continue;
+
+            if (stage >= 1 and not GetRoE(team, (Team)n->GetTeam(), ROE_GROUND_MOVE))
+                continue;
+
+            if (stage >= 2 and n->GetType() == TYPE_BRIDGE and not n->GetObjectiveStatus())
+                continue;
+
+            seen[n] = seen[c] + 1;
+            q.push_back(n);
+        }
+    }
+
+    return -1;
+}
+
+static void DiagObjRouteFail(Unit u, Objective o, Objective t)
+{
+    PathClass big;
+    int code = 5, hops = -1, bigfound = -2;
+    float first = -1.0F;
+    const Team team = (Team)u->GetTeam();
+
+    if (u->GetMovementType() == NoMove)
+        code = 0;
+    else if (ObjRouteHops(o, t, team, 0) < 0)
+        code = 1;
+    else if (ObjRouteHops(o, t, team, 1) < 0)
+        code = 2;
+    else if ((hops = ObjRouteHops(o, t, team, 2)) < 0)
+        code = 3;
+    else if (hops >= big.GetMaxLength())
+        code = 4;
+    else
+    {
+        const int saved = maxSearch;
+        int flags = PATH_ROADOK bitor PATH_ENEMYOK bitor PATH_ENEMYCOST;
+
+        if (u->GetUnitNormalRole() == GRO_ENGINEER)
+            flags or_eq PATH_ENGINEER;
+
+        maxSearch = MAX_SEARCH;
+        bigfound = GetObjectivePath(&big, o, t, u->GetMovementType(), u->GetTeam(), flags);
+        maxSearch = saved;
+
+        if (bigfound == 1)
+            code = 6;
+    }
+
+    if (hops == 1)
+        for (int k = 0; k < o->static_data.links; k++)
+            if (o->GetNeighbor(k) == t)
+                first = o->GetNeighborCost(k, NoMove);
+
+    gWPWhy[u->GetTeam() % 8][code]++;
+
+    // every distinct (team, from, to) with its tactic and orders, cumulative: campsim prints the commonest
+    {
+        int i = 0;
+
+        for (; i < gWPPairN; i++)
+            if (gWPPair[i][0] == u->GetTeam() and gWPPair[i][1] == o->GetCampID() and gWPPair[i][2] == t->GetCampID())
+                break;
+
+        if (i < 256)
+        {
+            if (i == gWPPairN)
+            {
+                gWPPairN++;
+                gWPPair[i][0] = u->GetTeam(), gWPPair[i][1] = o->GetCampID(), gWPPair[i][2] = t->GetCampID();
+                gWPPair[i][3] = code, gWPPair[i][4] = u->GetUnitTactic(), gWPPair[i][5] = u->GetUnitOrders();
+                gWPPair[i][6] = 0;
+            }
+
+            gWPPair[i][6]++;
+        }
+    }
+
+    if (gWPSampleN < 24)
+    {
+        int *s = gWPSample[gWPSampleN++];
+        s[0] = u->GetCampID(), s[1] = u->GetTeam(), s[2] = o->GetCampID(), s[3] = t->GetCampID();
+        s[4] = code, s[5] = hops, s[6] = (int)first, s[7] = bigfound;
+    }
+}
+
 int BuildGroundWP(Unit u)
 {
     PathClass path, path2;
@@ -1105,6 +1312,10 @@ int BuildGroundWP(Unit u)
 
 #endif
         gWPFail[us % 8][0]++; // campsim: objective route
+
+        if (gWPFailDiag)
+            DiagObjRouteFail(u, o, t);
+
         return -1;
     }
 
@@ -1840,7 +2051,9 @@ Objective FindBestPosition(Unit battalion, Brigade brigade, int role,
             other_battalion = (Battalion)brigade->GetNextUnitElement();
         }
 
-        if (score > bests)
+        // (g_bRetreatGroundLinks) not an objective this battalion cannot walk to; only tested for a candidate
+        // that would be the best so far, as the route search is not cheap
+        if (score > bests and GroundReachable(battalion, o))
         {
             bests = score;
             besto = o;
@@ -2430,6 +2643,38 @@ Objective FindSupplyFallback(Unit u, int maxkm)
     return NULL;
 }
 
+// Artscout - 2026 (g_bRetreatGroundLinks, off = stock): the retreat search below follows every objective link,
+// including the air-only ones (ground cost 255: the Taiwan cross-strait links, an islet airstrip's only link), so
+// "3 links back" could be an objective across water. campsim MOVE: 70% of the "no waypoints" failures in Taiwan
+// save1/save2 were battalions given such a fall-back RESERVE objective (battalio.cpp:782) and failing to path
+// to it every tick. With it, a land unit only follows links a ground unit can use.
+bool g_bRetreatGroundLinks = true;
+
+// Can this ground unit walk from where it stands to o by the objective links? Used to refuse a fall-back or
+// rear-to-front objective on another island or land piece (g_bRetreatGroundLinks). True when switched off.
+int GroundReachable(Unit u, Objective o)
+{
+    GridIndex ux, uy;
+    PathClass p;
+
+    if (not g_bRetreatGroundLinks or not o or u->GetDomain() != DOMAIN_LAND)
+        return 1;
+
+    u->GetLocation(&ux, &uy);
+
+    {
+        GridIndex ox, oy;
+        o->GetLocation(&ox, &oy);
+
+        if (GroundSeparated(ux, uy, ox, oy)) // g_bLandPieces: another island or peninsula, whatever the links say
+            return 0;
+    }
+
+    Objective from = FindNearestObjective(ux, uy, NULL);
+
+    return not from or from == o or u->GetUnitObjectivePath(&p, from, o) > 0;
+}
+
 // Try and find the nearest objective of the specified depth (number of moves)
 // away from the front line. We need to actually follow links to make sure
 // it's possible to move here.
@@ -2476,6 +2721,10 @@ Objective FindRetreatPath(Unit u, int depth, int flags)
                 if (o and not CampSearch[o->GetCampID()] and
                     team == o->GetTeam())
                 {
+                    if (g_bRetreatGroundLinks and u->GetDomain() == DOMAIN_LAND and
+                        s->GetNeighborCost(n, NoMove) >= 255.0F)
+                        continue;
+
                     o->GetLocation(&x, &y);
                     odist = dist + FloatToInt32(Distance(x, y, sx, sy));
                     looklist.InsertNewElement(odist, o, LADT_SORTED_LIST);
@@ -2491,6 +2740,9 @@ Objective FindRetreatPath(Unit u, int depth, int flags)
                              (o->IsFrontline() or o->IsSecondline()))
                         continue;
                     else if (o->IsFrontline())
+                        continue;
+
+                    if (not GroundReachable(u, o))
                         continue;
 
                     // The list should purge itself here, when it gets deleted

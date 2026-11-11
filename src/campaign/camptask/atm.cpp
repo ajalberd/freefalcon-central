@@ -1629,6 +1629,12 @@ int gAtmDiag[NUM_TEAMS][24] = {{0}};
 // [0] none had the role, [1] relocating, [2] capabilities, [3] stealth by day, [4] NPC-only, [5] out of range,
 // [6] speed, [7] schedule/time, [8] no aircraft free, [9] airbase slots full, [10] passed everything
 int gNoFlightWhy[8][4][11];
+// Cfg AirFuelAware (needs AirFuelDays): FindBestAir passes over a squadron whose fuel stock cannot cover two aircraft and that the national pool could not
+// top up (the check the flight builder makes at the end), so the request goes to the next squadron instead of dying with the starved one.
+// gAirAwareSkip counts those passes per team (cumulative, campsim diagnostics).
+extern bool g_bAirFuelAware;
+extern bool AirFuelOnFor(int team); // squadron.cpp
+int gAirAwareSkip[8];
 // campsim BOMBERWHY: the same checks for squadrons whose class is "Bomb" or "Strike Fighter" ([0] bomber, [1] strike
 // fighter; [10] passed every check, [11] then chosen)
 int gHeavyWhy[2][12];
@@ -1853,6 +1859,19 @@ Squadron AirTaskingManagerClass::FindBestAir(MissionRequest mis, GridIndex bx,
                  not(mis->flags bitand REQF_USERESERVES)) or
                 av < 1)
                 { ATMD(8); continue; }
+
+            if (g_bAirFuelAware and AirFuelOnFor(sq->GetTeam()))
+            {
+                extern long AirFuelCap(SquadronClass * sq);
+                const long needFuel = (long)uc->Fuel * 2 / 100;
+
+                if (sq->GetSquadronFuel() < needFuel and
+                    not(TeamInfo[mis->who] and TeamInfo[mis->who]->GetFuelAvail() > 0 and AirFuelCap(sq) >= needFuel))
+                {
+                    gAirAwareSkip[mis->who % 8]++;
+                    continue;
+                }
+            }
 
             // Check against airbase schedule for this block and previous block
             airbase = FindATMAirbase(sq->GetUnitAirbaseID());
@@ -2192,6 +2211,13 @@ Flight AirTaskingManagerClass::FindBestAirFlight(MissionRequest mis)
                 mis->match_strength = 1; // Some strength - for ratioing
 
             aa = GetUnitScore(cf, Air);
+
+            // A flight with no air score left (shot out, or a zero-strength element still in the list) used
+            // to divide by zero just below and take the whole run with it (0xC0000094 in FindBestAirFlight,
+            // Taiwan save2, 24 h in). It is not a divert target: skip it. Scoring it instead let
+            // BuildDivert pick a flight with nothing left to fly, which livelocked the ATM under load.
+            if (aa <= 0)
+                { ALERT_WHY(7); continue; }
 
             if (aa > mis->match_strength * 2)
                 score -= max(5, aa / mis->match_strength); // We're overkill

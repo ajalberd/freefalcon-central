@@ -85,6 +85,9 @@ int GetTeamSituation(Team t);
 void RemoveTeam(int teamNum);
 void StartOffensive(int who, int initiative);
 
+// campsim offfuel=0: a ground offensive no longer tops up the attacker's fuel pool or caps the enemy's (1 = stock)
+int g_nOffFuelCheat = 1;
+
 _TCHAR DogfightTeamNames[NUM_TEAMS]
                         [20] = // this will get hammered by the UI later
     {
@@ -1543,7 +1546,7 @@ void TeamClass::SelectGroundAction(void)
             if (supplyAvail < sup)
                 supplyAvail = sup;
 
-            if (fuelAvail < sup)
+            if (g_nOffFuelCheat and fuelAvail < sup)
                 fuelAvail = sup;
 
             // This is where we really cheat. We're going to add (initiative %) to both supply and strength.
@@ -1572,7 +1575,7 @@ void TeamClass::SelectGroundAction(void)
                     if (TeamInfo[t]->supplyAvail > sup)
                         TeamInfo[t]->supplyAvail = sup;
 
-                    if (TeamInfo[t]->fuelAvail > sup)
+                    if (g_nOffFuelCheat and TeamInfo[t]->fuelAvail > sup)
                         TeamInfo[t]->fuelAvail = sup;
 
                     TeamInfo[t]->SetGroundAction(&enemyAction);
@@ -3970,7 +3973,7 @@ void StartOffensive(int team, int bonus)
         TeamInfo[team]->SetSupplyAvail(
             StartOffBonusSup); //from 5000 to StartOffBonusSup
 
-    if (TeamInfo[team]->GetFuelAvail() < StartOffBonusFuel)
+    if (g_nOffFuelCheat and TeamInfo[team]->GetFuelAvail() < StartOffBonusFuel)
         TeamInfo[team]->SetFuelAvail(
             StartOffBonusFuel); //from 5000 to StartOffBonusFuel
 

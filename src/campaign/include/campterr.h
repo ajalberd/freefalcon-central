@@ -53,6 +53,13 @@ extern int ShipWater(GridIndex x, GridIndex y);
 extern int SeaMaskLand(GridIndex x, GridIndex y);
 extern int gSeaMaskSuspend; // set while a ship's route is retried on the cover grid alone
 
+// Artscout - 2026 (g_bLandPieces): the cover grid's connected land masses (8-way; a road bit on a water cell is
+// a bridge or port and joins its banks). LandPiece is 0 for water; GroundSeparated is true only when both
+// cells are land and no overland route can join them -- an islet, or the far side of a strait.
+extern bool g_bLandPieces;
+extern int LandPiece(GridIndex x, GridIndex y);
+extern int GroundSeparated(GridIndex x, GridIndex y, GridIndex xx, GridIndex yy);
+
 extern char GetRoad(GridIndex x, GridIndex y);
 
 extern char GetRail(GridIndex x, GridIndex y);

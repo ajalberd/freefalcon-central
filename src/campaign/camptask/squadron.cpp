@@ -5,6 +5,7 @@
 #include <io.h>
 #include <stdlib.h>
 #include <math.h>
+#include <map>
 #include "cmpglobl.h"
 #include "f4vu.h"
 #include "listadt.h"
@@ -105,6 +106,72 @@ extern int haveWeaps;
 extern int haveFuel;
 extern int ourRange;
 extern int theirDomain;
+
+// campsim: aircraft fuel through the squadron stock, per team (cumulative, squadron fuel units)
+// [0] taken at launch, [1] returned on landing, [2] refilled from the national fuel pool, [3] launches that asked for more than the stock held,
+// [4] sorties refused for want of fuel (airfuel), [5] flights launched
+int gAirFuel[8][6] = {{0}};
+
+// campsim: why a sortie was refused for fuel, per team (cumulative): [0] pool empty at the ask, [1] pool had some but not enough, [2] the squadron's own cap is
+// below two aircraft's worth, [3] no top-up tried; [4] top-ups tried, [5] top-ups that took the whole pool, [6] sum of pool points at the ask, [7] sum of points taken
+int gAirRefuse[8][8] = {{0}};
+std::map<int, int> gRefuseSq[8]; // refusals per squadron in the current 6 h (cleared by campsim)
+
+void AirRefuseSq(SquadronClass *sq)
+{
+    gRefuseSq[sq->GetTeam() % 8][(int)sq->GetCampID()]++;
+}
+
+// Air fuel model (cfg AirFuelDays + AirFuelRates; off = stock, where a squadron's fuel stock is tracked but nothing ever tests it).
+// A squadron of a listed team holds at most AirFuelDays days of what one of its aircraft draws at launch per day (AirFuelRates "TEAM:UNITS,..." units
+// per aircraft per day, measured on that team's own baseline) times its aircraft. The unit is the one UpdateSquadronStores draws in (class fuel in
+// pounds / 100); a pool fuel point refills SUPPLY_PT_FUEL / 100 of them. A flight is not built from a squadron that cannot cover two aircraft
+// after a launch-time top-up from the national pool (FlightClass::BuildMission), so an empty pool grounds the squadrons that are empty.
+extern float g_fAirFuelDays;
+extern char g_strAirFuelRates[];
+
+float AirFuelRate(int team)
+{
+    static float rate[8];
+    static char seen[0x100] = "";
+    static bool first = true;
+
+    if (first or strcmp(seen, g_strAirFuelRates))
+    {
+        first = false;
+        strncpy(seen, g_strAirFuelRates, sizeof(seen) - 1);
+        seen[sizeof(seen) - 1] = 0;
+        memset(rate, 0, sizeof(rate));
+
+        for (const char *p = seen; *p;)
+        {
+            int t = 0;
+            float r = 0.0F;
+
+            if (sscanf(p, "%d:%f", &t, &r) == 2 and t >= 0 and t < 8)
+                rate[t] = r;
+
+            const char *c = strchr(p, ',');
+
+            if (not c)
+                break;
+
+            p = c + 1;
+        }
+    }
+
+    return rate[team & 7];
+}
+
+bool AirFuelOnFor(int team)
+{
+    return g_fAirFuelDays > 0.0F and AirFuelRate(team) > 0.0F;
+}
+
+long AirFuelCap(SquadronClass *sq)
+{
+    return AirFuelOnFor(sq->GetTeam()) ? (long)(sq->GetTotalVehicles() * AirFuelRate(sq->GetTeam()) * g_fAirFuelDays) : 0;
+}
 
 // =================================
 // Smart heap pool stuff
@@ -916,6 +983,20 @@ int SquadronClass::GetUnitFuelNeed(int have)
     if (not uc)
         return 0;
 
+    if (AirFuelOnFor(GetTeam()))
+    {
+        // air fuel model: want a full stock (the cap); anything above it is wasted; a pool point is SUPPLY_PT_FUEL / 100 loads
+        const long cap = AirFuelCap(this), unit = SUPPLY_PT_FUEL / 100;
+
+        if (GetSquadronFuel() > cap)
+            SetSquadronFuel(cap);
+
+        if (have)
+            return GetSquadronFuel() / unit;
+
+        return cap > GetSquadronFuel() ? (int)((cap - GetSquadronFuel() + unit - 1) / unit) : 0;
+    }
+
     // Squadrons want enough fuel to load each plane SQUADRON_MISSIONS_PER_HOUR times per hour for 2 supply periods
     if (have)
         return GetSquadronFuel() / SUPPLY_PT_FUEL;
@@ -937,7 +1018,12 @@ void SquadronClass::SupplyUnit(int supply, int fuel)
     int need, i;
     float ratio;
 
-    UseFuel(-1 * fuel * SUPPLY_PT_FUEL);
+    const long ptUnits = AirFuelOnFor(GetTeam()) ? SUPPLY_PT_FUEL / 100 : SUPPLY_PT_FUEL;
+    UseFuel(-1 * fuel * ptUnits);
+    gAirFuel[GetTeam() % 8][2] += fuel * ptUnits;
+
+    if (AirFuelOnFor(GetTeam()) and GetSquadronFuel() > AirFuelCap(this))
+        SetSquadronFuel(AirFuelCap(this));
 
     // Now let's add our munititions
     need = GetUnitSupplyNeed(FALSE);
@@ -1443,10 +1529,16 @@ void SquadronClass::UpdateSquadronStores(short weapon[HARDPOINT_MAX],
         SetUnitStores(weaparray[i], n);
     }
 
-    f = GetSquadronFuel() - ((lbsfuel * planes) / 100);
+    const int draw = lbsfuel * planes / 100;
+    f = GetSquadronFuel() - draw;
+    gAirFuel[GetTeam() % 8][0] += draw;
+    gAirFuel[GetTeam() % 8][5]++;
 
     if (f < 0)
+    {
+        gAirFuel[GetTeam() % 8][3]++;
         f = 0;
+    }
 
     SetSquadronFuel(f);
 
@@ -1526,7 +1618,9 @@ void SquadronClass::ResupplySquadronStores(short weapon[HARDPOINT_MAX],
         SetUnitStores(weaparray[i], n);
     }
 
-    f = GetSquadronFuel() + ((lbsfuel * planes) / 100);
+    const int back = lbsfuel * planes / 100;
+    f = GetSquadronFuel() + back;
+    gAirFuel[GetTeam() % 8][1] += back;
 
     if (f < 0)
         f = 0;

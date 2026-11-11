@@ -577,6 +577,88 @@ static bool TeamAtWarWithAnyone(int team)
     return false;
 }
 
+// Nearest objective a unit with no task of its own could act on: an enemy one it may capture (80 km),
+// else one of ours it may defend (40 km). Only called for a unit that would otherwise sit still forever.
+// Nearest friendly objective on the front line that a unit could move to and hold, for g_bRearToFront.
+static Objective NearestFrontObjective(Team team, GridIndex x, GridIndex y)
+{
+    GroundTaskingManagerClass *gtm = (TeamInfo[team]) ? TeamInfo[team]->gtm : NULL;
+
+    if (not gtm)
+        return NULL;
+
+    Objective best = NULL;
+    float bestD = 1.0e9F;
+    VuListIterator oit(AllObjList);
+
+    for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+    {
+        if (o->GetTeam() != team or not gtm->IsValidObjective(GORD_SECURE, o))
+            continue;
+
+        GridIndex ox, oy;
+        o->GetLocation(&ox, &oy);
+        const float d = (float)DistSqu(x, y, ox, oy);
+
+        if (d < bestD)
+        {
+            bestD = d;
+            best = o;
+        }
+    }
+
+    return best;
+}
+
+
+static Objective SelfTaskObjective(Team team, GridIndex x, GridIndex y, MoveType mt, Objective skip)
+{
+    GroundTaskingManagerClass *gtm = (TeamInfo[team]) ? TeamInfo[team]->gtm : NULL;
+
+    if (not gtm or mt == NoMove)
+        return NULL;
+
+    Objective bestEnemy = NULL, bestOwn = NULL;
+    float enemyD = 1.0e9F, ownD = 1.0e9F;
+    VuListIterator oit(AllObjList);
+
+    for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+    {
+        if (o == skip)
+            continue;
+
+        GridIndex ox, oy;
+        o->GetLocation(&ox, &oy);
+
+        // A cell this unit cannot enter (a port or island across water) is no target at all: the ground
+        // path search rejects it, so the unit would sit with an order it can never execute.
+        if (GetMovementCost(ox, oy, mt, PATH_ROADOK, Here) > MAX_COST)
+            continue;
+
+        if (GroundSeparated(x, y, ox, oy)) // g_bLandPieces
+            continue;
+
+        const float d = (float)DistSqu(x, y, ox, oy);
+
+        if (o->GetTeam() != team)
+        {
+            if (d < 6400.0F and d < enemyD and gtm->IsValidObjective(GORD_CAPTURE, o))
+            {
+                enemyD = d;
+                bestEnemy = o;
+            }
+        }
+        else if (d < 1600.0F and d < ownD and gtm->IsValidObjective(GORD_DEFEND, o))
+        {
+            ownD = d;
+            bestOwn = o;
+        }
+    }
+
+    return bestEnemy ? bestEnemy : bestOwn;
+}
+
+
 int BattalionClass::MoveUnit(CampaignTime time)
 {
     GridIndex x, y, nx, ny;
@@ -617,6 +699,55 @@ int BattalionClass::MoveUnit(CampaignTime time)
     // Check if we have a valid objective
     lo = GetUnitObjective();
 
+    // Artscout - 2026 (g_bLandPieces): an objective on another island or peninsula is no objective for a unit
+    // that must walk there -- it was handed out while the unit stood on a water cell, or by a stock
+    // nearest-objective shortcut -- and the grid path from it fails every tick. Treat it as none; the unit
+    // then falls back to a reachable objective, or sits.
+    if (lo and g_bLandPieces and GetDomain() == DOMAIN_LAND and not Cargo() and GetOrders() != GORD_ASSAULT and
+        GetOrders() != GORD_AIRBORNE and GetOrders() != GORD_COMMANDO and GetUnitTactic() != GTACTIC_MOVE_AIRBORNE and
+        GetUnitTactic() != GTACTIC_MOVE_MARINE)
+    {
+        GridIndex lx, ly, lox, loy;
+        GetLocation(&lx, &ly);
+        lo->GetLocation(&lox, &loy);
+
+        if (GroundSeparated(lx, ly, lox, loy))
+            lo = NULL;
+    }
+
+    // A reserve battalion far behind the front: send it to the front instead of a local holding post.
+    {
+        extern bool g_bRearToFront;
+
+        if (g_bRearToFront and lo and GetOrders() == GORD_RESERVE and not Broken() and
+            GetUnitSupply() >= 50 and (TheCampaign.CurrentTime % CampaignHours) == 0)
+        {
+            GridIndex rx, ry;
+            GetLocation(&rx, &ry);
+
+            if (DistanceToFront(rx, ry) > 60.0F)
+            {
+                extern int GroundReachable(Unit u, Objective o);
+                Objective front = NearestFrontObjective(GetTeam(), rx, ry);
+
+                if (front and GroundReachable(this, front))
+                {
+                    SetUnitOrders(GORD_SECURE, front->Id());
+                    lo = front;
+                }
+            }
+        }
+    }
+
+    // An assault or airborne order with no lift: march instead (see g_bGroundAssault above).
+    {
+        extern bool g_bGroundAssault;
+
+        if (g_bGroundAssault and lo and not Cargo() and lo->GetTeam() != GetTeam() and
+            (GetOrders() == GORD_ASSAULT or GetOrders() == GORD_AIRBORNE))
+            SetUnitOrders(GORD_CAPTURE, lo->Id());
+    }
+
     // Artscout - 2026 (g_bReserveHold, off = stock): a RESERVE objective is only "valid" if it is a secondary
     // objective, but the fall-back below (FindRetreatPath, 3 links back) lands on a road, junction or bridge
     // ~90% of the time -- invalid again, so the unit fell back again on its next check, and the GTM sent it
@@ -637,8 +768,19 @@ int BattalionClass::MoveUnit(CampaignTime time)
                          GetUnitSupply() >= 50;
 
     // (a player-held unit keeps the objective the player chose even if the GTM would not)
+    // Artscout - 2026 (g_bKeepCaptureOrder, on): a unit already executing a capture order keeps it
+    // while the objective is still the enemy's. Without this the order is re-checked every tick and
+    // dropped as soon as the objective stops being "near front" -- a hop-count flag that flips as
+    // neighbouring objectives change hands -- so on a narrow front the unit is re-tasked before it
+    // arrives: Taiwan save1 (with a bridgehead at Xiamen) issued 4,242 capture orders for 49
+    // objectives taken, 3,985 of them lasting under an hour, and only 3 battalions ever held one.
+    extern bool g_bKeepCaptureOrder;
+    const bool keepCapture = g_bKeepCaptureOrder and lo and GetOrders() == GORD_CAPTURE and
+                             lo->GetTeam() != GetTeam() and not Broken() and
+                             GetUnitSupply() >= 20;
+
     if (not lo or
-        (Parent() and not PlayerHeld() and not holdReserve and not holdWon and
+        (Parent() and not PlayerHeld() and not holdReserve and not holdWon and not keepCapture and
          (FalconLocalGame->GetGameType() == game_Campaign) and
          not TeamInfo[GetTeam()]->gtm->IsValidObjective(GetOrders(), lo)))
     {
@@ -650,7 +792,9 @@ int BattalionClass::MoveUnit(CampaignTime time)
             {
                 Objective so = lo->GetObjectiveParent();
 
-                if (so and TeamInfo[GetTeam()]->gtm->IsValidObjective(GORD_RESERVE, so))
+                extern int GroundReachable(Unit u, Objective o);
+
+                if (so and TeamInfo[GetTeam()]->gtm->IsValidObjective(GORD_RESERVE, so) and GroundReachable(this, so))
                     lo = so;
             }
         }
@@ -661,17 +805,108 @@ int BattalionClass::MoveUnit(CampaignTime time)
         }
         else
         {
+            extern bool g_bSelfTask;
+            GridIndex sx, sy;
+            GetLocation(&sx, &sy);
+            Objective st = (g_bSelfTask and (TheCampaign.CurrentTime % CampaignHours) == 0)
+                           ? SelfTaskObjective(GetTeam(), sx, sy, GetMovementType(), NULL) : NULL;
+
+            if (st)
+            {
+                SetUnitOrders(st->GetTeam() == GetTeam() ? GORD_DEFEND : GORD_CAPTURE, st->Id());
+            }
+            else
+            {
 #ifdef ROBIN_DEBUG
-            MonoPrint(
-                "Error: Battalion %d not assigned - vegitating instead.\n",
-                GetCampID());
+                MonoPrint(
+                    "Error: Battalion %d not assigned - vegitating instead.\n",
+                    GetCampID());
 #endif
-            SetLastCheck(GetLastCheck() + CampaignMinutes);
-            return 0;
+                SetLastCheck(GetLastCheck() + CampaignMinutes);
+                return 0;
+            }
+        }
+    }
+
+    // An objective the unit cannot enter -- a port or an island across water -- is a target it can never
+    // take, and with no lift it is a battalion parked for the war (save1: the USMC assault battalions and
+    // every Air Assault battalion, 0 km in ten days, their capture order pointing across the strait).
+    {
+        extern bool g_bSelfTask;
+        const MoveType mt = GetMovementType();
+
+        // The scan below walks every objective, so only try it at the top of an hour: doing it every
+        // tick made a ten-day Korea run five times slower for no benefit.
+        if (g_bSelfTask and lo and not Cargo() and mt != NoMove and
+            (TheCampaign.CurrentTime % CampaignHours) == 0)
+        {
+            GridIndex ox, oy, ux, uy;
+            lo->GetLocation(&ox, &oy);
+
+            if (GetMovementCost(ox, oy, mt, PATH_ROADOK, Here) > MAX_COST)
+            {
+                GetLocation(&ux, &uy);
+                Objective alt = SelfTaskObjective(GetTeam(), ux, uy, mt, lo);
+
+                if (alt)
+                {
+                    SetUnitOrders(alt->GetTeam() == GetTeam() ? GORD_DEFEND : GORD_CAPTURE, alt->Id());
+                    lo = alt;
+                }
+            }
+        }
+    }
+
+    // A battalion with no tactic never gets a destination: give it the one that matches its order.
+    {
+        extern bool g_bDefaultTactic;
+
+        if (g_bDefaultTactic and GetUnitTactic() == 0)
+        {
+            switch (GetOrders())
+            {
+            case GORD_CAPTURE:
+            case GORD_SECURE:
+            case GORD_RECON:
+                SetUnitTactic(GTACTIC_MOVE_COLUMN);
+                break;
+
+            case GORD_DEFEND:
+                SetUnitTactic(GTACTIC_DEFEND);
+                break;
+
+            default:
+                break;
+            }
         }
     }
 
     GetLocation(&x, &y);
+
+    // A unit on a cell it cannot enter can never start a path -- see g_bUnstickWater.
+    {
+        extern bool g_bUnstickWater;
+        const MoveType ut = GetMovementType();
+
+        if (g_bUnstickWater and ut != NoMove and
+            GetMovementCost(x, y, ut, PATH_ROADOK, Here) > MAX_COST)
+        {
+            bool done = false;
+
+            for (int r = 1; r <= 3 and not done; r++)
+                for (int iy = -r; iy <= r and not done; iy++)
+                    for (int ix = -r; ix <= r and not done; ix++)
+                        if ((abs(ix) == r or abs(iy) == r) and
+                            GetMovementCost((GridIndex)(x + ix), (GridIndex)(y + iy), ut, PATH_ROADOK, Here) <= MAX_COST)
+                        {
+                            SetLocation((GridIndex)(x + ix), (GridIndex)(y + iy));
+                            GetLocation(&x, &y);
+                            SetMoving(0);
+                            done = true;
+                        }
+        }
+    }
+
     // VP_changes for tracing DB
     /*
        FILE* deb = fopen("c:/traceA10/dbrain.txt", "a");
@@ -740,6 +975,32 @@ int BattalionClass::MoveUnit(CampaignTime time)
             else
                 u->GetLocation(&px, &py);
 
+            // Artscout - 2026 (g_bWaterObjectiveFix): the element ahead may be passing a port or bridge, whose
+            // cell is water; the grid search rejects an impassable destination, so the follower failed the path
+            // every tick (campsim MOVE: 1 km "no grid path" for China's landing brigade at Taichung's port).
+            // Follow it to the nearest cell we can enter.
+            {
+                extern bool g_bWaterObjectiveFix;
+                const MoveType fmt = GetMovementType();
+
+                if (g_bWaterObjectiveFix and fmt not_eq NoMove and
+                    GetMovementCost(px, py, fmt, PATH_ROADOK, Here) > MAX_COST)
+                {
+                    GridIndex bx = px, by = py;
+                    int found = 0;
+
+                    for (int r = 1; r <= 3 and not found; r++)
+                        for (int iy = -r; iy <= r and not found; iy++)
+                            for (int ix = -r; ix <= r and not found; ix++)
+                                if ((abs(ix) == r or abs(iy) == r) and
+                                    GetMovementCost(px + ix, py + iy, fmt, PATH_ROADOK, Here) <= MAX_COST)
+                                    bx = px + ix, by = py + iy, found = 1;
+
+                    px = bx;
+                    py = by;
+                }
+            }
+
             // Follow our previous element (temporarily)
             SetUnitDestination(px, py);
             SetTempDest(1);
@@ -755,6 +1016,34 @@ int BattalionClass::MoveUnit(CampaignTime time)
     }
 
     GetUnitDestination(&nx, &ny);
+
+    // Artscout - 2026 (g_bWaterObjectiveFix): whatever set it, a destination on a cell this unit cannot enter
+    // (a port or bridge cell, open water beside the coast) fails the grid path every tick. campsim MOVE: China's
+    // landing brigade beside Taichung's port, 1 km "no grid path" for 6 h. Stop on the nearest enterable cell.
+    {
+        extern bool g_bWaterObjectiveFix;
+        const MoveType wmt = GetMovementType();
+
+        if (g_bWaterObjectiveFix and wmt not_eq NoMove and not MOVE_AIR(wmt) and wmt not_eq Naval and
+            nx >= 0 and ny >= 0 and GetMovementCost(nx, ny, wmt, PATH_ROADOK, Here) > MAX_COST)
+        {
+            int found = 0;
+
+            for (int r = 1; r <= 3 and not found; r++)
+                for (int iy = -r; iy <= r and not found; iy++)
+                    for (int ix = -r; ix <= r and not found; ix++)
+                        if ((abs(ix) == r or abs(iy) == r) and
+                            GetMovementCost(nx + ix, ny + iy, wmt, PATH_ROADOK, Here) <= MAX_COST)
+                        {
+                            nx = nx + ix;
+                            ny = ny + iy;
+                            found = 1;
+                        }
+
+            if (found)
+                SetUnitDestination(nx, ny);
+        }
+    }
 
     if (Ordered())
     {
@@ -859,8 +1148,17 @@ int BattalionClass::MoveUnit(CampaignTime time)
             {
                 pw->GetWPLocation(&pwx, &pwy);
 
-                if ((DistSqu(x, y, px, py) < 25.0F) or
-                    (DistSqu(x, y, pwx, pwy) < DistSqu(px, py, pwx, pwy)))
+                // Artscout - 2026: only wait for the element ahead while it really is the element ahead.
+                // A broke-open column used to deadlock here: this unit parks ON the previous element's
+                // next waypoint and waits for it to arrive first, while that element sits tens of km back
+                // with different orders. Taiwan save2, 796th Armored (bn 4762): 116 km travelled and 0 km
+                // net over days 2-7, 33 km short of Chiayi, because the 57th Reserves never came
+                // (TAIWAN-CAMPAIGNS.md). Beyond 8 km there is no column left to wait for: go.
+                const float columnAhead = 64.0F; // (8 km)^2 in grid cells
+
+                if (DistSqu(x, y, px, py) < columnAhead and
+                    ((DistSqu(x, y, px, py) < 25.0F) or
+                     (DistSqu(x, y, pwx, pwy) < DistSqu(px, py, pwx, pwy))))
                 {
                     gMoveDiag[GetTeam() % NUM_TEAMS][2]++;
                     nx =
@@ -1345,6 +1643,40 @@ void (*gOrderChangeHook)(BattalionClass *u, int oldOrders, int newOrders, VU_ID 
 // team: [0] no grid path to its next waypoint, [1] no waypoints could be built, [2] waiting in a brigade
 // column, [3] holding (GTACTIC_MOVE_HOLD). The hook gets from/to of each path failure (0 and 1).
 int gMoveDiag[NUM_TEAMS][4] = {{0}};
+
+// Artscout - 2026: a battalion already executing a capture order keeps it while the objective is
+// still the enemy's, instead of losing it the moment the objective drops off the front-line hop count
+// (see MoveUnit). Stock behaviour is to re-validate every tick; set this false to get it back.
+bool g_bKeepCaptureOrder = true;
+
+// Artscout - 2026: a battalion the GTM left with no objective at all used to vegetate for the rest of the
+// war ("not assigned"), even with enemy ground a few km away -- save1's USMC assault battalions sat at
+// 0 km for ten days with GORD_ASSAULT and no target. With this it takes the nearest enemy objective it
+// could capture, or the nearest friendly one to hold.
+bool g_bSelfTask = true;
+
+// Artscout - 2026: an assault/airborne order means "wait for the boats / helicopters"; in these converted
+// campaigns neither ever comes, so the unit stands for the whole war (save1: the USMC assault battalions and
+// every Air Assault battalion, 0 km in ten days, with an objective across water). Not cargoed, not lifted:
+// treat it as a ground capture of the same objective.
+bool g_bGroundAssault = true;
+
+// Artscout - 2026: a battalion the brigade never gave a tactic (0) keeps its objective but never picks a
+// destination -- 7 such battalions in save1, 10 in save0, all at 0 km with a CAPTURE order. Give it the
+// tactic that matches its order so it marches like any other battalion.
+bool g_bDefaultTactic = true;
+
+// Artscout - 2026: a unit standing on a cell it cannot enter (a beach cell, a port, or a unit the conversion
+// put offshore) can never start a path: every route search fails and it holds position for the whole war.
+// save1's USMC assault battalions sat this way at (395,517) -- and the 27th Mech, which normally covers 56 km,
+// did 0 km when placed on exactly that cell. Nudge such a unit to the nearest cell it can stand on.
+bool g_bUnstickWater = true;
+
+// Artscout - 2026: a healthy reserve battalion far behind the front is given a local holding post and sits
+// there for the whole war -- save1's Putian group moved 5-24 km net in ten days while the fighting was 150 km
+// away. With this it is sent to the nearest friendly front-line objective instead, so it marches to the war.
+bool g_bRearToFront = true;
+
 void (*gMoveFailHook)(BattalionClass *u, int why, GridIndex x, GridIndex y, GridIndex nx, GridIndex ny) = NULL;
 
 void BattalionClass::SetUnitOrders(int neworders, VU_ID oid)
@@ -1462,6 +1794,19 @@ void BattalionClass::PickFinalLocation(void)
         {
             SetUnitOrders(GORD_CAPTURE, o->Id());
             return;
+        }
+
+        // campsim experiment (defendon=1, off = stock): garrison the objective's own cell. Stock picks
+        // the best cover within a km or so of it, and capture only happens from the objective's cell, so
+        // a "defended" town could be walked into and taken while its defender stood next to it.
+        {
+            extern bool g_bDefendOccupy;
+
+            if (g_bDefendOccupy)
+            {
+                final_heading = 255; // as GORD_CAPTURE: sit on the objective itself
+                break;
+            }
         }
 
         h = FindBestHeading(o, 1, GetTeam());

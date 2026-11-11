@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <process.h>
 #include "cmpclass.h"
+#include "path.h"
 #include "cmpglobl.h"
 #include "f4vu.h"
 #include "f4find.h"
@@ -447,6 +448,141 @@ int CampaignClass::NewCampaign(FalconGameType gametype, char *savefile)
     return 1;
 }
 
+// Artscout - 2026 (g_bSynthObjectiveLinks, on): the converted theatres ship an objective graph with most
+// of its links missing -- Taiwan has 1.08 links per objective and 58% of objectives with none at all,
+// against 2.31 and 3% in Korea. Units route objective to objective along those links (GetUnitObjectivePath),
+// so with the graph in pieces a formation can only move where a hand-made link happens to exist: campsim
+// MOVE showed Taiwan's Blue team failing 1,355 grid-path searches and 245 waypoint builds in six hours,
+// Korea 1 and 6. Connect every objective with fewer than two neighbours to its nearest ones, both ways.
+// True when a tracked column could walk the straight line between two cells: sample the ground once per
+// kilometre and reject the pair if any sample is impassable. Nearest-neighbour linking ignored the water,
+// so it joined objectives across straits and the units then marched at the sea: China's failed grid paths
+// in save1 went from 295 to 1,168 in six hours.
+static bool GroundBetween(GridIndex ax, GridIndex ay, GridIndex bx, GridIndex by)
+{
+    const float dx = (float)(bx - ax), dy = (float)(by - ay);
+    const float len = (float)sqrt(dx * dx + dy * dy);
+    const int steps = (int)len;
+
+    for (int i = 1; i < steps; i++)
+    {
+        const float t = (float)i / (float)steps;
+        const GridIndex x = (GridIndex)((float)ax + dx * t + 0.5F);
+        const GridIndex y = (GridIndex)((float)ay + dy * t + 0.5F);
+
+        if (GetMovementCost(x, y, Tracked, PATH_ROADOK, Here) > MAX_COST)
+            return false;
+    }
+
+    return true;
+}
+
+static void BuildMissingObjectiveLinks(void)
+{
+    extern bool g_bSynthObjectiveLinks;
+
+    if (not g_bSynthObjectiveLinks)
+        return;
+
+    // Only a theatre whose graph is actually broken needs this. Korea has 2.31 links per objective with 3%
+    // of them isolated and plays fine; the converted Taiwan theatres have 1.08 with 58% isolated. Leaving a
+    // healthy graph alone matters: with the synthesis on there too, Korea's own gate slipped from 3 of 3 to
+    // 2 of 3 (seed 3 ran out of war at 240 h).
+    {
+        int objs = 0, links = 0;
+        VuListIterator it(AllObjList);
+
+        for (Objective o = GetFirstObjective(&it); o; o = GetNextObjective(&it))
+            objs++, links += o->NumLinks();
+
+        if (objs <= 0 or (float)links / (float)objs >= 1.5F)
+            return;
+    }
+
+    enum { MAX_OBJS = 4096, WANT_LINKS = 2 };
+    static Objective all[MAX_OBJS];
+    int n = 0;
+
+    {
+        VuListIterator it(AllObjList);
+
+        for (Objective o = GetFirstObjective(&it); o and n < MAX_OBJS; o = GetNextObjective(&it))
+            all[n++] = o;
+    }
+
+    const float maxSqu = 20.0F * 20.0F;   // Korea's own links are local; 40 km produced wandering routes
+    int added = 0;
+
+    for (int i = 0; i < n; i++)
+    {
+        Objective a = all[i];
+
+        if (a->NumLinks() >= WANT_LINKS)
+            continue;
+
+        GridIndex ax, ay;
+        a->GetLocation(&ax, &ay);
+
+        while (a->NumLinks() < WANT_LINKS)
+        {
+            Objective best = NULL;
+            float bestD = maxSqu;
+
+            for (int j = 0; j < n; j++)
+            {
+                Objective b = all[j];
+                bool linked = false;
+
+                if (b == a)
+                    continue;
+
+                for (int l = 0; l < a->NumLinks() and not linked; l++)
+                    if (a->GetNeighborId(l) == b->Id())
+                        linked = true;
+
+                if (linked)
+                    continue;
+
+                GridIndex bx, by;
+                b->GetLocation(&bx, &by);
+                const float d = (float)DistSqu(ax, ay, bx, by);
+
+                if (d >= bestD or not GroundBetween(ax, ay, bx, by))
+                    continue;
+
+                if (d < bestD)
+                {
+                    bestD = d;
+                    best = b;
+                }
+            }
+
+            if (not best)
+                break;
+
+            uchar costs[MOVEMENT_TYPES];
+            const int c = (int)(sqrt(bestD) * 2.0F + 0.5F);
+
+            for (int m = 0; m < MOVEMENT_TYPES; m++)
+                costs[m] = (uchar)(c < 1 ? 1 : (c > 254 ? 254 : c));
+
+            a->AddObjectiveNeighbor(best, costs);
+            best->AddObjectiveNeighbor(a, costs);
+            added++;
+        }
+    }
+
+    if (added)
+        MonoPrint("Objective links: %d synthetic neighbours added over %d objectives.\n", added, n);
+}
+
+// 2026-10-27: measured on save1. It does build some routes across water -- China's failed grid paths in six
+// hours went from 295 to 1,168, Blue's brigade-column waits from 206 to 933 -- but the objective graph it
+// restores is what the tasking needs: ownership changes went from ±3-9 a run to +17 and +44, i.e. the war
+// actually moves for the first time. Kept on; the failures are the price of units being tasked at all, and
+// a terrain-aware builder (checking the ground between two cells, not just their distance) would cut them.
+bool g_bSynthObjectiveLinks = true;
+
 int CampaignClass::LoadCampaign(FalconGameType gametype, char *savefile)
 {
     char from[MAX_PATH], to[MAX_PATH];
@@ -532,6 +668,8 @@ int CampaignClass::LoadCampaign(FalconGameType gametype, char *savefile)
 
     LoadPersistantList(savefile);
     ChooseBullseye();
+
+    BuildMissingObjectiveLinks();
 
 #ifdef CAMPTOOL
 

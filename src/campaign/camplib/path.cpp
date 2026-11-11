@@ -287,6 +287,19 @@ costtype CostToArrive(Unit u, int orders, GridIndex x, GridIndex y, Objective t)
     if (u->GetSType() == STYPE_UNIT_MARINE)
         flags or_eq PATH_MARINE;
 
+    // Artscout - 2026 (g_bLandPieces): a land unit cannot walk to a target on another land piece, whatever
+    // the objective links say -- and the o == t shortcut below would price it at zero when the target is
+    // simply the unit's nearest objective across a strait.
+    if (t and u->GetDomain() == DOMAIN_LAND and not(flags bitand(PATH_AIRBORNE bitor PATH_MARINE)) and
+        orders not_eq GORD_ASSAULT and orders not_eq GORD_AIRBORNE and orders not_eq GORD_COMMANDO)
+    {
+        GridIndex tx, ty;
+        t->GetLocation(&tx, &ty);
+
+        if (GroundSeparated(x, y, tx, ty))
+            return OBJ_GROUND_PATH_MAX_COST;
+    }
+
     o = FindNearestObjective(x, y, NULL);
 
     if (not o or not t or o == t)

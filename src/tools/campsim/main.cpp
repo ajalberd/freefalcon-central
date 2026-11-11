@@ -62,6 +62,7 @@
 extern "C" {
 #include "codelib/resources/reslib/src/resmgr.h"
 extern "C++" int gAtmDiag[NUM_TEAMS][24];
+extern "C++" int gAirAwareSkip[8];
 extern "C++" int gLossDiag[NUM_TEAMS][10];
 #include "cmpevent.h"
 extern "C++" EventClass **CampEvents;
@@ -571,6 +572,72 @@ static void GtmLog(int hour)
 
             printf("SUPUSE h=%d team %d: battalion supply %% points used -- moving %d, firing at aircraft %d, "
                    "firing at ground %d, waiting to move %d (last 6 h)\n", hour, t, d[0], d[1], d[2], d[3]);
+        }
+    }
+
+    // Aircraft fuel (always): what squadrons take at launch, get back, get from the pool, and what is left in the stock, per 6 h
+    {
+        extern int gAirFuel[8][6];
+        static int prevAir[8][6];
+
+        for (int t = 1; t < 8; t++) // every team that owns squadrons (China, Russia and the rest too, not just Blue and the North)
+        {
+            int d[6], n = 0, low = 0, planes = 0;
+            double sum = 0, sorties = 0;
+            std::vector<float> spread;
+            int needPts = 0;
+            VuListIterator ait(AllUnitList);
+
+            for (int k = 0; k < 6; k++)
+                d[k] = gAirFuel[t][k] - prevAir[t][k], prevAir[t][k] = gAirFuel[t][k];
+
+            for (Unit u = GetFirstUnit(&ait); u; u = GetNextUnit(&ait))
+            {
+                if (!u->IsSquadron() || u->IsDead() || u->GetTeam() != t || !u->GetUnitClassData())
+                    continue;
+
+                // one four-ship sortie: what UpdateSquadronStores takes (class fuel x 4 / 100)
+                const double perSortie = u->GetUnitClassData()->Fuel * 4.0 / 100.0;
+                n++, planes += u->GetTotalVehicles();
+                sum += u->GetSquadronFuel();
+                sorties += perSortie > 0 ? u->GetSquadronFuel() / perSortie : 0;
+                low += perSortie > 0 && u->GetSquadronFuel() < perSortie * 4;
+
+                if (perSortie > 0)
+                    spread.push_back((float)(u->GetSquadronFuel() / perSortie)), needPts += ((SquadronClass *)u)->GetUnitFuelNeed(0);
+            }
+
+            if (!n)
+                continue;
+
+            std::sort(spread.begin(), spread.end());
+            auto pct = [&](double q) { return spread.empty() ? 0.0F : spread[(size_t)(q * (spread.size() - 1))]; };
+            printf("AIRSPREAD h=%d team %d: sorties per squadron min %.0f p10 %.0f median %.0f p90 %.0f max %.0f; %d under 2 sorties; fuel wanted by the squadrons %d points\n",
+                   hour, t, pct(0), pct(0.1), pct(0.5), pct(0.9), pct(1), (int)(std::lower_bound(spread.begin(), spread.end(), 2.0F) - spread.begin()), needPts);
+
+            printf("AIRFUEL h=%d team %d: taken %d returned %d refilled %d, %d launches with too little stock (last 6 h); "
+                   "%d squadrons, %d aircraft, mean stock %.0f = %.0f four-ship sorties each, %d with under 4 sorties; flights %d, refused for fuel %d, fuel pool %d, passed over by tasking (cumulative) %d\n",
+                   hour, t, d[0], d[1], d[2], d[3], n, planes, n ? sum / n : 0.0, n ? sorties / n : 0.0, low, d[5], d[4],
+                   TeamInfo[t] ? (int)TeamInfo[t]->GetFuelAvail() : -1, gAirAwareSkip[t % 8]);
+
+            // why the sorties were refused (flight.cpp): reasons, top-ups, and how few squadrons took the refusals
+            {
+                extern int gAirRefuse[8][8];
+                extern std::map<int, int> gRefuseSq[8];
+                static int prevRef[8][8];
+                int r[8], mx = 0;
+
+                for (int k = 0; k < 8; k++)
+                    r[k] = gAirRefuse[t][k] - prevRef[t][k], prevRef[t][k] = gAirRefuse[t][k];
+
+                for (auto &kv : gRefuseSq[t])
+                    mx = max(mx, kv.second);
+
+                printf("AIRREFUSE h=%d team %d: pool empty %d, pool short %d, cap below need %d, no top-up %d; %d top-ups (%d took the whole pool), mean pool at the ask %.0f, mean taken %.0f; "
+                       "%d squadrons refused, the most %d times\n",
+                       hour, t, r[0], r[1], r[2], r[3], r[4], r[5], r[4] ? (double)r[6] / r[4] : 0.0, r[4] ? (double)r[7] / r[4] : 0.0, (int)gRefuseSq[t].size(), mx);
+                gRefuseSq[t].clear();
+            }
         }
     }
 
@@ -1162,6 +1229,15 @@ static int ReserveFailReason(int t, Objective o)
     return 4;
 }
 
+// Who last gave each ROK/DPRK battalion its orders (and so its objective): the caller and the order, for
+// attributing "no waypoints" failures (MoveFailHook) to the code that sent the unit somewhere it cannot go.
+struct LastSetter
+{
+    void *caller;
+    int newOrders;
+};
+static std::map<unsigned, LastSetter> gLastSetter;
+
 static void CapOrderHook(BattalionClass *u, int oldOrders, int newOrders, VU_ID oid, void *caller)
 {
     int t = u->GetTeam();
@@ -1170,6 +1246,8 @@ static void CapOrderHook(BattalionClass *u, int oldOrders, int newOrders, VU_ID 
         return;
 
     unsigned id = u->Id().num_;
+    LastSetter ls = {caller, newOrders};
+    gLastSetter[id] = ls;
 
     {
         Objective oldObj = u->GetUnitObjective(), newObj = (Objective)vuDatabase->Find(oid);
@@ -1388,6 +1466,12 @@ extern "C++" int gMovePartial[8];
 extern "C++" int gMoveObjPartial[8];
 extern "C++" int gWPFail[8][2];
 extern "C++" int gWPFailLeg[3];
+extern "C++" int gWPFailDiag;
+extern "C++" int gWPWhy[8][8];
+extern "C++" int gWPSample[24][8];
+extern "C++" int gWPSampleN;
+extern "C++" int gWPPair[256][7];
+extern "C++" int gWPPairN;
 extern "C++" void (*gMoveFailHook)(BattalionClass *u, int why, GridIndex x, GridIndex y, GridIndex nx, GridIndex ny);
 
 struct MoveFail
@@ -1399,8 +1483,60 @@ struct MoveFail
 };
 static std::map<unsigned, MoveFail> gMoveFails;
 
+// "no waypoints" failures by (team, the order the unit holds, the code that last gave it orders), cumulative
+struct FailSrc
+{
+    int team, orders;
+    void *caller;
+    bool operator<(const FailSrc &o) const
+    {
+        if (team != o.team) return team < o.team;
+        if (orders != o.orders) return orders < o.orders;
+        return caller < o.caller;
+    }
+};
+static std::map<FailSrc, int> gFailSrc;
+
 static void MoveFailHook(BattalionClass *u, int why, GridIndex x, GridIndex y, GridIndex nx, GridIndex ny)
 {
+    if (why == 1)
+    {
+        std::map<unsigned, LastSetter>::iterator ls = gLastSetter.find(u->Id().num_);
+        FailSrc k = {u->GetTeam(), u->GetOrders(), ls == gLastSetter.end() ? NULL : ls->second.caller};
+        gFailSrc[k]++;
+
+        // a few failures in full: where the unit is, which objective it routes from, and whether the walk
+        // from each candidate start to its objective exists
+        static int shown;
+
+        if (shown < 40 && ls != gLastSetter.end() && strstr(CallerName(ls->second.caller), "MoveUnit"))
+        {
+            extern int GroundReachable(Unit u, Objective o);
+            GridIndex ux, uy, ox = 0, oy = 0, tx = 0, ty = 0;
+            u->GetLocation(&ux, &uy);
+            Objective nearest = FindNearestObjective(ux, uy, NULL);
+            Objective last = u->last_obj != FalconNullId ? FindObjective(u->last_obj) : NULL;
+            Objective t = u->GetUnitObjective();
+            PathClass p;
+            int fromNearest = nearest && t ? u->GetUnitObjectivePath(&p, nearest, t) : -9;
+            int fromLast = last && t ? u->GetUnitObjectivePath(&p, last, t) : -9;
+
+            if (nearest)
+                nearest->GetLocation(&ox, &oy);
+
+            if (t)
+                t->GetLocation(&tx, &ty);
+
+            printf("MOVE   fail detail: bn %u team %d at (%d,%d) nearest obj #%d (%d,%d) team %d, last obj #%d, "
+                   "objective #%d (%d,%d) team %d type %d, route nearest->obj %d, last->obj %d, set by %s\n",
+                   (unsigned)u->Id().num_, u->GetTeam(), ux, uy, nearest ? nearest->GetCampID() : -1, ox, oy,
+                   nearest ? nearest->GetTeam() : -1, last ? last->GetCampID() : -1, t ? t->GetCampID() : -1, tx, ty,
+                   t ? t->GetTeam() : -1, t ? (int)t->GetType() : -1, fromNearest, fromLast,
+                   CallerName(ls->second.caller));
+            shown++;
+        }
+    }
+
     MoveFail &f = gMoveFails[u->Id().num_];
     f.count++, f.why = why, f.team = u->GetTeam();
     f.x = x, f.y = y, f.nx = nx, f.ny = ny;
@@ -1438,6 +1574,16 @@ static void MoveLog(int hour)
         printf("MOVE h=%d team %d: no grid path %d, no waypoints %d (objective route %d, first leg %d), column wait %d, "
                "hold %d, partial path taken %d, partial objective route taken %d (last 6 h); %d battalions with path "
                "failures\n", hour, t, d[0], d[1], wp0, wp1, d[2], d[3], partial, objPartial, units);
+
+        static int prevWhy[NUM_TEAMS][8];
+        int w[8];
+
+        for (int k = 0; k < 8; k++)
+            w[k] = gWPWhy[t % 8][k] - prevWhy[t][k], prevWhy[t][k] = gWPWhy[t % 8][k];
+
+        printf("MOVE h=%d team %d: objective route failed because: cannot move %d, no link route %d, rules of "
+               "engagement %d, broken bridge %d, longer than path buffer %d, search missed it %d, found with the "
+               "whole node pool %d (last 6 h)\n", hour, t, w[0], w[1], w[2], w[3], w[4], w[5], w[6]);
 
         std::vector<std::pair<int, unsigned>> v;
 
@@ -1498,6 +1644,59 @@ static void MoveLog(int hour)
                        GetMovementCost(f.lx, f.ly, Tracked, 0, Here),
                        GetMovementCost(f.lx, f.ly, Tracked, PATH_ROADOK, Here));
             }
+        }
+    }
+
+    static int shown;
+
+    for (; shown < gWPSampleN; shown++)
+    {
+        const int *s = gWPSample[shown];
+        printf("MOVE   route fail sample: unit #%d team %d, from objective #%d to #%d: code %d, %d hops by the "
+               "rules, first-hop link cost %d, whole-pool search %d\n", s[0], s[1], s[2], s[3], s[4], s[5], s[6],
+               s[7]);
+    }
+
+    {
+        // cumulative: which code last gave the failing units their orders
+        static const char *ord[] = {"RES", "CAP", "SEC", "ASL", "ABN", "CMD", "DEF", "SUP", "REP", "AD", "RCN", "RAD"};
+        std::vector<std::pair<int, FailSrc>> sv;
+
+        for (std::map<FailSrc, int>::iterator it = gFailSrc.begin(); it != gFailSrc.end(); ++it)
+            sv.push_back(std::make_pair(it->second, it->first));
+
+        std::sort(sv.begin(), sv.end(), [](const std::pair<int, FailSrc> &a, const std::pair<int, FailSrc> &b) {
+            return a.first > b.first;
+        });
+
+        for (size_t k = 0; k < sv.size() && k < 12; k++)
+            printf("MOVE   no-waypoints source h=%d: %5d team %d orders %s, last set by %s\n", hour, sv[k].first,
+                   sv[k].second.team, sv[k].second.orders >= 0 && sv[k].second.orders < 12 ? ord[sv[k].second.orders] : "?",
+                   sv[k].second.caller ? CallerName(sv[k].second.caller) : "(scenario start, never re-ordered)");
+
+        // cumulative: the routes that failed most often
+        std::vector<std::pair<int, int>> pv;
+
+        for (int i = 0; i < gWPPairN; i++)
+            pv.push_back(std::make_pair(gWPPair[i][6], i));
+
+        std::sort(pv.rbegin(), pv.rend());
+
+        for (size_t k = 0; k < pv.size() && k < 15; k++)
+        {
+            const int *p = gWPPair[pv[k].second];
+            Objective a = (Objective)GetEntityByCampID(p[1]), b = (Objective)GetEntityByCampID(p[2]);
+            GridIndex ax = 0, ay = 0, bx = 0, by = 0;
+
+            if (a)
+                a->GetLocation(&ax, &ay);
+
+            if (b)
+                b->GetLocation(&bx, &by);
+
+            printf("MOVE   route fail pair h=%d: team %d #%d (%d,%d) type %d -> #%d (%d,%d) type %d: %d times, code %d, "
+                   "tactic %d orders %d\n", hour, p[0], p[1], ax, ay, a ? (int)a->GetType() : -1, p[2], bx, by,
+                   b ? (int)b->GetType() : -1, p[6], p[3], p[4], p[5]);
         }
     }
 
@@ -2075,6 +2274,63 @@ static void TimelineMeta(const char *save, unsigned int seed, int days)
 
     TlPrintf("]}\n");
     TlFlush();
+}
+
+// Which source objective each team's battalions are resupplied from (supply.cpp gSupplyPairs): the busiest
+// source -> nearest-friendly-objective pairs, and the objectives that found no source. Cumulative.
+extern std::map<std::pair<int, int>, int> gSupplyPairs[];
+extern std::map<int, int> gSupplyNoSource[];
+
+static void SupplySourceLog(int hour)
+{
+    for (int t : {2, 6})
+    {
+        auto tag = [](int id, char *buf, size_t n)
+        {
+            Objective o = id >= 0 ? (Objective)GetEntityByCampID(id) : NULL;
+            GridIndex x = 0, y = 0;
+
+            if (o)
+                o->GetLocation(&x, &y);
+
+            snprintf(buf, n, o ? "#%d (%d,%d) type %d owner %d" : "#%d none", id, x, y, o ? (int)o->GetType() : -1,
+                     o ? (int)o->GetTeam() : -1);
+        };
+        std::vector<std::pair<int, std::pair<int, int>>> pv;
+        int total = 0;
+
+        for (auto &kv : gSupplyPairs[t])
+            pv.push_back({kv.second, kv.first}), total += kv.second;
+
+        std::sort(pv.rbegin(), pv.rend());
+        printf("SUPSRC h=%d team %d: %d resupplies with a source, %zu distinct source->destination pairs (cumulative)\n",
+               hour, t, total, pv.size());
+
+        for (size_t k = 0; k < pv.size() && k < 10; k++)
+        {
+            char a[96], b[96];
+            tag(pv[k].second.first, a, sizeof(a));
+            tag(pv[k].second.second, b, sizeof(b));
+            printf("SUPSRC   %d times: from %s -> to %s\n", pv[k].first, a, b);
+        }
+
+        std::vector<std::pair<int, int>> nv;
+        int nototal = 0;
+
+        for (auto &kv : gSupplyNoSource[t])
+            nv.push_back({kv.second, kv.first}), nototal += kv.second;
+
+        std::sort(nv.rbegin(), nv.rend());
+        printf("SUPSRC h=%d team %d: %d resupplies found no source, from %zu nearest-friendly objectives\n", hour, t,
+               nototal, nv.size());
+
+        for (size_t k = 0; k < nv.size() && k < 8; k++)
+        {
+            char b[96];
+            tag(nv[k].second, b, sizeof(b));
+            printf("SUPSRC   %d times, nearest friendly objective %s\n", nv[k].first, b);
+        }
+    }
 }
 
 static int CountList(ListClass *l);
@@ -2722,14 +2978,14 @@ static void ReplSplitLog(int hour)
             gnd[t] += need, nGnd[t]++;
     }
 
-    extern int gAirliftDiag[8][8];
+    extern int gAirliftDiag[8][9];
 
     for (int t = 0; t < NUM_TEAMS; t++)
     {
         if (t < 8 && gAirliftDiag[t][0])
-            printf("AIRLIFT h%d team %d %-6s landings %d, added supply %d fuel %d replacements %d (cumulative); flights would have brought supply %d replacements %d; refused for runway %d, credit cut by need %d\n",
+            printf("AIRLIFT h%d team %d %-6s landings %d, added supply %d fuel %d replacements %d (cumulative); flights would have brought supply %d replacements %d; refused for runway %d, credit cut by need %d; fuel offered %d\n",
                    hour, t, TeamInfo[t] ? TeamInfo[t]->name : "?", gAirliftDiag[t][0], gAirliftDiag[t][1], gAirliftDiag[t][2], gAirliftDiag[t][3],
-                   gAirliftDiag[t][6], gAirliftDiag[t][7], gAirliftDiag[t][4], gAirliftDiag[t][5]);
+                   gAirliftDiag[t][6], gAirliftDiag[t][7], gAirliftDiag[t][4], gAirliftDiag[t][5], gAirliftDiag[t][8]);
 
         extern bool g_bSupplyStocks;
         extern int gStoreDiag[NUM_TEAMS][8];
@@ -3100,6 +3356,54 @@ static void ApplyKnobs(int argc, char **argv)
         *eq = 0;
         const char *key = argv[a];
         const char *val = eq + 1;
+
+        if (!strcmp(key, "offfuel"))
+        {
+            extern int g_nOffFuelCheat;
+            g_nOffFuelCheat = atoi(val);
+            printf("KNOB offfuel: an offensive sets the fuel pools (%d)\n", g_nOffFuelCheat);
+            *eq = '=';
+            continue;
+        }
+
+        if (!strcmp(key, "airdays") or !strcmp(key, "airrates") or !strcmp(key, "airaware") or !strcmp(key, "airliftfuelpct") or !strcmp(key, "airtopup"))
+        {
+            // cfg AirFuelDays / AirFuelRates / AirFuelAware / AirliftFuelPct as run knobs (airtopup is always on in the model, accepted for old scripts)
+            extern float g_fAirFuelDays;
+            extern char g_strAirFuelRates[], g_strAirliftFuelPct[];
+            extern bool g_bAirFuelAware;
+
+            if (!strcmp(key, "airdays"))
+                g_fAirFuelDays = (float)atof(val);
+            else if (!strcmp(key, "airrates"))
+                strncpy(g_strAirFuelRates, val, 0xff);
+            else if (!strcmp(key, "airaware"))
+                g_bAirFuelAware = atoi(val) != 0;
+            else if (!strcmp(key, "airliftfuelpct"))
+                strncpy(g_strAirliftFuelPct, val, 0xff);
+
+            printf("KNOB %s = %s (air fuel: days %.2f, rates \"%s\", aware %d, airlift fuel pct \"%s\")\n", key, val, g_fAirFuelDays, g_strAirFuelRates,
+                   (int)g_bAirFuelAware, g_strAirliftFuelPct);
+            *eq = '=';
+            continue;
+        }
+
+        // (outside the chain below: one more else-if there hits the compiler's nesting limit, C1061)
+        if (!strcmp(key, "retreatlinks"))
+        {
+            extern bool g_bRetreatGroundLinks;
+            g_bRetreatGroundLinks = atoi(val) != 0;
+            printf("KNOB g_bRetreatGroundLinks = %d\n", (int)g_bRetreatGroundLinks);
+            continue;
+        }
+
+        if (!strcmp(key, "landpieces"))
+        {
+            extern bool g_bLandPieces;
+            g_bLandPieces = atoi(val) != 0;
+            printf("KNOB g_bLandPieces = %d\n", (int)g_bLandPieces);
+            continue;
+        }
 
         if (!strcmp(key, "speed"))
         {
@@ -3522,11 +3826,34 @@ static void ApplyKnobs(int argc, char **argv)
             g_bChinaOwn = atoi(val) != 0;
             printf("KNOB China stays a team of its own when it joins = %d\n", g_bChinaOwn ? 1 : 0);
         }
-        else if (!strcmp(key, "initindep"))
+        else if (!strcmp(key, "initindep") or !strcmp(key, "defendon") or !strcmp(key, "counterloss") or
+                 !strcmp(key, "garblock"))
         {
             extern bool g_bInitIndependent;
-            g_bInitIndependent = atoi(val) != 0;
-            printf("KNOB independent initiative per team = %d\n", g_bInitIndependent ? 1 : 0);
+
+            if (!strcmp(key, "initindep"))
+            {
+                g_bInitIndependent = atoi(val) != 0;
+                printf("KNOB independent initiative per team = %d\n", g_bInitIndependent ? 1 : 0);
+            }
+            else if (!strcmp(key, "defendon"))
+            {
+                extern bool g_bDefendOccupy;
+                g_bDefendOccupy = atoi(val) != 0;
+                printf("KNOB defenders garrison their objective's cell = %d\n", g_bDefendOccupy ? 1 : 0);
+            }
+            else if (!strcmp(key, "garblock"))
+            {
+                extern bool g_bGarrisonBlocks;
+                g_bGarrisonBlocks = atoi(val) != 0;
+                printf("KNOB a garrison in the objective's cell holds it = %d\n", g_bGarrisonBlocks ? 1 : 0);
+            }
+            else
+            {
+                extern float g_fCounterLossKm;
+                g_fCounterLossKm = (float)atof(val);
+                printf("KNOB defenders counter-attack a lost objective within %g km\n", g_fCounterLossKm);
+            }
         }
         else if (!strcmp(key, "gactlog"))
         {
@@ -4058,7 +4385,7 @@ static void ApplyKnobs(int argc, char **argv)
             printf("KNOB initiative team %d = %d\n", team, v);
         }
         else if (strcmp(key, "usecfg") and strcmp(key, "cfgfile") and strcmp(key, "newgame") and
-                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "blowlim") and strcmp(key, "blowsel") and strcmp(key, "sxconvoyhit") and strcmp(key, "sxattackuse") and strcmp(key, "sxpocket") and strcmp(key, "sxmap") and strcmp(key, "sxmapreach") and strcmp(key, "sxmapship") and strcmp(key, "sxmapair") and strcmp(key, "sxposture") and strcmp(key, "sxconvoys") and strcmp(key, "sxscorch") and strcmp(key, "sxsrcmin") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "neutralnouse") and strcmp(key, "turnmode") and strcmp(key, "teambar") and strcmp(key, "neutralhold") and strcmp(key, "atmbudget") and strcmp(key, "det") and strcmp(key, "dethash") and strcmp(key, "sxown") and strcmp(key, "sxrear") and strcmp(key, "sxhops") and strcmp(key, "sxloss") and strcmp(key, "sxrail") and strcmp(key, "sxfront") and strcmp(key, "sxdelay") and strcmp(key, "sxwheeled") and strcmp(key, "sxnocity") and strcmp(key, "chinaown") and strcmp(key, "initindep") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
+                 strcmp(key, "ratio") and strcmp(key, "exp") and strcmp(key, "theater") and strcmp(key, "simroot") and strcmp(key, "blow") and strcmp(key, "blowlim") and strcmp(key, "blowsel") and strcmp(key, "sxconvoyhit") and strcmp(key, "sxattackuse") and strcmp(key, "sxpocket") and strcmp(key, "sxmap") and strcmp(key, "sxmapreach") and strcmp(key, "sxmapship") and strcmp(key, "sxmapair") and strcmp(key, "sxposture") and strcmp(key, "sxconvoys") and strcmp(key, "sxscorch") and strcmp(key, "sxsrcmin") and strcmp(key, "objpri") and strcmp(key, "relsquad") and strcmp(key, "replfix") and strcmp(key, "noairlift") and strcmp(key, "airliftlog") and strcmp(key, "airliftneed") and strcmp(key, "airliftrunway") and strcmp(key, "stocks") and strcmp(key, "prodsup") and strcmp(key, "prodrepl") and strcmp(key, "starvemorale") and strcmp(key, "supplyfall") and strcmp(key, "strikeshock") and strcmp(key, "initsupply") and strcmp(key, "initw") and strcmp(key, "gactlog") and strcmp(key, "neutralnouse") and strcmp(key, "turnmode") and strcmp(key, "teambar") and strcmp(key, "neutralhold") and strcmp(key, "atmbudget") and strcmp(key, "det") and strcmp(key, "dethash") and strcmp(key, "sxown") and strcmp(key, "sxrear") and strcmp(key, "sxhops") and strcmp(key, "sxloss") and strcmp(key, "sxrail") and strcmp(key, "sxfront") and strcmp(key, "sxdelay") and strcmp(key, "sxwheeled") and strcmp(key, "sxnocity") and strcmp(key, "chinaown") and strcmp(key, "initindep") and strcmp(key, "defendon") and strcmp(key, "counterloss") and strcmp(key, "garblock") and strcmp(key, "blowat") and strcmp(key, "gndsupoff") and strcmp(key, "gndsupdef") and strcmp(key, "resup") and strcmp(key, "maxratio") and strcmp(key, "alliedteams") and strcmp(key, "alliedcapture") and strcmp(key, "alliedcounter") and strcmp(key, "noprod") and strcmp(key, "usemult") and strcmp(key, "storestart") and strcmp(key, "startsup") and strcmp(key, "storesproduce") and strcmp(key, "storecap") and strcmp(key, "storefill"))
             printf("KNOB unknown '%s'", key), printf("\n");
 
         *eq = '=';
@@ -4547,6 +4874,7 @@ int main(int argc, char **argv)
     SetUnhandledExceptionFilter(CampsimCrashFilter);
     gOrderChangeHook = CapOrderHook;
     gMoveFailHook = MoveFailHook;
+    gWPFailDiag = 1;
     const char *gamedir = (argc > 1) ? argv[1] : "C:/FreeFalcon6";
     const char *savefile = (argc > 2) ? argv[2] : "save0";
     int days = (argc > 3) ? atoi(argv[3]) : 0;
@@ -4753,6 +5081,107 @@ int main(int argc, char **argv)
 
     STEP("campaign loaded");
 
+    // Terrain audit (CAMPSIM_MAPTERRAIN=1): how much of the map a tracked column can enter, how much of it
+    // carries a road (the cost drops with PATH_ROADOK), and whether the objectives sit on either. Meant for
+    // comparing a converted theatre against a hand-built one -- Korea, in this case -- when units will not
+    // move: a campaign whose objectives are offshore or roadless has nowhere for them to go.
+    if (getenv("CAMPSIM_MAPTERRAIN"))
+    {
+        long cells = 0, land = 0, roads = 0;
+        int objs = 0, objRoad = 0, objWater = 0;
+
+        for (GridIndex x = 0; x < 1024; x++)
+        {
+            for (GridIndex y = 0; y < 1024; y++)
+            {
+                cells++;
+                const float plain = GetMovementCost(x, y, Tracked, 0, Here);
+
+                if (plain > MAX_COST)
+                    continue;
+
+                land++;
+
+                if (GetMovementCost(x, y, Tracked, PATH_ROADOK, Here) < plain)
+                    roads++;
+            }
+        }
+
+        {
+            VuListIterator oit(AllObjList);
+
+            for (Objective o = GetFirstObjective(&oit); o; o = GetNextObjective(&oit))
+            {
+                GridIndex ox, oy;
+                o->GetLocation(&ox, &oy);
+                objs++;
+                const float plain = GetMovementCost(ox, oy, Tracked, 0, Here);
+
+                if (plain > MAX_COST)
+                    objWater++;
+                else if (GetMovementCost(ox, oy, Tracked, PATH_ROADOK, Here) < plain)
+                    objRoad++;
+            }
+        }
+
+        // Also dump the grid as one byte per cell (0 = impassable, 1 = enterable, 2 = enterable with road)
+        // so the map can be drawn and compared with a hand-built theatre: CAMPSIM_MAPTERRAIN=1,
+        // CAMPSIM_MAPTERRAIN_OUT=<path>.
+        // ASCII map (64 x 64, every 16th cell): '~' impassable, '.' enterable, '#' enterable with road.
+        for (int ay = 0; ay < 64; ay++)
+        {
+            char row[80];
+
+            for (int ax = 0; ax < 64; ax++)
+            {
+                const GridIndex gx = (GridIndex)(ax * 16 + 8), gy = (GridIndex)(ay * 16 + 8);
+                const float plain = GetMovementCost(gx, gy, Tracked, 0, Here);
+
+                row[ax] = (plain > MAX_COST) ? '~'
+                          : ((GetMovementCost(gx, gy, Tracked, PATH_ROADOK, Here) < plain) ? '#' : '.');
+            }
+
+            row[64] = 0;
+            printf("MAPROW %02d %s\n", ay, row);
+        }
+
+        char mappath[1024] = "";
+
+        if (argc > 5 and argv[5] and argv[5][0])
+            snprintf(mappath, sizeof(mappath), "%s.map.raw", argv[5]);
+
+        if (mappath[0])
+        {
+            FILE *map = fopen(mappath, "wb");
+
+            if (map)
+            {
+                for (GridIndex y = 0; y < 1024; y++)
+                {
+                    for (GridIndex x = 0; x < 1024; x++)
+                    {
+                        const float plain = GetMovementCost(x, y, Tracked, 0, Here);
+                        uchar v = 0;
+
+                        if (plain <= MAX_COST)
+                            v = (GetMovementCost(x, y, Tracked, PATH_ROADOK, Here) < plain) ? 2 : 1;
+
+                        fwrite(&v, 1, 1, map);
+                    }
+                }
+
+                fclose(map);
+            }
+        }
+
+        printf("MAPTERRAIN cells %ld, enterable %ld (%.1f%%), road cells %ld (%.1f%% of enterable) | "
+               "objectives %d: on road %d (%.0f%%), on water %d (%.0f%%)\n",
+               cells, land, 100.0 * (double)land / (double)cells, roads,
+               100.0 * (double)roads / (double)(land ? land : 1),
+               objs, objRoad, 100.0 * (double)objRoad / (double)(objs ? objs : 1),
+               objWater, 100.0 * (double)objWater / (double)(objs ? objs : 1));
+    }
+
     {
         extern bool g_bCampThreadNoDispatch;
 
@@ -4934,6 +5363,9 @@ int main(int argc, char **argv)
 
             if ((iter % 360) == 0)
                 GtmLog(iter / 60), CapLog(iter / 60), MoveLog(iter / 60);
+
+            if ((iter % 360) == 0)
+                SupplySourceLog(iter / 60);
 
             if ((iter % 1440) == 0)
                 for (int t : {2, 6})

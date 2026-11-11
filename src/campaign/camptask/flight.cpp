@@ -108,6 +108,7 @@ extern int gFlightDetects;
 #endif DEBUG
 extern bool g_bAWACSRequired;
 extern bool g_bLoadoutSquadStoreResupply;
+extern bool AirFuelOnFor(int team); // squadron.cpp
 extern float g_fIdentFactor; // 2002-03-07 S.G.
 
 void AdjustOffset(float c, float s, float *x, float *y, float xo, float yo);
@@ -3419,6 +3420,48 @@ int FlightClass::BuildMission(MissionRequestClass *mis)
             SetUnitMission(AMIS_STSTRIKE);
         else if (DistanceToFront(mis->tx, mis->ty) > 100.0F)
             SetUnitMission(AMIS_DEEPSTRIKE);
+    }
+
+    // Air fuel model (cfg AirFuelDays): a squadron short of fuel is topped up from the national pool at the launch, and builds no sortie if it still
+    // cannot cover two aircraft
+    if (AirFuelOnFor(GetTeam()))
+    {
+        extern int gAirFuel[8][6];
+
+        extern long AirFuelCap(SquadronClass * sq);
+        extern int gAirRefuse[8][8];
+        extern void AirRefuseSq(SquadronClass * sq);
+        long poolBefore = -1;
+
+        if (squad->GetSquadronFuel() < fuelAvail * 2 / 100 and TeamInfo[GetTeam()])
+        {
+            const long unit = 100 /* SUPPLY_PT_FUEL / 100 */, cap = AirFuelCap(squad);
+            const long want = cap > squad->GetSquadronFuel() ? (cap - squad->GetSquadronFuel() + unit - 1) / unit : 0;
+            const long take = min(want, (long)TeamInfo[GetTeam()]->GetFuelAvail());
+            poolBefore = (long)TeamInfo[GetTeam()]->GetFuelAvail();
+            gAirRefuse[GetTeam() % 8][4]++;
+            gAirRefuse[GetTeam() % 8][6] += poolBefore;
+            gAirRefuse[GetTeam() % 8][7] += take;
+
+            if (take > 0 and take == poolBefore)
+                gAirRefuse[GetTeam() % 8][5]++;
+
+            if (take > 0)
+            {
+                TeamInfo[GetTeam()]->SetFuelAvail(TeamInfo[GetTeam()]->GetFuelAvail() - take);
+                squad->SetSquadronFuel(min(cap, squad->GetSquadronFuel() + take * unit));
+                gAirFuel[GetTeam() % 8][2] += take * unit;
+            }
+        }
+
+        if (squad->GetSquadronFuel() < fuelAvail * 2 / 100)
+        {
+            gAirFuel[GetTeam() % 8][4]++;
+            // why: 2 = the squadron's own cap is below two aircraft's worth, 3 = no top-up tried, 0 = the pool was empty, 1 = the pool had some but not enough
+            gAirRefuse[GetTeam() % 8][AirFuelCap(squad) < fuelAvail * 2 / 100 ? 2 : poolBefore < 0 ? 3 : poolBefore == 0 ? 0 : 1]++;
+            AirRefuseSq(squad);
+            return PRET_CANCELED;
+        }
     }
 
     // Transfer aircraft, update scheduling and insert flight

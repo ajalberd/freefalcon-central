@@ -234,7 +234,7 @@ AS_DataClass::AS_DataClass(void)
     cs = F4CreateCriticalSection("AS_CS");
 #endif
     // Allocate a big chunk of nodes
-    node_ptr = new AS_NodeClass[MAX_SEARCH];
+    node_ptr = new AS_NodeClass[AS_POOL_SIZE];
     // We want our first node to be the current location
     location = &node_ptr[0];
     location->cost = 0.0F;
@@ -243,10 +243,10 @@ AS_DataClass::AS_DataClass(void)
     location->next = NULL;
 
     // Build the waste list from the remaining chunks
-    for (i = 1; i < MAX_SEARCH - 1; i++)
+    for (i = 1; i < AS_POOL_SIZE - 1; i++)
         node_ptr[i].next = &node_ptr[i + 1];
 
-    node_ptr[MAX_SEARCH - 1].next = NULL;
+    node_ptr[AS_POOL_SIZE - 1].next = NULL;
     waste = &node_ptr[1];
 }
 
@@ -285,7 +285,7 @@ AS_DataClass::~AS_DataClass(void)
         T = T->next;
     }
 
-    ShiAssert(count == MAX_SEARCH);
+    ShiAssert(count == AS_POOL_SIZE);
 #endif
 
     delete[] node_ptr;
