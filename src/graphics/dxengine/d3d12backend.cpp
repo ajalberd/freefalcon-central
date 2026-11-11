@@ -597,7 +597,8 @@ D3D12Backend::D3D12Backend()
       m_pSceneDepthRes(0), m_sceneDepthSlices(1), m_sceneDepthMs(false),
       m_sceneDepthReadable(false), m_pDepthSrvHeap(0), m_depthSrvFor(0),
       m_pPitShadowTex(0), m_pPitShadowDsvHeap(0), m_pPitShadowSrvHeap(0),
-      m_pitShadowRes(0), m_pitShadowReadable(false),
+      m_pitShadowRes(0), m_pitShadowReadable(false), m_pWorldShadowTex(0), m_pWorldShadowDsvHeap(0),
+      m_pWorldShadowSrvHeap(0), m_worldShadowRes(0), m_worldShadowReadable(false),
       m_pList(0), m_pFence(0), m_fenceCounter(0), m_fenceEvent(0),
       m_frameIndex(0), m_pQuadRS(0), m_pQuadPSO(0), m_pQuadPSOBlend(0),
       m_pSrvHeap(0), m_pQuadTex(0), m_pQuadUpload(0), m_quadTexW(0),
@@ -1920,6 +1921,192 @@ unsigned __int64 D3D12Backend::PitShadowSrvCpu() const
     if (!m_pPitShadowTex || !m_pPitShadowSrvHeap || !m_pitShadowReadable)
         return 0; // still a depth attachment -> FlushConstants substitutes the white SRV
     return (unsigned __int64)m_pPitShadowSrvHeap
+        ->GetCPUDescriptorHandleForHeapStart()
+        .ptr;
+}
+
+// Artscout - 2026: the world sun shadow map -- a straight copy of the cockpit trio above (see its comments for the
+// format traps: R32G8X24_TYPELESS parent, R32_FLOAT_X8X24_TYPELESS SRV, reversed-Z clear to 0).
+bool D3D12Backend::EnsureWorldShadowTarget(int res)
+{
+    if (!m_pDevice || res < 1)
+        return false;
+    if (m_pWorldShadowTex && m_worldShadowRes == res)
+        return true;
+
+    if (m_pWorldShadowTex)
+    {
+        WaitForGpu(); // it may still be referenced by frames in flight
+        D12_RELEASE(m_pWorldShadowTex);
+    }
+
+    if (!m_pWorldShadowDsvHeap)
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC hd;
+        ZeroMemory(&hd, sizeof(hd));
+        hd.NumDescriptors = 1;
+        hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+        hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        if (FAILED(m_pDevice->CreateDescriptorHeap(
+                &hd, IID_PPV_ARGS(&m_pWorldShadowDsvHeap))))
+        {
+            D12Log("[D3D12] world shadow DSV heap failed\n");
+            m_pWorldShadowDsvHeap = 0;
+            return false;
+        }
+    }
+    if (!m_pWorldShadowSrvHeap)
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC hd;
+        ZeroMemory(&hd, sizeof(hd));
+        hd.NumDescriptors = 1;
+        hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        hd.Flags =
+            D3D12_DESCRIPTOR_HEAP_FLAG_NONE; // CPU staging: FlushConstants copies it to the ring
+        if (FAILED(m_pDevice->CreateDescriptorHeap(
+                &hd, IID_PPV_ARGS(&m_pWorldShadowSrvHeap))))
+        {
+            D12Log("[D3D12] world shadow SRV heap failed\n");
+            m_pWorldShadowSrvHeap = 0;
+            return false;
+        }
+    }
+
+    D3D12_HEAP_PROPERTIES hp;
+    ZeroMemory(&hp, sizeof(hp));
+    hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC rd;
+    ZeroMemory(&rd, sizeof(rd));
+    rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    rd.Width = (UINT64)res;
+    rd.Height = (UINT)res;
+    rd.DepthOrArraySize = 1;
+    rd.MipLevels = 1;
+    rd.Format = DXGI_FORMAT_R32G8X24_TYPELESS;
+    rd.SampleDesc.Count = 1;
+    rd.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+    D3D12_CLEAR_VALUE cv;
+    ZeroMemory(&cv, sizeof(cv));
+    cv.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    cv.DepthStencil.Depth = 0.0f; // reversed-Z: 0 is the FAR plane
+    cv.DepthStencil.Stencil = 0;
+
+    if (FAILED(m_pDevice->CreateCommittedResource(
+            &hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            &cv, IID_PPV_ARGS(&m_pWorldShadowTex))))
+    {
+        D12Log("[D3D12] world shadow target create failed\n");
+        m_pWorldShadowTex = 0;
+        return false;
+    }
+
+    D3D12_DEPTH_STENCIL_VIEW_DESC dv;
+    ZeroMemory(&dv, sizeof(dv));
+    dv.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    dv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    m_pDevice->CreateDepthStencilView(
+        m_pWorldShadowTex, &dv,
+        m_pWorldShadowDsvHeap->GetCPUDescriptorHandleForHeapStart());
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC sd;
+    ZeroMemory(&sd, sizeof(sd));
+    // R32_FLOAT_X8X24_TYPELESS, NOT R32_FLOAT: an R32G8X24_TYPELESS resource cannot be viewed as
+    // plain R32_FLOAT -- asking for it makes CreateShaderResourceView REMOVE THE DEVICE (DXGI
+    // _INVALID_CALL, reproduced with the debug layer), which then fails every later PSO with
+    // DEVICE_REMOVED and presents a black screen. This is the same view the scene depth uses
+    // (SceneDepthSrvCpu); the depth plane is the only part a shader can read anyway.
+    sd.Format = DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
+    sd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    sd.Texture2D.MipLevels = 1;
+    m_pDevice->CreateShaderResourceView(
+        m_pWorldShadowTex, &sd,
+        m_pWorldShadowSrvHeap->GetCPUDescriptorHandleForHeapStart());
+
+    m_worldShadowRes = res;
+    m_worldShadowReadable = false;
+    return true;
+}
+
+void D3D12Backend::BindWorldShadowTarget()
+{
+    if (!m_pList || !m_bRecording || !m_pWorldShadowTex)
+        return;
+    if (m_worldShadowReadable)
+    {
+        // It was sampled last frame -> back to a depth attachment for this frame's replay.
+        D3D12_RESOURCE_BARRIER b;
+        ZeroMemory(&b, sizeof(b));
+        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b.Transition.pResource = m_pWorldShadowTex;
+        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        b.Transition.StateBefore = (D3D12_RESOURCE_STATES)(
+            D3D12_RESOURCE_STATE_DEPTH_READ |
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        b.Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        m_pList->ResourceBarrier(1, &b);
+        m_worldShadowReadable = false;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE dsv =
+        m_pWorldShadowDsvHeap->GetCPUDescriptorHandleForHeapStart();
+    // ZERO render targets: the shadow PSO is depth-only (NumRenderTargets=0). A null RTV array is
+    // exactly what that pipeline expects.
+    m_pList->OMSetRenderTargets(0, NULL, FALSE, &dsv);
+    // Reversed-Z: 0 is the far plane, so that is what a cleared map holds (nothing lit it).
+    m_pList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, NULL);
+    m_curSampleCount = 1; // single-sample: GetPSO's SampleDesc must match
+
+    D3D12_VIEWPORT vp;
+    vp.TopLeftX = 0;
+    vp.TopLeftY = 0;
+    vp.Width = (FLOAT)m_worldShadowRes;
+    vp.Height = (FLOAT)m_worldShadowRes;
+    vp.MinDepth = 0;
+    vp.MaxDepth = 1;
+    D3D12_RECT sc;
+    sc.left = 0;
+    sc.top = 0;
+    sc.right = m_worldShadowRes;
+    sc.bottom = m_worldShadowRes;
+    m_pList->RSSetViewports(1, &vp);
+    m_pList->RSSetScissorRects(1, &sc);
+
+    if (g_pD3D12Renderer)
+        g_pD3D12Renderer->SetDepthTargetBound(true);
+}
+
+void D3D12Backend::UnbindWorldShadowTarget()
+{
+    if (!m_pList || !m_bRecording || !m_pWorldShadowTex)
+        return;
+    if (!m_worldShadowReadable)
+    {
+        D3D12_RESOURCE_BARRIER b;
+        ZeroMemory(&b, sizeof(b));
+        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        b.Transition.pResource = m_pWorldShadowTex;
+        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        b.Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        b.Transition.StateAfter = (D3D12_RESOURCE_STATES)(
+            D3D12_RESOURCE_STATE_DEPTH_READ |
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        m_pList->ResourceBarrier(1, &b);
+        m_worldShadowReadable = true;
+    }
+    // Restore whatever scene target was current (back buffer / VR eye / MSAA / RTT) and the
+    // matching sample count. The pit flush only ever runs inside the 3D scene pass, so this is
+    // the scene target, never a display-atlas RTT.
+    BindBackBufferRTV();
+}
+
+unsigned __int64 D3D12Backend::WorldShadowSrvCpu() const
+{
+    if (!m_pWorldShadowTex || !m_pWorldShadowSrvHeap || !m_worldShadowReadable)
+        return 0; // still a depth attachment -> FlushConstants substitutes the white SRV
+    return (unsigned __int64)m_pWorldShadowSrvHeap
         ->GetCPUDescriptorHandleForHeapStart()
         .ptr;
 }
@@ -5058,6 +5245,11 @@ void D3D12Backend::Release()
     D12_RELEASE(m_pPitShadowSrvHeap);
     m_pitShadowRes = 0;
     m_pitShadowReadable = false;
+    D12_RELEASE(m_pWorldShadowTex); // Artscout - 2026: world sun shadow map
+    D12_RELEASE(m_pWorldShadowDsvHeap);
+    D12_RELEASE(m_pWorldShadowSrvHeap);
+    m_worldShadowRes = 0;
+    m_worldShadowReadable = false;
     D12_RELEASE(m_pDsvHeap);
     D12_RELEASE(m_pRttDepthTex); // Artscout - 2026: off-screen RTT depth
     D12_RELEASE(m_pRttDsvHeap);

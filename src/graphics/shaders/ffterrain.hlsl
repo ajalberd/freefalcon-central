@@ -81,7 +81,7 @@ cbuffer cbTerrain : register(b0)
     float4      gSunDir;            // xyz = ray direction (away from the sun)
     float4      gSunColor;          // rgb = sun diffuse
     float4      gSunAmbient;        // rgb = scene ambient
-    float4      gTerrMisc;          // xy = screen size (px), z = time (sec)
+    float4      gTerrMisc;          // xy = screen size (px), z = time (sec), w = linear-light blend (LinearLighting)
     float4      gTerrFrustum[6];    // world-space planes (xyz = n, w = d), camera-relative
     ClipLevel   gClip[MAX_CLIP_LODS];
     // Artscout - 2026: cumulus shadows -- the same two rows the object pass gets as gCloudSh0/1 (ffemu.hlsl
@@ -89,6 +89,15 @@ cbuffer cbTerrain : register(b0)
     float4      gCloudSh0;          // xy = mask world origin, z = cloud plane world z, w = 1 / mask size
     float4      gCloudSh1;          // xyz = toward the sun, w = strength (0 = off)
     uint4       gCloudShSlot;       // x = bindless slot of the mask (~0 = none)
+    // Artscout - 2026: WORLD sun shadows -- the object pass's gWorldShadowVP/Params/Origin (ffemu.hlsl cbShadow), plus
+    // the map's bindless slot. Appended: MUST match TerrainClipConstants in terrainclipmap.h.
+    row_major float4x4 gWShadowVP;
+    float4      gWShadowParams;     // x = 1/res, y = depth bias (clip), z = strength, w = 1 when armed
+    float4      gWShadowOrigin;     // xyz = origin, world feet
+    uint4       gWShadowSlot;       // x = bindless slot of the map (~0 = none)
+    // Artscout - 2026: the sunrise/sunset horizon glow, so the distance fog carries it too (see PS_Terrain). xyz = unit
+    // vector TOWARD the sun (world axes, z down), w = glow strength (0 = none). Appended: MUST match TerrainClipConstants.
+    float4      gHorizonGlow;
 };
 
 //============================== Resources ====================================
@@ -547,6 +556,45 @@ float TerrainCloudShadow(float3 wpos)
     return 1.0f - gCloudSh1.w * m * saturate(below / 1500.0f);
 }
 
+// Artscout - 2026: the world sun shadow term for the ground -- ffemu.hlsl's WorldSunShadow, reading the map through
+// its bindless slot and with Load (no sampler: a nearest 3x3 PCF). Keep the two in step.
+float TerrainWorldShadow(float3 wpos, float3 N)
+{
+    if (gWShadowParams.w < 0.5f || gWShadowParams.z <= 0.0f || gWShadowSlot.x == ~0u)
+        return 1.0f;
+#if defined(FF_BINDLESS_HEAP)
+    const float  sx = length(gWShadowVP[0].xyz);
+    const float  texelWorld = 2.0f * gWShadowParams.x / max(sx, 1.0e-6f);
+    const float3 p = wpos + gTerrCamPos.xyz - gWShadowOrigin.xyz + N * (texelWorld * 2.0f);
+    // row_major matrix, column vector: out_j = dot(row_j, p) -- the same dot-with-each-CPU-row the object pass does.
+    const float4 sc = mul(gWShadowVP, float4(p, 1.0f));
+    if (sc.w <= 1.0e-6f)
+        return 1.0f;
+    const float2 uv = float2(sc.x / sc.w * 0.5f + 0.5f, 0.5f - sc.y / sc.w * 0.5f);
+    const float  d  = sc.z / sc.w;
+    if (uv.x < 0.0f || uv.x > 1.0f || uv.y < 0.0f || uv.y > 1.0f || d < 0.0f || d > 1.0f)
+        return 1.0f;
+    Texture2D<float> sm = ResourceDescriptorHeap[gWShadowSlot.x];
+    uint w, h;
+    sm.GetDimensions(w, h);
+    const int2 base = int2(uv * float2((float)w, (float)h));
+    const int2 hi = int2((int)w - 1, (int)h - 1);
+    float lit = 0.0f;
+    [unroll] for (int j = -1; j <= 1; ++j)
+    {
+        [unroll] for (int k = -1; k <= 1; ++k)
+        {
+            const int2  t  = clamp(base + int2(k, j), int2(0, 0), hi);
+            const float od = sm.Load(int3(t, 0));
+            lit += (od <= d + gWShadowParams.y) ? 1.0f : 0.0f;
+        }
+    }
+    return lerp(1.0f, lit * (1.0f / 9.0f), saturate(gWShadowParams.z));
+#else
+    return 1.0f;
+#endif
+}
+
 float4 PS_Terrain(TerrVertex i) : SV_Target
 {
     float3 rgb;
@@ -604,7 +652,20 @@ float4 PS_Terrain(TerrVertex i) : SV_Target
         const float ndl = saturate(dot(normalize(i.normal), -gSunDir.xyz));
         // Cloud shadow takes the SUN term only; the ambient under a cloud is unchanged.
         // gSunAmbient.w = TerrainLightGain (cfg): the ground was lit twice (tile level, then this), see f4config.cpp.
-        rgb *= saturate((gSunAmbient.rgb + gSunColor.rgb * ndl * TerrainCloudShadow(i.wpos)) * gSunAmbient.w);
+        const float3 nrm = normalize(i.normal);
+        const float  sunTerm = ndl * TerrainCloudShadow(i.wpos) * TerrainWorldShadow(i.wpos, nrm);
+        float3 litT = gSunAmbient.rgb + gSunColor.rgb * sunTerm;
+        // Artscout - 2026: LinearLighting (cfg), the same idea as ffemu.hlsl's FFLightDecode: sum ambient and sun in
+        // linear light, re-encode, blend in by gTerrMisc.w. 0 = the old encoded-space sum.
+        if (gTerrMisc.w > 0.0f)
+        {
+            const float3 litL = pow(max(gSunAmbient.rgb, 0.0f), 2.2f) + pow(max(gSunColor.rgb, 0.0f), 2.2f) * sunTerm;
+            litT = lerp(litT, pow(max(litL, 0.0f), 1.0f / 2.2f), saturate(gTerrMisc.w));
+        }
+        // No saturate: with TerrainLightGain > 1 a lit slope used to clip at 1.0, which flattened exactly the shading
+        // (hills, cloud and object shadows on the lit side) the gain is meant to brighten. The scene is FP16 and GT7 rolls
+        // anything above 1 off, so let it through (capped at 2 against a runaway).
+        rgb *= min(litT * gSunAmbient.w, 2.0f);
     }
 
     if ((gTerrFlags.x & TF_WIREOVERLAY) != 0)
@@ -622,7 +683,20 @@ float4 PS_Terrain(TerrVertex i) : SV_Target
         const float dist = length(i.wpos);
         const float f = saturate((gTerrFog.y - dist)
                                  / max(gTerrFog.y - gTerrFog.x, 1.0f));
-        rgb = lerp(gTerrFogColor.rgb, rgb, f);
+        // Artscout - 2026: the fog colour follows the sky dome's sunset glow. The dome tints its horizon toward the sun
+        // (sdot^3 lobe: r toward 1, g toward 0.85, b down) but the fog was ONE flat colour, so the ground faded to a
+        // teal-grey strip under an orange glow. Same lobe and same tint as RenderOTW::DrawSkyDome, evaluated along this
+        // pixel's own view direction (wpos is camera-relative, world axes).
+        float3 fogC = gTerrFogColor.rgb;
+        if (gHorizonGlow.w > 0.0f)
+        {
+            const float  sd = max(dot(normalize(i.wpos), gHorizonGlow.xyz), 0.0f);
+            const float  gl = sd * sd * sd * gHorizonGlow.w;
+            fogC.r += gl * (1.0f - fogC.r);
+            fogC.g += gl * (0.85f - fogC.g) * 0.7f;
+            fogC.b -= gl * fogC.b * 0.5f;
+        }
+        rgb = lerp(fogC, rgb, f);
     }
 
     // #A5 sensor pass -> Rec.601 luma, same as the object shader does.

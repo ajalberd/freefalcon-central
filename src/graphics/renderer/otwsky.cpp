@@ -36,6 +36,7 @@
 #include "graphics/dxengine/dxengine.h" // CDXEngine::GetObjProjection/View
 #include "graphics/dxengine/common/irenderer.h" // g_pRenderer, BeginSkyPass, DrawTerrainMesh
 extern bool g_b3DSky;
+float g_horizonGlow[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // Artscout - 2026: toward-sun xyz + glow strength, for the terrain fog
 extern float
     g_fSunWarmth; // #96 sun disc warmth (0 = physical white, 1 = strongly yellow)
 extern float g_fSkyDomeRadius, g_fSkyDomeSunSize, g_fSkyDomeMoonSize,
@@ -165,7 +166,14 @@ BOOL RenderOTW::DrawSky(void)
         // Artscout - 2026: the one thing the dome did not inherit from the 2D sky -- covering the
         // near/far terrain seam. See DrawHorizonFillerOverDome. Ground is visible here (we did not
         // return above), so there is a seam to cover.
-        DrawHorizonFillerOverDome();
+        // Artscout - 2026: the filler is a FLAT colour, so on the sun's side of a sunset it cannot match the glow the dome and
+        // the terrain fog now carry. It only existed to cover a black sliver seen from ~40k ft (gone by 30k), so draw it
+        // only that high; below, the dome's skirt (6.9 deg under the horizon, glow-aware) fills the gap.
+        {
+            extern float g_fHorizonFillerMinAlt;
+            if (-viewpoint->Z() >= g_fHorizonFillerMinAlt)
+                DrawHorizonFillerOverDome();
+        }
         return TRUE;
     }
 
@@ -1091,7 +1099,19 @@ void RenderOTW::DrawFillerToHorizon(HorizonRecord* pHorizon)
     v1.g = haze_ground_color.g;
     v1.b = haze_ground_color.b;
 
-    if (pHorizon->horeffect)
+    // Artscout - 2026: with the 3D dome the horizon end of this filler must be the SAME colour as its ground end. The
+    // filler stands in for terrain that is fogged to haze_ground_color; giving its horizon edge the legacy sunrise/
+    // sunset glow (haze_sky + sunEffect, a bright cream) painted a flat pale strip between the dome (which starts at the
+    // fog colour at el 0 and blends up into the glow) and the fogged ground -- the 'horizon is a different colour'
+    // band, worst at dusk/dawn. The dome carries the glow now.
+    extern bool g_b3DSky;
+    if (g_b3DSky)
+    {
+        v2.r = v3.r = haze_ground_color.r;
+        v2.g = v3.g = haze_ground_color.g;
+        v2.b = v3.b = haze_ground_color.b;
+    }
+    else if (pHorizon->horeffect)
     {
         // horizon light effect
         dr = pHorizon->sunEffectColor.r - haze_sky_color.r;
@@ -1939,6 +1959,12 @@ void RenderOTW::DrawSkyDome(void)
     float glowWin = 1.0f - (float)fabs(sunUp) / 0.30f;
     if (glowWin < 0.0f)
         glowWin = 0.0f;
+    // Artscout - 2026: published for the terrain's distance fog (ffterrain.hlsl gHorizonGlow): the fog takes the same
+    // sunset-glow tint along each view direction, so the ground meets the dome in the same colour on the sun's side.
+    g_horizonGlow[0] = sunD.x;
+    g_horizonGlow[1] = sunD.y;
+    g_horizonGlow[2] = sunD.z;
+    g_horizonGlow[3] = glowWin * 0.6f;
 
     // Artscout - 2026: #96 the equirect starmap's own celestial pole lands INSIDE the visible sky (the tilt puts
     // it at altitude == latitude, ~38deg for Korea). u varies arbitrarily fast around that singularity, so a
@@ -2010,11 +2036,10 @@ void RenderOTW::DrawSkyDome(void)
             gh = 0.0f;
         if (gh > 1.0f)
             gh = 1.0f;
-        float gf = el * (1.0f / GLOW_HORIZON_FADE);
-        if (gf < 0.0f)
-            gf = 0.0f;
-        if (gf > 1.0f)
-            gf = 1.0f; // glow ramp
+        // Artscout - 2026: no horizon ramp any more. It existed because the terrain fog was ONE flat colour that could not
+        // follow an azimuth-dependent glow; the fog now carries the same glow (g_horizonGlow), so the dome may start
+        // fully lit AT the horizon and below it (the skirt), matching the ground.
+        float gf = 1.0f; // glow ramp (was el / GLOW_HORIZON_FADE)
         const float hr =
             fogc->r + (haze_sky_color.r - fogc->r) *
                           gh; // el<=0 -> exactly the terrain's fog colour
@@ -2944,6 +2969,19 @@ void RenderOTW::SetTimeOfDayColor(void)
         ProcessColor(&haze_sky_color);
         ProcessColor(&earth_end_color);
         ProcessColor(&haze_ground_color);
+
+        // Artscout - 2026: HorizonHazeMatch. The time-of-day table gives the GROUND haze and the SKY haze different
+        // colours (dusk: a brown ground haze under a grey-green sky), and everything far fades to the ground one while the
+        // dome above the horizon fades from it to the sky one -- a visible band of the wrong colour at the horizon, worst at
+        // dawn/dusk. Air has one horizon colour: pull the ground haze (terrain fog, objects' fog, the filler, the dome's
+        // anchor -- they all read haze_ground_color) toward the sky haze by this fraction. 0 = the table's own colours.
+        {
+            extern float g_fHorizonHazeMatch;
+            const float k = g_fHorizonHazeMatch < 0.0f ? 0.0f : (g_fHorizonHazeMatch > 1.0f ? 1.0f : g_fHorizonHazeMatch);
+            haze_ground_color.r += (haze_sky_color.r - haze_ground_color.r) * k;
+            haze_ground_color.g += (haze_sky_color.g - haze_ground_color.g) * k;
+            haze_ground_color.b += (haze_sky_color.b - haze_ground_color.b) * k;
+        }
 
         // Set the fog color for the terrain
         DWORD ground_haze = (FloatToInt32(haze_ground_color.r * 255.9f)) +

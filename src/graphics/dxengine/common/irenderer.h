@@ -264,6 +264,39 @@ public:
     {
     }
 
+    // Artscout - 2026: WORLD sun shadows. Same idea as the cockpit map but for everything outside the pit: the
+    // engine replays the frame's object draw lists depth-only into a second map fitted to a box around the camera,
+    // and the object pixel shader + the terrain pixel shader darken the SUN term where the map says the sun is
+    // blocked. The map lives in world axes RELATIVE TO an origin (the camera at build time) -- each shader adds its
+    // own camera position back and subtracts the origin, so it stays correct for either VR eye. Default: no-ops.
+    virtual bool WorldShadowSupported() const
+    {
+        return false;
+    }
+    // vp: row-vector, (world position - origin) -> reversed-Z shadow clip. origin: world feet. bias in clip units.
+    virtual void SetWorldShadow(const float* /*vp*/, const float* /*origin*/, float /*bias*/, float /*strength*/)
+    {
+    }
+    virtual void DisarmWorldShadow()
+    {
+    }
+    virtual bool BeginWorldShadowPass(int /*res*/)
+    {
+        return false;
+    }
+    virtual void EndWorldShadowPass()
+    {
+    }
+    // The terrain pass reads the live map through the bindless heap: slot ~0 = none.
+    virtual unsigned int WorldShadowBindlessSlot()
+    {
+        return 0xFFFFFFFFu;
+    }
+    virtual bool GetWorldShadow(float* /*vp16*/, float* /*params4*/, float* /*origin4*/) const
+    {
+        return false;
+    }
+
     // Artscout - 2026: the cockpit's flood/instrument FILL -- the sim hands over what the two cockpit
     // light knobs add on top of the environment (CockpitManager::GetCockpitFill). The FF_COCKPIT
     // branch of the object lighting adds it to the pit's ambient, so the knobs move the 3D pit the

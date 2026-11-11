@@ -222,12 +222,12 @@ row or column; silent for the first 10 s after a refill), `[TERRAIN-BOX]` (ring 
 |---|---|---|
 | Overlap the two eyes | **written, not flown** (`VrEyeOverlap`, default 0; see "Eye overlap" below) | CPU frame time is the limit, not the GPU. Needs a separate command allocator per eye and an audit of the per-frame constant/vertex rings (they probably assume the previous eye finished). Audit first. |
 | Smooth the coarsest far terrain ring | **knob written, not flown** (`TerrainRingScale`) | Rings were L0 13 km @250 m, L1 26 km @500 m, L2 52 km @1 km, L3 104 km @2 km, L4 296 km @4 km (each LOD reaches half the next; every ring is 52 posts wide). `TerrainRingScale 2` makes every ring but the last twice as wide at the same spacing, so with a 150 km far plane the 4 km posts are never seen and 2 km posts reach ~100 km. Costs data streaming/tile textures and some CPU; GPU terrain is ~0.1 ms. Capped by the clipmap window (~2.3x). Try 1.5 then 2. |
-| World sun shadows | **not started** | Only the cockpit has them. Biggest visual jump left and the biggest job. |
+| World sun shadows | **written, not built/flown** (`WorldShadow`, default 0) | See RENDER-LIGHTING.md "World sun shadows": camera-centred sun-space map from the first flush's object lists; objects + terrain receive; one-frame-old map on the ground; terrain does not cast. |
 | View-instanced (stereo-instanced) rendering | **off on purpose** | Constants are quad-tuned and break plain stereo; see the VR rig memory. Do not enable until that is untangled. |
 | Alpha-to-coverage for cut-outs | **done, flown** | `AlphaToCoverage` (default on); only acts when the target is multisampled. |
 | Small positive mip bias | **available, not recommended yet** | The Advanced-page slider goes to +0.5 / +1.0 (less crawl on distant building textures, a little less sharpness). Untested on the user's rig; MSAA already removed most of the crawl. |
-| Specular glints on roofs | **unconfirmed** | Per-pixel Blinn-Phong may twinkle with micro-motion; capping the power would calm it. Not seen on the user's buildings; do not change blind. |
-| Gamma-space lighting -> linear light | **not started** | Fixes the washed-out look but changes the whole look; needs tuning. |
+| Specular glints on roofs | **knob written** (`ObjSpecPowerCap`, default 0) | Per-pixel Blinn-Phong may twinkle with micro-motion; capping the power would calm it. Not seen on the user's buildings; do not change blind. |
+| Gamma-space lighting -> linear light | **opt-in written, not flown** (`LinearLighting` 0..1, default 0) | Fixes the washed-out look but changes the whole look; needs tuning. |
 | Temporal AA | **not started** | Was blocked on MSAA; MSAA has landed, so it is unblocked. |
 
 New this session, written but **not yet flown**:

@@ -102,6 +102,7 @@ bool CDXEngine::m_SurfacePit;
 // Artscout - 2026: cockpit sun shadow replay state (see the header + RenderPitShadowMap).
 bool CDXEngine::m_ShadowWalk = false;
 bool CDXEngine::m_PitShadowDone = false;
+bool CDXEngine::m_WorldShadowDone = false;
 
 DX_StateType CDXEngine::m_RenderState;
 DWORD CDXEngine::m_StatesStackLevel;
@@ -392,6 +393,7 @@ void CDXEngine::SetSunLight(float Ambient, float Diffuse, float Specular)
     // before the eye loop / the cockpit draw), so this is where the cockpit shadow replay is re-armed
     // for the new frame: its map is model-space and view-independent, and only the sun moves it.
     m_PitShadowDone = false;
+    m_WorldShadowDone = false;
 
     TheSun.dcvAmbient.r = TheSunColour.r * Ambient;
     TheSun.dcvAmbient.g = TheSunColour.g * Ambient;
@@ -2321,6 +2323,184 @@ bool CDXEngine::RenderPitShadowMap(void)
     return true;
 }
 
+// Artscout - 2026: WORLD sun shadows. A second shadow map, fitted to a box around the camera and replayed from the
+// frame's WORLD object draw lists (the pit has its own map above) before FlushObjects dispenses them.
+//   Space: world axes (x north, y east, z down) RELATIVE TO an origin O = the camera position at build time. The
+// draws are already camera-relative (their world matrix subtracts CameraPos), so with view = identity and the light
+// VP as the projection the replay needs no extra translation; a shader that wants to look a point up adds ITS camera
+// position back and subtracts O (gShadowOrigin), which is also what keeps the lookup right for either VR eye.
+//   Fit: an ortho along the sun, +-reach in the light's right/up axes, snapped to whole texels in ABSOLUTE light
+// space so the map does not shimmer as the camera moves. reach is 1.6 x the camera's altitude (clamped), so a low
+// flight gets ~1.5 ft texels and a high one still covers the visible ground.
+//   Casters: every drawable in the first flush's lists that lies inside the box (slot children, glass and anything
+// the pit replay also skips are not drawn). Receivers: the object PS (WorldSunShadow) and the terrain PS.
+bool CDXEngine::RenderWorldShadowMap(void)
+{
+    extern bool g_bWorldShadow;
+    extern int g_nWorldShadowRes;
+    extern float g_fWorldShadowReach, g_fWorldShadowStrength;
+
+    if (!g_bWorldShadow || m_ShadowWalk || !g_pRenderer || !g_pRenderer->WorldShadowSupported() || !g_bUseGpu)
+        return false;
+
+    // Sun: LightDir is the RAY direction; the sun is the other way. z is DOWN, so an overhead sun has toSun z < 0.
+    float toSun[3] = {-LightDir.x, -LightDir.y, -LightDir.z};
+    {
+        const float len = (float)sqrt(toSun[0] * toSun[0] + toSun[1] * toSun[1] + toSun[2] * toSun[2]);
+        if (len < 1.0e-6f)
+        {
+            g_pRenderer->DisarmWorldShadow();
+            return false;
+        }
+        toSun[0] /= len;
+        toSun[1] /= len;
+        toSun[2] /= len;
+    }
+    const float sinEl = -toSun[2];
+    if (sinEl < 0.06f) // under ~3.5 degrees: no shadows (a grazing sun would smear the map across kilometres)
+    {
+        g_pRenderer->DisarmWorldShadow();
+        return false;
+    }
+    // Fade in over the first ~8 degrees so dawn/dusk do not pop.
+    float strength = g_fWorldShadowStrength * (float)fmin(1.0, (sinEl - 0.06) / 0.14);
+
+    int res = g_nWorldShadowRes;
+    if (res < 512)
+        res = 512;
+    if (res > 8192)
+        res = 8192;
+
+    const float alt = -CameraPos.z; // feet above sea level (z DOWN)
+    float R = g_fWorldShadowReach > 100.0f ? g_fWorldShadowReach : 1.6f * (alt > 0.0f ? alt : 0.0f);
+    if (g_fWorldShadowReach <= 100.0f)
+    {
+        if (R < 3000.0f)
+            R = 3000.0f;
+        if (R > 36000.0f)
+            R = 36000.0f;
+    }
+
+    // Light basis (same construction as the pit's): f = the way the light travels, r/u across it.
+    const float f[3] = {-toSun[0], -toSun[1], -toSun[2]};
+    float up0[3] = {0.0f, 0.0f, 1.0f};
+    if (fabsf(f[2]) > 0.9f)
+    {
+        up0[0] = 0.0f;
+        up0[1] = 1.0f;
+        up0[2] = 0.0f;
+    }
+    float r[3], u[3];
+    r[0] = up0[1] * f[2] - up0[2] * f[1];
+    r[1] = up0[2] * f[0] - up0[0] * f[2];
+    r[2] = up0[0] * f[1] - up0[1] * f[0];
+    {
+        const float len = (float)sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+        if (len < 1.0e-6f)
+        {
+            g_pRenderer->DisarmWorldShadow();
+            return false;
+        }
+        r[0] /= len;
+        r[1] /= len;
+        r[2] /= len;
+    }
+    u[0] = f[1] * r[2] - f[2] * r[1];
+    u[1] = f[2] * r[0] - f[0] * r[2];
+    u[2] = f[0] * r[1] - f[1] * r[0];
+
+    // Texel snap, in absolute light space (double: the camera is ~1e6 ft from the world origin).
+    const double texel = 2.0 * (double)R / (double)res;
+    const double cr = (double)CameraPos.x * r[0] + (double)CameraPos.y * r[1] + (double)CameraPos.z * r[2];
+    const double cu = (double)CameraPos.x * u[0] + (double)CameraPos.y * u[1] + (double)CameraPos.z * u[2];
+    const float sr = (float)(floor(cr / texel + 0.5) * texel - cr); // box centre, relative to the camera, along r
+    const float su = (float)(floor(cu / texel + 0.5) * texel - cu);
+
+    const float vx0 = sr - R, vx1 = sr + R, vy0 = su - R, vy1 = su + R;
+    const float zr = R + 3000.0f; // depth slack: casters above the camera and ground below it
+    const float vz0 = -zr, vz1 = zr;
+    const float sx = 2.0f / (vx1 - vx0), sy = 2.0f / (vy1 - vy0), dz = 1.0f / (vz1 - vz0);
+    const float tx = (vx1 + vx0) / (vx0 - vx1);
+    const float ty = (vy1 + vy0) / (vy0 - vy1);
+
+    // Row j = (axis_j * scale_j, translation_j) -- the shader dots p with each CPU row (see the pit fit above).
+    D3DXMATRIX vp;
+    vp.m00 = r[0] * sx;  vp.m01 = r[1] * sx;  vp.m02 = r[2] * sx;  vp.m03 = tx;
+    vp.m10 = u[0] * sy;  vp.m11 = u[1] * sy;  vp.m12 = u[2] * sy;  vp.m13 = ty;
+    vp.m20 = -f[0] * dz; vp.m21 = -f[1] * dz; vp.m22 = -f[2] * dz; vp.m23 = vz1 * dz; // reversed: near sun -> 1
+    vp.m30 = 0.0f;       vp.m31 = 0.0f;       vp.m32 = 0.0f;       vp.m33 = 1.0f;
+
+    // Bias: ~1.5 texels' worth of depth, as a fraction of the depth range (the shader adds a normal offset too).
+    const float biasFeet = (float)texel * 1.5f + 0.5f;
+    const float origin[3] = {CameraPos.x, CameraPos.y, CameraPos.z};
+    g_pRenderer->SetWorldShadow((const float *)&vp, origin, biasFeet * dz, strength);
+    if (not g_pRenderer->BeginWorldShadowPass(res))
+        return false;
+
+    int drawn = 0, skipped = 0;
+    VBufferListType *lists = TheVbManager.GetVbList();
+    m_ShadowWalk = true;
+    for (int b = 0; b < MAX_VERTEX_BUFFERS and lists[b].Class; ++b)
+    {
+        long left = (long)lists[b].DrawsCount;
+        for (CDrawItem *d = lists[b].pDrawRoot; d and left > 0; d = d->Next, --left)
+        {
+            if (not d->Object)
+                continue;
+            ObjectInstance *o = (ObjectInstance *)d->Object;
+            // Inside the box? (position is camera-relative = relative to the origin)
+            const float px = d->RotMatrix.m30, py = d->RotMatrix.m31, pz = d->RotMatrix.m32;
+            const float rad = o->Radius();
+            const float lr = px * r[0] + py * r[1] + pz * r[2];
+            const float lu = px * u[0] + py * u[1] + pz * u[2];
+            if (fabsf(lr - sr) > R + rad or fabsf(lu - su) > R + rad)
+            {
+                ++skipped;
+                continue;
+            }
+            TheVbManager.GetModelData(m_VB, d->ID);
+            if (not m_VB.Valid)
+                continue;
+            m_TheObjectInstance = o;
+            AppliedState = d->RotMatrix;
+            DX_SET_WORLD(AppliedState);
+            m_NODE.BYTE = (BYTE *)m_VB.Nodes;
+            long guard = 0;
+            const long maxNodes = (long)m_VB.NNodes + 16;
+            while (m_NODE.HEAD->Type not_eq DX_MODELEND)
+            {
+                DrawNode(o, d->LightID, d->ID);
+                const DWORD step = m_NODE.HEAD->dwNodeSize;
+                if (step == 0 or ++guard > maxNodes)
+                    break;
+                m_NODE.BYTE += step;
+            }
+            ++drawn;
+        }
+    }
+    m_ShadowWalk = false;
+    g_pRenderer->EndWorldShadowPass();
+
+    {
+        static unsigned long s_tick = 0;
+        static int s_n = 0;
+        const unsigned long now = GetTickCount();
+        if (s_n < 12 and now - s_tick > 5000)
+        {
+            ++s_n;
+            s_tick = now;
+            char ln[220];
+            _snprintf(ln, sizeof(ln) - 1,
+                      "[WORLDSHADOW] res %d reach %.0f ft texel %.2f ft sun elev %.1f deg strength %.2f casters %d skipped %d\n",
+                      res, R, (float)texel, asinf(sinEl) * 57.2957795f, strength, drawn, skipped);
+            ln[sizeof(ln) - 1] = 0;
+            FFDebugLog(ln);
+        }
+    }
+    return true;
+}
+
+
 // Artscout - 2026: the visible source for every active dynamic light.
 //   The models carry no emissive geometry at most lamp positions (the F-16's wingtip nav lights and
 //   its intake strips are plain grey / very dim surfaces, and the pit model has no emissive surfaces
@@ -2544,6 +2724,10 @@ void CDXEngine::FlushBuffers(void)
     // and the second eye / the quad group reuse it.
     if (not m_PitShadowDone)
         m_PitShadowDone = RenderPitShadowMap();
+    // Artscout - 2026: and the world's, from the same (still intact) lists. Only the FIRST flush of a frame builds
+    // it (the near list flushed later does not cast); the terrain and objects sample it from then on.
+    if (not m_WorldShadowDone)
+        m_WorldShadowDone = RenderWorldShadowMap();
 
     // Flush all cached VB objects
     if (m_RenderState == DX_DBS)

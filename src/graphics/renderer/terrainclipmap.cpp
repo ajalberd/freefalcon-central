@@ -977,7 +977,10 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
     s_cb.misc[0] = (float)DisplayOptions.DispWidth;
     s_cb.misc[1] = (float)DisplayOptions.DispHeight;
     s_cb.misc[2] = (float)(GetTickCount() % 100000u) * 0.001f;
-    s_cb.misc[3] = 0.0f;
+    {
+        extern float g_fLinearLighting; // Artscout - 2026: cfg LinearLighting; the terrain PS reads it from misc.w
+        s_cb.misc[3] = g_fLinearLighting;
+    }
 
     // Artscout - 2026: cumulus shadows. The mask reaches the terrain PS through
     // the same bindless path as a tile; no slot means no shadow, not a stale one.
@@ -990,8 +993,63 @@ bool TerrainClipmap_Update(RViewPoint* vp, const float camPos[3],
             slot = g_pRenderer->BindlessTexIndex(cs.mask);
         s_cb.cloudShSlot[0] = slot;
         s_cb.cloudShSlot[1] = s_cb.cloudShSlot[2] = s_cb.cloudShSlot[3] = 0;
+        {
+            // Every change of the mask's bindless slot (it is re-created every second or so), with the world shadow map's
+            // slot beside it: the two must never be equal.
+            static unsigned int s_lastSlot = 0xFFFFFFFEu;
+            static int s_slotLog = 0;
+            if (slot != s_lastSlot && s_slotLog < 80)
+            {
+                ++s_slotLog;
+                s_lastSlot = slot;
+                char ln[200];
+                _snprintf(ln, sizeof(ln) - 1,
+                          "[CLOUDSHADOW] terrain mask slot now %u (world shadow slot %u, strength %.2f)\n", slot,
+                          g_pRenderer->WorldShadowBindlessSlot(), cs.p1[3]);
+                ln[sizeof(ln) - 1] = 0;
+                FFDebugLog(ln);
+            }
+        }
         if (slot == 0xFFFFFFFFu)
+        {
+            // Artscout - 2026: the ground silently loses its cloud shadows when the mask has no bindless slot (slots
+            // exhausted, or the mask texture not ready) -- say so, capped, instead of leaving it a mystery.
+            static int s_noSlot = 0;
+            if (cs.mask && cs.p1[3] > 0.0f && s_noSlot < 20)
+            {
+                ++s_noSlot;
+                char ln[160];
+                _snprintf(ln, sizeof(ln) - 1, "[CLOUDSHADOW] terrain: the mask has NO bindless slot (t=%lu) -> no cloud shadow on the ground this frame\n", GetTickCount());
+                ln[sizeof(ln) - 1] = 0;
+                FFDebugLog(ln);
+            }
             s_cb.cloudSh1[3] = 0.0f;
+        }
+    }
+    // Artscout - 2026: world sun shadows. The map the PREVIOUS flush built (this runs before this frame's replay), which
+    // is the right one: it is in absolute terms (origin + VP), so a frame-old map is still geometrically exact.
+    {
+        float vp[16], par[4], org[4];
+        memset(s_cb.wShadowVP, 0, sizeof(s_cb.wShadowVP));
+        memset(s_cb.wShadowParams, 0, sizeof(s_cb.wShadowParams));
+        memset(s_cb.wShadowOrigin, 0, sizeof(s_cb.wShadowOrigin));
+        s_cb.wShadowSlot[0] = 0xFFFFFFFFu;
+        s_cb.wShadowSlot[1] = s_cb.wShadowSlot[2] = s_cb.wShadowSlot[3] = 0;
+        if (g_pRenderer->GetWorldShadow(vp, par, org))
+        {
+            const unsigned int slot = g_pRenderer->WorldShadowBindlessSlot();
+            if (slot != 0xFFFFFFFFu)
+            {
+                memcpy(s_cb.wShadowVP, vp, sizeof(s_cb.wShadowVP));
+                memcpy(s_cb.wShadowParams, par, sizeof(s_cb.wShadowParams));
+                memcpy(s_cb.wShadowOrigin, org, sizeof(s_cb.wShadowOrigin));
+                s_cb.wShadowSlot[0] = slot;
+            }
+        }
+    }
+    {
+        extern float g_horizonGlow[4]; // set by RenderOTW::DrawSkyDome (otwsky.cpp), a frame old at worst
+        memcpy(s_cb.horizonGlow, g_horizonGlow, sizeof(s_cb.horizonGlow));
     }
     s_cb.flags[1] = (unsigned int)s_levels;
     s_cb.flags[2] = (unsigned int)s_baseLod;

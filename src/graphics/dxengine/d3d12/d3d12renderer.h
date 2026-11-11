@@ -183,6 +183,18 @@ public:
     void SetPitShadowVP(const float* vp, float bias, float strength) override;
     bool BeginPitShadowPass() override;
     void EndPitShadowPass() override;
+    // Artscout - 2026: world sun shadows (see IRenderer). Same replay mechanics as the pit, in world axes
+    // relative to an origin instead of model space.
+    bool WorldShadowSupported() const override
+    {
+        return true;
+    }
+    void SetWorldShadow(const float* vp, const float* origin, float bias, float strength) override;
+    void DisarmWorldShadow() override;
+    bool BeginWorldShadowPass(int res) override;
+    void EndWorldShadowPass() override;
+    unsigned int WorldShadowBindlessSlot() override;
+    bool GetWorldShadow(float* vp16, float* params4, float* origin4) const override;
     // Artscout - 2026: the cockpit flood/instrument fill (see IRenderer); cbRender's gCockpitFill.
     void SetCockpitFill(float r, float g, float b) override;
     void SetIRGrey(bool on); // #DX12 A5: sensor pass -> grey (luma in PS)
@@ -383,7 +395,11 @@ private:
     // the next free slot. Same slot number in every frame's heap.
     enum
     {
-        kBindlessMax = 16384
+        // Artscout - 2026: 16384 -> 32768. TerrainRingScale 2 keeps ~4x as many tile textures resident, which used up all
+        // 16384 slots within a minute; once none were free the cumulus shadow mask (re-created every second or so) got no
+        // slot and the ground lost its cloud shadows. The per-tile slot field is 16 bits (PI_SLOT_MASK), so 65535 is the
+        // hard limit; each ring heap grows by 16K descriptors x 32 B = 512 KB.
+        kBindlessMax = 32768
     };
     unsigned m_bindlessBase;
     unsigned m_bindlessNext;
@@ -576,6 +592,15 @@ private:
     bool m_depthPrime;
     float m_savedShadowView[16], m_savedShadowProj[16], m_savedShadowCam[4];
     int m_pitShadowRes; // shadow map edge (texels); 0 = not created yet
+    // Artscout - 2026: world sun shadow state (cbShadow's second half). m_wShadowParams: x = 1/res, y = depth bias
+    // (clip units), z = strength, w = 1 when armed. m_wShadowOrigin: world feet the VP is relative to.
+    float m_wShadowVP[16];
+    float m_wShadowParams[4];
+    float m_wShadowOrigin[4];
+    float m_wNextVP[16], m_wNextParams[4], m_wNextOrigin[4]; // staged by SetWorldShadow, committed by a successful Begin
+    int m_worldShadowRes;
+    unsigned m_worldShadowSlot; // bindless slot holding the map's SRV for the terrain PS (~0 = none yet)
+    void* m_worldShadowSrvFor; // the resource that slot's descriptor currently names
     // Artscout - 2026: the cockpit flood/instrument fill (cbRender gCockpitFill) -- rgb, a unused.
     float m_cockpitFill[4];
     float m_glare[5][4]; // Artscout - 2026: MFD sun glare (cbRender gGlare0..4); zero = off

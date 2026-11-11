@@ -125,7 +125,8 @@ cbuffer cbRender : register(b3)
     float4 gChromaKey;      // rgb to key out, a = tolerance
     float4 gMaterialColor;  // global modulate (default 1,1,1,1)
     float4 gSpecular;       // rgb = water glint color, w = power (0 -> no specular)
-    float4 gWaterParams;    // #12: x = animation time (sec); y,z,w reserved
+    float4 gWaterParams;    // #12: x = animation time (sec); y = linear-light blend (LinearLighting, 0 = the old
+                            // gamma-space sum); z = specular power cap (ObjSpecPowerCap, 0 = none); w reserved
     float4 gGloc;           // Artscout - 2026: FF_GLOC vignette -- x=intensity(0=off), y=inner radius,
                             // z=outer radius (normalized: 0=centre .. 1=screen edge), w reserved
     // Artscout - 2026: #13 volumetric clouds (FF_CLOUD). Units are Falcon FEET with z DOWN (altitude 10000 ft
@@ -222,6 +223,12 @@ cbuffer cbShadow : register(b6)
     float4x4 gShadowVP;      // row-vector: model-space position -> shadow clip
     float4   gShadowParams;  // x = 1/resolution (PCF step), y = depth-compare bias,
                              // z = occlusion strength (0 = no darkening), w = 1 when the map is bound
+    // Artscout - 2026: WORLD sun shadows (everything outside the pit). Same map format; bound at t6 for every
+    // non-cockpit draw (the renderer swaps the view). The matrix takes a point in world axes RELATIVE TO
+    // gWorldShadowOrigin (the camera when the map was built); see WorldSunShadow.
+    float4x4 gWorldShadowVP;
+    float4   gWorldShadowParams;  // x = 1/resolution, y = depth bias (clip units), z = strength, w = 1 when armed
+    float4   gWorldShadowOrigin;  // xyz = origin, world feet
 };
 
 //============================ Resources ======================================
@@ -345,6 +352,14 @@ float ComputeFog(float viewDepth)
 //             pit receivers pass 1.0). Multiplied into the DIRECTIONAL term alone -- ambient and
 //             lamps are not occluded by the pit's own geometry.
 // Everything here reads gFlags/gAmbient/gLights/gSpecular, so it behaves identically in both stages.
+// Artscout - 2026: LinearLighting. The light values here are authored as display-encoded numbers and summed that way
+// (ambient + sun * N.L), which is what makes shaded faces look flat and washed out: a face turned 60 degrees from the
+// sun loses half its sun term in ENCODED space but would lose far more light in linear space. This decodes each term
+// (gamma 2.2), sums in linear light, re-encodes, and blends the result in by gWaterParams.y. Textures modulate the
+// result afterwards, which commutes with a power function, so only the SUM changes -- the albedo is untouched.
+float3 FFLightDecode(float3 c) { return pow(max(c, 0.0f), 2.2f); }
+float3 FFLightEncode(float3 c) { return pow(max(c, 0.0f), 1.0f / 2.2f); }
+
 void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, float sunShadow,
                       out float3 lit, out float3 spec)
 {
@@ -359,6 +374,8 @@ void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, float sunShadow,
     }
 
     lit = gAmbient.rgb * ambScale;
+    const bool linLight = (gWaterParams.y > 0.0f) && !(gFlags & FF_COCKPIT); // the pit keeps its tuned look
+    float3 litL = linLight ? FFLightDecode(lit) : float3(0, 0, 0);
     // Artscout - 2026: the pit's flood/instrument fill -- what the two cockpit light knobs add on
     // top of the environment (the environment is already in gAmbient). FF_COCKPIT only, and LOCAL:
     // the pit is drawn camera-relative, so |wpos| IS the distance from the pilot's eye and the fill
@@ -414,6 +431,8 @@ void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, float sunShadow,
         if (L.Params.y < 0.5f)
             lScale *= sunShadow;
         lit += L.Color.rgb * max(dot(N, Ldir), 0.0f) * atten * lScale;
+        if (linLight)
+            litL += FFLightDecode(L.Color.rgb) * (max(dot(N, Ldir), 0.0f) * atten * lScale);
         // Artscout - 2026: the light's OWN AMBIENT (D3D7: matAmbient * lightAmbient * atten), as a
         // scale on its colour in Color.w -- see CDXLight::UpdateDynamicLights. NO N.L on purpose:
         // this is the term that lights a lamp's own housing, the skin the lamp sits flush against
@@ -421,7 +440,11 @@ void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, float sunShadow,
         // lamp's own glow) and POINTLIST lamps, whose vertices carry a zero normal. The sun leaves
         // Color.w at 0 -- the scene ambient is already gAmbient -- so this is inert for light 0.
         lit += L.Color.rgb * L.Color.w * atten;
+        if (linLight)
+            litL += FFLightDecode(L.Color.rgb) * (L.Color.w * atten);
     }
+    if (linLight)
+        lit = lerp(lit, FFLightEncode(litL), saturate(gWaterParams.y));
     if (gFlags & FF_FULLBRIGHT) lit = float3(1.0f, 1.0f, 1.0f);   // #97 unlit: full material colour (exit menu)
 
     // Specular (Blinn-Phong) from the MAIN source (light 0 = sun/NVG). gSpecular.rgb = highlight
@@ -436,6 +459,10 @@ void FFObjectLighting(float3 N, float3 wpos, float3 viewVec, float sunShadow,
         specPow = 20.0f;
         specCol = float3(0.10f, 0.10f, 0.10f);
     }
+    // Artscout - 2026: ObjSpecPowerCap -- a very high Blinn-Phong power makes a pin-point glint that sparkles with the
+    // smallest head motion on roofs and glass; capping it widens the highlight and calms it. 0 = no cap.
+    if (gWaterParams.z > 0.0f)
+        specPow = min(specPow, gWaterParams.z);
     if (specPow > 0.0f && gNumLights > 0)
     {
         float3 V  = normalize(viewVec);
@@ -489,6 +516,42 @@ float CockpitSunShadow(float3 Nl, float3 Pl)
         }
     }
     return lerp(1.0f, lit * (1.0f / 9.0f), saturate(gShadowParams.z));
+}
+
+// Artscout - 2026: the WORLD sun shadow term. 1 = the sun reaches the point. wpos is camera-relative; the map's
+// frame is "world axes relative to gWorldShadowOrigin", so the camera goes back in and the origin comes out. N is
+// the world normal (a normal offset of two shadow texels keeps a lit face from shadowing itself). Same 3x3 PCF and
+// reversed-Z compare as CockpitSunShadow. Outside the fitted box -> lit. gCameraPos is the flat/per-eye path's
+// camera, like CloudSunShadow.
+float WorldSunShadow(float3 N, float3 wpos)
+{
+    if (gWorldShadowParams.w < 0.5f || gWorldShadowParams.z <= 0.0f)
+        return 1.0f;
+
+    const float  sx = length(gWorldShadowVP[0].xyz);
+    const float  texelWorld = 2.0f * gWorldShadowParams.x / max(sx, 1.0e-6f);
+    const float3 p = wpos + gCameraPos.xyz - gWorldShadowOrigin.xyz + N * (texelWorld * 2.0f);
+
+    const float4 sc = mul(float4(p, 1.0f), gWorldShadowVP);
+    if (sc.w <= 1.0e-6f)
+        return 1.0f;
+    const float2 uv = float2(sc.x / sc.w * 0.5f + 0.5f, 0.5f - sc.y / sc.w * 0.5f);
+    const float  d  = sc.z / sc.w;
+    if (uv.x < 0.0f || uv.x > 1.0f || uv.y < 0.0f || uv.y > 1.0f || d < 0.0f || d > 1.0f)
+        return 1.0f;
+
+    const float step = gWorldShadowParams.x;
+    float lit = 0.0f;
+    [unroll] for (int j = -1; j <= 1; ++j)
+    {
+        [unroll] for (int i = -1; i <= 1; ++i)
+        {
+            const float2 suv = saturate(uv + float2((float)i, (float)j) * step);
+            const float  od  = gShadowMap.SampleLevel(gSampNoise, suv, 0);
+            lit += (od <= d + gWorldShadowParams.y) ? 1.0f : 0.0f;
+        }
+    }
+    return lerp(1.0f, lit * (1.0f / 9.0f), saturate(gWorldShadowParams.z));
 }
 
 // Artscout - 2026: the cumulus shadow term. 1 = no cloud between the point and the sun. Walks from the
@@ -1983,7 +2046,7 @@ float4 PS_Main(VSOut i) : SV_Target
         // Only the pit sets FF_COCKPIT; every other surface passes 1.0 and is untouched.
         // Cloud shadow multiplies in for everything lit per pixel, the pit included: under a cumulus the
         // sun is gone from the cockpit too.
-        const float sunShadow = ((gFlags & FF_COCKPIT) ? CockpitSunShadow(i.NrmL, i.PosL) : 1.0f)
+        const float sunShadow = ((gFlags & FF_COCKPIT) ? CockpitSunShadow(i.NrmL, i.PosL) : WorldSunShadow(N, i.WPos))
                               * CloudSunShadow(i.WPos);
         FFObjectLighting(N, i.WPos, i.View, sunShadow, lit, spec);
         c.rgb *= saturate(lit);

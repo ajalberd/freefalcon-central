@@ -302,6 +302,21 @@ public:
     {
         return m_pitShadowRes;
     }
+    // Artscout - 2026: the WORLD sun shadow map -- the same trio again (own target, own tiny CPU heaps).
+    bool EnsureWorldShadowTarget(int res);
+    void BindWorldShadowTarget();
+    void UnbindWorldShadowTarget();
+    unsigned __int64 WorldShadowSrvCpu() const;
+    int WorldShadowRes() const
+    {
+        return m_worldShadowRes;
+    }
+    // True while the bound target is the 3D scene (not a display/sensor RTT atlas). The world shadow replay runs
+    // inside FlushBuffers, which a sensor RTT pass also calls; Unbind restores the SCENE, so it must not run there.
+    bool OnSceneTarget() const
+    {
+        return m_curRtvPtr == m_sceneRtvPtr;
+    }
 
 private:
     struct ID3D12Resource*
@@ -316,6 +331,11 @@ private:
     struct ID3D12DescriptorHeap* m_pPitShadowSrvHeap;
     int m_pitShadowRes;
     bool m_pitShadowReadable; // true = DEPTH_READ|PSR (samplable); false = DEPTH_WRITE
+    struct ID3D12Resource* m_pWorldShadowTex; // Artscout - 2026: world sun shadow map (see EnsureWorldShadowTarget)
+    struct ID3D12DescriptorHeap* m_pWorldShadowDsvHeap;
+    struct ID3D12DescriptorHeap* m_pWorldShadowSrvHeap;
+    int m_worldShadowRes;
+    bool m_worldShadowReadable;
     struct ID3D12DescriptorHeap*
         m_pDepthSrvHeap; // #13: tiny CPU heap holding the depth SRV
     struct ID3D12Resource*

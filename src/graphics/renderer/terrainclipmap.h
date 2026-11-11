@@ -44,6 +44,13 @@ struct TerrainClipConstants
     float cloudSh0[4];            // xy = mask origin, z = cloud plane z, w = 1/size
     float cloudSh1[4];            // xyz = toward the sun, w = strength (0 = off)
     unsigned int cloudShSlot[4];  // x = the mask's bindless slot (~0 = none)
+    // Artscout - 2026: world sun shadows. Appended: MUST match gWShadow* at the end of cbTerrain.
+    float wShadowVP[16];          // row-vector: (world position - origin) -> shadow clip
+    float wShadowParams[4];       // x = 1/res, y = bias (clip), z = strength, w = 1 when armed
+    float wShadowOrigin[4];       // xyz = origin, world feet
+    unsigned int wShadowSlot[4];  // x = the map's bindless slot (~0 = none)
+    // Artscout - 2026: sunrise/sunset horizon glow for the fog: xyz = toward the sun, w = strength. MUST match gHorizonGlow.
+    float horizonGlow[4];
 };
 
 // Per-frame: stream in whatever the camera uncovered, rebuild the rings and the

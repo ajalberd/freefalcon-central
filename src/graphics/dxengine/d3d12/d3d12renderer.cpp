@@ -239,7 +239,8 @@ D3D12Renderer::D3D12Renderer()
       m_chromaTol(0.02f), m_texColorDiffuse(false), m_cockpitPass(false),
       m_hasTex0(false), m_irGrey(false), m_nvg(false), m_fullBright(false),
       m_dShadow(false), m_shadowPass(false), m_dyn2DPrimeRef(0.0f),
-      m_depthPrime(false), m_pitShadowRes(0),
+      m_depthPrime(false), m_pitShadowRes(0), m_worldShadowRes(0), m_worldShadowSlot(0xFFFFFFFFu),
+      m_worldShadowSrvFor(0),
       m_dViewport(true), m_dView(true), m_dObject(true), m_dRender(true),
       m_dLights(true), m_dyn2DVerts(0), m_dyn2DVcount(0)
 {
@@ -278,6 +279,10 @@ D3D12Renderer::D3D12Renderer()
         m_shadowVP[i] = (i % 5 == 0) ? 1.0f : 0.0f;
     m_shadowParams[0] = m_shadowParams[1] = m_shadowParams[2] =
         m_shadowParams[3] = 0.0f;
+    for (int i = 0; i < 16; ++i)
+        m_wShadowVP[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+    m_wShadowParams[0] = m_wShadowParams[1] = m_wShadowParams[2] = m_wShadowParams[3] = 0.0f;
+    m_wShadowOrigin[0] = m_wShadowOrigin[1] = m_wShadowOrigin[2] = m_wShadowOrigin[3] = 0.0f;
     // Artscout - 2026: no cockpit fill until the sim publishes one (the knobs are off in the menus).
     m_cockpitFill[0] = m_cockpitFill[1] = m_cockpitFill[2] = m_cockpitFill[3] = 0.0f;
     memset(m_glare, 0, sizeof(m_glare));
@@ -1368,6 +1373,8 @@ void D3D12Renderer::SetAfterburner(bool on)
 }
 void D3D12Renderer::SetCockpitPass(bool on)
 {
+    if (m_cockpitPass != on)
+        m_tableDirty = true; // t6 is the pit map inside the pit pass and the world map outside it
     m_cockpitPass = on;
     unsigned nf = on ? (m_flags | FF_COCKPIT) : (m_flags & ~FF_COCKPIT);
     if (nf != m_flags)
@@ -1444,6 +1451,128 @@ void D3D12Renderer::EndPitShadowPass()
     // SRV table may already have been copied with the white stand-in for the replay's own draws -- so
     // force the next draw to re-copy t0..t7 with the now-valid shadow view.
     m_tableDirty = true;
+}
+
+// Artscout - 2026: WORLD sun shadows -- see IRenderer. The engine builds the matrix (world axes, relative to
+// `origin`) and the strength; the renderer owns the target and the PCF step.
+void D3D12Renderer::SetWorldShadow(const float* vp, const float* origin, float bias, float strength)
+{
+    // Staged only: the live matrix must keep describing the map that is actually in the target until a replay
+    // succeeds (a replay that is refused -- sensor RTT pass, no target -- must not re-label the old map).
+    if (vp)
+        memcpy(m_wNextVP, vp, sizeof(m_wNextVP));
+    if (origin)
+    {
+        m_wNextOrigin[0] = origin[0];
+        m_wNextOrigin[1] = origin[1];
+        m_wNextOrigin[2] = origin[2];
+    }
+    m_wNextOrigin[3] = 0.0f;
+    m_wNextParams[0] = 1.0f;
+    m_wNextParams[1] = bias;
+    m_wNextParams[2] = strength;
+    m_wNextParams[3] = 1.0f;
+}
+
+void D3D12Renderer::DisarmWorldShadow()
+{
+    if (m_wShadowParams[3] != 0.0f)
+    {
+        m_wShadowParams[3] = 0.0f;
+        m_dShadow = true;
+    }
+}
+
+bool D3D12Renderer::GetWorldShadow(float* vp16, float* params4, float* origin4) const
+{
+    if (!vp16 || !params4 || !origin4 || m_wShadowParams[3] < 0.5f)
+        return false;
+    memcpy(vp16, m_wShadowVP, sizeof(m_wShadowVP));
+    memcpy(params4, m_wShadowParams, sizeof(m_wShadowParams));
+    memcpy(origin4, m_wShadowOrigin, sizeof(m_wShadowOrigin));
+    return true;
+}
+
+bool D3D12Renderer::BeginWorldShadowPass(int res)
+{
+    if (g_pD3D12Backend && !g_pD3D12Backend->OnSceneTarget())
+        return false; // a display/sensor RTT pass: leave the existing map and the bound target alone
+    GpuProf_Mark(Cmd(), "world-shadow");
+    if (!g_pD3D12Backend || !g_pD3D12Backend->EnsureWorldShadowTarget(res))
+    {
+        DisarmWorldShadow();
+        return false; // no depth target -> the caller must NOT replay
+    }
+    m_worldShadowRes = g_pD3D12Backend->WorldShadowRes();
+    // Commit the staged matrix: from here the live one describes what this replay is about to draw.
+    memcpy(m_wShadowVP, m_wNextVP, sizeof(m_wShadowVP));
+    memcpy(m_wShadowOrigin, m_wNextOrigin, sizeof(m_wShadowOrigin));
+    memcpy(m_wShadowParams, m_wNextParams, sizeof(m_wShadowParams));
+    m_wShadowParams[0] = 1.0f / (float)(m_worldShadowRes > 0 ? m_worldShadowRes : 1);
+    m_dShadow = true;
+    g_pD3D12Backend->BindWorldShadowTarget();
+    // WORLD replay: the draws carry camera-relative world matrices, so world is the object's own, the view is
+    // identity, and the shadow VP (relative to the same camera-at-build origin) is the projection.
+    memcpy(m_savedShadowView, m_view, sizeof(m_view));
+    memcpy(m_savedShadowProj, m_proj, sizeof(m_proj));
+    memcpy(m_savedShadowCam, m_camPos, sizeof(m_camPos));
+    for (int i = 0; i < 16; ++i)
+        m_view[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+    memcpy(m_proj, m_wShadowVP, sizeof(m_proj));
+    m_camPos[0] = m_camPos[1] = m_camPos[2] = 0.0f;
+    m_camPos[3] = 1.0f;
+    m_shadowPass = true;
+    m_dView = true;
+    m_dObject = true;
+    return true;
+}
+
+void D3D12Renderer::EndWorldShadowPass()
+{
+    m_shadowPass = false;
+    memcpy(m_view, m_savedShadowView, sizeof(m_view));
+    memcpy(m_proj, m_savedShadowProj, sizeof(m_proj));
+    memcpy(m_camPos, m_savedShadowCam, sizeof(m_camPos));
+    m_dView = true;
+    if (g_pD3D12Backend)
+        g_pD3D12Backend->UnbindWorldShadowTarget();
+    m_tableDirty = true; // the map just became samplable
+    m_dObject = true;
+}
+
+// The terrain PS reaches the map through the bindless heap, like a tile. The slot is taken once; its descriptor is
+// (re)written into every frame's ring whenever the target resource changed (first use, resize).
+unsigned int D3D12Renderer::WorldShadowBindlessSlot()
+{
+    if (!m_bindlessBase || !g_pD3D12Backend || !m_pDevice)
+        return 0xFFFFFFFFu;
+    const SIZE_T src = (SIZE_T)g_pD3D12Backend->WorldShadowSrvCpu();
+    if (src == 0)
+        return 0xFFFFFFFFu; // no map, or still being written
+    if (m_worldShadowSlot == 0xFFFFFFFFu)
+    {
+        std::lock_guard<std::mutex> lk(m_bindlessMutex);
+        if (m_bindlessNext >= kBindlessMax)
+            return 0xFFFFFFFFu;
+        m_worldShadowSlot = m_bindlessNext++;
+        m_worldShadowSrvFor = 0;
+    }
+    void* cur = (void*)src;
+    if (m_worldShadowSrvFor != cur)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE s;
+        s.ptr = src;
+        for (int f = 0; f < kFrames; ++f)
+        {
+            if (!m_pSrvRing[f])
+                continue;
+            D3D12_CPU_DESCRIPTOR_HANDLE dst = m_pSrvRing[f]->GetCPUDescriptorHandleForHeapStart();
+            dst.ptr += (SIZE_T)m_worldShadowSlot * m_srvInc;
+            m_pDevice->CopyDescriptorsSimple(1, dst, s, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        }
+        m_worldShadowSrvFor = cur;
+    }
+    return m_worldShadowSlot;
 }
 
 // Artscout - 2026: the cockpit flood/instrument fill (see IRenderer + CockpitManager::GetCockpitFill).
@@ -1603,6 +1732,11 @@ void D3D12Renderer::FillRenderCB(void* pCb)
     memcpy(cb.materialColor, m_materialColor, sizeof(cb.materialColor));
     memcpy(cb.specular, m_specular, sizeof(cb.specular));
     cb.waterParams[0] = (float)(GetTickCount() % 1000000) * 0.001f;
+    {
+        extern float g_fLinearLighting, g_fObjSpecPowerCap; // Artscout - 2026: see ffemu.hlsl FFLightDecode / gWaterParams
+        cb.waterParams[1] = g_fLinearLighting;
+        cb.waterParams[2] = g_fObjSpecPowerCap;
+    }
     memcpy(cb.gloc, m_gloc, sizeof(cb.gloc));
     // Artscout - 2026: the cockpit fill is for the pit's OPAQUE surfaces. A TRANSPARENT surface must
     // not take it: the HUD combiner / canopy glass sits right at the fill's origin (the pilot's eye),
@@ -1936,7 +2070,10 @@ void D3D12Renderer::FlushConstants()
         // Artscout - 2026: t6 = the cockpit sun shadow map. 0 while the map is being written / has never
         // been made -- the white stand-in then makes the shader's compare read "lit" (the PS checks
         // gShadowParams.w first anyway, so the pit only samples it when the engine armed the pass).
-        SIZE_T p6 = (SIZE_T)(g_pD3D12Backend ? g_pD3D12Backend->PitShadowSrvCpu() : 0);
+        // t6: the pit map for FF_COCKPIT draws, the world map for everything else (the shader picks the matching VP).
+        SIZE_T p6 = (SIZE_T)(g_pD3D12Backend ? (m_cockpitPass ? g_pD3D12Backend->PitShadowSrvCpu() :
+                                                              g_pD3D12Backend->WorldShadowSrvCpu()) :
+                                               0);
         if (p6 == 0 || p6 == (SIZE_T)-1)
             p6 = (SIZE_T)m_whiteSrvCpu;
         if (p6 == 0)
@@ -2076,9 +2213,15 @@ void D3D12Renderer::FlushConstants()
         {
             float vp[16];
             float params[4];
+            float wvp[16];     // world sun shadow (second half): (world position - origin) -> shadow clip
+            float wparams[4];  // x = 1/res, y = bias, z = strength, w = armed
+            float worigin[4];  // xyz = origin, world feet
         } sb;
         memcpy(sb.vp, m_shadowVP, sizeof(sb.vp));
         memcpy(sb.params, m_shadowParams, sizeof(sb.params));
+        memcpy(sb.wvp, m_wShadowVP, sizeof(sb.wvp));
+        memcpy(sb.wparams, m_wShadowParams, sizeof(sb.wparams));
+        memcpy(sb.worigin, m_wShadowOrigin, sizeof(sb.worigin));
         unsigned __int64 va = AllocCB(&sb, sizeof(sb));
         if (va)
             cl->SetGraphicsRootConstantBufferView(7, va);
@@ -3977,6 +4120,9 @@ unsigned int D3D12Renderer::BindlessTexIndex(ID3D11ShaderResourceView* srv)
     else
     {
         slot = m_bindlessNext++;
+        if ((slot & 4095u) == 4095u)
+            R12Log("[D3D12R] bindless slots in use: %u of %u (free list %u)\n", slot + 1, (unsigned)kBindlessMax,
+                   (unsigned)m_bindlessFree.size());
     }
 
     D3D12_CPU_DESCRIPTOR_HANDLE s;

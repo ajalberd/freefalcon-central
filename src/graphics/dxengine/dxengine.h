@@ -284,6 +284,10 @@ private:
     // the eye loop / the cockpit draw).
     static bool m_PitShadowDone;
     bool RenderPitShadowMap(void);
+    // Artscout - 2026: world sun shadows -- replay the frame's world object lists depth-only into a camera-centred
+    // sun-space map (see RenderWorldShadowMap). Once per frame like the pit's.
+    static bool m_WorldShadowDone;
+    bool RenderWorldShadowMap(void);
     // Artscout - 2026: draw a small additive glow at each active dynamic light's position, so the
     // lamp SOURCES are visible (the models carry no emissive geometry at the wingtip/intake lamps --
     // see RENDER-LIGHTING.md). One billboard per light through the particle path.
